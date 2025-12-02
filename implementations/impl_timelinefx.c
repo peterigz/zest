@@ -113,8 +113,8 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
-	resources->layer = zest_CreateFIFInstanceLayer(context, "TimelineFX Layer", sizeof(tfx_instance_t));
-	zest_AcquireInstanceLayerBufferIndex(context, resources->layer);
+	resources->layer = zest_CreateFIFInstanceLayer(context, "TimelineFX Layer", sizeof(tfx_instance_t), 50000);
+	zest_AcquireInstanceLayerBufferIndex(context, zest_GetLayer(resources->layer));
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	resources->sampler = zest_CreateSampler(context, &sampler_info);
@@ -148,11 +148,12 @@ void zest_tfx_CreateTimelineFXShaderResources(zest_context context, tfx_render_r
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
 	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
+	zest_layer layer = zest_GetLayer(tfx_resources->layer);
 
-	zest_buffer device_buffer = zest_GetLayerVertexBuffer(tfx_resources->layer);
+	zest_buffer device_buffer = zest_GetLayerVertexBuffer(layer);
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, device_buffer);
 
-	zest_layer_instruction_t *current = zest_NextLayerInstruction(tfx_resources->layer);
+	zest_layer_instruction_t *current = zest_NextLayerInstruction(layer);
 	while(current) {
 
 		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
@@ -169,24 +170,25 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 		push_constants->particle_texture_index = tfx_resources->particle_texture_index;
 		push_constants->sampler_index = tfx_resources->sampler_index;
 		push_constants->image_data_index = tfx_resources->image_data_index;
-		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(tfx_resources->layer, true);
+		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
 
 		zest_cmd_SendPushConstants(command_list, pipeline, push_constants);
 
 		zest_cmd_DrawLayerInstruction(command_list, 6, current);
 
-		current = zest_NextLayerInstruction(tfx_resources->layer);
+		current = zest_NextLayerInstruction(layer);
 	}
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources) {
+	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(resources->layer, resources->shader_resource, resources->pipeline);
+	zest_SetInstanceDrawing(layer, zest_GetShaderResources(resources->shader_resource), resources->pipeline);
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	int instance_count = tfx_GetInstanceCount(pm);
-	zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, tfx_GetInstanceCount(pm));
+	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
 	/*
 	if (context->renderer->total_frame_count >= 200 && context->renderer->total_frame_count <= 220) {
 		for (int i = instance_count - 10; i != instance_count; ++i) {
@@ -200,15 +202,16 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 }
 
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {
+	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(resources->layer, resources->shader_resource, resources->pipeline);
+	zest_SetInstanceDrawing(layer, zest_GetShaderResources(resources->shader_resource), resources->pipeline);
 
 	tfx_instance_t *billboards = NULL;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
 	//Loop over the effects to get each instance buffer to render
 	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
-		zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, instance_count);
+		zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
 	}
 	tfx_ResetInstanceBufferLoopIndex(pm);
 }

@@ -33,9 +33,9 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
 
 	imgui->vertex_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", ZEST_TRUE);
 	imgui->fragment_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
-
-    imgui->font_resources = zest_CreateShaderResources(context);
-    zest_AddGlobalBindlessSetToResources(imgui->font_resources);
+	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
+	imgui->font_resources = zest_GetShaderResources(font_resources_handle);
+    zest_AddGlobalBindlessSetToResources(font_resources_handle);
 
     //ImGuiPipeline
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(zest_GetContextDevice(imgui->context), "pipeline_imgui");
@@ -215,7 +215,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
 						zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
 					}
 				} else {
-					ZEST_ASSERT(render_state.pipeline && render_state.resources.value, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
+					ZEST_ASSERT(render_state.pipeline && render_state.resources, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
 					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
 				}
 				push_constants->font_texture_index = current_image->image_index;
@@ -253,12 +253,12 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
 
 zest_buffer zest_imgui_VertexBufferProvider(zest_context context, zest_resource_node resource) {
 	zest_imgui_t *imgui = (zest_imgui_t*)zest_GetResourceUserData(resource);
-    return imgui->vertex_device_buffer[imgui->fif];
+    return imgui->vertex_device_buffer[zest_CurrentFIF(context)];
 }
 
 zest_buffer zest_imgui_IndexBufferProvider(zest_context context, zest_resource_node resource) {
 	zest_imgui_t *imgui = (zest_imgui_t*)zest_GetResourceUserData(resource);
-    return imgui->index_device_buffer[imgui->fif];
+	return imgui->index_device_buffer[zest_CurrentFIF(context)];
 }
 
 zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name) {

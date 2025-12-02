@@ -4,6 +4,7 @@
 #include <zest.h>
 
 typedef struct minimal_app_t {
+	zest_device device;
 	zest_context context;
 } minimal_app_t;
 
@@ -11,6 +12,7 @@ void MainLoop(minimal_app_t *app) {
 	// Begin Render Graph Definition
 	zest_buffer buffer = zest_CreateStagingBuffer(app->context, 64000, 0);
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		zest_UpdateDevice(app->device);
 		glfwPollEvents();
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
 		if (zest_BeginFrame(app->context)) {
@@ -60,11 +62,11 @@ int main(void)
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
-	zest_device device = zest_EndDeviceBuilder(device_builder);
+	app.device = zest_EndDeviceBuilder(device_builder);
 
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
-	app.context = zest_CreateContext(device, &window_handles, &create_info);
+	app.context = zest_CreateContext(app.device, &window_handles, &create_info);
 
 	//Start the Zest main loop
 	MainLoop(&app);

@@ -106,11 +106,12 @@ void TimelineFXExample::Init() {
 }
 
 //Draw a Dear ImGui window to output some basic stats
-void BuildUI(TimelineFXExample *game) {
+void BuildUI(TimelineFXExample *game, zest_uint fps) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 
 	ImGui::Begin("Effects");
+	ImGui::Text("FPS: %i", fps);
 	ImGui::Text("Particles: %i", tfx_ParticleCount(game->pm));
 	ImGui::Text("Effects: %i", tfx_EffectCount(game->pm));
 	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->pm));
@@ -168,8 +169,10 @@ void MainLoop(TimelineFXExample *game) {
 
 		UpdateMouse(game);
 
+		zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
+
 		zest_StartTimerLoop(game->tfx_rendering.timer) {
-			BuildUI(game);
+			BuildUI(game, fps);
 
 			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 				//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
@@ -212,12 +215,12 @@ void MainLoop(TimelineFXExample *game) {
 		//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 		//have to upload the latest billboards to the gpu.
 		if (zest_TimerUpdateWasRun(&game->tfx_rendering.timer)) {
-			zest_ResetInstanceLayer(game->tfx_rendering.layer);
+			zest_ResetInstanceLayer(tfx_layer);
 			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
 		}
 
 		game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-		game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(game->tfx_rendering.layer) > 0;
+		game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
 
@@ -229,14 +232,14 @@ void MainLoop(TimelineFXExample *game) {
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
+				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", 0)) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
 					zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
 					zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
-					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", game->tfx_rendering.layer, false);
-					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", game->tfx_rendering.layer, true);
+					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", tfx_layer, false);
+					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", tfx_layer, true);
 					zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
 					zest_ImportSwapchainResource();
 
@@ -250,7 +253,7 @@ void MainLoop(TimelineFXExample *game) {
 						zest_ConnectOutput(tfx_write_layer);
 						zest_ConnectOutput(tfx_read_layer);
 						//Tasks
-						zest_SetPassTask(zest_UploadInstanceLayerData, &game->tfx_rendering.layer);
+						zest_SetPassTask(zest_UploadInstanceLayerData, tfx_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -313,11 +316,7 @@ int main() {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	game.device = zest_EndDeviceBuilder(device_builder);
+	game.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
@@ -327,6 +326,7 @@ int main() {
 	game.Init();
 
 	MainLoop(&game);
+
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&game.imgui);
 	zest_DestroyContext(game.context);

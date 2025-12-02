@@ -69,6 +69,7 @@ void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd
 void MainLoop(ImGuiApp *app) {
 
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		zest_UpdateDevice(app->device);
 		glfwPollEvents();
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
@@ -162,12 +163,15 @@ void MainLoop(ImGuiApp *app) {
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
+			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
+			//after zest_BeginFrame every frame.
+			zest_imgui_UpdateBuffers(&app->imgui);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite

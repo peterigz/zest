@@ -39,7 +39,7 @@ void SetupBillboards(SimplePBRExample *app) {
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetBindlessLayout(app->context));
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 
-	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t));
+	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t), 100);
 
 	app->sprite_resources = zest_CreateShaderResources(app->context);
 	zest_AddUniformBufferToResources(app->sprite_resources, app->view_buffer);
@@ -348,8 +348,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_mesh cone = zest_CreateCone(app->context, 50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh cylinder = zest_CreateCylinder(app->context, 100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
 	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
-	zest_AddMeshToLayer(app->cube_layer, cube);
-	zest_AddMeshToLayer(app->skybox_layer, sky_box);
+	zest_AddMeshToLayer(zest_GetLayer(app->cube_layer), cube);
+	zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
 	zest_FreeMesh(cube);
 	zest_FreeMesh(sphere);
 	zest_FreeMesh(cone);
@@ -399,7 +399,7 @@ void UploadMeshData(const zest_command_list context, void *user_data) {
 	};
 
 	for (int i = 0; i != 3; ++i) {
-		zest_layer_handle layer = layers[i];
+		zest_layer layer = zest_GetLayer(layers[i]);
 		zest_UploadLayerStagingData(layer, context);
 	}
 }
@@ -457,6 +457,8 @@ void MainLoop(SimplePBRExample *app) {
 		}
 
 		glfwPollEvents();
+
+		zest_UpdateDevice(app->device);
 
 		UpdateMouse(app);
 
@@ -534,6 +536,12 @@ void MainLoop(SimplePBRExample *app) {
 		zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
 		zest_vec3 scale = { 1.f, 1.f, 1.f };
 
+		zest_layer cube_layer = zest_GetLayer(app->cube_layer);
+		zest_layer skybox_layer = zest_GetLayer(app->skybox_layer);
+		zest_layer billboard_layer = zest_GetLayer(app->billboard_layer);
+		zest_shader_resources pbr_resources = zest_GetShaderResources(app->pbr_shader_resources);
+		zest_shader_resources skybox_resources = zest_GetShaderResources(app->skybox_shader_resources);
+
 		UpdateLights(app, rotation_time);
 		app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
 		app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
@@ -541,15 +549,15 @@ void MainLoop(SimplePBRExample *app) {
 		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
 		app->material_push.sampler_index = app->sampler_2d_index;
 		app->material_push.skybox_sampler_index = app->sampler_2d_index;
-		zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
-		zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(pbr_consts_t));
-		zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
-		zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
+		zest_SetInstanceDrawing(cube_layer, pbr_resources, app->pbr_pipeline);
+		zest_SetLayerPushConstants(cube_layer, &app->material_push, sizeof(pbr_consts_t));
+		zest_SetLayerColor(cube_layer, 255, 255, 255, 255);
+		zest_DrawInstancedMesh(cube_layer, &position.x, &rotation.x, &scale.x);
 
 		float zero[3] = { 0 };
-		zest_SetInstanceDrawing(app->skybox_layer, app->skybox_shader_resources, app->skybox_pipeline);
-		zest_SetLayerColor(app->skybox_layer, 255, 255, 255, 255);
-		zest_DrawInstancedMesh(app->skybox_layer, zero, zero, zero);
+		zest_SetInstanceDrawing(skybox_layer, skybox_resources, app->skybox_pipeline);
+		zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
+		zest_DrawInstancedMesh(skybox_layer, zero, zero, zero);
 
 		if (app->reset) {
 			app->reset = false;
@@ -586,9 +594,9 @@ void MainLoop(SimplePBRExample *app) {
 			zest_imgui_UpdateBuffers(&app->imgui);
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
-					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
-					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
-					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
+					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", cube_layer, false);
+					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", billboard_layer, false);
+					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
 					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
 					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
@@ -616,7 +624,7 @@ void MainLoop(SimplePBRExample *app) {
 						zest_ConnectInput(skybox_texture_resource);
 						zest_ConnectInput(skybox_layer_resource);
 						zest_ConnectGroupedOutput(group);
-						zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
+						zest_SetPassTask(zest_DrawInstanceMeshLayer, skybox_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -628,7 +636,7 @@ void MainLoop(SimplePBRExample *app) {
 						zest_ConnectInput(irradiance_texture_resource);
 						zest_ConnectInput(prefiltered_texture_resource);
 						zest_ConnectGroupedOutput(group);
-						zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
+						zest_SetPassTask(zest_DrawInstanceMeshLayer, cube_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -663,9 +671,9 @@ void MainLoop(SimplePBRExample *app) {
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {
-			zest_SetLayerSizeToSwapchain(app->billboard_layer);
-			zest_SetLayerSizeToSwapchain(app->cube_layer);
-			zest_SetLayerSizeToSwapchain(app->skybox_layer);
+			zest_SetLayerSizeToSwapchain(billboard_layer);
+			zest_SetLayerSizeToSwapchain(cube_layer);
+			zest_SetLayerSizeToSwapchain(skybox_layer);
 		}
 	}
 }

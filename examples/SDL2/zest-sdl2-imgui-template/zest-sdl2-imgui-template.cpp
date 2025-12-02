@@ -7,7 +7,7 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	app->imgui = zest_imgui_Initialise(app->context);
+	zest_imgui_Initialise(app->context, &app->imgui);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
 
 	//Implement a dark style
@@ -80,6 +80,7 @@ void MainLoop(ImGuiApp *app) {
 				running = 0;
 			}
 		}
+		zest_UpdateDevice(app->device);
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
 		//less frequently.
@@ -147,9 +148,6 @@ void MainLoop(ImGuiApp *app) {
 			zest_imgui_DrawImage(app->wabbit_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
 			ImGui::Render();
-			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		if (app->reset) {
@@ -168,6 +166,9 @@ void MainLoop(ImGuiApp *app) {
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
+			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
+			//after zest_BeginFrame every frame.
+			zest_imgui_UpdateBuffers(&app->imgui);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen

@@ -31,8 +31,6 @@ void InitExample(render_target_app_t *example) {
 	example->render_target_resources = zest_CreateShaderResources(example->context);
 	zest_AddGlobalBindlessSetToResources(example->render_target_resources);
 
-	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer");
-
 	//Load a font
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
 		example->font = zest_CreateMSDF(example->context, "examples/assets/Lato-Regular.ttf", example->sampler_index, 64.f, 4.f);
@@ -42,7 +40,7 @@ void InitExample(render_target_app_t *example) {
 	}
 
 	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
-	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer");
+	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer", 500);
 
 	//Set up the compute shader pipeline for downsampling
 	//A builder is used to simplify the compute shader setup process
@@ -223,6 +221,8 @@ void Mainloop(render_target_app_t *example) {
 			frame_count = 0;
 		}
 
+		zest_UpdateDevice(example->device);
+
 		glfwPollEvents();
 
 		UpdateMouse(example);
@@ -237,17 +237,19 @@ void Mainloop(render_target_app_t *example) {
 		example->bloom_constants.settings.y = knee;
 		//example->downsampler->recorder->outdated[context->current_fif] = 1;
 
+		zest_layer font_layer = zest_GetLayer(example->font_layer);
+
 		//Set the font to use for the font layer
-		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
-		zest_SetLayerColor(example->font_layer, 255, 100, 255, 255);
+		zest_SetMSDFFontDrawing(font_layer, &example->font, &example->font_resources);
+		zest_SetLayerColor(font_layer, 255, 100, 255, 255);
 		//Draw the text
-		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f, "Basic Bloom Effect ...");
-		zest_SetLayerColor(example->font_layer, 50, 255, 50, 255);
-		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f, "Using down/up sampling");
-		zest_SetLayerColor(example->font_layer, 50, 50, 255, 255);
-		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
-		zest_SetLayerColor(example->font_layer, 255, 50, 50, 255);
-		zest_DrawMSDFText(example->font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
+		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f, "Basic Bloom Effect ...");
+		zest_SetLayerColor(font_layer, 50, 255, 50, 255);
+		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f, "Using down/up sampling");
+		zest_SetLayerColor(font_layer, 50, 50, 255, 255);
+		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
+		zest_SetLayerColor(font_layer, 255, 50, 50, 255);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
 
 		zest_image_resource_info_t image_info = {
 			zest_format_r16g16b16a16_sfloat,
@@ -268,7 +270,7 @@ void Mainloop(render_target_app_t *example) {
 				if (zest_BeginFrameGraph(example->context, "Bloom Example Render Graph", &cache_key)) {
 
 					//Add resources
-					zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Font resources", example->font_layer, false);
+					zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Font resources", font_layer, false);
 					zest_resource_node downsampler = zest_AddTransientImageResource("Downsampler", &image_info);
 					zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 					zest_ImportSwapchainResource();
@@ -278,7 +280,7 @@ void Mainloop(render_target_app_t *example) {
 						//outputs
 						zest_ConnectOutput(font_layer_resources);
 						//tasks
-						zest_SetPassTask(zest_UploadInstanceLayerData, &example->font_layer);
+						zest_SetPassTask(zest_UploadInstanceLayerData, font_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -288,7 +290,7 @@ void Mainloop(render_target_app_t *example) {
 						zest_ConnectInput(font_layer_resources);
 						zest_ConnectOutput(downsampler);
 						//tasks
-						zest_SetPassTask(zest_DrawInstanceLayer, &example->font_layer);
+						zest_SetPassTask(zest_DrawInstanceLayer, font_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -342,7 +344,7 @@ void Mainloop(render_target_app_t *example) {
 			}
 		}
 		if (zest_SwapchainWasRecreated(example->context)) {
-			zest_SetLayerSizeToSwapchain(example->font_layer);
+			zest_SetLayerSizeToSwapchain(font_layer);
 			zest_UpdateFontTransform(&example->font);
 		}
 	}
@@ -354,7 +356,6 @@ void Mainloop(render_target_app_t *example) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	ZEST_PRINT("%zu", sizeof(zest_buffer_t));
 	//Make a config struct where you can configure zest with some options
 	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	zest_create_info_t create_info = zest_CreateInfo();
@@ -362,7 +363,7 @@ int main()
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
 	render_target_app_t app = {};
-	zest_device device = zest_implglfw_CreateDevice(true);
+	zest_device device = zest_implglfw_CreateDevice(false);
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
 	app.context = zest_CreateContext(device, &window_handles, &create_info);

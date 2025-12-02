@@ -34,6 +34,7 @@ void InitImGuiApp(ImGuiApp *app) {
 void MainLoop(ImGuiApp *app) {
 
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		zest_UpdateDevice(app->device);
 		glfwPollEvents();
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
@@ -45,11 +46,12 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::NewFrame();
 			ImPlot::ShowDemoWindow();
 			ImGui::Render();
-			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		if (zest_BeginFrame(app->context)) {
+			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
+			//after zest_BeginFrame every frame.
+			zest_imgui_UpdateBuffers(&app->imgui);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.

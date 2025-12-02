@@ -14,7 +14,7 @@ typedef struct zest_imgui_push_t {
 
 typedef struct zest_imgui_render_state_t {
 	zest_pipeline pipeline;
-	zest_shader_resources_handle resources;
+	zest_shader_resources resources;
 } zest_imgui_render_state_t;
 
 typedef struct zest_imgui_callback_data_t {
@@ -22,7 +22,6 @@ typedef struct zest_imgui_callback_data_t {
 	zest_command_list command_list;
 	zest_imgui_render_state_t *render_state;
 } zest_imgui_callback_data_t;
-
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
@@ -44,7 +43,7 @@ typedef struct zest_imgui_t {
 	zest_atlas_region_t font_region;
 	zest_uint font_texture_binding_index;
 	zest_uint font_sampler_binding_index;
-	zest_shader_resources_handle font_resources;
+	zest_shader_resources font_resources;
 	zest_sampler_handle font_sampler;
 } zest_imgui_t;
 

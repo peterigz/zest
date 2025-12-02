@@ -19,6 +19,7 @@ typedef struct zest_fonts_example {
 	zest_timer_t timer;
 	zest_imgui_t imgui;
 	zest_context context;
+	zest_device device;
 	RenderCacheInfo cache_info;
 	zest_msdf_font_t font;
 	zest_font_resources_t font_resources;
@@ -28,7 +29,7 @@ typedef struct zest_fonts_example {
 
 void InitExample(zest_fonts_example *app) {
 	//Initialise Dear ImGui
-	app->imgui = zest_imgui_Initialise(app->context);
+	zest_imgui_Initialise(app->context, &app->imgui);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	//Implement a dark style
@@ -54,15 +55,15 @@ void InitExample(zest_fonts_example *app) {
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
 	
-	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
-		app->font = zest_CreateMSDF(app->context, "examples/assets/Lato-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
-		zest_SaveMSDF(&app->font, "examples/assets/Lato-Regular.msdf");
+	if (!zest__file_exists("examples/assets/vaders/RussoOne-Regular.msdf")) {
+		app->font = zest_CreateMSDF(app->context, "examples/assets/vaders/RussoOne-Regular.msdf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
+		zest_SaveMSDF(&app->font, "examples/assets/vaders/RussoOne-Regular.msdf");
 	} else {
-		app->font = zest_LoadMSDF(app->context, "examples/assets/Lato-Regular.msdf", app->imgui.font_sampler_binding_index);
+		app->font = zest_LoadMSDF(app->context, "examples/assets/vaders/RussoOne-Regular.msdf", app->imgui.font_sampler_binding_index);
 	}
 
 	app->font_resources = zest_CreateFontResources(app->context, "shaders/font.vert", "shaders/font.frag");
-	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer");
+	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer", 100);
 	app->font_size = 1.f;
 }
 
@@ -82,6 +83,8 @@ void MainLoop(zest_fonts_example *app) {
 			fps = frame_count;
 			frame_count = 0;
 		}
+
+		zest_UpdateDevice(app->device);
 
 		glfwPollEvents();
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
@@ -105,14 +108,13 @@ void MainLoop(zest_fonts_example *app) {
 
 			ImGui::End();
 			ImGui::Render();
-			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
-		zest_SetMSDFFontDrawing(app->font_layer, &app->font, &app->font_resources);
-		zest_SetLayerColor(app->font_layer, 255, 255, 255, 255);
-		zest_DrawMSDFText(app->font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u !£$%^&", fps);
+		zest_layer font_layer = zest_GetLayer(app->font_layer);
+
+		zest_SetMSDFFontDrawing(font_layer, &app->font, &app->font_resources);
+		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
+		zest_DrawMSDFText(font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u !£$%^&", fps);
 
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		zest_frame_graph_cache_key_t cache_key = {};
@@ -121,12 +123,15 @@ void MainLoop(zest_fonts_example *app) {
 		if (zest_BeginFrame(app->context)) {
 			zest_SetSwapchainClearColor(app->context, 0.f, 0.2f, 0.5f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
+			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
+			//after zest_BeginFrame every frame.
+			zest_imgui_UpdateBuffers(&app->imgui);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
-					zest_resource_node font_layer_resource = zest_AddTransientLayerResource("Font layer", app->font_layer, ZEST_FALSE);
+					zest_resource_node font_layer_resource = zest_AddTransientLayerResource("Font layer", font_layer, ZEST_FALSE);
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
@@ -135,7 +140,7 @@ void MainLoop(zest_fonts_example *app) {
 					//------------------------ Font Transfer Pass ----------------------------------------------------------------
 					zest_BeginTransferPass("Upload font layer"); {
 						zest_ConnectOutput(font_layer_resource);
-						zest_SetPassTask(zest_UploadInstanceLayerData, &app->font_layer);
+						zest_SetPassTask(zest_UploadInstanceLayerData, font_layer);
 						zest_EndPass();
 					}
 					//----------------------------------------------------------------------------------------
@@ -144,7 +149,7 @@ void MainLoop(zest_fonts_example *app) {
 					zest_BeginRenderPass("Font pass"); {
 						zest_ConnectInput(font_layer_resource);
 						zest_ConnectSwapChainOutput();
-						zest_SetPassTask(zest_DrawInstanceLayer, &app->font_layer);
+						zest_SetPassTask(zest_DrawInstanceLayer, font_layer);
 						zest_EndPass();
 					}
 					//----------------------------------------------------------------------------------------
@@ -171,7 +176,7 @@ void MainLoop(zest_fonts_example *app) {
 			zest_EndFrame(app->context);
 		}
 		if (zest_SwapchainWasRecreated(app->context)) {
-			zest_SetLayerSizeToSwapchain(app->font_layer);
+			zest_SetLayerSizeToSwapchain(font_layer);
 			zest_UpdateFontTransform(&app->font);
 		}
 	}
@@ -200,12 +205,12 @@ int main(void) {
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	//zest_AddDeviceBuilderValidation(device_builder);
 	//zest_DeviceBuilderLogToConsole(device_builder);
-	zest_device device = zest_EndDeviceBuilder(device_builder);
+	fonts_app.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	fonts_app.context = zest_CreateContext(device, &window_handles, &create_info);
+	fonts_app.context = zest_CreateContext(fonts_app.device, &window_handles, &create_info);
 
 	//Set the Zest use data
 	zest_SetContextUserData(fonts_app.context, &fonts_app);
