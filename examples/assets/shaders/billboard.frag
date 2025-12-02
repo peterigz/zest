@@ -9,15 +9,17 @@ layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
 layout(location = 0) out vec4 outColor;
 
-layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler[];
+layout(set = 1, binding = 3) uniform texture2DArray images[];
+layout(set = 1, binding = 0) uniform sampler samplers[];
 
 layout(push_constant) uniform quad_index
 {
     uint texture_index;
+    uint sampler_index;
 } pc;
 
 void main() {
-    vec4 texel = texture(texture_sampler[pc.texture_index], in_tex_coord);
+	vec4 texel = texture(sampler2DArray(images[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_tex_coord);
     //Pre multiply alpha
     outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
     //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.

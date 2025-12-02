@@ -1,8 +1,12 @@
+#define ZEST_IMPLEMENTATION
+#define ZEST_VULKAN_IMPLEMENTATION
+#define ZEST_MSDF_IMPLEMENTATION
+#include <GLFW/glfw3.h>
 #include <zest.h>
-#include "imgui.h"
-#include "impl_imgui.h"
-#include "impl_glfw.h"
-#include "impl_imgui_glfw.h"
+#include "implementations/impl_imgui.h"
+#include "imgui/imgui.h"
+#include <imgui/misc/freetype/imgui_freetype.h>
+#include <imgui/backends/imgui_impl_glfw.h>
 #include "impl_timelinefx.h"
 #include "timelinefx.h"
 
@@ -63,7 +67,7 @@ struct Vader {
 	float time = 0.f;
 	float speed = 1.f;
 	float direction;
-	zest_atlas_region image;
+	zest_atlas_region_t *image;
 	int turning = 0;
 	int health = 5;
 	float chance_to_shoot;
@@ -82,12 +86,15 @@ enum GameState {
 
 struct billboard_push_constant_t {
 	tfxU32 texture_index;
+	tfxU32 sampler_index;
 };
 
 struct VadersGame {
 	tfx_random_t random;
-	zest_texture sprite_texture;
-	zest_texture imgui_font_texture;
+	zest_image_handle sprite_texture;
+	zest_image_handle imgui_font_texture;
+	zest_uint sprite_texture_index;
+
 	bool paused = false;
 	Player player;
 	tfx_vector_t<PlayerBullet> player_bullets[2];
@@ -98,13 +105,13 @@ struct VadersGame {
 	int current_buffer = 0;
 	float noise_offset = 0.f;
 
-	zest_atlas_region player_image;
-	zest_atlas_region vader_image1;
-	zest_atlas_region vader_image2;
-	zest_atlas_region vader_image3;
-	zest_atlas_region big_vader_image;
-	zest_atlas_region vader_bullet_image;
-	zest_atlas_region vader_bullet_glow_image;
+	zest_atlas_region_t *player_image;
+	zest_atlas_region_t *vader_image1;
+	zest_atlas_region_t *vader_image2;
+	zest_atlas_region_t *vader_image3;
+	zest_atlas_region_t *big_vader_image;
+	zest_atlas_region_t *vader_bullet_image;
+	zest_atlas_region_t *vader_bullet_glow_image;
 
 	float margin_x;
 	float margin_y;
@@ -140,26 +147,36 @@ struct VadersGame {
 
 	tfxEffectID background_index;
 	tfxEffectID title_index;
-	zest_font font;
-	zest_imgui_t imgui_layer_info;
-	zest_layer font_layer;
-	zest_layer billboard_layer;
+	zest_context context;
+	zest_device device;
+	zest_msdf_font_t font;
+	zest_imgui_t imgui;
+	zest_layer_handle font_layer_handle;
+	zest_font_resources_t font_resources;
+	zest_layer_handle billboard_layer_handle;
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
-	zest_shader_resources sprite_resources;
+	zest_shader_resources_handle sprite_resources_handle;
 	tfx_render_resources_t tfx_rendering;
 	billboard_push_constant_t billboard_push;
+	zest_image_collection_t game_sprites;
+	zest_sampler_handle sampler;
+	zest_uint sampler_index;
 
 	RenderCacheInfo cache_info;
 
-	zest_shader billboard_frag_shader;
-	zest_shader billboard_vert_shader;
+	zest_shader_handle billboard_frag_shader;
+	zest_shader_handle billboard_vert_shader;
 
 	int particle_option = 2;
 
 	GameState state = GameState_title;
 	bool wait_for_mouse_release = false;
-	bool request_graph_print = false;
+	int request_graph_print = 0;
+
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+	zest_uint last_fps;
 
 	void Init();
 	void Update(float ellapsed);
@@ -179,9 +196,9 @@ tfx_vec3_t NormalizeVec3(tfx_vec3_t const *v) {
 }
 
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
-tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer buffer) {
+tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer) {
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t *)zest_GetUniformBufferData(buffer);
-	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &uniform_buffer->proj, &uniform_buffer->view);
+	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
 }
@@ -192,38 +209,87 @@ void UpdateGotPowerUpEffect(tfx_effect_manager pm, tfxEffectID effect_index) {
 	tfx_SetEffectPositionVec3(pm, effect_index, game->player.position);
 }
 
+void UpdateMouse(VadersGame *game) {
+	double mouse_x, mouse_y;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window(game->context);
+	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
+	double last_mouse_x = game->mouse_x;
+	double last_mouse_y = game->mouse_y;
+	game->mouse_x = mouse_x;
+	game->mouse_y = mouse_y;
+	game->mouse_delta_x = last_mouse_x - game->mouse_x;
+	game->mouse_delta_y = last_mouse_y - game->mouse_y;
+}
+
+//Helper function to load and add an image to an image collection
+zest_atlas_region_t *AddGameSprite(zest_image_collection_t *collection, const char *path, int frames, int frame_width, int frame_height) {
+	int width, height, channels;
+	stbi_uc *pixels = stbi_load(path, &width, &height, &channels, 0);
+	int size = width * height * channels;
+	zest_atlas_region_t *region = nullptr;
+	if (frames <= 1) {
+		region = zest_AddImageAtlasPixels(collection, pixels, size, width, height, zest_format_r8g8b8a8_unorm);
+	} else {
+		region = zest_AddImageAtlasAnimationPixels(collection, pixels, size, width, height, (tfxU32)frame_width, frame_height, frames, zest_format_r8g8b8a8_unorm);
+	}
+	STBI_FREE(pixels);
+	return region;
+}
+
+void zest_DrawBillboard(zest_layer layer, zest_atlas_region_t *image, float position[3], float angle, float sx, float sy) {
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
+
+    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)zest_NextInstance(layer);
+
+    billboard->scale_handle = zest_Pack16bit4SScaled(sx, sy, 0.5f, 0.5f, 256.f, 128.f);
+    billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
+    billboard->rotations_stretch = zest_Vec4Set( 0.f, 0.f, angle, 0.f );
+    billboard->uv = image->uv_packed;
+    billboard->alignment = 16711680;        //x = 0.f, y = 1.f, z = 0.f;
+    billboard->color = layer->current_color;
+    billboard->intensity_texture_array = (image->layer_index << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
+}
+
 //Initialise the game and set up the renderer
 void VadersGame::Init() {
-	zest_tfx_InitTimelineFXRenderResources(&tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
+	zest_tfx_InitTimelineFXRenderResources(device, context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
 	//Renderer specific - initialise the texture
 	float max_radius = 0;
-	//Create a texture to store our player and enemy sprite images
-	sprite_texture = zest_CreateTexturePacked("Sprite Texture", zest_format_r8g8b8a8_unorm);
 	//Add all of the images and animations into the texture
-	player_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/player.png");
-	vader_image1 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader.png");
-	vader_image2 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader2.png");
-	vader_image3 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader3.png");
-	big_vader_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/big_vader.png");
-	vader_bullet_image = zest_AddTextureAnimationFile(sprite_texture, "examples/assets/vaders/vader_bullet_64_64_16.png", 16, 16, 64, &max_radius, 1);
-	vader_bullet_glow_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/flare4.png");
-	//Now the images are added, process the texture to make them available in the GPU
-	zest_ProcessTextureImages(sprite_texture);
+	game_sprites = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, 100);
+	int width, height, channels;
+	stbi_uc *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 0);
+	int size = width * height * channels;
+	player_image = AddGameSprite(&game_sprites, "examples/assets/vaders/player.png", 1, 0, 0);
+	vader_image1 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader.png", 1, 0, 0);
+	vader_image2 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader2.png", 1, 0, 0);
+	vader_image3 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader3.png", 1, 0, 0);
+	big_vader_image = AddGameSprite(&game_sprites, "examples/assets/vaders/big_vader.png", 1, 0, 0);
+	vader_bullet_image = AddGameSprite(&game_sprites, "examples/assets/vaders/vader_bullet_64_64_16.png", 64, 16, 16);
+	vader_bullet_glow_image = AddGameSprite(&game_sprites, "examples/assets/vaders/flare4.png", 1, 0, 0);
+
+	sprite_texture = zest_CreateImageAtlas(context, &game_sprites, 1024, 1024, 0);
+	sprite_texture_index = zest_AcquireSampledImageIndex(context, sprite_texture, zest_texture_array_binding);
+
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
 	particle_ds_index = 0;
 
-	zest_AcquireGlobalCombinedImageSampler(sprite_texture);
-	billboard_push.texture_index = zest_GetTextureDescriptorIndex(sprite_texture);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	sampler = zest_CreateSampler(context, &sampler_info);
+	sampler_index = zest_AcquireSamplerIndex(context, sampler);
+
+	billboard_push.texture_index = sprite_texture_index;
+	billboard_push.sampler_index = sampler_index;
 
 	tfx_RandomReSeedTime(&random);
 
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
 	library = tfx_LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
-
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
-	zest_ProcessTextureImages(tfx_rendering.particle_texture);
-	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.particle_texture);
+	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
+	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, tfx_rendering.particle_texture, zest_texture_array_binding);
 
 	//Prepare all the Effect templates we need from the library
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
@@ -241,23 +307,21 @@ void VadersGame::Init() {
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
+	tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
 	for (int i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_bitmap temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
-		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, temp_bitmap);
-		zest_FreeBitmap(temp_bitmap);
+		zest_AddImageAtlasPixels(&tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
 	}
 	//Process the color ramp texture to upload it all to the gpu
-	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);
+	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
+	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, tfx_rendering.color_ramps_texture, zest_texture_array_binding);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
-	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.color_ramps_texture);
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(&tfx_rendering, library);
-	zest_tfx_CreateTimelineFXShaderResources(&tfx_rendering);
-	zest_SetTextureUserData(tfx_rendering.particle_texture, this);
+	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
+	zest_tfx_CreateTimelineFXShaderResources(context, &tfx_rendering);
 
 	tfxU32 layer_max_values[tfxLAYERS];
 	memset(layer_max_values, 0, 16);
@@ -276,7 +340,16 @@ void VadersGame::Init() {
 	title_pm = tfx_CreateEffectManager(game_pm_info);
 
 	//Load a font we can draw text with
-	font = zest_LoadMSDFFont("examples/assets/RussoOne-Regular.zft");
+	if (!zest__file_exists("examples/assets/vaders/RussoOne-Regular.msdf")) {
+		font = zest_CreateMSDF(context, "examples/assets/vaders/RussoOne-Regular.ttf", sampler_index, 64.f, 4.f);
+		zest_SaveMSDF(&font, "examples/assets/vaders/RussoOne-Regular.msdf");
+	} else {
+		font = zest_LoadMSDF(context, "examples/assets/vaders/RussoOne-Regular.msdf", sampler_index);
+	}
+
+	//font.settings.gamma = .25f;
+	//font.settings.smoothness = 1.f;
+	font.settings.shadow_color.a = 0;
 
 	//Player setup
 	player.rate_of_fire = 4.f * UpdateFrequency;
@@ -287,7 +360,8 @@ void VadersGame::Init() {
 	tfx_SetTemplateEffectUpdateCallback(got_power_up, UpdateGotPowerUpEffect);
 
 	//Initialise imgui
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(context, &imgui);
+    ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(context), true);
 
 	//Set up the font in imgui
 	ImGuiIO& io = ImGui::GetIO();
@@ -301,17 +375,14 @@ void VadersGame::Init() {
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
-	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
-
-	//Output the memory usage to the console
-	zest_OutputMemoryUsage();
+	zest_imgui_RebuildFontTexture(&imgui, tex_width, tex_height, font_data);
 
 	//Update the uniform buffer so that the projection and view matrices are set for the screen ray functions below
-	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
 
 	//Get the top left and bottom right screen positions in 3d space so we know when things leave the screen
-	top_left_bound = ScreenRay(0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
-	bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+	top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+	bottom_right_bound = ScreenRay(context, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
 
 	//Add the background effect and title effect to the particle manager and set their positions
 	if (tfx_AddEffectTemplateToEffectManager(background_pm, background, &background_index)) {
@@ -319,41 +390,40 @@ void VadersGame::Init() {
 		tfx_SetEffectPositionVec3(background_pm, background_index, { position.x, position.y, position.z });
 	}
 	if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
-		tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
+		tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
 	}
 
 	//Create and compile the shaders for our custom sprite pipeline
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	billboard_frag_shader = zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	billboard_vert_shader = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	shaderc_compiler_release(compiler);
+	billboard_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, true);
+	billboard_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
-	billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
-	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	billboard_pipeline = zest_BeginPipelineTemplate(device, "pipeline_billboard");
+	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
 
-	zest_AddVertexAttribute(billboard_pipeline, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
-	zest_AddVertexAttribute(billboard_pipeline, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(billboard_pipeline, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(billboard_pipeline, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(billboard_pipeline, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(billboard_pipeline, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(billboard_pipeline, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
+	zest_AddVertexAttribute(billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
+	zest_AddVertexAttribute(billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
+	zest_AddVertexAttribute(billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
 
 	zest_SetPipelinePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
-	zest_SetPipelineVertShader(billboard_pipeline, "billboard_vert.spv", "spv/");
-	zest_SetPipelineFragShader(billboard_pipeline, "billboard_frag.spv", "spv/");
-	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_vk_GetUniformBufferLayout(tfx_rendering.uniform_buffer));
-	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineVertShader(billboard_pipeline, billboard_vert_shader);
+	zest_SetPipelineFragShader(billboard_pipeline, billboard_frag_shader);
+	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetUniformBufferLayout(tfx_rendering.uniform_buffer));
+	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetBindlessLayout(context));
 	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
-	zest_EndPipelineTemplate(billboard_pipeline);
 
-	billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
-	font_layer = zest_CreateFontLayer("Example fonts");
+	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 1000);
 
-	sprite_resources = zest_CreateShaderResources("Sprite resources");
-	zest_AddUniformBufferToResources(sprite_resources, tfx_rendering.uniform_buffer);
-	zest_AddGlobalBindlessSetToResources(sprite_resources);
+	font_resources = zest_CreateFontResources(context, "shaders/font.vert", "shaders/font.frag");
+	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
+
+	sprite_resources_handle = zest_CreateShaderResources(context);
+	zest_AddUniformBufferToResources(sprite_resources_handle, tfx_rendering.uniform_buffer);
+	zest_AddGlobalBindlessSetToResources(sprite_resources_handle);
 
 	zest_ForEachFrameInFlight(fif) {
 		index_offset[fif] = 0;
@@ -410,8 +480,8 @@ void SpawnInvaderWave(VadersGame *game) {
 	float cols = 11;
 	float rows = 5;
 
-	float width = zest_ScreenWidthf();
-	float height = zest_ScreenHeightf();
+	float width = zest_ScreenWidthf(game->context);
+	float height = zest_ScreenHeightf(game->context);
 	game->margin_x = width * x_distance;
 	game->margin_y = height * y_distance;
 	game->spacing_x = width * x_spacing;
@@ -420,7 +490,7 @@ void SpawnInvaderWave(VadersGame *game) {
 	for (float x = 0; x < cols; ++x) {
 		for (float y = 0; y < rows; ++y) {
 			Vader vader;
-			vader.position = vader.captured = ScreenRay(game->spacing_x * x + game->margin_x, game->spacing_y * y + game->margin_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+			vader.position = vader.captured = ScreenRay(game->context, game->spacing_x * x + game->margin_x, game->spacing_y * y + game->margin_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 			if (y == 0) {
 				vader.image = game->vader_image1;
 			}
@@ -441,14 +511,14 @@ void SpawnInvaderWave(VadersGame *game) {
 }
 
 void SpawnBigVader(VadersGame *game) {
-	float width = zest_ScreenWidthf();
-	float height = zest_ScreenHeightf();
+	float width = zest_ScreenWidthf(game->context);
+	float height = zest_ScreenHeightf(game->context);
 	game->margin_x = width * x_distance;
 	game->margin_y = height * y_distance;
 
 	Vader vader;
-	vader.end_position = ScreenRay(zest_ScreenWidthf() * .5f, game->margin_y * .45f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-	vader.position = vader.captured = vader.start_position = ScreenRay(zest_ScreenWidthf() * .5f, -game->margin_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);;
+	vader.end_position = ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, game->margin_y * .45f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	vader.position = vader.captured = vader.start_position = ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, -game->margin_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);;
 	vader.image = game->big_vader_image;
 	float wave = game->current_wave - 1;
 	vader.health = 5 + (int)(wave * 1);
@@ -649,7 +719,7 @@ void UpdatePowerUps(VadersGame *game) {
 }
 
 void UpdatePlayerPosition(VadersGame *game, Player *player) {
-	player->position = ScreenRay((float)context->window->mouse_x, (float)context->window->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	player->position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 }
 
 void UpdatePlayer(VadersGame *game, Player *player) {
@@ -674,7 +744,7 @@ void UpdatePlayer(VadersGame *game, Player *player) {
 void UpdatePlayerBullets(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->player_bullets[next_buffer].clear();
-	tfx_vec3_t top_left = ScreenRay(0.f, 0.f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	tfx_vec3_t top_left = ScreenRay(game->context, 0.f, 0.f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 	for (auto &bullet : game->player_bullets[game->current_buffer]) {
 		if (bullet.remove) {
 			tfx_SoftExpireEffect(game->game_pm, bullet.effect_index);
@@ -754,7 +824,7 @@ void SetParticleOption(VadersGame *game) {
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
 		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
 		}
 	}
 	else if (game->particle_option == 1) {
@@ -780,7 +850,7 @@ void SetParticleOption(VadersGame *game) {
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
 		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
 		}
 	}
 	else if (game->particle_option == 2) {
@@ -806,7 +876,7 @@ void SetParticleOption(VadersGame *game) {
 		}
 		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer));
 		}
 	}
 }
@@ -817,7 +887,7 @@ void BuildUI(VadersGame *game) {
 	ImGui::NewFrame();
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		ImGui::Begin("Effects");
-		ImGui::Text("FPS: %i", ZestApp->last_fps);
+		ImGui::Text("FPS: %i", game->last_fps);
 		ImGui::Text("Game Particles: %i", tfx_ParticleCount(game->game_pm));
 		ImGui::Text("Background Particles: %i", tfx_ParticleCount(game->background_pm));
 		ImGui::Text("Title Particles: %i", tfx_ParticleCount(game->title_pm));
@@ -827,17 +897,12 @@ void BuildUI(VadersGame *game) {
 		ImGui::Text("Position: %f, %f, %f", game->player.position.x, game->player.position.y, game->player.position.z);
 		static bool filtering = false;
 		static bool sync_fps = false;
-		ImGui::Checkbox("Texture Filtering", &filtering);
-		if (ImGui::IsItemDeactivatedAfterEdit()) {
-			zest_SetTextureUseFiltering(game->tfx_rendering.particle_texture, filtering);
-			zest_ProcessTextureImages(game->tfx_rendering.particle_texture);
-		}
 		ImGui::Checkbox("Sync FPS", &sync_fps);
 		if (ImGui::IsItemDeactivatedAfterEdit()) {
 			if (sync_fps) {
-				zest_EnableVSync();
+				zest_EnableVSync(game->context);
 			} else {
-				zest_DisableVSync();
+				zest_DisableVSync(game->context);
 			}
 		}
 		static const char *options[3] = { "Low", "Medium", "High" };
@@ -859,53 +924,48 @@ void BuildUI(VadersGame *game) {
 		}
 		ImGui::Separator();
 		if (ImGui::Button("Print Render Graph")) {
-			game->request_graph_print = true;
+			game->request_graph_print = 1;
 		}
 		ImGui::End();
-	} else {
-		int d = 0;
 	}
 
 	ImGui::Render();
-	//This will let the layer know that the mesh buffer containing all of the imgui vertex data needs to be
-	//uploaded to the GPU.
-	zest_imgui_UpdateBuffers();
 }
 
 //Draw all the billboards for the game
-void DrawPlayer(VadersGame *game) {
-	zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 255);
-	zest_SetLayerIntensity(game->billboard_layer, 1.f);
-	zest_DrawBillboardSimple(game->billboard_layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
+void DrawPlayer(VadersGame *game, zest_layer layer) {
+	zest_SetLayerColor(layer, 255, 255, 255, 255);
+	zest_SetLayerIntensity(layer, 1.f);
+	zest_DrawBillboard(layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
 }
 
 tfx_vec3_t InterpolateVec3(float tween, tfx_vec3_t from, tfx_vec3_t to) {
 	return to * tween + from * (1.f - tween);
 }
 
-void DrawVaders(VadersGame *game, float lerp) {
-	zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 255);
-	zest_SetLayerIntensity(game->billboard_layer, 1.f);
+void DrawVaders(VadersGame *game, zest_layer layer, float lerp) {
+	zest_SetLayerColor(layer, 255, 255, 255, 255);
+	zest_SetLayerIntensity(layer, 1.f);
 	for (auto &vader : game->vaders[game->current_buffer]) {
 		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
-		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 0.5f, 0.5f);
+		zest_DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 0.5f, 0.5f);
 	}
 	for (auto &vader : game->big_vaders[game->current_buffer]) {
 		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
-		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 1.f, 1.f);
+		zest_DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 1.f, 1.f);
 	}
 }
 
-void DrawVaderBullets(VadersGame *game, float lerp) {
+void DrawVaderBullets(VadersGame *game, zest_layer layer, float lerp) {
 	for (auto &bullet : game->vader_bullets[game->current_buffer]) {
 		int frame_offset = (int)bullet.frame % 64;
 		tfx_vec3_t tween = InterpolateVec3(lerp, bullet.captured, bullet.position);
-		zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 0);
-		zest_SetLayerIntensity(game->billboard_layer, 1.2f);
-		zest_DrawBillboardSimple(game->billboard_layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
-		zest_SetLayerColor(game->billboard_layer, 255, 128, 64, 0);
-		zest_SetLayerIntensity(game->billboard_layer, .5f);
-		zest_DrawBillboardSimple(game->billboard_layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
+		zest_SetLayerColor(layer, 255, 255, 255, 0);
+		zest_SetLayerIntensity(layer, 1.2f);
+		zest_DrawBillboard(layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
+		zest_SetLayerColor(layer, 255, 128, 64, 0);
+		zest_SetLayerIntensity(layer, .5f);
+		zest_DrawBillboard(layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
 	}
 }
 
@@ -923,42 +983,43 @@ void ResetGame(VadersGame *game) {
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void RenderParticles3d(tfx_effect_manager pm, VadersGame *game) {
+void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
-
+	zest_SetInstanceDrawing(layer, zest_GetShaderResources(game->tfx_rendering.shader_resource), game->tfx_rendering.pipeline);
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
-	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(pm));
-	game->index_offset[game->tfx_rendering.layer->fif ^ 1] = zest_GetInstanceLayerCount(game->tfx_rendering.layer);
+	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
+	int fif = zest_GetLayerFrameInFlight(layer);
+	game->index_offset[fif ^ 1] = zest_GetInstanceLayerCount(layer);
 }
 
 //Render the particles by effect
-void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game) {
+void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
+	zest_SetInstanceDrawing(layer, zest_GetShaderResources(game->tfx_rendering.shader_resource), game->tfx_rendering.pipeline);
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
-	tfx_push_constants_t *push = (tfx_push_constants_t *)game->tfx_rendering.layer->current_instruction.push_constant;
-	push->index_offset += game->index_offset[game->tfx_rendering.layer->fif];
+	tfx_push_constants_t *push = (tfx_push_constants_t *)zest_GetLayerPushConstants(layer);
+	int fif = zest_GetLayerFrameInFlight(layer);
+	push->index_offset += game->index_offset[fif];
 
 	tfx_instance_t *billboards = nullptr;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
 	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
-		zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, instance_count);
+		zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
 	}
 	tfx_ResetInstanceBufferLoopIndex(pm);
 }
 
 void VadersGame::Update(float ellapsed) {
-	//Accumulate the timer delta
+	zest_UpdateDevice(device);
 
 	UpdatePlayerPosition(this, &player);
-	zest_Update2dUniformBuffer();
+
+	UpdateMouse(this);
 
 	zest_StartTimerLoop(tfx_rendering.timer) {
-
 		//Render based on the current game state
 		if (state == GameState_title) {
 			//Update the background particle manager
@@ -1034,7 +1095,7 @@ void VadersGame::Update(float ellapsed) {
 					tfx_HardExpireEffect(title_pm, title_index);
 					tfx_ClearEffectManager(title_pm, false, false);
 					if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
-						tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
+						tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
 					}
 				} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 					wait_for_mouse_release = false;
@@ -1045,41 +1106,49 @@ void VadersGame::Update(float ellapsed) {
 		BuildUI(this);
 	} zest_EndTimerLoop(tfx_rendering.timer);
 
-	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
+	zest_layer font_layer = zest_GetLayer(font_layer_handle);
+	zest_layer billboard_layer = zest_GetLayer(billboard_layer_handle);
+	zest_layer tfx_layer = zest_GetLayer(tfx_rendering.layer);
+	zest_shader_resources sprite_resources = zest_GetShaderResources(sprite_resources_handle);
 
+	zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
+	zest_SetLayerColor(font_layer, 255, 255, 255, 255);
 	//Do all the rendering outside of the update loop
 	//Set the font drawing to the font we loaded in the Init function
-	zest_SetMSDFFontDrawing(font_layer, font);
+	zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
 	//Render the background particles
-	if (zest_TimerUpdateWasRun(tfx_rendering.timer)) {
-		zest_ResetInstanceLayer(tfx_rendering.layer);
-		RenderParticles3d(background_pm, this);
+	if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+		zest_ResetInstanceLayer(tfx_layer);
+		RenderParticles3d(background_pm, this, tfx_layer);
 	}
 
 	if (state == GameState_title) {
 		//If showing the title screen, render the title particles
-		if (zest_TimerUpdateWasRun(tfx_rendering.timer)) {
-			RenderEffectParticles(title_pm, this);
+		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+			RenderEffectParticles(title_pm, this, tfx_layer);
 		}
 		//Draw the start text
-		zest_DrawMSDFText(font_layer, "Press Button to Start", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 30.f, 0.f);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, .5f, 0.f, "Press Button to Start");
+		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+		DrawPlayer(this, billboard_layer);
 	} else if (state == GameState_game) {
 		//If the game is in the play state draw all the game billboards
 		//Set the billboard drawing to the sprite texture
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
 		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 		//Draw the player and vaders
-		DrawPlayer(this);
-		DrawVaders(this, (float)tfx_rendering.timer->lerp);
+		DrawPlayer(this, billboard_layer);
+		DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 		//Render all of the game particles
-		if (zest_TimerUpdateWasRun(tfx_rendering.timer)) {
-			RenderEffectParticles(game_pm, this);
+		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+			RenderEffectParticles(game_pm, this, tfx_layer);
 		}
 		//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
 		//We want to draw the vader bullets over the top of the particles so that they're easier to see
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
 		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaderBullets(this, (float)tfx_rendering.timer->lerp);
+		DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 		tfx_str16_t score_text;
 		tfx_str32_t high_score_text = "High Score: ";
 		tfx_str16_t wave_text = "Wave: ";
@@ -1087,134 +1156,159 @@ void VadersGame::Update(float ellapsed) {
 		high_score_text.Appendf("%i", high_score);
 		wave_text.Appendf("%i", (int)current_wave);
 		//Draw some text for score and wave
-		zest_DrawMSDFText(font_layer, score_text.c_str(), zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .95f, .5f, .5f, 20.f, 0.f);
-		zest_DrawMSDFText(font_layer, high_score_text.c_str(), zest_ScreenWidthf() * .05f, zest_ScreenHeightf() * .95f, 0.f, .5f, 20.f, 0.f);
-		zest_DrawMSDFText(font_layer, wave_text.c_str(), zest_ScreenWidthf() * .95f, zest_ScreenHeightf() * .95f, 1.f, .5f, 20.f, 0.f);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, score_text.c_str());
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, high_score_text.c_str());
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, wave_text.c_str());
 	} else if (state == GameState_game_over) {
 		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
 		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaders(this, (float)tfx_rendering.timer->lerp);
-		if (zest_TimerUpdateWasRun(tfx_rendering.timer)) {
-			RenderEffectParticles(game_pm, this);
+		DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+			RenderEffectParticles(game_pm, this, tfx_layer);
 		}
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
 		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaderBullets(this, (float)tfx_rendering.timer->lerp);
-		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
+		DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");
 	}
 
-	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_rendering.layer) > 0;
+	cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 	cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
 	zest_frame_graph_cache_key_t cache_key = {};
-	cache_key = zest_InitialiseCacheKey(swapchain, &cache_info, sizeof(RenderCacheInfo));
+	cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
-	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, 0.f, .2f, 1.f);
-	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph", &cache_key)) {
-		zest_WaitOnTimeline(tfx_rendering.timeline);
+	if (zest_BeginFrame(context)) {
+		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
+		//after zest_BeginFrame every frame.
+		zest_imgui_UpdateBuffers(&imgui);
+		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
+		zest_SetSwapchainClearColor(context, 0.f, 0.f, .2f, 1.f);
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
+				zest_WaitOnTimeline(tfx_rendering.timeline);
+				//---------------------------------Resources-------------------------------------------------------
+				zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", tfx_rendering.particle_texture, 0);
+				zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", tfx_rendering.color_ramps_texture, 0);
+				zest_resource_node game_sprites_texture = zest_ImportImageResource("Sprites Texture", sprite_texture, 0);
+				zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_layer, false);
+				zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_layer, true);
+				zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", tfx_rendering.image_data, 0);
+				zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboards", billboard_layer, false);
+				zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Fonts", font_layer, false);
+				zest_ImportSwapchainResource();
+				//--------------------------------------------------------------------------------------------------
 
-		//---------------------------------Resources-------------------------------------------------------
-		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", tfx_rendering.particle_texture, 0);
-		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", tfx_rendering.color_ramps_texture, 0);
-		zest_resource_node game_sprites_texture = zest_ImportImageResource("Sprites Texture", sprite_texture, 0);
-		zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_rendering.layer, false);
-		zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_rendering.layer, true);
-		zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", tfx_rendering.image_data, 0);
-		zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboards", billboard_layer, false);
-		zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Fonts", font_layer, false);
-		zest_resource_node font_layer_texture = zest_ImportFontResource(font);
-		//--------------------------------------------------------------------------------------------------
+				//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+				zest_BeginTransferPass("Upload TFX Pass"); {
+					zest_ConnectOutput(tfx_read_layer);
+					zest_ConnectOutput(tfx_write_layer);
+					zest_SetPassTask(zest_UploadInstanceLayerData, tfx_layer);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
 
-		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
-		// Outputs
-		zest_ConnectOutput(upload_tfx_data, tfx_read_layer);
-		zest_ConnectOutput(upload_tfx_data, tfx_write_layer);
-		// Tasks
-		zest_SetPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
-		//--------------------------------------------------------------------------------------------------
+				//--------------------------Billboard Transfer Pass-------------------------------------------------
+				zest_BeginTransferPass("Upload Instance Data"); {
+					zest_ConnectOutput(billboard_layer_resource);
+					zest_SetPassTask(zest_UploadInstanceLayerData, billboard_layer);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
 
-		//--------------------------Billboard Transfer Pass-------------------------------------------------
-		zest_pass_node upload_instance_data = zest_BeginTransferPass("Upload Instance Data");
-		// Outputs
-		zest_ConnectOutput(upload_instance_data, billboard_layer_resource);
-		// Taks
-		zest_SetPassTask(upload_instance_data, zest_UploadInstanceLayerData, billboard_layer);
-		//--------------------------------------------------------------------------------------------------
+				//----------------------------Font Transfer Pass----------------------------------------------------
+				zest_BeginTransferPass("Upload Font Data"); {
+					zest_ConnectOutput(font_layer_resources);
+					zest_SetPassTask(zest_UploadInstanceLayerData, font_layer);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
 
-		//----------------------------Font Transfer Pass----------------------------------------------------
-		zest_pass_node upload_font_data = zest_BeginTransferPass("Upload Font Data");
-		// Outputs
-		zest_ConnectOutput(upload_font_data, font_layer_resources);
-		// Tasks
-		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, font_layer);
-		//--------------------------------------------------------------------------------------------------
+				//------------------------ Particles Pass -----------------------------------------------------------
+				zest_BeginRenderPass("Particles Pass"); {
+					zest_ConnectInput(particle_texture);
+					zest_ConnectInput(tfx_image_data);
+					zest_ConnectInput(color_ramps_texture);
+					zest_ConnectInput(tfx_write_layer);
+					zest_ConnectInput(tfx_read_layer);
+					zest_ConnectSwapChainOutput();
+					zest_SetPassTask(zest_tfx_DrawParticleLayer, &tfx_rendering);
+					zest_EndPass();
+				}
 
-		//------------------------ Particles Pass -----------------------------------------------------------
-		zest_pass_node particles_pass = zest_BeginRenderPass("Particles Pass");
-		//inputs
-		zest_ConnectInput(particles_pass, particle_texture, 0);
-		zest_ConnectInput(particles_pass, tfx_image_data, 0);
-		zest_ConnectInput(particles_pass, color_ramps_texture, 0);
-		zest_ConnectInput(particles_pass, tfx_write_layer, 0);
-		zest_ConnectInput(particles_pass, tfx_read_layer, 0);
-		//outputs
-		zest_ConnectSwapChainOutput(particles_pass);
-		//Task
-		zest_tfx_AddPassTask(particles_pass, &tfx_rendering);
+				//------------------------ Billboards Pass -----------------------------------------------------------
+				zest_BeginRenderPass("Billboards Pass"); {
+					zest_ConnectInput(game_sprites_texture);
+					zest_ConnectInput(billboard_layer_resource);
+					zest_ConnectSwapChainOutput();
+					zest_SetPassTask(zest_DrawInstanceLayer, billboard_layer);
+					zest_EndPass();
+				}
 
-		//------------------------ Billboards Pass -----------------------------------------------------------
-		zest_pass_node billboards_pass = zest_BeginRenderPass("Billboards Pass");
-		//inputs
-		zest_ConnectInput(billboards_pass, game_sprites_texture, 0);
-		zest_ConnectInput(billboards_pass, billboard_layer_resource, 0);
-		//outputs
-		zest_ConnectSwapChainOutput(billboards_pass);
-		//Task
-		zest_SetPassTask(billboards_pass, zest_cmd_DrawInstanceLayer, billboard_layer);
+				//------------------------ Fonts Pass ----------------------------------------------------------------
+				zest_BeginRenderPass("Fonts Pass"); {
+					zest_ConnectInput(font_layer_resources);
+					zest_ConnectSwapChainOutput();
+					zest_SetPassTask(zest_DrawInstanceLayer, font_layer);
+					zest_EndPass();
+				}
+				//----------------------------------------------------------------------------------------------------
 
-		//------------------------ Fonts Pass ----------------------------------------------------------------
-		zest_pass_node fonts_pass = zest_BeginRenderPass("Fonts Pass");
-		//inputs
-		zest_ConnectInput(fonts_pass, font_layer_texture, 0);
-		zest_ConnectInput(fonts_pass, font_layer_resources, 0);
-		//outputs
-		zest_ConnectSwapChainOutput(fonts_pass);
-		//Task
-		zest_SetPassTask(fonts_pass, zest_DrawFonts, font_layer);
-		//----------------------------------------------------------------------------------------------------
+				//------------------------ ImGui Pass ----------------------------------------------------------------
+				//If there's imgui to draw then draw it
+				zest_pass_node imgui_pass = zest_imgui_BeginPass(&imgui); {
+					if (imgui_pass) {
+						zest_ConnectSwapChainOutput();
+						zest_EndPass();
+					}
+				}
+				//----------------------------------------------------------------------------------------------------
 
-		//------------------------ ImGui Pass ----------------------------------------------------------------
-		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_BeginPass();
-		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass);
+				zest_SignalTimeline(tfx_rendering.timeline);
+				//Compile frame graph. 
+				frame_graph = zest_EndFrameGraph();
+			}
 		}
-		//----------------------------------------------------------------------------------------------------
-
-		zest_SignalTimeline(tfx_rendering.timeline);
-		//Compile and execute the render graph. 
-		zest_frame_graph render_graph = zest_EndFrameGraph();
-		if (request_graph_print) {
+		zest_QueueFrameGraphForExecution(context, frame_graph);
+		zest_EndFrame(context);
+		if (request_graph_print > 0) {
 			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(render_graph);
-			request_graph_print = false;
+			zest_PrintCompiledFrameGraph(frame_graph);
+			request_graph_print--;
 		}
 	}
-	if (zest_SwapchainWasRecreated(swapchain)) {
-		top_left_bound = ScreenRay(0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
-		bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
-		zest_SetLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
-		zest_SetLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
+	if (zest_SwapchainWasRecreated(context)) {
+		top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		bottom_right_bound = ScreenRay(context, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		zest_SetLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(context), zest_ScreenHeight(context), zest_ScreenWidthf(context), zest_ScreenHeightf(context));
+		zest_SetLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(context), zest_ScreenHeight(context), zest_ScreenWidthf(context), zest_ScreenHeightf(context));
 	}
 }
 
 //Update callback called from Zest
-void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
-	VadersGame *game = static_cast<VadersGame*>(data);
-	game->Update((float)ellapsed);
+void MainLoop(VadersGame *game) {
+	zest_microsecs running_time = zest_Microsecs();
+	zest_microsecs frame_time = 0;
+	zest_uint frame_count = 0;
+
+	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(game->context))) {
+		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
+		running_time = zest_Microsecs();
+		frame_time += current_frame_time;
+		frame_count += 1;
+		if (frame_time >= ZEST_MICROSECS_SECOND) {
+			frame_time -= ZEST_MICROSECS_SECOND;
+			game->last_fps = frame_count;
+			frame_count = 0;
+		}
+
+		float ellapsed = (float)current_frame_time;
+
+		glfwPollEvents();
+		game->Update(ellapsed);
+	}
 }
 
 #if defined(_WIN32)
@@ -1223,21 +1317,33 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 int main() {
 	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	zest_create_info_t create_info = zest_CreateInfo();
-	create_info.log_path = ".";
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
-	zest_implglfw_SetCallbacks(&create_info);
 
-	VadersGame game;
+	VadersGame game = { 0 };
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&game);
-	zest_SetUserUpdateCallback(UpdateTfxExample);
-	game.Init();
+	if (!glfwInit()) {
+		return 0;
+	}
 
-	zest_Start();
-	zest_DestroyContext();
+	zest_uint count;
+	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+
+	//Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+	game.device = zest_EndDeviceBuilder(device_builder);
+
+	//Create a window using GLFW
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	//Initialise Zest
+	game.context = zest_CreateContext(game.device, &window_handles, &create_info);
+
+	game.Init();
+	MainLoop(&game);
 
 	for (int i = 0; i != 2; ++i) {
 		game.player_bullets[i].free();
@@ -1246,6 +1352,10 @@ int main() {
 		game.vader_bullets[i].free();
 		game.power_ups[i].free();
 	}
+
+	ImGui_ImplGlfw_Shutdown();
+	zest_imgui_Destroy(&game.imgui);
+	zest_DestroyContext(game.context);
 	tfx_EndTimelineFX();
 
 	return 0;
