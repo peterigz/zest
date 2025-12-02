@@ -259,7 +259,7 @@ ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapch
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
-void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle handle);
+void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 void zest__vk_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
@@ -4104,7 +4104,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		zest_execution_timeline timeline = frame_graph->wait_on_timeline;
 		if (timeline->current_value > 0) {
 			zest_vec_linear_push(allocator, wait_semaphores, timeline->backend->semaphore);
-			zest_vec_linear_push(allocator, wait_stages, timeline_wait_stage);
+			zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(timeline_wait_stage));
 			zest_vec_linear_push(allocator, wait_values, timeline->current_value);
 		}
     }
@@ -4263,8 +4263,7 @@ void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_
     vkCmdCopyBuffer(command_list->backend->command_buffer, src_buffer->memory_pool->backend->vk_buffer, dst_buffer->memory_pool->backend->vk_buffer, 1, &copyInfo);
 }
 
-void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources) {
 	zest_context context = command_list->context;
 	zloc_linear_allocator_t *scratch = context->device->scratch_arena;
 	VkDescriptorSet *binding_sets = 0;

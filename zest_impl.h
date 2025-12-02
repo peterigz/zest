@@ -1292,6 +1292,8 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 
 zest_bool zest_BeginFrame(zest_context context) {
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), "You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.");
+	ZEST_ASSERT(context->device_frame_counter < context->device->frame_counter, "zest_UpdateDevice was not called this frame. Make sure you call it at least once each frame before calling zest_BeginFrame.");
+	context->device_frame_counter = context->device->frame_counter;
 	zest_semaphore_status fence_wait_result = zest__main_loop_semaphore_wait(context);
 	if (fence_wait_result == zest_semaphore_status_success) {
 	} else if (fence_wait_result == zest_semaphore_status_timeout) {
@@ -2993,7 +2995,13 @@ zest_shader_resources_handle zest_CreateShaderResources(zest_context context) {
     *bundle = ZEST__ZERO_INIT(zest_shader_resources_t);
     bundle->magic = zest_INIT_MAGIC(zest_struct_type_shader_resources);
 	bundle->handle = handle;
+	bundle->context = context;
     return handle;
+}
+
+zest_shader_resources zest_GetShaderResources(zest_shader_resources_handle handle) {
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	return shader_resources;
 }
 
 void zest_FreeShaderResources(zest_shader_resources_handle handle) {
@@ -3006,46 +3014,45 @@ void zest_FreeShaderResources(zest_shader_resources_handle handle) {
 }
 
 void zest_AddDescriptorSetToResources(zest_shader_resources_handle handle, zest_descriptor_set descriptor_set, zest_uint fif) {
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
-	zest_context context = (zest_context)handle.store->origin;
-    ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-	zest_vec_push(context->allocator, resources->sets[fif], descriptor_set);
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	zest_context context = shader_resources->context;
+	zest_vec_push(context->allocator, shader_resources->sets[fif], descriptor_set);
 }
 
-void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources_handle, zest_uniform_buffer_handle buffer_handle) {
-	ZEST_ASSERT(shader_resources_handle.store->origin == buffer_handle.store->origin);	//Both handles must be within the same context.
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(shader_resources_handle.store, shader_resources_handle.value);
+void zest_AddUniformBufferToResources(zest_shader_resources_handle handle, zest_uniform_buffer_handle buffer_handle) {
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	ZEST_ASSERT(shader_resources->handle.store->origin == buffer_handle.store->origin);	//Both handles must be within the same context.
     zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(buffer_handle.store, buffer_handle.value);
-	zest_context context = (zest_context)shader_resources_handle.store->origin;
+	zest_context context = shader_resources->context;
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(context, shader_resources, uniform_buffer->descriptor_set[fif], fif);
     }
 }
 
 void zest_AddGlobalBindlessSetToResources(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
-	zest_context context = (zest_context)handle.store->origin;
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	zest_context context = shader_resources->context;
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(context, shader_resources, context->bindless_set, fif);
     }
 }
 
 void zest_AddBindlessSetToResources(zest_shader_resources_handle handle, zest_descriptor_set set) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
-	zest_context context = (zest_context)handle.store->origin;
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	zest_context context = shader_resources->context;
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(context, shader_resources, set, fif);
     }
 }
 
 void zest_UpdateShaderResources(zest_shader_resources_handle handle, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
 	ZEST_ASSERT(index < zest_vec_size(shader_resources->sets));    //Must be a valid index for the descriptor set in the resources that you want to update.
 	shader_resources->sets[fif][index] = descriptor_set;
 }
 
 void zest_ClearShaderResources(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
+	zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
     if (!shader_resources) return;
     zest_vec_clear(shader_resources->sets);
 }
@@ -4816,8 +4823,6 @@ Main compile phases:
 [Create_semaphores]
 [Plan_transient_buffers]
 [Plan_resource_barriers]
-[Create_memory_barriers_for_inputs]
-[Create_memory_barriers_for_outputs]
 [Process_compiled_execution_order]
 [Prepare_render_passes]
 */
@@ -6214,7 +6219,6 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
             }
 
             // --- Print Wait Semaphores for the Batch ---
-            // (Your batch struct needs to store enough info for this, e.g., an array of wait semaphores and stages)
             // For simplicity, assuming single wait_on_batch_semaphore for now, and you'd identify if it's external
             if (batch->wait_values) {
                 // This stage should ideally be stored with the batch submission info by EndRenderGraph
@@ -6797,31 +6801,6 @@ void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = callback;
     callback_data.user_data = user_data;
-    pass->execution_callback = callback_data;
-}
-
-void zest_SetPassInstanceLayerUpload(zest_layer layer) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
-    zest_pass_node pass = zest__frame_graph_builder->current_pass;
-    if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) && layer->dirty[layer->fif] == 0) {
-        return;
-    }
-    zest_pass_execution_callback_t callback_data;
-    callback_data.callback = zest_UploadInstanceLayerData;
-    callback_data.user_data = layer;
-    pass->execution_callback = callback_data;
-}
-
-void zest_SetPassInstanceLayer(zest_layer layer) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
-    zest_pass_node pass = zest__frame_graph_builder->current_pass;
-    zest_pass_execution_callback_t callback_data;
-    callback_data.callback = zest_DrawInstanceLayer;
-    callback_data.user_data = layer;
     pass->execution_callback = callback_data;
 }
 
@@ -8369,7 +8348,7 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 			zest_cmd_Scissor(command_list, &layer->scissor);
         }
 
-        ZEST_ASSERT(current->shader_resources.value); //Shader resources handle must be set in the instruction
+        ZEST_ASSERT_HANDLE(current->shader_resources); //Shader resources handle must be set in the instruction
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
         if (pipeline) {
@@ -8389,8 +8368,9 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
-zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size) {
+zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size, zest_uint max_instances) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(context, type_size);
+	builder.initial_count = max_instances;
     return zest_FinishInstanceLayer(name, &builder);
 }
 
@@ -8399,9 +8379,9 @@ ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle) {
 	return layer;
 }
 
-zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* name, zest_size type_size) {
+zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* name, zest_size type_size, zest_uint max_instances) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(context, type_size);
-    builder.initial_count = 1000;
+    builder.initial_count = max_instances;
     zest_layer_handle layer_handle = zest_FinishInstanceLayer(name, &builder);
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     zest_ForEachFrameInFlight(fif) {
@@ -8452,18 +8432,18 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 }
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	ZEST_ASSERT(layer->handle.store->origin == handle.store->origin);	//Layer and shader resource context must match
+void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
+    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource
+	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
+	ZEST_ASSERT(layer->handle.store->origin == shader_resources->handle.store->origin);	//Layer and shader resource context must match
 	zest_context context = layer->context;
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 
     //The number of shader resources must match the number of descriptor layouts set in the pipeline.
     ZEST_ASSERT(zest_vec_size(shader_resources->sets[context->current_fif]) == zest_vec_size(pipeline->set_layouts));
-	layer->current_instruction.shader_resources = handle;
+	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->last_draw_mode = zest_draw_mode_instance;
 }
@@ -8611,15 +8591,14 @@ void zest_PushIndex(zest_layer layer, zest_uint offset) {
     layer->memory_refs[layer->fif].index_ptr = index_ptr;
 }
 
-void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(resource_handle.store, resource_handle.value);
-    ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
+void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
+    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource
+	ZEST_ASSERT_HANDLE(layer); 				//Not a valid layer pointer
+    ZEST_ASSERT_HANDLE(pipeline);			//Not a valid pipeline template
     zest__end_mesh_instructions(layer);
     zest__start_mesh_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
-	layer->current_instruction.shader_resources = resource_handle;
+	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh;
     layer->last_draw_mode = zest_draw_mode_mesh;
 }
@@ -8654,7 +8633,7 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
             zest_cmd_ViewPort(command_list, &layer->viewport);
         }
 
-        ZEST_ASSERT(current->shader_resources.value);
+        ZEST_ASSERT_HANDLE(current->shader_resources);
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
         if (pipeline) {
@@ -8674,15 +8653,14 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
+    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(resource_handle.store, resource_handle.value);
-    ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
-	layer->current_instruction.shader_resources = resource_handle;
+	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh_instance;
     layer->current_instruction.scissor = layer->scissor;
     layer->current_instruction.viewport = layer->viewport;
@@ -9636,9 +9614,10 @@ void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer src_b
 	command_list->context->device->platform->copy_buffer(command_list, src_buffer, dst_buffer, size);
 }
 
-void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle handle) {
+void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources) {
+    ZEST_ASSERT_HANDLE(shader_resources);    //Not a valid shader resource
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
-	command_list->context->device->platform->bind_pipeline_shader_resource(command_list, pipeline, handle);
+	command_list->context->device->platform->bind_pipeline_shader_resource(command_list, pipeline, shader_resources);
 }
 
 void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {

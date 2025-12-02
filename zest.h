@@ -3991,8 +3991,6 @@ ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list 
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
-ZEST_API void zest_SetPassInstanceLayerUpload(zest_layer layer);
-ZEST_API void zest_SetPassInstanceLayer(zest_layer layer);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
@@ -4082,6 +4080,7 @@ typedef struct zest_shader_t {
 
 typedef struct zest_shader_resources_t {
 	int magic;
+	zest_context context;
 	zest_shader_resources_handle handle;
 	zest_descriptor_set *sets[ZEST_MAX_FIF];
 } zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
@@ -4341,7 +4340,7 @@ typedef struct zest_layer_instruction_t {
 	};
 	zest_index last_instance;                     //The last instance that was drawn in the previous instance instruction
 	zest_pipeline_template pipeline_template;     //The pipeline template to draw the instances.
-	zest_shader_resources_handle shader_resources;       //The descriptor set shader_resources used to draw with
+	zest_shader_resources shader_resources;       //The descriptor set shader_resources used to draw with
 	void *asset;                                  //Optional pointer to either texture, font etc
 	zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
@@ -4553,7 +4552,7 @@ typedef struct zest_platform_t {
 	void                       (*clip)(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
 	void                       (*bind_pipeline)(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
 	void                       (*bind_compute_pipeline)(const zest_command_list command_list, zest_compute_handle compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
-	void                       (*bind_pipeline_shader_resource)(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
+	void                       (*bind_pipeline_shader_resource)(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 	void                       (*copy_buffer)(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);
 	zest_bool                  (*upload_buffer)(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 	void                       (*bind_vertex_buffer)(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
@@ -4631,6 +4630,7 @@ typedef struct zest_context_t {
 
 	void *user_data;
 	zest_device_t *device;
+	zest_uint device_frame_counter;
 	zest_create_info_t create_info;
 
 } zest_context_t;
@@ -4954,6 +4954,8 @@ ZEST_API zest_descriptor_set zest_GetBindlessSet(zest_context context);
 ZEST_API zest_set_layout zest_GetBindlessLayout(zest_context context);
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources_handle zest_CreateShaderResources(zest_context context);
+//Get the opaque pointer to the shader resources handle
+ZEST_API zest_shader_resources zest_GetShaderResources(zest_shader_resources_handle handle);
 //Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
 //descriptor sets that you added to the resources
 ZEST_API void zest_FreeShaderResources(zest_shader_resources_handle shader_resources);
@@ -5386,7 +5388,7 @@ ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle);
 //discarded. In order to avoid syncing issues on the GPU, pass a unique id to generate a unique Buffer. This
 //id can be shared with any other frame in flight layer that will flip their frame in flight index at the same
 //time, like when ever the update loop is run.
-ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char *name, zest_size type_size);
+ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char *name, zest_size type_size, zest_uint max_instances);
 //Create a new layer builder which you can use to build new custom layers to draw with using instances
 ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_context context, zest_size type_size);
 //Once you have configured your layer you can call this to create the layer ready for adding to a command queue
@@ -5466,7 +5468,7 @@ ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_ha
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle shader_resources,  zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources,  zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5501,7 +5503,7 @@ ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed
@@ -5516,7 +5518,7 @@ ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, v
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
@@ -5743,7 +5745,7 @@ ZEST_API void zest_cmd_BindComputePipeline(const zest_command_list command_list,
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
-ZEST_API void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
+ZEST_API void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);

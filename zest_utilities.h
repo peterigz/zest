@@ -221,7 +221,7 @@ typedef struct zest_stbi_mem_context_t {
 ZEST_PRIVATE void* zest__msdf_allocation(size_t size, void* ctx);
 ZEST_PRIVATE void zest__msdf_free(void* ptr, void* ctx);
 ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader);
-ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name);
+ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters);
 ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_handle, float font_size, float sdf_range);
 ZEST_API void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename);
 ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_sampler);
@@ -897,9 +897,9 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	return resources;
 }
 
-zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name) {
+zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters) {
 	ZEST_ASSERT(name, "Specify a name for the font layer");
-	zest_layer_handle layer = zest_CreateInstanceLayer(context, name, sizeof(zest_font_instance_t));
+	zest_layer_handle layer = zest_CreateInstanceLayer(context, name, sizeof(zest_font_instance_t), max_characters);
 	return layer;
 }
 
@@ -909,10 +909,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 
     // --- MSDF Font Atlas Generation ---
     unsigned char* font_buffer = (unsigned char*)zest_ReadEntireFile(context->device, filename, ZEST_FALSE);
-    if (!font_buffer) {
-        ZEST_PRINT("Error loading font file\n");
-        return font;
-    }
+	ZEST_ASSERT(font_buffer, "Error loading font file\n");
 
     stbtt_fontinfo font_info;
     if (!stbtt_InitFont(&font_info, font_buffer, 0)) {
@@ -1004,6 +1001,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	font.settings.gamma = 1.f;
 	font.settings.shadow_color = zest_Vec4Set(0.f, 0.f, 0.f, 1.f);
 	font.settings.shadow_offset = zest_Vec2Set(2.f, 2.f);
+	font.settings.image_index = font.font_binding_index;
 	return font;
 }
 
@@ -1088,6 +1086,7 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	font.settings.gamma = 1.f;
 	font.settings.shadow_color = zest_Vec4Set(0.f, 0.f, 0.f, 1.f);
 	font.settings.shadow_offset = zest_Vec2Set(2.f, 2.f);
+	font.settings.image_index = font.font_binding_index;
 	return font;
 }
 
@@ -1151,7 +1150,7 @@ void zest_SetMSDFFontDrawing(zest_layer layer, zest_msdf_font_t *font, zest_font
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = font_resources->pipeline;
-	layer->current_instruction.shader_resources = font_resources->shader_resources;
+	layer->current_instruction.shader_resources = zest_GetShaderResources(font_resources->shader_resources);
     layer->current_instruction.draw_mode = zest_draw_mode_text;
     layer->current_instruction.asset = font;
     layer->current_instruction.scissor = layer->scissor;
