@@ -1701,6 +1701,7 @@ typedef enum {
 	zest_handle_type_shader_resources,
 	zest_handle_type_uniform_buffers,
 	zest_handle_type_layers,
+	zest_handle_type_execution_timelines,
 	zest_max_context_handle_type
 } zest_context_handle_type;
 
@@ -2451,6 +2452,7 @@ ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_USER_HANDLE(zest_layer)
 ZEST__MAKE_USER_HANDLE(zest_shader)
 ZEST__MAKE_USER_HANDLE(zest_compute)
+ZEST__MAKE_USER_HANDLE(zest_execution_timeline)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -3293,6 +3295,7 @@ typedef struct zest_sampler_t {
 
 typedef struct zest_execution_timeline_t {
 	int magic;
+	zest_execution_timeline_handle handle;
 	zest_context context;
 	zest_execution_timeline_backend backend;
 	zest_u64 current_value;
@@ -4025,8 +4028,9 @@ ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
 ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
 
 // --- Syncronization Helpers ---
-ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_context context);
-ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline timeline);
+ZEST_API zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context);
+ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline);
+ZEST_API zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline);
 
 // -- General pass and resource getters/setters
 ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
@@ -4589,7 +4593,7 @@ typedef struct zest_context_t {
 	//The timeout for the fence that waits for gpu work to finish for the frame
 	zest_u64 fence_wait_timeout_ns;
 	zest_wait_timeout_callback fence_wait_timeout_callback;
-	zest_execution_timeline frame_timeline[ZEST_MAX_FIF];
+	zest_execution_timeline_handle frame_timeline[ZEST_MAX_FIF];
 	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
 
 	//Window data
@@ -4661,7 +4665,7 @@ ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
 ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
-	if (index < store->capacity && store->generations[index] == generation) {
+	if (index < store->current_size && store->generations[index] == generation) {
 		return (void *)((char *)store->data + index * store->struct_size);
 	}
 	return NULL;
@@ -4671,7 +4675,7 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	void *resource = NULL;
-	if (index < store->capacity && store->generations[index] == generation) {
+	if (index < store->current_size && store->generations[index] == generation) {
 		resource = (void *)((char *)store->data + index * store->struct_size);
 	}
 	ZEST_ASSERT(resource);   //Not a valid handle for the resource. Check the stack trace for the calling function and resource type
@@ -4761,6 +4765,7 @@ ZEST_PRIVATE void zest__free_all_device_resource_stores(zest_device device);
 ZEST_PRIVATE void zest__cleanup_device(zest_device device);
 ZEST_PRIVATE void zest__cleanup_context(zest_context context);
 ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_execution_timeline_store(zest_context context);
 ZEST_PRIVATE void zest__cleanup_image_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_sampler_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_context context);
@@ -6017,6 +6022,7 @@ int zloc_Free(zloc_allocator *allocator, void* allocation) {
 	if (!allocation) return 0;
 	zloc__lock_thread_access;
 	zloc_header *block = zloc__block_from_allocation(allocation);
+	//Asserting here means that there's probably been a mix up between a context allocator and a device allocator.
 	ZLOC_ASSERT(block->allocator == allocator);
 	if (zloc__prev_is_free_block(block)) {
 		ZLOC_ASSERT(block->prev_physical_block);		//Must be a valid previous physical block

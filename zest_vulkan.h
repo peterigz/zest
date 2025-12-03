@@ -1350,7 +1350,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	render_signal_info.value = 0;
 	render_signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
-	zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(context->frame_timeline[context->current_fif]);
 	timeline->current_value += 1;
 	context->frame_sync_timeline[context->current_fif] = timeline;
 

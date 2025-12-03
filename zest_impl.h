@@ -2291,9 +2291,10 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 
 	for (int i = 0; i != zest_max_context_handle_type; ++i) {
 		switch ((zest_context_handle_type)i) {
-			case zest_handle_type_shader_resources:	zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_shader_resources_t)); break;
-			case zest_handle_type_uniform_buffers: 	zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
-			case zest_handle_type_layers: 			zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_layer_t)); break;
+			case zest_handle_type_shader_resources:		zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_shader_resources_t)); break;
+			case zest_handle_type_uniform_buffers: 		zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
+			case zest_handle_type_layers: 				zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_layer_t)); break;
+			case zest_handle_type_execution_timelines: 	zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_execution_timeline_t)); break;
 		}
 	}
 
@@ -2490,11 +2491,6 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			zest__cleanup_image_view_array(view);
 			break;
 		}
-		case zest_struct_type_execution_timeline: {
-			zest_execution_timeline timeline = (zest_execution_timeline)handle;
-			zest_FreeExecutionTimeline(timeline);
-			break;
-		}
     }
 }
 
@@ -2642,10 +2638,23 @@ void zest__cleanup_shader_resource_store(zest_context context) {
 	zest__free_store(store);
 }
 
+void zest__cleanup_execution_timeline_store(zest_context context) {
+	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
+    zest_execution_timeline_t *shader_resources = (zest_execution_timeline_t*)store->data;
+    for (int i = 0; i != store->current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&shader_resources[i])) {
+            zest_execution_timeline timeline = &shader_resources[i];
+			zest_FreeExecutionTimeline(timeline->handle);
+        }
+    }
+	zest__free_store(store);
+}
+
 void zest__cleanup_context(zest_context context) {
     zest__cleanup_shader_resource_store(context);
     zest__cleanup_uniform_buffer_store(context);
     zest__cleanup_layer_store(context);
+    zest__cleanup_execution_timeline_store(context);
 	zest__cleanup_swapchain(context->swapchain);
     zest__cleanup_pipelines(context);
 	zest__release_all_context_texture_indexes(context);
@@ -3920,6 +3929,7 @@ inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, z
 
 void zest__free_store(zest_resource_store_t *store) { 
     if (store->data) { 
+		memset(store->data, 0, store->capacity * store->struct_size);
 		ZEST__FREE(store->allocator, store->data); 
         zest_vec_free(store->allocator, store->generations);
         zest_vec_free(store->allocator, store->free_slots);
@@ -4831,7 +4841,8 @@ zest_frame_graph zest__compile_frame_graph() {
 	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
 	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
-		zest_SignalTimeline(context->frame_timeline[context->current_fif]);
+		zest_execution_timeline timeline = zest_GetExecutionTimeline(context->frame_timeline[context->current_fif]);
+		zest_SignalTimeline(timeline);
 	}
 
     zloc_linear_allocator_t *allocator = context->frame_graph_allocator[context->current_fif];
@@ -6787,7 +6798,8 @@ zest_resource_node zest_ImportSwapchainResource() {
     frame_graph->swapchain_resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 	ZEST__FLAG(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
 	if (!frame_graph->wait_on_timeline) {
-		zest_WaitOnTimeline(context->frame_timeline[context->current_fif]);
+		zest_execution_timeline timeline = zest_GetExecutionTimeline(context->frame_timeline[context->current_fif]);
+		zest_WaitOnTimeline(timeline);
 	}
     return frame_graph->swapchain_resource;
 }
@@ -7489,25 +7501,35 @@ void zest_SignalTimeline(zest_execution_timeline timeline) {
     frame_graph->signal_timeline = timeline;
 }
 
-zest_execution_timeline zest_CreateExecutionTimeline(zest_context context) {
-    zest_execution_timeline timeline = (zest_execution_timeline)ZEST__NEW(context->allocator, zest_execution_timeline);
+zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context) {
+	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
+    zest_execution_timeline_handle handle = ZEST_STRUCT_LITERAL(zest_execution_timeline_handle, zest__add_store_resource(store), store);
+	handle.store = store;
+    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource(store, handle.value);
     *timeline = ZEST__ZERO_INIT(zest_execution_timeline_t);
     timeline->magic = zest_INIT_MAGIC(zest_struct_type_execution_timeline);
     timeline->current_value = 0;
 	timeline->context = context;
+	timeline->handle = handle;
     if (!context->device->platform->create_execution_timeline_backend(context, timeline)) {
         if (timeline->backend) {
             ZEST__FREE(context->allocator, timeline->backend);
         }
 		ZEST__FREE(context->allocator, timeline);
-		return NULL;
+		return ZEST__ZERO_INIT(zest_execution_timeline_handle);
     }
-    return timeline;
+    return handle;
 }
 
-void zest_FreeExecutionTimeline(zest_execution_timeline	timeline) {
+void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
+    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_checked(timeline_handle.store, timeline_handle.value);
 	timeline->context->device->platform->cleanup_execution_timeline_backend(timeline);
-	ZEST__FREE(timeline->context->allocator, timeline);
+	zest__remove_store_resource(timeline_handle.store, timeline_handle.value);
+}
+
+zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
+    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_checked(timeline_handle.store, timeline_handle.value);
+	return timeline;
 }
 
 // --End frame graph functions

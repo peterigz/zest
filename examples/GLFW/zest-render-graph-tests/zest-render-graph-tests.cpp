@@ -386,22 +386,29 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;
+	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
 	if (zest_BeginFrameGraph(tests->context, "Buffer Read/Write", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
 
-		zest_pass_node write_pass = zest_BeginComputePass(tests->compute_write, "Write Pass");
+		zest_BeginComputePass(tests->compute_write, "Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
-		zest_pass_node verify_pass = zest_BeginComputePass(tests->compute_verify, "Verify Pass");
+		zest_BeginComputePass(tests->compute_verify, "Verify Pass");
 		zest_ConnectInput(write_buffer);
 		zest_ConnectOutput(verify_buffer);
 		zest_SetPassTask(zest_VerifyBufferCompute, tests);
 		zest_EndPass();
 
+		zest_SignalTimeline(timeline);
 		zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+		zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+		if (status != zest_semaphore_status_success) {
+			test->result = 1;
+		}
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
 		if (test_data->vec.x != 1.f) {
@@ -536,6 +543,8 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 			
 	}
 	zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
+	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
 	if (zest_BeginFrameGraph(tests->context, "Image Read Write", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientImageResource("Write Buffer", &image_info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
@@ -552,7 +561,12 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_SetPassTask(zest_VerifyImageCompute, tests);
 		zest_EndPass();
 
+		zest_SignalTimeline(timeline);
 		zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+		zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+		if (status != zest_semaphore_status_success) {
+			test->result = 1;
+		}
 
 		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
