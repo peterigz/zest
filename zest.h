@@ -378,15 +378,23 @@ ZLOC_API zloc_size zloc_CalculateRemoteBlockPoolSize(zloc_allocator *allocator, 
 ZLOC_API void zloc_AddRemotePool(zloc_allocator *allocator, void *block_memory, zloc_size block_memory_size, zloc_size remote_pool_size);
 ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
 ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block);
+
+//Linear allocator
 typedef struct zloc_linear_allocator_t {
+	void *data;
 	zloc_size buffer_size;
 	zloc_size current_offset;
+	void *user_data;
+	struct zloc_linear_allocator_t *next;
 } zloc_linear_allocator_t;
-zloc_linear_allocator_t *zloc_InitialiseLinearAllocator(void *memory, zloc_size size);
-void zloc_ResetLinearAllocator(zloc_linear_allocator_t *allocator);
-void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_requested);
-zloc_size zloc_GetMarker(zloc_linear_allocator_t *allocator);
-void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker);
+ZLOC_API int zloc_InitialiseLinearAllocator(zloc_linear_allocator_t *allocator, void *memory, zloc_size size);
+ZLOC_API void zloc_ResetLinearAllocator(zloc_linear_allocator_t *allocator);
+ZLOC_API void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_requested);
+ZLOC_API zloc_size zloc_GetMarker(zloc_linear_allocator_t *allocator);
+ZLOC_API void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker);
+ZLOC_API void zloc_SetLinearAllocatorUserData(zloc_linear_allocator_t *allocator, void *user_data);
+ZLOC_API void zloc_AddNextLinearAllocator(zloc_linear_allocator_t *allocator, zloc_linear_allocator_t *next);
+ZLOC_API zloc_size zloc_GetLinearAllocatorCapacity(zloc_linear_allocator_t *allocator);
 
 //--End of user functions
 
@@ -855,6 +863,7 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #define ZEST_APPLY_MACRO(macro, args) macro args
 #define ZEST_CHOOSE_ASSERT(...) ZEST_APPLY_MACRO(ZEST_GET_MACRO, (__VA_ARGS__, ZEST_INTERNAL_ASSERT_IMPL, ZEST_INTERNAL_ASSERT_NO_MSG))
 #define ZEST_ASSERT(...) ZEST_APPLY_MACRO(ZEST_CHOOSE_ASSERT(__VA_ARGS__), (__VA_ARGS__))
+#define ZEST_ASSERT(...) ZEST_APPLY_MACRO(ZEST_CHOOSE_ASSERT(__VA_ARGS__), (__VA_ARGS__))
 #define ZEST_ASSERT_TILING_FORMAT(format) ZEST_ASSERT( \
     format == zest_format_r8_unorm || \
     format == zest_format_r8g8_unorm || \
@@ -995,6 +1004,8 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 typedef unsigned int zest_uint;
 typedef unsigned long zest_long;
 typedef int zest_index;
+typedef unsigned int zest_resource_id;
+typedef unsigned int zest_pass_id;
 typedef unsigned long long zest_ull;
 typedef uint16_t zest_u16;
 typedef uint64_t zest_u64;
@@ -2282,6 +2293,7 @@ typedef enum zest_frame_graph_result_bits {
 	zest_fgs_critical_error = 1 << 3,
 	zest_fgs_transient_resource_failure = 1 << 4,
 	zest_fgs_unable_to_acquire_command_buffer = 1 << 5,
+	zest_fgs_out_of_memory = 1 << 6,
 } zest_frame_graph_result_bits;
 
 typedef enum zest_pass_node_visit_state {
@@ -2304,9 +2316,14 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define ZEST_ASSERT_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_ASSERT_BUFFER_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)((char*)handle + offsetof(zest_buffer_t, magic))) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_VALID_HANDLE(handle) (handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
-#define ZEST_STRUCT_TYPE(handle) (*((int*)handle) & 0xFFFF0000)
+#define ZEST_STRUCT_TYPE(handle) (zest_struct_type)(*((int*)handle) & 0xFFFF0000)
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
 #define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
+#define ZEST_FRAME_GRAPH_OOM(frame_graph, check) if(!check) { \
+	ZEST__FLAG(frame_graph->error_status, zest_fgs_out_of_memory); \
+	ZEST_PRINT("Frame graph out of memory."); \
+	return NULL; \
+}
 
 #define ZEST_SET_MEMORY_CONTEXT(device, mem_context, command) device->platform_memory_info.timestamp = device->allocation_id++; \
 device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (mem_context << 16) | (command << 24)
@@ -2531,7 +2548,7 @@ extern "C" {
 #endif
 
 #define zest_vec_push(allocator, T, value) (zest_vec_grow(allocator, T), (T)[zest__vec_header(T)->current_size++] = value)
-#define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T)[zest__vec_header(T)->current_size++] = value)
+#define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T) ? (T)[zest__vec_header(T)->current_size++] = value : (void)0 )
 #define zest_vec_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_linear_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_linear_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_erase(T, location) do { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); } while (0)
@@ -2542,7 +2559,7 @@ extern "C" {
 // The main purpose of this bucket array is to produce stable pointers for render graph resources
 typedef struct zest_bucket_array_t {
 	void** buckets;             // A zest_vec of pointers to individual buckets
-	zest_context context;
+	zloc_allocator *allocator;
 	zest_uint bucket_capacity;  // Number of elements each bucket can hold
 	zest_uint current_size;       // Total number of elements across all buckets
 	zest_uint element_size;     // The size of a single element
@@ -3064,11 +3081,6 @@ typedef struct zest_rgba32 {
 	float r, g, b, a;
 } zest_rgba32;
 
-typedef struct zest_resource_identifier_t {
-	int magic;
-	zest_resource_type type;
-} zest_resource_identifier_t;
-
 typedef struct zest_memory_stats_t {
 	zest_uint device_allocations;
 	zest_uint renderer_allocations;
@@ -3405,7 +3417,7 @@ typedef struct zest_create_info_t {
 	zest_init_flags flags;                              //Set flags to apply different initialisation options
 	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 	zest_platform_type platform;
-	zest_size allocator_capacity;
+	zest_size memory_pool_size;
 } zest_create_info_t;
 
 zest_hash_map(zest_context_queue) zest_map_queue_value;
@@ -3513,7 +3525,7 @@ typedef struct zest_device_t {
 	zest_platform_memory_info_t platform_memory_info;
 	zest_uint allocation_id;
 	zest_uint vector_id;
-	zloc_linear_allocator_t *scratch_arena;
+	zloc_linear_allocator_t scratch_arena;
 
 	zest_platform platform;
 	zest_device_backend backend;
@@ -3909,6 +3921,9 @@ typedef struct zest_frame_graph_t {
 	zest_command_list_t command_list;
 	zest_key cache_key;
 
+	zest_microsecs compile_time;
+	zest_microsecs execute_time;
+
 	zest_uint timestamp_count;
 	zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
 	zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
@@ -3977,7 +3992,7 @@ ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph();
-ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
+ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 
 // --- Add pass nodes that execute user commands ---
@@ -4492,7 +4507,7 @@ typedef struct zest_platform_t {
 	zest_bool 				   (*initialise_swapchain)(zest_context context);
 	zest_bool				   (*initialise_context_queue_backend)(zest_context context, zest_context_queue context_queue);
 	//Device/OS
-	void                  	   (*wait_for_idle_device)(zest_context context);
+	void                  	   (*wait_for_idle_device)(zest_device device);
 	zest_bool 				   (*initialise_device)(zest_device device);
 	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_context context);
@@ -4607,9 +4622,12 @@ typedef struct zest_context_t {
 
 	//Linear allocator for building the render graph each frame. The memory for this is allocated from
 	//The device TLSF allocator
-	zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
+	zloc_linear_allocator_t frame_graph_allocator[ZEST_MAX_FIF];
 
 	//Resource storage
+	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
+	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
+	zest_uint memory_pool_count;
 	zloc_allocator *allocator;
 	zest_resource_store_t resource_stores[zest_max_context_handle_type];
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
@@ -4705,47 +4723,23 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 		pool_size = zest_GetNextPower(size);
 	}
 	device->memory_pools[device->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
-	ZEST_ASSERT(device->memory_pools[device->memory_pool_count]);    //Unable to allocate more memory. Out of memory?
+	ZEST_ASSERT(device->memory_pools[device->memory_pool_count], "Unable to allocate more memory for the device. Out of memory?");
 	zloc_AddPool(device->allocator, device->memory_pools[device->memory_pool_count], pool_size);
 	device->memory_pool_sizes[device->memory_pool_count] = pool_size;
 	device->memory_pool_count++;
 	ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
 }
 
-ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
-	void* allocation = zloc_Allocate(allocator, size);
-	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 1224528) {
-		int d = 0;
-	}
-	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
-	// it should print out the offset from the allocator, you can use that offset to break here and 
-	// find out what's being allocated.
-	if (!allocation) {
-		zest_device device = (zest_device)allocator->user_data;
-		zest_size pool_size = (zest_size)ZEST__NEXTPOW2((double)size * 2);
-		ZEST_PRINT("Added a new pool size of %zu", pool_size);
-		zest__add_host_memory_pool(device, pool_size);
-		allocation = zloc_Allocate(allocator, size);
-		ZEST_ASSERT(allocation);    //Out of memory? Unable to allocate even after adding a pool
-	}
-	return allocation;
-}
-
+ZEST_PRIVATE void zest__add_context_memory_pool(zest_context context, zest_size size);
+ZEST_PRIVATE void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size);
+ZEST_PRIVATE void *zest__allocate(zloc_allocator *allocator, zest_size size);
 ZEST_PRIVATE void *zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_size alignment);
-ZEST_PRIVATE inline void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size) {
-	void* allocation = zloc_Reallocate(allocator, memory, size);
-	if (!allocation) {
-		zest_device device = (zest_device)allocator->user_data;
-		zest__add_host_memory_pool(device, size);
-		allocation = zloc_Reallocate(allocator, memory, size);
-		ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
-	}
-	return allocation;
-}
+ZEST_PRIVATE void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size);
+ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size);
+ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
-ZEST_PRIVATE zest_bool zest__add_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
@@ -4868,7 +4862,7 @@ ZEST_PRIVATE inline zest_bool zest__is_vulkan_device(zest_device device) { retur
 //App_initialise_and_run_functions
 ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
-ZEST_PRIVATE void zest__destroy(zest_context context);
+ZEST_PRIVATE void zest__destroy_device(zest_device device);
 ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 //-- end of internal functions
 
@@ -4913,7 +4907,7 @@ ZEST_API void zest_EndFrame(zest_context context);
 //marked for deletion.
 ZEST_API void zest_UpdateDevice(zest_device device);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
-ZEST_API void zest_DestroyContext(zest_context context);
+ZEST_API void zest_DestroyDevice(zest_device device);
 //Free all memory used in the renderer and reset it back to an initial state.
 ZEST_API void zest_ResetContext(zest_context context, zest_window_data_t *window_data);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
@@ -5673,7 +5667,7 @@ ZEST_API float zest_DPIScale(zest_context context);
 ZEST_API void zest_SetDPIScale(zest_context context, float scale);
 //Wait for the device to be idle (finish executing all commands). Only recommended if you need to do a one-off operation like change a texture that could
 //still be in use by the GPU
-ZEST_API void zest_WaitForIdleDevice(zest_context context);
+ZEST_API void zest_WaitForIdleDevice(zest_device device);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_EnableVSync(zest_context context);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.
@@ -5704,7 +5698,7 @@ ZEST_API void zest_PrintReports(zest_context context);
 ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
-ZEST_API void zest_ResetValidationErrors(zest_context context);
+ZEST_API void zest_ResetValidationErrors(zest_device device);
 //--End Debug Helpers
 
 //Helper functions for executing commands on the GPU immediately
@@ -6282,43 +6276,58 @@ int zloc_FreeRemote(zloc_allocator *allocator, void* block_extension) {
 	return zloc_Free(allocator, allocation);
 }
 
-zloc_linear_allocator_t *zloc_InitialiseLinearAllocator(void *memory, zloc_size size) {
+int zloc_InitialiseLinearAllocator(zloc_linear_allocator_t *allocator, void *memory, zloc_size size) {
 	if (!memory) {
 		ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: The memory pointer passed in to the initialiser was NULL, did it allocate properly?\n", ZLOC_ERROR_NAME);
-		return NULL;
+		memset(allocator, 0, sizeof(zloc_linear_allocator_t));
+		return 0;
 	}
-	if (size <= sizeof(zloc_linear_allocator_t) + zloc__MINIMUM_BLOCK_SIZE) {
-		ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Size of linear allocotor size is too small. It must be a mimimum of %llu\n", ZLOC_ERROR_NAME, sizeof(zloc_linear_allocator_t) + zloc__MINIMUM_BLOCK_SIZE);
-		return NULL;
+	if (size <= zloc__MINIMUM_BLOCK_SIZE) {
+		ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Size of linear allocator size is too small. It must be a mimimum of %i\n", ZLOC_ERROR_NAME, zloc__MINIMUM_BLOCK_SIZE);
+		memset(allocator, 0, sizeof(zloc_linear_allocator_t));
+		return 0;
 	}
-	zloc_linear_allocator_t *allocator = (zloc_linear_allocator_t *)memory;
-	memset(allocator, 0, sizeof(zloc_linear_allocator_t));
+	allocator->data = memory;
 	allocator->buffer_size = size;
-	allocator->current_offset = sizeof(zloc_linear_allocator_t);
-	return allocator;
+	allocator->current_offset = 0;
+	allocator->user_data = 0;
+	allocator->next = 0;
+	return 1;
 }
 
 void zloc_ResetLinearAllocator(zloc_linear_allocator_t *allocator) {
-	allocator->current_offset = sizeof(zloc_linear_allocator_t);
+	while (allocator) {
+		allocator->current_offset = 0;
+		allocator = allocator->next;
+	}
 }
 
 void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_requested) {
 	if (!allocator) return NULL;
+	void *aligned_address = NULL;
 
-	zloc_size actual_size = size_requested < zloc__MINIMUM_BLOCK_SIZE ? zloc__MINIMUM_BLOCK_SIZE : size_requested;
-	zloc_size alignment = sizeof(void *);
+	while (allocator) {
+		zloc_size actual_size = size_requested < zloc__MINIMUM_BLOCK_SIZE ? zloc__MINIMUM_BLOCK_SIZE : size_requested;
+		zloc_size alignment = sizeof(void *);
 
-	char *current_ptr = (char *)allocator + allocator->current_offset;
-	void *aligned_address = (void *)(((uintptr_t)current_ptr + alignment - 1) & ~(alignment - 1));
+		char *current_ptr = (char *)allocator->data + allocator->current_offset;
+		aligned_address = (void *)(((uintptr_t)current_ptr + alignment - 1) & ~(alignment - 1));
 
-	zloc_size new_offset = (zloc_size)((char *)aligned_address - (char *)allocator) + actual_size;
+		zloc_size new_offset = (zloc_size)((char *)aligned_address - (char *)allocator->data) + actual_size;
 
-	if (new_offset > allocator->buffer_size) {
-		ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Out of memory in linear allocator.\n", ZLOC_ERROR_NAME);
-		return NULL;
+		if (new_offset > allocator->buffer_size) {
+			if (!allocator->next) {
+				ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Out of memory in linear allocator.\n", ZLOC_ERROR_NAME);
+				return NULL;
+			} else {
+				allocator = allocator->next;
+				continue;
+			}
+		}
+
+		allocator->current_offset = new_offset;
+		break;
 	}
-
-	allocator->current_offset = new_offset;
 	return aligned_address;
 }
 
@@ -6332,6 +6341,31 @@ void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 	//marker point not valid!
 	ZLOC_ASSERT(marker >= sizeof(zloc_linear_allocator_t) && marker <= allocator->current_offset && marker <= allocator->buffer_size);     //Not a valid allocator!
 	allocator->current_offset = marker;
+}
+
+void zloc_SetLinearAllocatorUserData(zloc_linear_allocator_t *allocator, void *user_data) {
+	ZLOC_ASSERT(allocator);     //Not a valid allocator!
+	allocator->user_data = user_data;
+}
+
+void zloc_AddNextLinearAllocator(zloc_linear_allocator_t *allocator, zloc_linear_allocator_t *next) {
+	while (allocator) {
+		if (!allocator->next) {
+			allocator->next = next;
+			return;
+		}
+		allocator = allocator->next;
+	}
+	ZEST_ASSERT(0, "Unable to add next allocator, allocators may be currupted!");
+}
+
+zloc_size zloc_GetLinearAllocatorCapacity(zloc_linear_allocator_t *allocator) {
+	zloc_size size = 0;
+	while (allocator) {
+		size += allocator->buffer_size;
+		allocator = allocator->next;
+	}
+	return size;
 }
 
 #include "zest_impl.h"
