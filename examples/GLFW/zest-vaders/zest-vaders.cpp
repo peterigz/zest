@@ -340,11 +340,11 @@ void VadersGame::Init() {
 	title_pm = tfx_CreateEffectManager(game_pm_info);
 
 	//Load a font we can draw text with
-	if (!zest__file_exists("examples/assets/vaders/RussoOne-Regular.msdf")) {
-		font = zest_CreateMSDF(context, "examples/assets/vaders/RussoOne-Regular.ttf", sampler_index, 64.f, 4.f);
-		zest_SaveMSDF(&font, "examples/assets/vaders/RussoOne-Regular.msdf");
+	if (!zest__file_exists("examples/assets/vaders/Anta-Regular.msdf")) {
+		font = zest_CreateMSDF(context, "examples/assets/vaders/Anta-Regular.ttf", sampler_index, 64.f, 4.f);
+		zest_SaveMSDF(&font, "examples/assets/vaders/Anta-Regular.msdf");
 	} else {
-		font = zest_LoadMSDF(context, "examples/assets/vaders/RussoOne-Regular.msdf", sampler_index);
+		font = zest_LoadMSDF(context, "examples/assets/vaders/Anta-Regular.msdf", sampler_index);
 	}
 
 	//font.settings.gamma = .25f;
@@ -1149,16 +1149,10 @@ void VadersGame::Update(float ellapsed) {
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
 		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 		DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
-		tfx_str16_t score_text;
-		tfx_str32_t high_score_text = "High Score: ";
-		tfx_str16_t wave_text = "Wave: ";
-		score_text.Appendf("%i", score);
-		high_score_text.Appendf("%i", high_score);
-		wave_text.Appendf("%i", (int)current_wave);
 		//Draw some text for score and wave
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, score_text.c_str());
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, high_score_text.c_str());
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, wave_text.c_str());
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, "%i", score);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, "High Score: %i", high_score);
+		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave: %i", current_wave);
 	} else if (state == GameState_game_over) {
 		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
 		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
@@ -1179,6 +1173,8 @@ void VadersGame::Update(float ellapsed) {
 	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(tfx_rendering.timeline);
+
 	if (zest_BeginFrame(context)) {
 		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
 		//after zest_BeginFrame every frame.
@@ -1188,7 +1184,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 		if (!frame_graph) {
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
-				zest_WaitOnTimeline(tfx_rendering.timeline);
+				//zest_WaitOnTimeline(timeline);
 				//---------------------------------Resources-------------------------------------------------------
 				zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", tfx_rendering.particle_texture, 0);
 				zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", tfx_rendering.color_ramps_texture, 0);
@@ -1266,7 +1262,7 @@ void VadersGame::Update(float ellapsed) {
 				}
 				//----------------------------------------------------------------------------------------------------
 
-				zest_SignalTimeline(tfx_rendering.timeline);
+				//zest_SignalTimeline(timeline);
 				//Compile frame graph. 
 				frame_graph = zest_EndFrameGraph();
 			}
@@ -1283,6 +1279,7 @@ void VadersGame::Update(float ellapsed) {
 		top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
 		bottom_right_bound = ScreenRay(context, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
 		zest_SetLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(context), zest_ScreenHeight(context), zest_ScreenWidthf(context), zest_ScreenHeightf(context));
+		zest_UpdateFontTransform(&font);
 		zest_SetLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(context), zest_ScreenHeight(context), zest_ScreenWidthf(context), zest_ScreenHeightf(context));
 	}
 }

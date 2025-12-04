@@ -160,7 +160,7 @@ set(EXAMPLES
 	zest-minimal-template
 	zest-compute-example
 	zest-imgui-template
-	zest-render-graph-tests
+	zest-tests
 	zest-vaders
 	zest-timelinefx
 	zest-timelinefx-c

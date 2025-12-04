@@ -55,11 +55,11 @@ void InitExample(zest_fonts_example *app) {
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
 	
-	if (!zest__file_exists("examples/assets/vaders/RussoOne-Regular.msdf")) {
-		app->font = zest_CreateMSDF(app->context, "examples/assets/vaders/RussoOne-Regular.msdf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
-		zest_SaveMSDF(&app->font, "examples/assets/vaders/RussoOne-Regular.msdf");
+	if (!zest__file_exists("examples/assets/vaders/Anta-Regular.msdf")) {
+		app->font = zest_CreateMSDF(app->context, "examples/assets/vaders/Anta-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
+		zest_SaveMSDF(&app->font, "examples/assets/vaders/Anta-Regular.msdf");
 	} else {
-		app->font = zest_LoadMSDF(app->context, "examples/assets/vaders/RussoOne-Regular.msdf", app->imgui.font_sampler_binding_index);
+		app->font = zest_LoadMSDF(app->context, "examples/assets/vaders/Anta-Regular.msdf", app->imgui.font_sampler_binding_index);
 	}
 
 	app->font_resources = zest_CreateFontResources(app->context, "shaders/font.vert", "shaders/font.frag");

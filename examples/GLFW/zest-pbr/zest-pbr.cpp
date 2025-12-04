@@ -81,6 +81,8 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	app->brd_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, app->brd_texture, zest_storage_image_binding);
 	zest_AcquireSampledImageIndex(app->context, app->brd_texture, zest_texture_2d_binding);
 
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
+
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->brd_shader);
 	zest_AddComputeSetLayout(&compute_builder, zest_GetBindlessLayout(app->context));
@@ -95,9 +97,9 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
 
-	zest_SignalTimeline(app->timeline);
-	zest_EndFrameGraphAndWait();
-	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+	zest_SignalTimeline(timeline);
+	zest_EndFrameGraphAndExecute();
+	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 }
 
 void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *user_data) {
@@ -139,6 +141,8 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	app->irr_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, app->irr_texture, zest_storage_image_binding);
 	zest_AcquireSampledImageIndex(app->context, app->irr_texture, zest_texture_cube_binding);
 
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
+
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->irr_shader);
 	zest_AddComputeSetLayout(&compute_builder, zest_GetBindlessLayout(app->context));
@@ -155,9 +159,9 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
 
-	zest_SignalTimeline(app->timeline);
-	zest_EndFrameGraphAndWait();
-	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+	zest_SignalTimeline(timeline);
+	zest_EndFrameGraphAndExecute();
+	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 }
 
 void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *user_data) {
@@ -206,6 +210,8 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 	app->prefiltered_mip_indexes = zest_AcquireImageMipIndexes(app->context, app->prefiltered_texture, app->prefiltered_view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);
 	zest_AcquireSampledImageIndex(app->context, app->prefiltered_texture, zest_texture_cube_binding);
 
+	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
+
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->prefiltered_shader);
 	zest_AddComputeSetLayout(&compute_builder, zest_GetBindlessLayout(app->context));
@@ -222,9 +228,9 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
 
-	zest_SignalTimeline(app->timeline);
-	zest_EndFrameGraphAndWait();
-	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+	zest_SignalTimeline(timeline);
+	zest_EndFrameGraphAndExecute();
+	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 	int d = 0;
 }
 

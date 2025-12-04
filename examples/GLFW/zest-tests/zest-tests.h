@@ -7,7 +7,8 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 17
+#define TEST_COUNT 18
+#define MAX_TEST_RESOURCES 1000
 
 struct ZestTests;
 struct Test;
@@ -40,6 +41,12 @@ struct Test {
 	int cache_count;
 };
 
+struct StressResources {
+	zest_image_handle images[MAX_TEST_RESOURCES];
+	zest_layer_handle layers[MAX_TEST_RESOURCES];
+	zest_buffer buffers[MAX_TEST_RESOURCES];
+};
+
 struct ZestTests {
 	zest_device device;
 	zest_context context;
@@ -57,8 +64,11 @@ struct ZestTests {
 	zest_uint cpu_buffer_index;
 	zest_create_info_t simple_create_info;
 	zest_create_info_t depth_create_info;
+	StressResources stress_resources;
 };
 
 void InitialiseTests(ZestTests *tests);
+void ResetTests(ZestTests *tests);
+void RunTests(ZestTests *tests);
 
 int test__blank_screen(ZestTests *tests, Test *test);
