@@ -26,11 +26,12 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[14] = { "Pass Grouping", test__pass_grouping, 0, 0, 0, tests->simple_create_info };
 	tests->tests[15] = { "Cyclic Dependency", test__cyclic_dependency, 0, 0, zest_fgs_cyclic_dependency, tests->simple_create_info };
 	tests->tests[16] = { "Simple Graph Cache", test__simple_caching, 0, 0, 0, tests->simple_create_info };
-	tests->tests[17] = { "Stress Test Pass Chain", test__stress_pass_chain, 0, 0, 0, tests->simple_create_info };
+	tests->tests[17] = { "Stress Test Simple", test__stress_simple, 0, 0, 0, tests->simple_create_info };
+	tests->tests[18] = { "Stress Test Pass Dependencies", test__stress_pass_dependencies, 0, 0, 0, tests->simple_create_info };
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 17;
+	tests->current_test = 18;
     zest_ResetValidationErrors(tests->device);
 }
 

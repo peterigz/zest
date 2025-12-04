@@ -12,7 +12,7 @@ void zest_CreateResources(ZestTests *tests) {
 	}
 }
 
-int test__stress_pass_chain(ZestTests *tests, Test *test) {
+int test__stress_simple(ZestTests *tests, Test *test) {
 	zest_resource_node image_resources[MAX_TEST_RESOURCES];
 	zest_resource_node buffer_resources[MAX_TEST_RESOURCES];
 	StressResources *resources = &tests->stress_resources;
@@ -31,6 +31,59 @@ int test__stress_pass_chain(ZestTests *tests, Test *test) {
 
 			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
 				zest_BeginRenderPass("Pass");
+				zest_ConnectInput(image_resources[i]);
+				zest_ConnectInput(buffer_resources[i]);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, 0);
+				zest_EndPass();
+			}
+
+			frame_graph = zest_EndFrameGraph();
+			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
+			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
+		}
+		zest_EndFrame(tests->context);
+		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->frame_count++;
+	return test->result;
+}
+
+int test__stress_pass_dependencies(ZestTests *tests, Test *test) {
+	zest_resource_node image_resources[MAX_TEST_RESOURCES];
+	zest_resource_node buffer_resources[MAX_TEST_RESOURCES];
+	StressResources *resources = &tests->stress_resources;
+	zest_CreateResources(tests);
+	char name_string[MAX_TEST_RESOURCES][16];
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
+				snprintf(name_string[i], sizeof(name_string[i]), "Image %i", i);
+				image_resources[i] = zest_ImportImageResource(name_string[i], resources->images[i], 0);
+				snprintf(name_string[i], sizeof(name_string), "Buffer %i", i);
+				buffer_resources[i] = zest_ImportBufferResource(name_string[i], resources->buffers[i], 0);
+			}
+			zest_ImportSwapchainResource();
+
+			int mid_point = MAX_TEST_RESOURCES / 2;
+
+			for (int i = 0; i != mid_point; i++) {
+				zest_BeginRenderPass("Pass A");
+				zest_ConnectInput(image_resources[i]);
+				zest_ConnectInput(buffer_resources[i]);
+				zest_ConnectOutput(image_resources[i + mid_point]);
+				zest_ConnectOutput(buffer_resources[i + mid_point]);
+				zest_SetPassTask(zest_EmptyRenderPass, 0);
+				zest_EndPass();
+			}
+
+			for (int i = mid_point; i != MAX_TEST_RESOURCES; i++) {
+				char name_string[32];
+				snprintf(name_string, sizeof(name_string), "pass %i", i);
+				zest_BeginRenderPass("Pass B");
 				zest_ConnectInput(image_resources[i]);
 				zest_ConnectInput(buffer_resources[i]);
 				zest_ConnectSwapChainOutput();
