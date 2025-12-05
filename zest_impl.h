@@ -2534,9 +2534,9 @@ void zest__cleanup_device(zest_device device) {
 		device->platform->cleanup_queue_backend(device, queue);
 	}
 
-	zest__free_all_device_resource_stores(device);
     zest__cleanup_buffers_in_allocators(device);
 	zest__scan_memory_and_free_resources(device->allocator);
+	zest__free_all_device_resource_stores(device);
 	zest_vec_free(device->allocator, device->global_layout_builder.bindings);
 
     zest_map_foreach(i, device->reports) {
@@ -4558,7 +4558,7 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	float used = (float)offset / (float)capacity * 100.f;
 	ZEST_PRINT("Cached frame graph used %zu bytes, %%%.2f of capacity", offset, used);
     zest_cached_frame_graph_t new_cached_graph = {
-        zloc_PromoteLinearBlock(context->allocator, &context->frame_graph_allocator[context->current_fif], context->frame_graph_allocator[context->current_fif].current_offset),
+        zloc_PromoteLinearBlock(context->allocator, context->frame_graph_allocator[context->current_fif].data, context->frame_graph_allocator[context->current_fif].current_offset),
         frame_graph
     };
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_cached);
