@@ -2565,13 +2565,13 @@ typedef struct zest_bucket_array_t {
 	zest_uint element_size;     // The size of a single element
 } zest_bucket_array_t;
 
-ZEST_PRIVATE inline void zest__initialise_bucket_array(zest_context context, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
+ZEST_PRIVATE inline void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
 ZEST_PRIVATE inline void zest__free_bucket_array(zest_bucket_array_t *array);
 ZEST_API_TMP inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
 ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
 ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
-#define zest_bucket_array_init(context, array, T, cap) zest__initialise_bucket_array(context, array, sizeof(T), cap)
+#define zest_bucket_array_init(allocator, array, T, cap) zest__initialise_bucket_array(allocator, array, sizeof(T), cap)
 #define zest_bucket_array_get(array, T, index) ((T *)zest__bucket_array_get(array, index))
 #define zest_bucket_array_add(array, T) ((T *)zest__bucket_array_add(array))
 #define zest_bucket_array_linear_add(allocator, array, T) ((T *)zest__bucket_array_linear_add(allocator, array))
