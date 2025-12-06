@@ -32,10 +32,11 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[20] = { "Stress Test Transient Buffers", test__stress_transient_buffers, 0, 0, 0, tests->simple_create_info };
 	tests->tests[21] = { "Stress Test Transient Images", test__stress_transient_images, 0, 0, 0, tests->simple_create_info };
 	tests->tests[22] = { "Stress Test All Transients", test__stress_all_transients, 0, 0, 0, tests->simple_create_info };
+	tests->tests[23] = { "Stress Test Multi Queue", test__stress_multi_queue_sync, 0, 0, 0, tests->simple_create_info };
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 22;
+	tests->current_test = 23;
     zest_ResetValidationErrors(tests->device);
 }
 
@@ -102,6 +103,7 @@ int main(void) {
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
+	zest_DeviceBuilderLogToMemory(device_builder);
 	tests.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
