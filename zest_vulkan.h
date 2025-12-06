@@ -261,14 +261,14 @@ void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
 void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count);
-void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count);
+void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 void zest__vk_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
 void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer);
 void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data);
-void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute_handle compute_handle, const void *push_constant);
+void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute compute, const void *push_constant);
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction);
-void zest__vk_dispatch_compute(const zest_command_list command_list, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 void zest__vk_set_screen_sized_viewport(const zest_command_list command_list, float min_depth, float max_depth);
 void zest__vk_scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor);
 void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *viewport);
@@ -278,7 +278,7 @@ void zest__vk_clip(const zest_command_list command_list, float x, float y, float
 void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer);
 void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer);
 void zest__vk_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
-zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image_handle handle);
+zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image image);
 
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder();
 
@@ -1858,6 +1858,17 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 		return 0;
 	}
 
+	//compute_candidate = ZEST_INVALID;
+	//transfer_candidate = ZEST_INVALID;
+
+	if (compute_candidate == ZEST_INVALID) {
+		compute_candidate = graphics_candidate;
+	}
+
+	if (transfer_candidate == ZEST_INVALID) {
+		transfer_candidate = graphics_candidate;
+	}
+
     float queue_priority = 0.0f;
     VkDeviceQueueCreateInfo queue_create_infos[3];
 
@@ -1933,9 +1944,6 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.multiDrawIndirect = VK_TRUE;
     device_features.shaderInt64 = VK_TRUE;
-    //device_features.wideLines = VK_TRUE;
-    //device_features.dualSrcBlend = VK_TRUE;
-    //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
     if (ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
     VkPhysicalDeviceVulkan12Features device_features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -4290,8 +4298,7 @@ void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline 
     vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
 }
 
-void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
-    zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.store, compute_handle.value);
+void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
 	zest_context context = command_list->context;
     zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
     VkDescriptorSet *vk_sets = 0;
@@ -4316,8 +4323,7 @@ void zest__vk_send_push_constants(const zest_command_list command_list, zest_pip
     vkCmdPushConstants(command_list->backend->command_buffer, pipeline->backend->pipeline_layout, zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags), pipeline->pipeline_template->push_constant_range.offset, pipeline->pipeline_template->push_constant_range.size, data);
 }
 
-void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute_handle compute_handle, const void *push_constant) {
-    zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.store, compute_handle.value);
+void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute compute, const void *push_constant) {
     vkCmdPushConstants(command_list->backend->command_buffer, compute->backend->pipeline_layout, compute->backend->push_constant_range.stageFlags, 0, compute->backend->push_constant_range.size, push_constant);
 }
 
@@ -4329,7 +4335,7 @@ void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_
     vkCmdDraw(command_list->backend->command_buffer, vertex_count, instruction->total_indexes, 0, instruction->start_index);
 }
 
-void zest__vk_dispatch_compute(const zest_command_list command_list, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
     vkCmdDispatch(command_list->backend->command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
@@ -4594,8 +4600,7 @@ void zest__vk_insert_compute_image_barrier(const zest_command_list command_list,
 	);
 }
 
-zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image_handle handle) {
-    zest_image image = (zest_image)zest__get_store_resource_checked(handle.store, handle.value);
+zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image image) {
 	zest_context context = command_list->context;
     VkCommandBuffer command_buffer = command_list ? command_list->backend->command_buffer : context->backend->one_time_command_buffer;
 	ZEST_ASSERT(command_buffer);	//You must call begin_single_time_command_buffer before calling this fuction
@@ -4638,9 +4643,7 @@ zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image_
     return ZEST_TRUE;
 }
 
-zest_bool zest_imm_CopyImageToImage(zest_image_handle src_handle, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_image src_image = (zest_image)zest__get_store_resource_checked(src_handle.store, src_handle.value);
-    zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.store, dst_handle.value);
+zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image dst_image, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     VkCommandBuffer copy_command = 0; 
 
     VkImageLayout target_layout = dst_image->backend->vk_current_layout;
@@ -4766,9 +4769,7 @@ zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset
     return ZEST_TRUE;
 }
 
-zest_bool zest_CopyBitmapToImage(zest_context context, void *bitmap, zest_size image_size, zest_image_handle dst_handle, zest_uint width, zest_uint height) {
-    zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.store, dst_handle.value);
-
+zest_bool zest_CopyBitmapToImage(zest_context context, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height) {
     zest_buffer staging_buffer = 0;
 	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
 	staging_buffer = zest_CreateBuffer(context, image_size, &buffer_info);
