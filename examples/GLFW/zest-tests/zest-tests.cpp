@@ -28,10 +28,14 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[16] = { "Simple Graph Cache", test__simple_caching, 0, 0, 0, tests->simple_create_info };
 	tests->tests[17] = { "Stress Test Simple", test__stress_simple, 0, 0, 0, tests->simple_create_info };
 	tests->tests[18] = { "Stress Test Pass Dependencies", test__stress_pass_dependencies, 0, 0, 0, tests->simple_create_info };
+	tests->tests[19] = { "Stress Test Pass Dependency Chain", test__stress_pass_dependency_chain, 0, 0, 0, tests->simple_create_info };
+	tests->tests[20] = { "Stress Test Transient Buffers", test__stress_transient_buffers, 0, 0, 0, tests->simple_create_info };
+	tests->tests[21] = { "Stress Test Transient Images", test__stress_transient_images, 0, 0, 0, tests->simple_create_info };
+	tests->tests[22] = { "Stress Test All Transients", test__stress_all_transients, 0, 0, 0, tests->simple_create_info };
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 18;
+	tests->current_test = 22;
     zest_ResetValidationErrors(tests->device);
 }
 
@@ -63,6 +67,9 @@ void RunTests(ZestTests *tests) {
 				tests->current_test++;
 				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
 				zest_ResetContext(tests->context, 0);
+				zest_ResetDevice(tests->device);
+				tests->stress_resources.image_count = 0;
+				tests->stress_resources.buffer_count = 0;
 				zest_ResetValidationErrors(tests->device);
 				ResetTests(tests);
 			} else {
@@ -79,12 +86,6 @@ int main(void) {
 
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync | zest_validation_flag_best_practices);
-//	zest_create_info_t create_info = zest_CreateInfo();
-	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_memory);
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	ZestTests tests = {};
 	tests.simple_create_info = create_info;

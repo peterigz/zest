@@ -686,12 +686,12 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
-			zest_pass_node pass_a = zest_BeginComputePass(tests->compute_write, "Pass A");
+			zest_BeginComputePass(tests->compute_write, "Pass A");
 			zest_ConnectOutput(output_a);
 			zest_SetPassTask(zest_WriteImageCompute, tests);
 			zest_EndPass();
 
-			zest_pass_node pass_b = zest_BeginGraphicBlankScreen("Pass B");
+			zest_BeginGraphicBlankScreen("Pass B");
 			zest_ConnectInput(output_a);
 			zest_ConnectSwapChainOutput();
 			zest_EndPass();

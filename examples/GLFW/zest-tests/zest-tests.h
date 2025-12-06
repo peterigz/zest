@@ -7,7 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 19
+#define TEST_COUNT 23
 #define MAX_TEST_RESOURCES 1000
 
 struct ZestTests;
@@ -43,8 +43,8 @@ struct Test {
 
 struct StressResources {
 	zest_image_handle images[MAX_TEST_RESOURCES];
-	zest_layer_handle layers[MAX_TEST_RESOURCES];
 	zest_buffer buffers[MAX_TEST_RESOURCES];
+	int image_count, buffer_count;
 };
 
 struct ZestTests {

@@ -2584,23 +2584,15 @@ ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t 
 // --Generic container used to store resources that use int handles
 typedef struct zest_resource_store_t {
 	int magic;
-	void *data;
-	zest_uint current_size;
-	zest_uint capacity;
-	zest_uint struct_size;
+	zest_bucket_array_t data;
 	zest_uint alignment;
 	zest_uint *generations;
 	zest_uint *free_slots;
-	zloc_allocator *allocator;
 	void *origin;
 } zest_resource_store_t;
 
 ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
-ZEST_PRIVATE void zest__reserve_store(zest_resource_store_t *store, zest_uint new_capacity);
 ZEST_PRIVATE void zest__clear_store(zest_resource_store_t *store);
-ZEST_PRIVATE zest_uint zest__grow_store_capacity(zest_resource_store_t *store, zest_uint size);
-ZEST_PRIVATE void zest__resize_store(zest_resource_store_t *store, zest_uint new_size);
-ZEST_PRIVATE void zest__resize_bytes_store(zest_resource_store_t *store, zest_uint new_size);
 ZEST_PRIVATE zest_uint zest__size_in_bytes_store(zest_resource_store_t *store);
 ZEST_PRIVATE zest_handle zest__add_store_resource(zest_resource_store_t *store);
 ZEST_PRIVATE void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handle);
@@ -4672,8 +4664,8 @@ ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
 	zest_uint index = ZEST_HANDLE_INDEX(generic_handle->value);
 	zest_uint generation = ZEST_HANDLE_GENERATION(generic_handle->value);
 	if (generation > 0) {
-		if (index < generic_handle->store->current_size) {
-			char *resource = (char*)generic_handle->store->data + generic_handle->store->struct_size * index;
+		if (index < generic_handle->store->data.current_size) {
+			char *resource = (char*)zest__bucket_array_get(&generic_handle->store->data, index);
 			return ZEST_VALID_HANDLE(resource);
 		}
 	}
@@ -4683,8 +4675,8 @@ ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
 ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
-	if (index < store->current_size && store->generations[index] == generation) {
-		return (void *)((char *)store->data + index * store->struct_size);
+	if (store->generations[index] == generation) {
+		return zest__bucket_array_get(&store->data, index);
 	}
 	return NULL;
 }
@@ -4693,8 +4685,8 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	void *resource = NULL;
-	if (index < store->current_size && store->generations[index] == generation) {
-		resource = (void *)((char *)store->data + index * store->struct_size);
+	if (store->generations[index] == generation) {
+		resource = zest__bucket_array_get(&store->data, index);
 	}
 	ZEST_ASSERT(resource);   //Not a valid handle for the resource. Check the stack trace for the calling function and resource type
 	return resource;
@@ -4769,7 +4761,7 @@ ZEST_PRIVATE void zest__cleanup_compute_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_view_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_view_array_store(zest_device device);
 ZEST_PRIVATE void zest__free_handle(zloc_allocator *allocator, void *handle);
-ZEST_PRIVATE void zest__scan_memory_and_free_resources(zloc_allocator *allocator);
+ZEST_PRIVATE void zest__scan_memory_and_free_resources(zloc_allocator *allocator, zest_bool including_context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
@@ -4906,9 +4898,12 @@ ZEST_API void zest_EndFrame(zest_context context);
 //Maintenance function to be run each time the application loops to flush any unused resources that have been 
 //marked for deletion.
 ZEST_API void zest_UpdateDevice(zest_device device);
-//Shutdown zest and unload/free everything. Call this after zest_Start.
+//Shutdown zest and unload/free everything. Call this at the end of your app to free all memory and shut things
+//down gracefully
 ZEST_API void zest_DestroyDevice(zest_device device);
-//Free all memory used in the renderer and reset it back to an initial state.
+//Free all memory used in the device and reset it back to an initial state.
+ZEST_API void zest_ResetDevice(zest_device device);
+//Free all memory used in a context and reset it back to an initial state.
 ZEST_API void zest_ResetContext(zest_context context, zest_window_data_t *window_data);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
