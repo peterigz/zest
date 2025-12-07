@@ -422,7 +422,7 @@ void VadersGame::Init() {
 	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetBindlessLayout(context));
 	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
 
-	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 1000);
+	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 10000);
 
 	font_resources = zest_CreateFontResources(context, "shaders/font.vert", "shaders/font.frag");
 	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
@@ -1026,168 +1026,170 @@ void VadersGame::Update(float ellapsed) {
 
 	UpdateMouse(this);
 
-	zest_StartTimerLoop(tfx_rendering.timer) {
-		//Render based on the current game state
-		if (state == GameState_title) {
-			//Update the background particle manager
-			if (pending_ticks > 0) {
-				tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
-				//Update the title particle manager
-				tfx_UpdateEffectManager(title_pm, FrameLength * pending_ticks);
-				pending_ticks = 0;
-			}
-			if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
-				if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-					ResetGame(this);
-					vaders[current_buffer].clear();
-					state = GameState_game;
-					wait_for_mouse_release = true;
-				} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-					wait_for_mouse_release = false;
+	zest_layer font_layer = zest_GetLayer(font_layer_handle);
+	zest_layer billboard_layer = zest_GetLayer(billboard_layer_handle);
+	zest_layer tfx_layer = zest_GetLayer(tfx_rendering.layer);
+	zest_shader_resources sprite_resources = zest_GetShaderResources(sprite_resources_handle);
+
+	if (zest_BeginFrame(context)) {
+
+		zest_StartTimerLoop(tfx_rendering.timer) {
+			//Render based on the current game state
+			if (state == GameState_title) {
+				//Update the background particle manager
+				if (pending_ticks > 0) {
+					tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
+					//Update the title particle manager
+					tfx_UpdateEffectManager(title_pm, FrameLength * pending_ticks);
+					pending_ticks = 0;
+				}
+				if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
+					if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+						ResetGame(this);
+						vaders[current_buffer].clear();
+						state = GameState_game;
+						wait_for_mouse_release = true;
+					} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+						wait_for_mouse_release = false;
+					}
 				}
 			}
-		}
-		else if (state == GameState_game) {
-			if (!paused) {
+			else if (state == GameState_game) {
+				if (!paused) {
+					//Update the main game particle manager and the background particle manager
+					if (pending_ticks > 0) {
+						tfx_UpdateEffectManager(game_pm, FrameLength * pending_ticks);
+						tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
+						pending_ticks = 0;
+					}
+					//We can alter the noise offset so that the bullet noise particles cycle their noise offsets to avoid repetition in the noise patterns
+					noise_offset += 1.f * UpdateFrequency;
+					//Update all the game objects
+					UpdatePlayer(this, &player);
+					UpdateVaders(this);
+					UpdateVaderBullets(this);
+					UpdatePlayerBullets(this);
+					UpdatePowerUps(this);
+					current_buffer = current_buffer ^ 1;
+					if (vaders[current_buffer].size() == 0) {
+						current_wave++;
+						SpawnInvaderWave(this);
+					}
+					if (big_vaders[current_buffer].size() == 0 && countdown_to_big_vader <= 0) {
+						SpawnBigVader(this);
+					}
+					else {
+						countdown_to_big_vader -= UpdateFrequency;
+					}
+				}
+			}
+			else if (state == GameState_game_over) {
 				//Update the main game particle manager and the background particle manager
 				if (pending_ticks > 0) {
 					tfx_UpdateEffectManager(game_pm, FrameLength * pending_ticks);
 					tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
 					pending_ticks = 0;
 				}
-				//We can alter the noise offset so that the bullet noise particles cycle their noise offsets to avoid repetition in the noise patterns
 				noise_offset += 1.f * UpdateFrequency;
 				//Update all the game objects
-				UpdatePlayer(this, &player);
 				UpdateVaders(this);
 				UpdateVaderBullets(this);
 				UpdatePlayerBullets(this);
 				UpdatePowerUps(this);
 				current_buffer = current_buffer ^ 1;
-				if (vaders[current_buffer].size() == 0) {
-					current_wave++;
-					SpawnInvaderWave(this);
-				}
-				if (big_vaders[current_buffer].size() == 0 && countdown_to_big_vader <= 0) {
-					SpawnBigVader(this);
-				}
-				else {
-					countdown_to_big_vader -= UpdateFrequency;
-				}
-			}
-		}
-		else if (state == GameState_game_over) {
-			//Update the main game particle manager and the background particle manager
-			if (pending_ticks > 0) {
-				tfx_UpdateEffectManager(game_pm, FrameLength * pending_ticks);
-				tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
-				pending_ticks = 0;
-			}
-			noise_offset += 1.f * UpdateFrequency;
-			//Update all the game objects
-			UpdateVaders(this);
-			UpdateVaderBullets(this);
-			UpdatePlayerBullets(this);
-			UpdatePowerUps(this);
-			current_buffer = current_buffer ^ 1;
-			if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
-				if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-					state = GameState_title;
-					wait_for_mouse_release = true;
-					//Clear out the title effect manager and restart the effect. This is so that when the shader tries to 
-					//lerp with particles in the previous it won't be able to because they've already been replaced with other
-					//sprite data while the game was playing. If you didn't want to do this then you could just give the title
-					//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
-					//by restarting the effect instead.
-					tfx_HardExpireEffect(title_pm, title_index);
-					tfx_ClearEffectManager(title_pm, false, false);
-					if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
-						tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
+				if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
+					if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+						state = GameState_title;
+						wait_for_mouse_release = true;
+						//Clear out the title effect manager and restart the effect. This is so that when the shader tries to 
+						//lerp with particles in the previous it won't be able to because they've already been replaced with other
+						//sprite data while the game was playing. If you didn't want to do this then you could just give the title
+						//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
+						//by restarting the effect instead.
+						tfx_HardExpireEffect(title_pm, title_index);
+						tfx_ClearEffectManager(title_pm, false, false);
+						if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
+							tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer));
+						}
+					} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+						wait_for_mouse_release = false;
 					}
-				} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-					wait_for_mouse_release = false;
 				}
 			}
-		}
-		//Draw the Imgui window
-		BuildUI(this);
-	} zest_EndTimerLoop(tfx_rendering.timer);
+			//Draw the Imgui window
+			BuildUI(this);
+		} zest_EndTimerLoop(tfx_rendering.timer);
 
-	zest_layer font_layer = zest_GetLayer(font_layer_handle);
-	zest_layer billboard_layer = zest_GetLayer(billboard_layer_handle);
-	zest_layer tfx_layer = zest_GetLayer(tfx_rendering.layer);
-	zest_shader_resources sprite_resources = zest_GetShaderResources(sprite_resources_handle);
-
-	zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
-	zest_SetLayerColor(font_layer, 255, 255, 255, 255);
-	//Do all the rendering outside of the update loop
-	//Set the font drawing to the font we loaded in the Init function
-	zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
-	//Render the background particles
-	if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
-		zest_ResetInstanceLayer(tfx_layer);
-		RenderParticles3d(background_pm, this, tfx_layer);
-	}
-
-	if (state == GameState_title) {
-		//If showing the title screen, render the title particles
+		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
+		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
+		//Do all the rendering outside of the update loop
+		//Set the font drawing to the font we loaded in the Init function
+		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
+		//Render the background particles
 		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
-			RenderEffectParticles(title_pm, this, tfx_layer);
+			zest_ResetInstanceLayer(tfx_layer);
+			RenderParticles3d(background_pm, this, tfx_layer);
 		}
-		//Draw the start text
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, .5f, 0.f, "Press Button to Start");
-		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
-		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawPlayer(this, billboard_layer);
-	} else if (state == GameState_game) {
-		//If the game is in the play state draw all the game billboards
-		//Set the billboard drawing to the sprite texture
-		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
-		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		//Draw the player and vaders
-		DrawPlayer(this, billboard_layer);
-		DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
-		//Render all of the game particles
-		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
-			RenderEffectParticles(game_pm, this, tfx_layer);
+
+		if (state == GameState_title) {
+			//If showing the title screen, render the title particles
+			if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+				RenderEffectParticles(title_pm, this, tfx_layer);
+			}
+			//Draw the start text
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, .5f, 0.f, "Press Button to Start");
+			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+			DrawPlayer(this, billboard_layer);
+		} else if (state == GameState_game) {
+			//If the game is in the play state draw all the game billboards
+			//Set the billboard drawing to the sprite texture
+			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+			//Draw the player and vaders
+			DrawPlayer(this, billboard_layer);
+			DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+			//Render all of the game particles
+			if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+				RenderEffectParticles(game_pm, this, tfx_layer);
+			}
+			//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
+			//We want to draw the vader bullets over the top of the particles so that they're easier to see
+			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+			//Draw some text for score and wave
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, "%i", score);
+			//zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, "High Score: %i", high_score);
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave:%i", (int)current_wave);
+		} else if (state == GameState_game_over) {
+			//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
+			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+			DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+			if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
+				RenderEffectParticles(game_pm, this, tfx_layer);
+			}
+			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
+			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");
 		}
-		//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
-		//We want to draw the vader bullets over the top of the particles so that they're easier to see
-		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
-		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
-		//Draw some text for score and wave
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, "%i", score);
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, "High Score: %i", high_score);
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave: %i", (int)current_wave);
-	} else if (state == GameState_game_over) {
-		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
-		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
-		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
-		if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
-			RenderEffectParticles(game_pm, this, tfx_layer);
-		}
-		zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
-		zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
-		DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
-		zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");
-	}
 
-	cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
-	cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
-	zest_frame_graph_cache_key_t cache_key = {};
-	cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
+		cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
+		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
+		zest_frame_graph_cache_key_t cache_key = {};
+		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(tfx_rendering.timeline);
+		zest_execution_timeline timeline = zest_GetExecutionTimeline(tfx_rendering.timeline);
 
-	if (zest_BeginFrame(context)) {
 		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
 		//after zest_BeginFrame every frame.
 		zest_imgui_UpdateBuffers(&imgui);
 		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
 		zest_SetSwapchainClearColor(context, 0.f, 0.f, .2f, 1.f);
+
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 		if (!frame_graph) {
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
@@ -1285,6 +1287,7 @@ void VadersGame::Update(float ellapsed) {
 			request_graph_print--;
 		}
 	}
+
 	if (zest_SwapchainWasRecreated(context)) {
 		top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
 		bottom_right_bound = ScreenRay(context, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);

@@ -112,15 +112,16 @@ void MainLoop(zest_fonts_example *app) {
 
 		zest_layer font_layer = zest_GetLayer(app->font_layer);
 
-		zest_SetMSDFFontDrawing(font_layer, &app->font, &app->font_resources);
-		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
-		zest_DrawMSDFText(font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u !£$%^&", fps);
-
-		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
-
 		if (zest_BeginFrame(app->context)) {
+			zest_SetMSDFFontDrawing(font_layer, &app->font, &app->font_resources);
+			zest_SetLayerColor(font_layer, 255, 255, 255, 255);
+			zest_DrawMSDFText(font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u", fps);
+			zest_DrawMSDFText(font_layer, 20.f, 220.f, .0f, 0.0f, app->font_size, 0.f, "Some more test text !£$%^&*()", fps);
+
+			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+			zest_frame_graph_cache_key_t cache_key = {};
+			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
+
 			zest_SetSwapchainClearColor(app->context, 0.f, 0.2f, 0.5f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
@@ -162,7 +163,8 @@ void MainLoop(zest_fonts_example *app) {
 						zest_ConnectSwapChainOutput();
 					} else {
 						//If there's no ImGui to render then just render a blank screen
-						zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+						zest_BeginRenderPass("Draw Nothing");
+						zest_SetPassTask(zest_EmptyRenderPass, 0);
 						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 						zest_ConnectSwapChainOutput();
 					}
