@@ -43,7 +43,8 @@ struct TimelineFXExample {
 };
 
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
-tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer) {
+tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer_handle) {
+	zest_uniform_buffer buffer = zest_GetUniformBuffer(buffer_handle);
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
@@ -58,7 +59,8 @@ void TimelineFXExample::Init() {
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
 	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
-	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, tfx_rendering.particle_texture, zest_texture_array_binding);
+	zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
+	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, particle_image, zest_texture_array_binding);
 
 	/*
 	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
@@ -83,7 +85,8 @@ void TimelineFXExample::Init() {
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
-	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, tfx_rendering.color_ramps_texture, zest_texture_array_binding);
+	zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
+	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, color_ramps_image, zest_texture_array_binding);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
@@ -236,8 +239,10 @@ void MainLoop(TimelineFXExample *game) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
-					zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
-					zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
+					zest_image particle_image = zest_GetImage(game->tfx_rendering.particle_texture);
+					zest_image color_ramps_image = zest_GetImage(game->tfx_rendering.color_ramps_texture);
+					zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", particle_image, 0);
+					zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", color_ramps_image, 0);
 					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", tfx_layer, false);
 					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", tfx_layer, true);
 					zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
@@ -329,7 +334,7 @@ int main() {
 
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&game.imgui);
-	zest_DestroyContext(game.context);
+	zest_DestroyDevice(game.device);
 	tfx_EndTimelineFX();
 
 	return 0;

@@ -3983,7 +3983,6 @@ ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 
 // --- Add pass nodes that execute user commands ---
-ZEST_API zest_pass_node zest_BeginGraphicBlankScreen(const char *name);
 ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
 ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
 ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);

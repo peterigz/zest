@@ -234,7 +234,6 @@ ZEST_API void zest_FreeFont(zest_msdf_font_t *font);
 ZEST_API float zest_TextWidth(zest_msdf_font_t *font, const char* text, float font_size, float letter_spacing);
 ZEST_API void zest_SetMSDFFontDrawing(zest_layer layer, zest_msdf_font_t *font, zest_font_resources_t *font_resources);
 ZEST_API float zest_DrawMSDFText(zest_layer layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...);
-ZEST_API void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle);
 
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(void *pixels, int size, int width, int height, zest_format format);
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_format format, zest_byte alpha_level);
@@ -888,12 +887,13 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetBindlessLayout(context));
 	zest_SetPipelineDepthTest(font_pipeline, false, false);
 
-	zest_shader_resources_handle font_resources = zest_CreateShaderResources(context);
+	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
+	zest_shader_resources font_resources = zest_GetShaderResources(font_resources_handle);
 	zest_AddGlobalBindlessSetToResources(font_resources);
 
 	zest_font_resources_t resources;
 	resources.pipeline = font_pipeline;
-	resources.shader_resources = font_resources;
+	resources.shader_resources = font_resources_handle;
 
 	return resources;
 }
@@ -977,7 +977,8 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		zest_FreeImageCollection(&font.font_atlas);
 		return font;
 	}
-	zest_image_handle image_atlas = zest_CreateImageAtlas(context, &font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
+	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(context, &font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
+	zest_image image_atlas = zest_GetImage(image_atlas_handle);
 	font.font_binding_index = zest_AcquireSampledImageIndex(context, image_atlas, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
 	zest_uint bitmap_index = 0;
@@ -1067,14 +1068,15 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap.meta.width, font_bitmap.meta.height);
 	image_info.flags = zest_image_preset_texture;
 	font.font_image = zest_CreateImage(context, &image_info);
-	zest_CopyBitmapToImage(context, font_bitmap.data, font_bitmap.meta.size, font.font_image, font_bitmap.meta.width, font_bitmap.meta.height);
+	zest_image font_image = zest_GetImage(font.font_image);
+	zest_CopyBitmapToImage(context, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
 	STBI_FREE(bitmap_buffer);
 
-	font.font_binding_index = zest_AcquireSampledImageIndex(context, font.font_image, zest_texture_array_binding);
+	font.font_binding_index = zest_AcquireSampledImageIndex(context, font_image, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
 	for (int i = 0; i != 255; ++i) {
 		if (font.characters[i].width && font.characters[i].height) {
-			zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font.font_image, zest_texture_array_binding);
+			zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font_image, zest_texture_array_binding);
 		}
 	}
 	font.context = context;
@@ -1220,18 +1222,6 @@ float zest_DrawMSDFText(zest_layer layer, float x, float y, float handle_x, floa
     return zest__draw_msdf_text(layer, buffer, x, y, handle_x, handle_y, size, letter_spacing);
 }
 
-void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle) {
-	zest_context context = (zest_context)handle.store->origin;
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context in the handle. Is it a valid buffer handle?
-    zest_font_uniform_buffer_data_t* ubo_ptr = (zest_font_uniform_buffer_data_t*)zest_GetUniformBufferData(handle);
-    zest_vec3 eye = ZEST_STRUCT_LITERAL(zest_vec3, 0.f, 0.f, -1.f );
-    zest_vec3 center = ZEST__ZERO_INIT(zest_vec3);
-    zest_vec3 up = ZEST_STRUCT_LITERAL( zest_vec3, 0.f, -1.f, 0.f );
-    ubo_ptr->view = zest_LookAt(eye, center, up);
-    ubo_ptr->proj = zest_Ortho(0.f, zest_ScreenWidthf(context) / context->dpi_scale, 0.f, -zest_ScreenHeightf(context) / context->dpi_scale, 0.f, 1000.f);
-    ubo_ptr->screen_size.x = zest_ScreenWidthf(context);
-    ubo_ptr->screen_size.y = zest_ScreenHeightf(context);
-}
 // End msdf_fonts
 
 /*

@@ -222,7 +222,7 @@ int main(void) {
 	zest_FreeFont(&fonts_app.font);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&fonts_app.imgui);
-	zest_DestroyContext(fonts_app.context);
+	zest_DestroyDevice(fonts_app.device);
 
 	return 0;
 }

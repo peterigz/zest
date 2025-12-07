@@ -2885,7 +2885,6 @@ void zest__cleanup_context(zest_context context) {
 			zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[fif]);
 		}
 
-		ZEST_PRINT("Deleting %i", zest__vec_header(context->deferred_resource_freeing_list.transient_images[fif])->id);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_images[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_view_arrays[fif]);
@@ -7074,14 +7073,6 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
     }
 	ZEST__FLAG(resource->flags, zest_resource_node_flag_has_producer);
     return versions;
-}
-
-zest_pass_node zest_BeginGraphicBlankScreen(const char *name) {
-	zest_context context = zest__frame_graph_builder->context;
-    zest_pass_node pass = zest__add_pass_node(name, zest_queue_graphics);
-    zest__frame_graph_builder->current_pass = pass;
-    zest_SetPassTask(zest_EmptyRenderPass, 0);
-    return pass;
 }
 
 zest_pass_node zest_BeginRenderPass(const char *name) {

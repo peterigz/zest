@@ -32,7 +32,7 @@ int test__stress_simple(ZestTests *tests, Test *test) {
 			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
 				char buffer[32];
 				snprintf(buffer, sizeof(buffer), "Image %i", i);
-				image_resources[i] = zest_ImportImageResource(buffer, resources->images[i], 0);
+				image_resources[i] = zest_ImportImageResource(buffer, zest_GetImage(resources->images[i]), 0);
 				snprintf(buffer, sizeof(buffer), "Buffer %i", i);
 				buffer_resources[i] = zest_ImportBufferResource(buffer, resources->buffers[i], 0);
 			}
@@ -72,7 +72,7 @@ int test__stress_pass_dependencies(ZestTests *tests, Test *test) {
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
 			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
 				snprintf(name_string[i], sizeof(name_string[i]), "Image %i", i);
-				image_resources[i] = zest_ImportImageResource(name_string[i], resources->images[i], 0);
+				image_resources[i] = zest_ImportImageResource(name_string[i], zest_GetImage(resources->images[i]), 0);
 				snprintf(name_string[i + MAX_TEST_RESOURCES], sizeof(name_string), "Buffer %i", i);
 				buffer_resources[i] = zest_ImportBufferResource(name_string[i + MAX_TEST_RESOURCES], resources->buffers[i], 0);
 			}
@@ -125,7 +125,7 @@ int test__stress_pass_dependency_chain(ZestTests *tests, Test *test) {
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
 			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
 				snprintf(name_string[i], 16, "Image %i", i);
-				image_resources[i] = zest_ImportImageResource(name_string[i], resources->images[i], 0);
+				image_resources[i] = zest_ImportImageResource(name_string[i], zest_GetImage(resources->images[i]), 0);
 				snprintf(name_string[i + MAX_TEST_RESOURCES], 16, "Buffer %i", i);
 				buffer_resources[i] = zest_ImportBufferResource(name_string[i + MAX_TEST_RESOURCES], resources->buffers[i], 0);
 			}
@@ -232,14 +232,16 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 
 			int mid_point = MAX_TEST_RESOURCES / 2;
 
+		zest_compute compute_write = zest_GetCompute(tests->compute_write);
+
 			for (int i = 0; i != MAX_TEST_RESOURCES; i += 2) {
-				zest_BeginComputePass(tests->compute_write, "Pass A");
+				zest_BeginComputePass(compute_write, "Pass A");
 				zest_ConnectInput(buffer_resources[i]);
 				zest_ConnectOutput(transient_resources[i]);
 				zest_SetPassTask(zest_WriteBufferStressCompute, transient_resources[i]);
 				zest_EndPass();
 
-				zest_BeginComputePass(tests->compute_write, "Pass B");
+				zest_BeginComputePass(compute_write, "Pass B");
 				zest_ConnectInput(transient_resources[i]);
 				zest_ConnectOutput(transient_resources[i + 1]);
 				zest_SetPassTask(zest_WriteBufferStressCompute, transient_resources[i + 1]);
@@ -525,8 +527,10 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 				transient_buffers[i] = zest_AddTransientBufferResource(name_string[i + MAX_TEST_RESOURCES], &info);
 			}
 
+			zest_compute compute_write = zest_GetCompute(tests->compute_write);
+
 			for (int i = 0; i != MAX_TEST_RESOURCES; i += 2) {
-				zest_BeginComputePass(tests->compute_write, "Pass A");
+				zest_BeginComputePass(compute_write, "Pass A");
 				zest_ConnectOutput(transient_images[i]);
 				zest_SetPassTask(zest_StressWriteImageCompute, transient_images[i]);
 				zest_EndPass();
@@ -536,7 +540,7 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 				zest_SetPassTask(zest_StressTransferBuffer, transient_buffers[i]);
 				zest_EndPass();
 
-				zest_BeginComputePass(tests->compute_write, "Pass C");
+				zest_BeginComputePass(compute_write, "Pass C");
 				zest_ConnectOutput(transient_buffers[i + 1]);
 				zest_SetPassTask(zest_EmptyRenderPass, 0);
 				zest_EndPass();
@@ -546,7 +550,8 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 				zest_SetPassTask(zest_EmptyRenderPass, 0);
 				zest_EndPass();
 
-				zest_BeginGraphicBlankScreen("Pass E");
+				zest_BeginRenderPass("Pass E");
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
 				zest_ConnectInput(transient_images[i]);
 				zest_ConnectInput(transient_buffers[i]);
 				zest_ConnectInput(transient_buffers[i + 1]);

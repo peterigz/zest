@@ -9,32 +9,41 @@ typedef struct minimal_app_t {
 } minimal_app_t;
 
 void MainLoop(minimal_app_t *app) {
-	// Begin Render Graph Definition
-	zest_buffer buffer = zest_CreateStagingBuffer(app->context, 64000, 0);
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		zest_UpdateDevice(app->device);
 		glfwPollEvents();
+		//Generate a cache key
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
 		if (zest_BeginFrame(app->context)) {
+			//Try and fetch a cached frame graph using the key
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			if (!frame_graph) {
+				//If no frame graph is cached then start recording a new frame graph
+				//Specifying the cache_key will make the frame graph get cached after it's done recording
 				if (zest_BeginFrameGraph(app->context, "Render Graph", &cache_key)) {
+					//Import the swap chain as a resource
 					zest_ImportSwapchainResource();
-					zest_BeginGraphicBlankScreen("Draw Nothing"); {
+					//Create a new render pass to draw to the swapchain
+					zest_BeginRenderPass("Draw Nothing"); {
+						//Tell the render pass that we want to output to the swap chain
 						zest_ConnectSwapChainOutput();
+						//Set the callback that will record the command buffer that draws to the swap chain. In this
+						//case though we're not drawing anything other then a blank screen.
+						zest_SetPassTask(zest_EmptyRenderPass, 0);
+						//Declare the end of the render pass
 						zest_EndPass();
 					}
+					//End the frame graph. This will compile the frame graph ready to be executed.
 					frame_graph = zest_EndFrameGraph();
-					zest_QueueFrameGraphForExecution(app->context, frame_graph);
 				}
-			} else {
-				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
-			//zest_PrintCompiledFrameGraph(frame_graph);
+			//When building a frame graph that is within a zest_BeginFrame and zest_EndFrame you can 
+			//queue it for execution. This means that it will be executed inside zest_EndFrame and presented
+			//to the window surface.
+			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			zest_EndFrame(app->context);
 		}
 	}
-	zest_FreeBuffer(buffer);
 }
 
 #if defined(_WIN32)
@@ -70,7 +79,7 @@ int main(void)
 
 	//Start the Zest main loop
 	MainLoop(&app);
-	zest_DestroyContext(app.context);
+	zest_DestroyDevice(app.device);
 
 	return 0;
 }

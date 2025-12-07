@@ -18,13 +18,15 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
     image_info.flags = zest_image_preset_texture;
     imgui->font_texture = zest_CreateImage(context, &image_info);
 	imgui->font_region = {};
-    zest_CopyBitmapToImage(context, pixels, upload_size, imgui->font_texture, width, height);
+	zest_image font_image = zest_GetImage(imgui->font_texture);
+    zest_CopyBitmapToImage(context, pixels, upload_size, font_image, width, height);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     imgui->font_sampler = zest_CreateSampler(context, &sampler_info);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(context, imgui->font_texture, zest_texture_2d_binding);
-    imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(context, imgui->font_sampler);
-	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, imgui->font_texture, zest_texture_2d_binding);
+	zest_sampler font_sampler = zest_GetSampler(imgui->font_sampler);
+    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(context, font_image, zest_texture_2d_binding);
+    imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(context, font_sampler);
+	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
     io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
     zest_atlas_region_t *test = &imgui->font_region;
 
@@ -35,7 +37,7 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
 	imgui->fragment_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
 	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
 	imgui->font_resources = zest_GetShaderResources(font_resources_handle);
-    zest_AddGlobalBindlessSetToResources(font_resources_handle);
+    zest_AddGlobalBindlessSetToResources(imgui->font_resources);
 
     //ImGuiPipeline
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(zest_GetContextDevice(imgui->context), "pipeline_imgui");
@@ -74,10 +76,11 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     imgui->font_texture = zest_CreateImage(imgui->context, &image_info);
+	zest_image font_image = zest_GetImage(imgui->font_texture);
 	imgui->font_region = {};
-    zest_CopyBitmapToImage(imgui->context, pixels, upload_size, imgui->font_texture, width, height);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->context, imgui->font_texture, zest_texture_2d_binding);
-	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, imgui->font_texture, zest_texture_2d_binding);
+    zest_CopyBitmapToImage(imgui->context, pixels, upload_size, font_image, width, height);
+    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->context, font_image, zest_texture_2d_binding);
+	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
     
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
@@ -93,7 +96,8 @@ zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui) {
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         //Declare resources
-        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", imgui->font_texture, 0);
+		zest_image font_image = zest_GetImage(imgui->font_texture);
+        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", font_image, 0);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources(imgui, "Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources(imgui, "Imgui Index Buffer");
 		zest_SetResourceUserData(imgui_vertex_buffer, imgui);

@@ -12,7 +12,8 @@ void InitExample(render_target_app_t *example) {
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->context, &sampler_info);
-	example->sampler_index = zest_AcquireSamplerIndex(example->context, example->sampler);
+	zest_sampler sampler = zest_GetSampler(example->sampler);
+	example->sampler_index = zest_AcquireSamplerIndex(example->context, sampler);
 
 	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
 	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
@@ -29,7 +30,8 @@ void InitExample(render_target_app_t *example) {
 	zest_SetPipelineDisableVertexInput(example->composite_pipeline);
 
 	example->render_target_resources = zest_CreateShaderResources(example->context);
-	zest_AddGlobalBindlessSetToResources(example->render_target_resources);
+	zest_shader_resources render_target_resources = zest_GetShaderResources(example->render_target_resources);
+	zest_AddGlobalBindlessSetToResources(render_target_resources);
 
 	//Load a font
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
@@ -75,8 +77,10 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
+	zest_shader_resources resources = zest_GetShaderResources(example->render_target_resources);
+
 	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, command_list);
-	zest_cmd_BindPipelineShaderResource(command_list, pipeline, example->render_target_resources);
+	zest_cmd_BindPipelineShaderResource(command_list, pipeline, resources);
 
 	CompositePushConstants push;
 	push.base_index = down_bindless_index;
@@ -110,8 +114,10 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 		zest_GetBindlessSet(example->context)
 	};
 
+	zest_compute downsampler_compute = zest_GetCompute(example->downsampler_compute);
+
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, example->downsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, downsampler_compute, sets, 1);
 	push.sampler_index = example->sampler_index;
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
@@ -128,10 +134,10 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 		current_width = ZEST__MAX(1u, current_width >> 1);
 		current_height = ZEST__MAX(1u, current_height >> 1);
 
-		zest_cmd_SendCustomComputePushConstants(command_list, example->downsampler_compute, &push);
+		zest_cmd_SendCustomComputePushConstants(command_list, downsampler_compute, &push);
 
 		//Dispatch the compute shader
-		zest_cmd_DispatchCompute(command_list, example->downsampler_compute, group_count_x, group_count_y, 1);
+		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
 		if (mip_index < mip_levels - 1) {
 			zest_cmd_InsertComputeImageBarrier(command_list, downsampler_target, mip_index);
 		}
@@ -162,8 +168,10 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 
 	zest_cmd_CopyImageMip(command_list, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_stage_compute_shader_bit);
 
+	zest_compute upsampler_compute = zest_GetCompute(example->upsampler_compute);
+
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, example->upsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, upsampler_compute, sets, 1);
 
 	zest_uint resource_width = zest_GetResourceWidth(upsampler_target);
 	zest_uint resource_height = zest_GetResourceHeight(upsampler_target);
@@ -182,10 +190,10 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
 		zest_uint group_count_y = (current_height + local_size_y - 1) / local_size_y;
 
-		zest_cmd_SendCustomComputePushConstants(command_list, example->upsampler_compute, &push);
+		zest_cmd_SendCustomComputePushConstants(command_list, upsampler_compute, &push);
 
 		//Dispatch the compute shader
-		zest_cmd_DispatchCompute(command_list, example->upsampler_compute, group_count_x, group_count_y, 1);
+		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
 		if (mip_index > 0) {
 			zest_cmd_InsertComputeImageBarrier(command_list, upsampler_target, mip_index);
 		}
@@ -275,6 +283,9 @@ void Mainloop(render_target_app_t *example) {
 					zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 					zest_ImportSwapchainResource();
 
+					zest_compute downsampler_compute = zest_GetCompute(example->downsampler_compute);
+					zest_compute upsampler_compute = zest_GetCompute(example->upsampler_compute);
+
 					//---------------------------------Transfer Pass----------------------------------------------------
 					zest_BeginTransferPass("Upload Font Data"); {
 						//outputs
@@ -296,7 +307,7 @@ void Mainloop(render_target_app_t *example) {
 					//--------------------------------------------------------------------------------------------------
 
 					//---------------------------------Downsample Pass--------------------------------------------------
-					zest_BeginComputePass(example->downsampler_compute, "Downsampler Pass"); {
+					zest_BeginComputePass(downsampler_compute, "Downsampler Pass"); {
 						//The stage should be assumed based on the pass queue type.
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(downsampler);
@@ -307,7 +318,7 @@ void Mainloop(render_target_app_t *example) {
 					//--------------------------------------------------------------------------------------------------
 
 					//---------------------------------Upsample Pass----------------------------------------------------
-					zest_BeginComputePass(example->upsampler_compute, "Upsampler Pass"); {
+					zest_BeginComputePass(upsampler_compute, "Upsampler Pass"); {
 						//The stage should be assumed based on the pass queue type.
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(upsampler);
@@ -374,7 +385,7 @@ int main()
 	//Start the Zest main loop
 	Mainloop(&app);
 	zest_FreeFont(&app.font);
-	zest_DestroyContext(app.context);
+	zest_DestroyDevice(app.device);
 
 	return 0;
 }

@@ -37,12 +37,12 @@ void InitComputeExample(ComputeExample *app) {
 	STBI_FREE(particle_pixels);
 	STBI_FREE(gradient_pixels);
 
-	app->particle_image_index = zest_AcquireSampledImageIndex(app->context, app->particle_image, zest_texture_2d_binding);
-	app->gradient_image_index = zest_AcquireSampledImageIndex(app->context, app->gradient_image, zest_texture_2d_binding);
+	app->particle_image_index = zest_AcquireSampledImageIndex(app->context, zest_GetImage(app->particle_image), zest_texture_2d_binding);
+	app->gradient_image_index = zest_AcquireSampledImageIndex(app->context, zest_GetImage(app->gradient_image), zest_texture_2d_binding);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
-	app->sampler_index = zest_AcquireSamplerIndex(app->context, app->particle_sampler);
+	app->sampler_index = zest_AcquireSamplerIndex(app->context, zest_GetSampler(app->particle_sampler));
 
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
@@ -120,7 +120,7 @@ void InitComputeExample(ComputeExample *app) {
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->context);
 	//Declare the bindings we want in the shader
-	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(app->compute_uniform_buffer));
+	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(zest_GetUniformBuffer(app->compute_uniform_buffer)));
 	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->context));
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
@@ -167,17 +167,19 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	zest_descriptor_set sets[] = {
 		zest_GetBindlessSet(command_list->context),
-		zest_GetUniformBufferSet(app->compute_uniform_buffer)
+		zest_GetUniformBufferSet(zest_GetUniformBuffer(app->compute_uniform_buffer))
 	};
 	//Bind the compute pipeline
-	zest_cmd_BindComputePipeline(command_list, app->compute, sets, 2);
+	zest_compute compute = zest_GetCompute(app->compute);
+	zest_cmd_BindComputePipeline(command_list, compute, sets, 2);
 	//Dispatch the compute shader
-	zest_cmd_DispatchCompute(command_list, app->compute, PARTICLE_COUNT / 256, 1, 1);
+	zest_cmd_DispatchCompute(command_list, PARTICLE_COUNT / 256, 1, 1);
 }
 
 void UpdateComputeUniformBuffers(ComputeExample *app) {
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->compute_uniform_buffer);
 	//Update our custom compute shader uniform buffer
-	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(app->compute_uniform_buffer);
+	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(uniform_buffer);
 	uniform->deltaT = app->frame_timer * 2.5f;
 	uniform->particleCount = PARTICLE_COUNT;
 	zest_uint fif = zest_CurrentFIF(app->context);
@@ -215,6 +217,8 @@ void MainLoop(ComputeExample *app) {
 			fps = frame_count;
 			frame_count = 0;
 		}
+
+		zest_UpdateDevice(app->device);
 
 		glfwPollEvents();
 
@@ -269,9 +273,10 @@ void MainLoop(ComputeExample *app) {
 					//Resources
 					zest_resource_node particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
+					zest_compute compute = zest_GetCompute(app->compute);
 
 					//---------------------------------Compute Pass-----------------------------------------------------
-					zest_BeginComputePass(app->compute, "Compute Particles"); {
+					zest_BeginComputePass(compute, "Compute Particles"); {
 						zest_ConnectInput(particle_buffer);
 						zest_ConnectOutput(particle_buffer);
 						zest_SetPassTask(RecordComputeCommands, app);
@@ -340,7 +345,7 @@ int main(void) {
 	zest_slang_Shutdown(compute_example.device);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&compute_example.imgui);
-	zest_DestroyContext(compute_example.context);
+	zest_DestroyDevice(compute_example.device);
 
 	return 0;
 }

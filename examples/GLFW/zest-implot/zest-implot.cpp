@@ -120,7 +120,7 @@ int main(void) {
 	MainLoop(&imgui_app);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyContext(imgui_app.context);
+	zest_DestroyDevice(imgui_app.device);
 
 	ImPlot::DestroyContext();
 

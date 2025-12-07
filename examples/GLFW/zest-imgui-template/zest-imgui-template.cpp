@@ -33,9 +33,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	stbi_uc *pixels = stbi_load("examples/assets/wabbit_alpha.png", &width, &height, &channels, 0);
 	int size = width * height * channels;
 	app->wabbit_sprite = zest_AddImageAtlasPixels(&atlas, pixels, size, width, height, zest_format_r8g8_unorm);
-	zest_image_handle image_atlas = zest_CreateImageAtlas(app->context, &atlas, 1024, 1024, 0);
+	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(app->context, &atlas, 1024, 1024, 0);
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    zest_sampler_handle sampler = zest_CreateSampler(app->context, &sampler_info);
+    zest_sampler_handle sampler_handle = zest_CreateSampler(app->context, &sampler_info);
+	zest_sampler sampler = zest_GetSampler(sampler_handle);
+	zest_image image_atlas = zest_GetImage(image_atlas_handle);
 	app->atlas_binding_index = zest_AcquireSampledImageIndex(app->context, image_atlas, zest_texture_2d_binding);
 	app->atlas_sampler_binding_index = zest_AcquireSamplerIndex(app->context, sampler);
 	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
@@ -142,9 +144,6 @@ void MainLoop(ImGuiApp *app) {
 			zest_imgui_DrawImage(app->wabbit_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
 			ImGui::Render();
-			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		if (app->reset) {
@@ -244,7 +243,7 @@ int main(void) {
 	MainLoop(&imgui_app);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyContext(imgui_app.context);
+	zest_DestroyDevice(imgui_app.device);
 
 	return 0;
 }

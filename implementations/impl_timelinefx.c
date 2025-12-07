@@ -48,7 +48,8 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 
 //Basic function for updating the uniform buffer
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_render_resources_t *resources) {
-	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(resources->uniform_buffer);
+	zest_uniform_buffer buffer = zest_GetUniformBuffer(resources->uniform_buffer);
+	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	uniform_buffer->view = zest_LookAt(resources->camera.position, zest_AddVec3(resources->camera.position, resources->camera.front), resources->camera.up);
 	uniform_buffer->proj = zest_Perspective(resources->camera.fov, zest_ScreenWidthf(context) / zest_ScreenHeightf(context), 0.1f, 10000.f);
 	uniform_buffer->proj.v[1].y *= -1.f;
@@ -90,6 +91,8 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//We also need 2 storage buffers, one to access the image data in the vertex shader and the other to access the previous frame particles
 	//so that they can be interpolated in between updates
 
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(resources->uniform_buffer);
+
 	resources->pipeline = zest_BeginPipelineTemplate(device, "Timelinefx pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
 	zest_AddVertexInputBindingDescription(resources->pipeline, 0, sizeof(tfx_instance_t), zest_input_rate_instance);
@@ -104,7 +107,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineShaders(resources->pipeline, resources->vertex_shader, resources->fragment_shader);
 	zest_SetPipelinePushConstantRange(resources->pipeline, sizeof(tfx_push_constants_t), zest_shader_render_stages);
-	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetUniformBufferLayout(resources->uniform_buffer));
+	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetUniformBufferLayout(uniform_buffer));
 	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetBindlessLayout(context));
 	zest_SetPipelineDepthTest(resources->pipeline, false, true);
 	zest_SetPipelineBlend(resources->pipeline, zest_PreMultiplyBlendState());
@@ -118,7 +121,8 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	resources->sampler = zest_CreateSampler(context, &sampler_info);
-	resources->sampler_index = zest_AcquireSamplerIndex(context, resources->sampler);
+	zest_sampler sampler = zest_GetSampler(resources->sampler);
+	resources->sampler_index = zest_AcquireSamplerIndex(context, sampler);
 
 	//Create a buffer to store the image data on the gpu.
 	zest_buffer_info_t image_data_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
@@ -142,8 +146,10 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 
 void zest_tfx_CreateTimelineFXShaderResources(zest_context context, tfx_render_resources_t *tfx_rendering) {
 	tfx_rendering->shader_resource = zest_CreateShaderResources(context);
-	zest_AddUniformBufferToResources(tfx_rendering->shader_resource, tfx_rendering->uniform_buffer);
-	zest_AddGlobalBindlessSetToResources(tfx_rendering->shader_resource);
+	zest_shader_resources shader_resources = zest_GetShaderResources(tfx_rendering->shader_resource);
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering->uniform_buffer);
+	zest_AddUniformBufferToResources(shader_resources, uniform_buffer);
+	zest_AddGlobalBindlessSetToResources(shader_resources);
 }
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {

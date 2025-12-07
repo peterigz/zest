@@ -7,7 +7,8 @@
 #include "imgui_internal.h"
 
 void UpdateUniform3d(SimplePBRExample *app) {
-	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(app->view_buffer));
+	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
+	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(view_buffer));
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
 	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
@@ -20,6 +21,7 @@ void SetupBillboards(SimplePBRExample *app) {
 	zest_shader_handle billboard_vert = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle billboard_frag = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, true);
 
+	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	//Create a pipeline that we can use to draw billboards
 	app->billboard_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(app->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
@@ -35,15 +37,16 @@ void SetupBillboards(SimplePBRExample *app) {
 	zest_SetPipelinePushConstantRange(app->billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
 	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
-	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
+	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetUniformBufferLayout(view_buffer));
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetBindlessLayout(app->context));
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 
 	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t), 100);
 
 	app->sprite_resources = zest_CreateShaderResources(app->context);
-	zest_AddUniformBufferToResources(app->sprite_resources, app->view_buffer);
-	zest_AddGlobalBindlessSetToResources(app->sprite_resources);
+	zest_shader_resources sprite_resources = zest_GetShaderResources(app->sprite_resources);
+	zest_AddUniformBufferToResources(sprite_resources, view_buffer);
+	zest_AddGlobalBindlessSetToResources(sprite_resources);
 }
 
 void zest_DispatchBRDSetup(const zest_command_list command_list, void *user_data) {
@@ -56,20 +59,22 @@ void zest_DispatchBRDSetup(const zest_command_list command_list, void *user_data
 		zest_GetBindlessSet(app->context)
 	};
 
+	zest_compute brd_compute = zest_GetCompute(app->brd_compute);
+
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, app->brd_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, brd_compute, sets, 1);
 
 	zest_uint push;
 
 	push = app->brd_bindless_texture_index;
 
-	zest_cmd_SendCustomComputePushConstants(command_list, app->brd_compute, &push);
+	zest_cmd_SendCustomComputePushConstants(command_list, brd_compute, &push);
 
 	zest_uint group_count_x = (512 + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (512 + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
-	zest_cmd_DispatchCompute(command_list, app->brd_compute, group_count_x, group_count_y, 1);
+	zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
 }
 
 void SetupBRDFLUT(SimplePBRExample *app) {
@@ -77,9 +82,10 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
 	app->brd_texture = zest_CreateImage(app->context, &image_info);
+	zest_image brd_image = zest_GetImage(app->brd_texture);
 
-	app->brd_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, app->brd_texture, zest_storage_image_binding);
-	zest_AcquireSampledImageIndex(app->context, app->brd_texture, zest_texture_2d_binding);
+	app->brd_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, brd_image, zest_storage_image_binding);
+	zest_AcquireSampledImageIndex(app->context, brd_image, zest_texture_2d_binding);
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
@@ -90,9 +96,10 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	app->brd_compute = zest_FinishCompute(&compute_builder, "brd compute");
 
 	zest_BeginFrameGraph(app->context, "BRDFLUT", 0);
-	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", app->brd_texture, 0);
+	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
-	zest_BeginComputePass(app->brd_compute, "Brd compute");
+	zest_compute compute = zest_GetCompute(app->brd_compute);
+	zest_BeginComputePass(compute, "Brd compute");
 	zest_ConnectOutput(texture_resource);
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
@@ -111,8 +118,10 @@ void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *us
 		zest_GetBindlessSet(app->context)
 	};
 
+	zest_compute irr_compute = zest_GetCompute(app->irr_compute);
+
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, app->irr_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, irr_compute, sets, 1);
 
 	app->irr_push_constant.source_env_index = app->skybox_bindless_texture_index;
 	app->irr_push_constant.irr_index = app->irr_bindless_texture_index;
@@ -122,14 +131,15 @@ void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *us
 	app->irr_push_constant.delta_phi = delta_phi;
 	app->irr_push_constant.delta_theta = delta_theta;
 	
-	zest_cmd_SendCustomComputePushConstants(command_list, app->irr_compute, &app->irr_push_constant);
+	zest_cmd_SendCustomComputePushConstants(command_list, irr_compute, &app->irr_push_constant);
 
-	const zest_image_info_t *info = zest_ImageInfo(app->irr_texture);
+	zest_image irr_image = zest_GetImage(app->irr_texture);
+	const zest_image_info_t *info = zest_ImageInfo(irr_image);
 	zest_uint group_count_x = (info->extent.width + local_size - 1) / local_size;
 	zest_uint group_count_y = (info->extent.height + local_size - 1) / local_size;
 
 	//Dispatch the compute shader
-	zest_cmd_DispatchCompute(command_list, app->irr_compute, group_count_x, group_count_y, 6);
+	zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 6);
 }
 
 void SetupIrradianceCube(SimplePBRExample *app) {
@@ -138,8 +148,10 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	image_info.flags = zest_image_preset_storage_cubemap;
 	image_info.layer_count = 6;
 	app->irr_texture = zest_CreateImage(app->context, &image_info);
-	app->irr_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, app->irr_texture, zest_storage_image_binding);
-	zest_AcquireSampledImageIndex(app->context, app->irr_texture, zest_texture_cube_binding);
+	zest_image irr_image = zest_GetImage(app->irr_texture);
+	zest_image skybox_image = zest_GetImage(app->skybox_texture);
+	app->irr_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, irr_image, zest_storage_image_binding);
+	zest_AcquireSampledImageIndex(app->context, irr_image, zest_texture_cube_binding);
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
@@ -150,10 +162,11 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	app->irr_compute = zest_FinishCompute(&compute_builder, "irradiance compute");
 
 	zest_BeginFrameGraph(app->context, "Irradiance", 0);
-	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
-	zest_resource_node irradiance_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
+	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", skybox_image, 0);
+	zest_resource_node irradiance_resource = zest_ImportImageResource("Irradiance texture", irr_image, 0);
 
-	zest_BeginComputePass(app->irr_compute, "Irradiance compute");
+	zest_compute compute = zest_GetCompute(app->irr_compute);
+	zest_BeginComputePass(compute, "Irradiance compute");
 	zest_ConnectInput(skybox_resource);
 	zest_ConnectOutput(irradiance_resource);
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
@@ -173,10 +186,13 @@ void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *u
 		zest_GetBindlessSet(app->context)
 	};
 
+	zest_compute prefiltered_compute = zest_GetCompute(app->prefiltered_compute);
+	zest_image prefiltered_image = zest_GetImage(app->prefiltered_texture);
+
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, app->prefiltered_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, prefiltered_compute, sets, 1);
 	
-	const zest_image_info_t *image_info = zest_ImageInfo(app->prefiltered_texture);
+	const zest_image_info_t *image_info = zest_ImageInfo(prefiltered_image);
 
 	app->prefiltered_push_constant.source_env_index = app->skybox_bindless_texture_index;
 	app->prefiltered_push_constant.num_samples = 32;
@@ -186,7 +202,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *u
 		app->prefiltered_push_constant.roughness = (float)m / (float)(image_info->mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];
 
-		zest_cmd_SendCustomComputePushConstants(command_list, app->prefiltered_compute, &app->prefiltered_push_constant);
+		zest_cmd_SendCustomComputePushConstants(command_list, prefiltered_compute, &app->prefiltered_push_constant);
 
 		float mip_width = static_cast<float>(image_info->extent.width * powf(0.5f, (float)m));
 		float mip_height = static_cast<float>(image_info->extent.height * powf(0.5f, (float)m));
@@ -194,7 +210,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *u
 		zest_uint group_count_y = (zest_uint)ceilf(mip_height / local_size);
 
 		//Dispatch the compute shader
-		zest_cmd_DispatchCompute(command_list, app->prefiltered_compute, group_count_x, group_count_y, 6);
+		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 6);
 	}
 }
 
@@ -204,11 +220,14 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 	image_info.flags = zest_image_preset_storage_mipped_cubemap;
 	image_info.layer_count = 6;
 	app->prefiltered_texture = zest_CreateImage(app->context, &image_info);
+	zest_image prefiltered_image = zest_GetImage(app->prefiltered_texture);
+	zest_image skybox_image = zest_GetImage(app->skybox_texture);
 
-	app->prefiltered_view_array = zest_CreateImageViewsPerMip(app->context, app->prefiltered_texture);
-	app->prefiltered_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, app->prefiltered_texture, zest_storage_image_binding);
-	app->prefiltered_mip_indexes = zest_AcquireImageMipIndexes(app->context, app->prefiltered_texture, app->prefiltered_view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);
-	zest_AcquireSampledImageIndex(app->context, app->prefiltered_texture, zest_texture_cube_binding);
+	app->prefiltered_view_array = zest_CreateImageViewsPerMip(app->context, prefiltered_image);
+	zest_image_view_array prefiltered_view_array = zest_GetImageViewArray(app->prefiltered_view_array);
+	app->prefiltered_bindless_texture_index = zest_AcquireStorageImageIndex(app->context, prefiltered_image, zest_storage_image_binding);
+	app->prefiltered_mip_indexes = zest_AcquireImageMipIndexes(app->context, prefiltered_image, prefiltered_view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);
+	zest_AcquireSampledImageIndex(app->context, prefiltered_image, zest_texture_cube_binding);
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
@@ -219,10 +238,11 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 	app->prefiltered_compute = zest_FinishCompute(&compute_builder, "prefiltered compute");
 
 	zest_BeginFrameGraph(app->context, "Prefiltered", 0);
-	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
-	zest_resource_node prefiltered_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
+	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", skybox_image, 0);
+	zest_resource_node prefiltered_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 
-	zest_BeginComputePass(app->prefiltered_compute, "Prefiltered compute");
+	zest_compute compute = zest_GetCompute(app->prefiltered_compute);
+	zest_BeginComputePass(compute, "Prefiltered compute");
 	zest_ConnectInput(skybox_resource);
 	zest_ConnectOutput(prefiltered_resource);
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
@@ -292,19 +312,25 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->cube_sampler = zest_CreateSampler(app->context, &sampler_info);
-
 	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
 
-	app->skybox_texture = zest_LoadCubemap(app->context, "Pisa Cube", "examples/assets/pisa_cube.ktx");
-	app->skybox_bindless_texture_index = zest_AcquireSampledImageIndex(app->context, app->skybox_texture, zest_texture_cube_binding);
+	zest_sampler cube_sampler = zest_GetSampler(app->cube_sampler);
+	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 
-	app->sampler_2d_index = zest_AcquireSamplerIndex(app->context, app->sampler_2d);
-	app->cube_sampler_index = zest_AcquireSamplerIndex(app->context, app->cube_sampler);
+	app->skybox_texture = zest_LoadCubemap(app->context, "Pisa Cube", "examples/assets/pisa_cube.ktx");
+	zest_image skybox_image = zest_GetImage(app->skybox_texture);
+	app->skybox_bindless_texture_index = zest_AcquireSampledImageIndex(app->context, skybox_image, zest_texture_cube_binding);
+
+	app->sampler_2d_index = zest_AcquireSamplerIndex(app->context, sampler_2d);
+	app->cube_sampler_index = zest_AcquireSamplerIndex(app->context, cube_sampler);
 
 	app->timeline = zest_CreateExecutionTimeline(app->context);
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
+
+	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
+	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 
 	app->pbr_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), zest_shader_render_stages);
@@ -321,8 +347,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
 
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetBindlessLayout(app->context));
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(view_buffer));
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(lights_buffer));
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
@@ -331,21 +357,23 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->pbr_pipeline);
 	zest_ClearPipelineDescriptorLayouts(app->skybox_pipeline);
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetBindlessLayout(app->context));
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(view_buffer));
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(lights_buffer));
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
 	app->pbr_shader_resources = zest_CreateShaderResources(app->context);
-	zest_AddGlobalBindlessSetToResources(app->pbr_shader_resources);							//Set 0
-	zest_AddUniformBufferToResources(app->pbr_shader_resources, app->view_buffer);				//Set 1
-	zest_AddUniformBufferToResources(app->pbr_shader_resources, app->lights_buffer);			//Set 2
+	zest_shader_resources pbr_resources = zest_GetShaderResources(app->pbr_shader_resources);
+	zest_AddGlobalBindlessSetToResources(pbr_resources);						//Set 0
+	zest_AddUniformBufferToResources(pbr_resources, view_buffer);				//Set 1
+	zest_AddUniformBufferToResources(pbr_resources, lights_buffer);				//Set 2
 
 	app->skybox_shader_resources = zest_CreateShaderResources(app->context);
-	zest_AddGlobalBindlessSetToResources(app->skybox_shader_resources);							//Set 0
-	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->view_buffer);			//Set 1
-	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->lights_buffer);			//Set 2
+	zest_shader_resources skybox_resources = zest_GetShaderResources(app->skybox_shader_resources);
+	zest_AddGlobalBindlessSetToResources(skybox_resources);						//Set 0
+	zest_AddUniformBufferToResources(skybox_resources, view_buffer);			//Set 1
+	zest_AddUniformBufferToResources(skybox_resources, lights_buffer);			//Set 2
 
 	app->cube_layer = zest_CreateInstanceMeshLayer(app->context, "Cube Layer");
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Sky Box Layer");
@@ -367,7 +395,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 void UpdateLights(SimplePBRExample *app, float timer) {
 	const float p = 15.0f;
 
-	UniformLights *buffer_data = (UniformLights*)zest_GetUniformBufferData(app->lights_buffer);
+	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
+	UniformLights *buffer_data = (UniformLights*)zest_GetUniformBufferData(lights_buffer);
 
 	buffer_data->lights[0] = zest_Vec4Set(-p, -p * 0.5f, -p, 1.0f);
 	buffer_data->lights[1] = zest_Vec4Set(-p, -p * 0.5f, p, 1.0f);
@@ -548,11 +577,16 @@ void MainLoop(SimplePBRExample *app) {
 		zest_shader_resources pbr_resources = zest_GetShaderResources(app->pbr_shader_resources);
 		zest_shader_resources skybox_resources = zest_GetShaderResources(app->skybox_shader_resources);
 
+		zest_image brd_image = zest_GetImage(app->brd_texture);
+		zest_image irr_image = zest_GetImage(app->irr_texture);
+		zest_image prefiltered_image = zest_GetImage(app->prefiltered_texture);
+		zest_image skybox_image = zest_GetImage(app->skybox_texture);
+
 		UpdateLights(app, rotation_time);
 		app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-		app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
-		app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
-		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
+		app->material_push.irradiance_index = zest_ImageDescriptorIndex(irr_image, zest_texture_cube_binding);
+		app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(brd_image, zest_texture_2d_binding);
+		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(prefiltered_image, zest_texture_cube_binding);
 		app->material_push.sampler_index = app->sampler_2d_index;
 		app->material_push.skybox_sampler_index = app->sampler_2d_index;
 		zest_SetInstanceDrawing(cube_layer, pbr_resources, app->pbr_pipeline);
@@ -578,9 +612,9 @@ void MainLoop(SimplePBRExample *app) {
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
 		zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-		app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
-		app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
-		app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
+		app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
+		app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
+		app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
@@ -603,10 +637,10 @@ void MainLoop(SimplePBRExample *app) {
 					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", cube_layer, false);
 					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", billboard_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
-					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
-					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
-					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
-					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
+					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
+					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", brd_image, 0);
+					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", irr_image, 0);
+					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 					zest_output_group group = zest_CreateOutputGroup();
@@ -654,9 +688,10 @@ void MainLoop(SimplePBRExample *app) {
 							zest_ConnectGroupedOutput(group);
 						} else {
 							//If there's no ImGui to render then just render a blank screen
-							zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+							zest_BeginRenderPass("Draw Nothing");
 							//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 							zest_ConnectGroupedOutput(group);
+							zest_SetPassTask(zest_EmptyRenderPass, 0);
 						}
 						zest_EndPass();
 					}

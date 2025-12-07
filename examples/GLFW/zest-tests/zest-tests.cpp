@@ -36,7 +36,7 @@ void InitialiseTests(ZestTests *tests) {
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 23;
+	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
 }
 
