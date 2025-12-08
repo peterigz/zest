@@ -3111,7 +3111,7 @@ typedef struct zest_debug_t {
 // --Buffer Management
 typedef struct zest_device_memory_t {
 	int magic;
-	zest_context context;
+	zest_device device;
 	zest_device_memory_backend backend;
 	zest_size size;
 } zest_device_memory_t;
@@ -3119,8 +3119,8 @@ typedef struct zest_device_memory_t {
 //A simple buffer struct for creating and mapping GPU memory
 typedef struct zest_device_memory_pool_t {
 	int magic;
-	zest_context context;
 	zest_device_memory_pool_backend backend;
+	zest_device device;
 	zest_buffer_allocator allocator;
 	zest_size size;
 	zest_size minimum_allocation_size;
@@ -3150,8 +3150,15 @@ typedef struct zest_buffer_usage_t {
 	zest_memory_pool_type memory_pool_type;
 	zest_uint memory_type_index;
 	zest_uint alignment;
-	zest_uint frame_in_flight;
 } zest_buffer_usage_t;
+
+typedef struct zest_buffer_allocator_key_t {
+	zest_buffer_usage_t usage;
+	zest_uint frame_in_flight;
+	zest_context context;
+} zest_buffer_allocator_key_t;
+
+
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
 
@@ -4448,15 +4455,15 @@ typedef struct zest_platform_t {
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
-	void*                      (*create_buffer_allocator_backend)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
-	void*                      (*create_buffer_linear_allocator_backend)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
-	zest_bool                  (*add_buffer_memory_pool)(zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
-	zest_bool                  (*create_image_memory_pool)(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
-	zest_bool                  (*create_device_memory)(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory);
+	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
+	void*                      (*create_buffer_linear_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
+	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
+	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
+	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
-	void					   (*cmd_copy_buffer_one_time)(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+	void					   (*cmd_copy_buffer_one_time)(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 	//Images
 	zest_bool 				   (*create_image)(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 	zest_image_view 		   (*create_image_view)(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
@@ -4465,7 +4472,7 @@ typedef struct zest_platform_t {
 	zest_bool 				   (*transition_image_layout)(zest_context context, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 	zest_bool 				   (*create_sampler)(zest_sampler sampler);
 	int 	  				   (*get_image_raw_layout)(zest_image image);
-	zest_bool 				   (*copy_buffer_to_image)(zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
+	zest_bool 				   (*copy_buffer_to_image)(zest_context context, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
 	zest_bool 				   (*generate_mipmaps)(zest_context context, zest_image image);
 	//Descriptor Sets
 	zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
@@ -4480,7 +4487,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
 	zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
 	void                       (*update_bindless_image_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
-	void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+	void                       (*update_bindless_buffer_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
 	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
@@ -4503,8 +4510,8 @@ typedef struct zest_platform_t {
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
 	void*                      (*new_pipeline_backend)(zest_context context);
-	void*                      (*new_memory_pool_backend)(zest_context context);
-	void*                      (*new_memory_backend)(zest_context context);
+	void*                      (*new_memory_pool_backend)(zest_device device);
+	void*                      (*new_memory_backend)(zest_device device);
 	void*					   (*new_device_backend)(zest_device device);
 	void*					   (*new_context_backend)(zest_context context);
 	void*					   (*new_frame_graph_context_backend)(zest_context context);
@@ -4725,10 +4732,11 @@ ZEST_PRIVATE void *zest__allocate_aligned(zloc_allocator *allocator, zest_size s
 ZEST_PRIVATE void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size);
 ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size);
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
-ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
-ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key);
+ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_device device, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
@@ -4838,6 +4846,7 @@ ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_context context, zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_context context, zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_context context, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_context context, zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
 // --End Descriptor set functions
 
@@ -5108,14 +5117,14 @@ ZEST_API void zest_FreeBuffer(zest_buffer buffer);
 //use this command with zest_cmd_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
 //how many buffers you need to upload data for and then call zest_cmd_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
 //one go. For examples see the builtin draw layers that do this like: zest__update_instance_layer_buffers_callback
-ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size);
+ZEST_API void zest_AddCopyCommand(zest_context context, zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size);
 //For host visible buffers, you can use this to get a pointer to the mapped memory range
 
 //Get the default pool size that is set for a specific pool hash.
 //Todo: is this needed?
-ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSizeKey(zest_context context, zest_key hash);
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSizeKey(zest_device device, zest_key hash);
 //Get the default pool size that is set for a specific combination of usage, property and image flags
-ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_context context, zest_memory_property_flags property_flags);
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_device device, zest_memory_property_flags property_flags);
 //Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
 //otherwise it might not take effect on any buffers that are created during initialisation.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetBufferMemoryRequirements at pool creation
