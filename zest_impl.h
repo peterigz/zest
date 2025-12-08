@@ -1473,21 +1473,17 @@ void zest__set_default_pool_sizes(zest_device device) {
 
 	//Buffers
     usage.property_flags = zest_memory_property_device_local_bit;
-	zest_ForEachFrameInFlight(fif) {
-		usage.frame_in_flight = fif;
-		usage.memory_pool_type = zest_memory_pool_type_buffers;
-		zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
-		usage.memory_pool_type = zest_memory_pool_type_small_buffers;
-		zest_SetDevicePoolSize(device, "Small Device Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
-		usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
-		zest_SetDevicePoolSize(device, "Transient Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
-		usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
-		zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
-	}
+	usage.memory_pool_type = zest_memory_pool_type_buffers;
+	zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
+	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
+	zest_SetDevicePoolSize(device, "Small Device Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+	usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
+	zest_SetDevicePoolSize(device, "Transient Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
+	usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
+	zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
-	usage.frame_in_flight = 0;
     zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
 	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
     zest_SetDevicePoolSize(device, "Small Host buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
@@ -1872,16 +1868,16 @@ void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size) 
 
 void zest__unmap_memory(zest_device_memory_pool memory_allocation) {
     if (memory_allocation->mapped) {
-		zest_context context = memory_allocation->context;
-		context->device->platform->unmap_memory(memory_allocation);
+		zest_device device = memory_allocation->device;
+		device->platform->unmap_memory(memory_allocation);
         memory_allocation->mapped = ZEST_NULL;
     }
 }
 
 void zest__destroy_memory(zest_device_memory_pool memory_allocation) {
-	zest_context context = memory_allocation->context;
-    context->device->platform->cleanup_memory_pool_backend(memory_allocation);
-    ZEST__FREE(memory_allocation->context->device->allocator, memory_allocation);
+	zest_device device = memory_allocation->device;
+    device->platform->cleanup_memory_pool_backend(memory_allocation);
+    ZEST__FREE(device->allocator, memory_allocation);
     memory_allocation->mapped = ZEST_NULL;
 }
 
@@ -1943,26 +1939,27 @@ zloc_size zest__get_minimum_block_size(zest_size pool_size) {
     return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
-zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key) {
-	zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)ZEST__NEW(context->device->allocator, zest_buffer_allocator);
+zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key) {
+	zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)ZEST__NEW(device->allocator, zest_buffer_allocator);
 	*buffer_allocator = ZEST__ZERO_INIT(zest_buffer_allocator_t);
 	buffer_allocator->buffer_info = *buffer_info;
 	buffer_allocator->magic = zest_INIT_MAGIC(zest_struct_type_buffer_allocator);
-	buffer_allocator->device = context->device;
+	buffer_allocator->device = device;
 	zest_buffer_pool_size_t pre_defined_pool_size = ZEST__ZERO_INIT(zest_buffer_pool_size_t);
 	if (buffer_info->image_usage_flags) {
-		zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
-		usage.memory_pool_type = zest_memory_pool_type_transient_images;
-		zest_key image_key = zest_map_hash_ptr(context->device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
-		pre_defined_pool_size = zest_GetDevicePoolSizeKey(context, image_key);
+		zest_buffer_allocator_key_t usage_key = ZEST__ZERO_INIT(zest_buffer_allocator_key_t);
+		usage_key.usage.property_flags = buffer_info->property_flags;
+		usage_key.usage.memory_pool_type = zest_memory_pool_type_transient_images;
+		zest_key image_key = zest_map_hash_ptr(device->buffer_allocators, &usage_key, sizeof(zest_buffer_allocator_key_t));
+		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, image_key);
 	} else {
-		pre_defined_pool_size = zest_GetDevicePoolSizeKey(context, key);
+		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, pool_key);
 	}
 	ZEST_ASSERT(pre_defined_pool_size.pool_size);
 	buffer_allocator->pre_defined_pool_size = pre_defined_pool_size;
-	buffer_allocator->backend = (zest_buffer_allocator_backend)context->device->platform->create_buffer_allocator_backend(context, pre_defined_pool_size.pool_size, buffer_info);
+	buffer_allocator->backend = (zest_buffer_allocator_backend)device->platform->create_buffer_allocator_backend(device, pre_defined_pool_size.pool_size, buffer_info);
 	buffer_allocator->name = pre_defined_pool_size.name;
-	buffer_allocator->allocator = (zloc_allocator *)ZEST__ALLOCATE(context->device->allocator, zloc_AllocatorSize());
+	buffer_allocator->allocator = (zloc_allocator *)ZEST__ALLOCATE(device->allocator, zloc_AllocatorSize());
 	buffer_allocator->allocator = zloc_InitialiseAllocatorForRemote(buffer_allocator->allocator);
 	zloc_SetBlockExtensionSize(buffer_allocator->allocator, sizeof(zest_buffer_t));
 	zloc_SetMinimumAllocationSize(buffer_allocator->allocator, pre_defined_pool_size.minimum_allocation_size);
@@ -1972,7 +1969,7 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_b
 	buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
 	buffer_allocator->allocator->merge_next_callback = zest__remote_merge_next_callback;
 	buffer_allocator->allocator->merge_prev_callback = zest__remote_merge_prev_callback;
-	zest_map_insert_key(context->device->allocator, context->device->buffer_allocators, key, buffer_allocator);
+	zest_map_insert_key(device->allocator, device->buffer_allocators, key, buffer_allocator);
 	return buffer_allocator;
 }
 
@@ -1980,18 +1977,18 @@ zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context c
 	zest_buffer_linear_allocator allocator = (zest_buffer_linear_allocator)ZEST__NEW(context->allocator, zest_buffer_linear_allocator);
 	allocator->magic = zest_INIT_MAGIC(zest_struct_type_buffer_linear_allocator);
 	allocator->context = context;
-	allocator->backend = (zest_buffer_linear_allocator_backend)context->device->platform->create_buffer_linear_allocator_backend(context, size, buffer_info);
+	allocator->backend = (zest_buffer_linear_allocator_backend)context->device->platform->create_buffer_linear_allocator_backend(context->device, size, buffer_info);
 	allocator->buffer_size = size;
 	allocator->current_offset = 0;
 	return allocator;
 }
 
-zest_bool zest__add_gpu_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool) {
-    zest_device_memory_pool buffer_pool = (zest_device_memory_pool)ZEST__NEW(context->device->allocator, zest_device_memory_pool);
+zest_bool zest__add_gpu_memory_pool(zest_device device, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool) {
+    zest_device_memory_pool buffer_pool = (zest_device_memory_pool)ZEST__NEW(device->allocator, zest_device_memory_pool);
     *buffer_pool = ZEST__ZERO_INIT(zest_device_memory_pool_t);
     buffer_pool->magic = zest_INIT_MAGIC(zest_struct_type_device_memory_pool);
-	buffer_pool->context = context;
-    buffer_pool->backend = (zest_device_memory_pool_backend)context->device->platform->new_memory_pool_backend(context);
+	buffer_pool->device = device;
+    buffer_pool->backend = (zest_device_memory_pool_backend)device->platform->new_memory_pool_backend(device);
 	buffer_pool->allocator = allocator;
     zest_bool result = ZEST_TRUE;
 	buffer_pool->size = allocator->pre_defined_pool_size.pool_size > minimum_size ? allocator->pre_defined_pool_size.pool_size : zest_RoundUpToNearestPower(minimum_size);
@@ -2000,23 +1997,23 @@ zest_bool zest__add_gpu_memory_pool(zest_context context, zest_buffer_allocator 
 	}
 	buffer_pool->minimum_allocation_size = allocator->pre_defined_pool_size.minimum_allocation_size;
     if (allocator->buffer_info.buffer_usage_flags) {
-        result = context->device->platform->add_buffer_memory_pool(context, buffer_pool->size, allocator, buffer_pool);
+        result = device->platform->add_buffer_memory_pool(device, buffer_pool->size, allocator, buffer_pool);
         if (result != ZEST_TRUE) {
-            ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate memory for buffer memory pool. Tried to allocate %zu.", buffer_pool->size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for buffer memory pool. Tried to allocate %zu.", buffer_pool->size);
             goto cleanup;
             return result;
         }
     }
     else {
-        result = context->device->platform->create_image_memory_pool(context, buffer_pool->size, &allocator->buffer_info, buffer_pool);
+        result = device->platform->create_image_memory_pool(device, buffer_pool->size, &allocator->buffer_info, buffer_pool);
         if (result != ZEST_TRUE) {
-            ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate memory for image memory pool. Tried to allocate %zu.", buffer_pool->size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for image memory pool. Tried to allocate %zu.", buffer_pool->size);
             goto cleanup;
             return result;
         }
     }
     if (allocator->buffer_info.property_flags & zest_memory_property_host_visible_bit) {
-        context->device->platform->map_memory(buffer_pool, ZEST_WHOLE_SIZE, 0);
+        device->platform->map_memory(buffer_pool, ZEST_WHOLE_SIZE, 0);
     }
 	zest__add_remote_range_pool(allocator, buffer_pool);
     *memory_pool = buffer_pool;
@@ -2026,24 +2023,24 @@ zest_bool zest__add_gpu_memory_pool(zest_context context, zest_buffer_allocator 
     return ZEST_FALSE;
 }
 
-zest_device_memory zest__create_device_memory(zest_context context, zest_size size, zest_buffer_info_t *buffer_info) {
-    zest_device_memory memory = (zest_device_memory)ZEST__NEW(context->device->allocator, zest_device_memory);
+zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info) {
+    zest_device_memory memory = (zest_device_memory)ZEST__NEW(device->allocator, zest_device_memory);
     *memory = ZEST__ZERO_INIT(zest_device_memory_t);
-	memory->backend = (zest_device_memory_backend)context->device->platform->new_memory_backend(context);
-	if (!context->device->platform->create_device_memory(context, size, buffer_info, memory)) {
-		context->device->platform->cleanup_memory_backend(memory);
-		ZEST__FREE(context->device->allocator, memory);
+	memory->backend = (zest_device_memory_backend)device->platform->new_memory_backend(device);
+	if (!device->platform->create_device_memory(device, size, buffer_info, memory)) {
+		device->platform->cleanup_memory_backend(memory);
+		ZEST__FREE(device->allocator, memory);
 		return NULL;
 	}
-	memory->context = context;
+	memory->device = device;
 	return memory;
 }
 
 void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool) {
-    zest_vec_push(buffer_pool->context->device->allocator, buffer_allocator->memory_pools, buffer_pool);
+    zest_vec_push(buffer_pool->device->allocator, buffer_allocator->memory_pools, buffer_pool);
     zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool->size);
-    zest_pool_range* range_pool = (zest_pool_range*)ZEST__ALLOCATE(buffer_pool->context->device->allocator, range_pool_size);
-    zest_vec_push(buffer_pool->context->device->allocator, buffer_allocator->range_pools, range_pool);
+    zest_pool_range* range_pool = (zest_pool_range*)ZEST__ALLOCATE(buffer_pool->device->allocator, range_pool_size);
+    zest_vec_push(buffer_pool->device->allocator, buffer_allocator->range_pools, range_pool);
     zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool->size);
 }
 
@@ -2157,11 +2154,15 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 	} else {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_small_transient_buffers : zest_memory_pool_type_small_buffers;
 	}
-    usage.frame_in_flight = buffer_info->frame_in_flight;
-    zest_key key = zest_map_hash_ptr(device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
+	zest_buffer_allocator_key_t usage_key;
+	usage_key.usage = usage;
+    usage_key.frame_in_flight = buffer_info->frame_in_flight;
+	usage_key.context = context;
+    zest_key key = zest_map_hash_ptr(device->buffer_allocators, &usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key(device->buffer_allocators, key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(context, buffer_info, key);
+		zest_key pool_key = zest_map_hash_ptr(device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, buffer_info, key, pool_key);
 		buffer_allocator->usage = usage;
 		ZEST_PRINT("Creating %s GPU Allocator. Property flags: %s. Intended use: %s.", 
 			buffer_allocator->name,
@@ -2169,7 +2170,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 			zest__memory_type_to_string(usage.memory_pool_type)
 		);
         zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(context, buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
+        if (zest__add_gpu_memory_pool(device, buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
 			return 0;
         }
     }
@@ -2178,7 +2179,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
     zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
     if (!buffer) {
         zest_device_memory_pool buffer_pool = 0;
-        if(zest__add_gpu_memory_pool(context, buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
+        if(zest__add_gpu_memory_pool(device, buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
             return 0;
         }
 
@@ -2239,7 +2240,7 @@ zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest
 	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
-	context->device->platform->cmd_copy_buffer_one_time(src_buffer, dst_buffer, size);
+	context->device->platform->cmd_copy_buffer_one_time(context, src_buffer, dst_buffer, size);
     return ZEST_TRUE;
 }
 
@@ -2248,7 +2249,7 @@ zest_bool zest_imm_CopyBufferToImage(zest_context context, zest_buffer src_buffe
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
 	zest_buffer buffer = (zest_buffer)dst_image->buffer;
     ZEST_ASSERT(size <= buffer->size);
-	context->device->platform->copy_buffer_to_image(src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
+	context->device->platform->copy_buffer_to_image(context, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
     return ZEST_TRUE;
 }
 
@@ -2269,7 +2270,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     if (new_size <= (*buffer)->size) {
         return ZEST_FALSE;
     }
-	zest_context context = (*buffer)->memory_pool->context;
+	zest_device device = (*buffer)->memory_pool->device;
     zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	//Preserve the bindless array index
@@ -2279,7 +2280,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     else {
         //Create a new memory pool and try again
         zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(context, buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+        if (zest__add_gpu_memory_pool(device, buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
             return ZEST_FALSE;
         } else {
             zest__add_remote_range_pool(buffer_allocator, buffer_pool);
@@ -2296,7 +2297,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     if ((*buffer)->size > new_size) {
         return ZEST_FALSE;
     }
-	zest_context context = (*buffer)->memory_pool->context;
+	zest_device device = (*buffer)->memory_pool->device;
     zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
     if (new_buffer) {
@@ -2305,7 +2306,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     else {
         //Create a new memory pool and try again
         zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(context, buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+        if (zest__add_gpu_memory_pool(device, buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
             return ZEST_FALSE;
         } else {
             zest__add_remote_range_pool(buffer_allocator, buffer_pool);
@@ -2354,7 +2355,7 @@ void zest_FreeBuffer(zest_buffer buffer) {
     zloc_FreeRemote(buffer->memory_pool->allocator->allocator, buffer);
 }
 
-void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size) {
+void zest_AddCopyCommand(zest_context context, zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size) {
     if (uploader->flags & zest_buffer_upload_flag_initialised) {
         ZEST_ASSERT(uploader->source_buffer == source_buffer && uploader->target_buffer == target_buffer);    //Buffer uploads must be to the same source and target ids with each copy. Use a separate BufferUpload for each combination of source and target buffers
     }
@@ -2363,7 +2364,6 @@ void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer source_bu
     uploader->target_buffer = target_buffer;
     uploader->flags |= zest_buffer_upload_flag_initialised;
 
-	zest_context context = source_buffer->memory_pool->context;
     zest_buffer_copy_t buffer_info = ZEST__ZERO_INIT(zest_buffer_copy_t);
     buffer_info.src_offset = source_buffer->memory_offset;
     buffer_info.dst_offset = target_buffer->memory_offset;
@@ -2382,20 +2382,20 @@ void *zest_BufferDataEnd(zest_buffer buffer) {
 	return (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset + buffer->size);
 }
 
-zest_buffer_pool_size_t zest_GetDevicePoolSizeKey(zest_context context, zest_key hash) {
-    if (zest_map_valid_key(context->device->pool_sizes, hash)) {
-        return *zest_map_at_key(context->device->pool_sizes, hash);
+zest_buffer_pool_size_t zest_GetDevicePoolSizeKey(zest_device device, zest_key hash) {
+    if (zest_map_valid_key(device->pool_sizes, hash)) {
+        return *zest_map_at_key(device->pool_sizes, hash);
     }
     zest_buffer_pool_size_t pool_size = ZEST__ZERO_INIT(zest_buffer_pool_size_t);
     return pool_size;
 }
 
-zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_context context, zest_memory_property_flags property_flags) {
+zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_device device, zest_memory_property_flags property_flags) {
     zest_buffer_usage_t usage;
     usage.property_flags = property_flags;
     zest_key usage_hash = zest_Hash(&usage, sizeof(zest_buffer_usage_t), ZEST_HASH_SEED);
-    if (zest_map_valid_key(context->device->pool_sizes, usage_hash)) {
-        return *zest_map_at_key(context->device->pool_sizes, usage_hash);
+    if (zest_map_valid_key(device->pool_sizes, usage_hash)) {
+        return *zest_map_at_key(device->pool_sizes, usage_hash);
     }
     zest_buffer_pool_size_t pool_size = ZEST__ZERO_INIT(zest_buffer_pool_size_t);
     return pool_size;
@@ -3879,11 +3879,8 @@ void zest_SetGPUBufferPoolSize(zest_device device, zest_size minimum_size, zest_
     usage.property_flags = zest_memory_property_device_local_bit;
 	pool_size = zest_RoundUpToNearestPower(pool_size);
 	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	zest_ForEachFrameInFlight(fif) {
-		usage.frame_in_flight = fif;
-		usage.memory_pool_type = zest_memory_pool_type_buffers;
-		zest_SetDevicePoolSize(device, "Device Buffers", usage, minimum_size, pool_size);
-	}
+	usage.memory_pool_type = zest_memory_pool_type_buffers;
+	zest_SetDevicePoolSize(device, "Device Buffers", usage, minimum_size, pool_size);
 }
 
 void zest_SetGPUSmallBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
@@ -3891,11 +3888,8 @@ void zest_SetGPUSmallBufferPoolSize(zest_device device, zest_size minimum_size, 
     usage.property_flags = zest_memory_property_device_local_bit;
 	pool_size = zest_RoundUpToNearestPower(pool_size);
 	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	zest_ForEachFrameInFlight(fif) {
-		usage.frame_in_flight = fif;
-		usage.memory_pool_type = zest_memory_pool_type_small_buffers;
-		zest_SetDevicePoolSize(device, "Small Device Buffers", usage, minimum_size, pool_size);
-	}
+	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
+	zest_SetDevicePoolSize(device, "Small Device Buffers", usage, minimum_size, pool_size);
 }
 
 void zest_SetGPUTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
@@ -3903,11 +3897,8 @@ void zest_SetGPUTransientBufferPoolSize(zest_device device, zest_size minimum_si
     usage.property_flags = zest_memory_property_device_local_bit;
 	pool_size = zest_RoundUpToNearestPower(pool_size);
 	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	zest_ForEachFrameInFlight(fif) {
-		usage.frame_in_flight = fif;
-		usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
-		zest_SetDevicePoolSize(device, "Transient Buffers", usage, minimum_size, pool_size);
-	}
+	usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
+	zest_SetDevicePoolSize(device, "Transient Buffers", usage, minimum_size, pool_size);
 }
 
 void zest_SetGPUSmallTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
@@ -3915,11 +3906,8 @@ void zest_SetGPUSmallTransientBufferPoolSize(zest_device device, zest_size minim
     usage.property_flags = zest_memory_property_device_local_bit;
 	pool_size = zest_RoundUpToNearestPower(pool_size);
 	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	zest_ForEachFrameInFlight(fif) {
-		usage.frame_in_flight = fif;
-		usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
-		zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, minimum_size, pool_size);
-	}
+	usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
+	zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, minimum_size, pool_size);
 }
 
 void zest_SetStagingBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
@@ -6628,7 +6616,7 @@ zest_uint zest__acquire_bindless_sampler_index(zest_context context, zest_sample
     return array_index;
 }
 
-zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
+zest_uint zest__acquire_bindless_storage_buffer_index(zest_context context, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
     zest_uint binding_number = ZEST_INVALID;
     zest_vec_foreach(i, layout->bindings) {
         zest_descriptor_binding_desc_t *layout_binding = &layout->bindings[i];
@@ -6645,8 +6633,8 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_s
         ZEST__REPORT(layout->context, zest_report_bindless_indexes, "Ran out of space in the descriptor pool when trying to acquire an index for image, binding number %i.", binding_number);
         return ZEST_INVALID;
     }
-	zest_context context = buffer->memory_pool->context;
-    context->device->platform->update_bindless_buffer_descriptor(binding_number, array_index, buffer, set);
+	zest_device device = buffer->memory_pool->device;
+    device->platform->update_bindless_buffer_descriptor(context, binding_number, array_index, buffer, set);
 
     return array_index;
 }
@@ -6710,7 +6698,7 @@ zest_uint *zest_AcquireImageMipIndexes(zest_context context, zest_image image, z
 
 zest_uint zest_AcquireStorageBufferIndex(zest_context context, zest_buffer buffer) {
 	ZEST_ASSERT(buffer);	//Not a valid buffer handle
-    return zest__acquire_bindless_storage_buffer_index(buffer, context->bindless_set_layout, context->bindless_set, zest_storage_buffer_binding);
+    return zest__acquire_bindless_storage_buffer_index(context, buffer, context->bindless_set_layout, context->bindless_set, zest_storage_buffer_binding);
 }
 
 void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer layer) {
@@ -7207,7 +7195,7 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_l
 	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
 	if (bindless_index == ZEST_INVALID) return bindless_index;
 
-    context->device->platform->update_bindless_buffer_descriptor(zest_storage_buffer_binding, bindless_index, resource->storage_buffer, frame_graph->bindless_set);
+    context->device->platform->update_bindless_buffer_descriptor(command_list->context, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, frame_graph->bindless_set);
 
 	zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, zest_storage_buffer_binding };
 	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], binding_index);
@@ -8146,7 +8134,7 @@ void zest_UploadInstanceLayerData(const zest_command_list command_list, void *us
 
 		zest_size memory_in_use = layer->memory_refs[layer->fif].vertex_memory_in_use;
         if (memory_in_use && device_buffer) {
-            zest_AddCopyCommand(&instance_upload, staging_buffer, device_buffer, memory_in_use);
+            zest_AddCopyCommand(command_list->context, &instance_upload, staging_buffer, device_buffer, memory_in_use);
         } else {
             return;
         }
@@ -8197,7 +8185,7 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
         if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
             zest_buffer instance_buffer = layer->memory_refs[layer->fif].device_vertex_data;
 			zest_context context = (zest_context)layer->handle.store->origin;
-			context->device->platform->update_bindless_buffer_descriptor(zest_storage_buffer_binding, array_index, instance_buffer, layer->bindless_set);
+			context->device->platform->update_bindless_buffer_descriptor(layer->context, zest_storage_buffer_binding, array_index, instance_buffer, layer->bindless_set);
         }
     } else {
 		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_instance_data, type_size, minimum_size);
@@ -8496,7 +8484,7 @@ void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list comma
         layer->dirty[layer->fif] = 0;
 
 		if (layer->memory_refs[layer->fif].vertex_memory_in_use) {
-			zest_AddCopyCommand(&instance_upload, staging_buffer, device_buffer, layer->memory_refs[layer->fif].vertex_memory_in_use);
+			zest_AddCopyCommand(context, &instance_upload, staging_buffer, device_buffer, layer->memory_refs[layer->fif].vertex_memory_in_use);
         } else {
             return;
         }
