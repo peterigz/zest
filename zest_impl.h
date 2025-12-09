@@ -1402,6 +1402,11 @@ void zest_SetContextUserData(zest_context context, void *user_data) {
 	context->user_data = user_data;
 }
 
+void zest_DestroyContext(zest_context context) {
+    zest_WaitForIdleDevice(context->device);
+    zest__cleanup_context(context);
+}
+
 void zest_ResetDevice(zest_device device) {
     zest__cleanup_buffers_in_allocators(device);
 	zest__scan_memory_and_free_resources(device->allocator, ZEST_FALSE);
@@ -1431,7 +1436,6 @@ void zest_ResetDevice(zest_device device) {
 void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 
     zest_WaitForIdleDevice(context->device);
-
     zest__cleanup_context(context);
 
 	zest_create_info_t create_info = context->create_info;

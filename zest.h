@@ -4907,6 +4907,8 @@ ZEST_API void zest_UpdateDevice(zest_device device);
 //Shutdown zest and unload/free everything. Call this at the end of your app to free all memory and shut things
 //down gracefully
 ZEST_API void zest_DestroyDevice(zest_device device);
+//Free all memory used in a context 
+ZEST_API void zest_DestroyContext(zest_context context);
 //Free all memory used in the device and reset it back to an initial state.
 ZEST_API void zest_ResetDevice(zest_device device);
 //Free all memory used in a context and reset it back to an initial state.
