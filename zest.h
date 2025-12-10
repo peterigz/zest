@@ -2734,7 +2734,7 @@ ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key
 ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { zest_vec_foreach(i, map) { if (map[i].index < index) continue; map[i].index--; } }
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(name, strlen(name), ZEST_HASH_SEED)
-#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
+#define zest_map_hash_ptr(ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
@@ -3324,7 +3324,7 @@ typedef struct zest_swapchain_t {
 	zest_bool framebuffer_resized;
 } zest_swapchain_t;
 
-typedef void (*zest_get_window_sizes_callback)(void* window_handle, int* fb_width, int* fb_height, int* window_width, int* window_height);
+typedef void (*zest_get_window_sizes_callback)(struct zest_window_data_t* window_data, int* fb_width, int* fb_height, int* window_width, int* window_height);
 
 typedef struct zest_window_data_t {
 	/**
@@ -3347,6 +3347,7 @@ typedef struct zest_window_data_t {
 * - On macOS: Not used (can be NULL).
 */
 	void *display;
+	void *user_data;
 	int width;
 	int height;
 	zest_get_window_sizes_callback window_sizes_callback;
@@ -4455,10 +4456,10 @@ typedef struct zest_platform_t {
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
-	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
+	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
 	void*                      (*create_buffer_linear_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
-	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
-	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
+	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
+	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
 	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
@@ -4510,7 +4511,7 @@ typedef struct zest_platform_t {
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
 	void*                      (*new_pipeline_backend)(zest_context context);
-	void*                      (*new_memory_pool_backend)(zest_device device);
+	void*                      (*new_memory_pool_backend)(zest_buffer_allocator buffer_allocator);
 	void*                      (*new_memory_backend)(zest_device device);
 	void*					   (*new_device_backend)(zest_device device);
 	void*					   (*new_context_backend)(zest_context context);
@@ -4625,6 +4626,9 @@ typedef struct zest_context_t {
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
 	zest_uint vector_id;
 
+	//GPU buffer allocation
+	zest_map_buffer_allocators buffer_allocators;
+
 	//Bindless set layout and set
 	zest_set_layout bindless_set_layout;
 	zest_descriptor_set bindless_set;
@@ -4734,8 +4738,8 @@ ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zes
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key);
-ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_device device, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key);
+ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
@@ -4862,6 +4866,7 @@ ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__destroy_device(zest_device device);
 ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 ZEST_PRIVATE void zest__free_device_buffer_allocators(zest_device device);
+ZEST_PRIVATE void zest__free_context_buffer_allocators(zest_context context);
 //-- end of internal functions
 
 // Enum_to_string_functions - Helper functions to convert enums to strings 
