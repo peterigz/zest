@@ -10,7 +10,7 @@
 void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
-	zest_imgui_Initialise(app->context, &app->imgui);
+	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	app->frame_timer = 1.f;
@@ -251,10 +251,9 @@ void MainLoop(ComputeExample *app) {
 			}
 			ImGui::End();
 			ImGui::Render();
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->loop_timer)
 
-		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
@@ -295,7 +294,7 @@ void MainLoop(ComputeExample *app) {
 
 					//------------------------ ImGui Pass --------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport); {
 						if (imgui_pass) {
 							zest_ConnectSwapChainOutput();
 							zest_EndPass();
