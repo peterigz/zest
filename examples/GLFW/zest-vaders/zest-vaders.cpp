@@ -371,6 +371,8 @@ void VadersGame::Init() {
 	//Set up the font in imgui
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+
 	io.Fonts->Clear();
 	float font_size = 15.f;
 	unsigned char *font_data;
@@ -892,7 +894,7 @@ void BuildUI(VadersGame *game) {
 	//Draw the imgui window
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
-	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+	//if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		ImGui::Begin("Effects");
 		ImGui::Text("FPS: %i", game->last_fps);
 		ImGui::Text("Game Particles: %i", tfx_ParticleCount(game->game_pm));
@@ -934,9 +936,10 @@ void BuildUI(VadersGame *game) {
 			game->request_graph_print = 1;
 		}
 		ImGui::End();
-	}
+	//}
 
 	ImGui::Render();
+	ImGui::UpdatePlatformWindows();
 }
 
 //Draw all the billboards for the game
@@ -1308,6 +1311,9 @@ void VadersGame::Update(float ellapsed) {
 			request_graph_print--;
 		}
 	}
+
+	//Render any additional viewports
+	ImGui::RenderPlatformWindowsDefault(NULL, &imgui);
 
 	if (zest_SwapchainWasRecreated(context)) {
 		top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
