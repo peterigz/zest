@@ -104,7 +104,7 @@ void TimelineFXExample::Init() {
 	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
 	pm = tfx_CreateEffectManager(pm_info);
 
-	zest_imgui_Initialise(context, &imgui);
+	zest_imgui_Initialise(context, &imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(context), true);
 }
 
@@ -134,7 +134,6 @@ void BuildUI(TimelineFXExample *game, zest_uint fps) {
 	ImGui::End();
 
 	ImGui::Render();
-	zest_imgui_UpdateBuffers(&game->imgui);
 }
 
 void UpdateMouse(TimelineFXExample *game) {
@@ -222,7 +221,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
 		}
 
-		game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&game->imgui);
 		game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
@@ -277,7 +276,7 @@ void MainLoop(TimelineFXExample *game) {
 						zest_EndPass();
 					}
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(&game->imgui); {
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&game->imgui, game->imgui.main_viewport); {
 						if (imgui_pass) {
 							zest_ConnectSwapChainOutput();
 						}
