@@ -8357,6 +8357,16 @@ zest_size zest_GetLayerInstanceSize(zest_layer layer) {
 	return layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
+zest_size zest_GetLayerIndexMemoryInUse(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	return layer->memory_refs[layer->fif].index_memory_in_use;
+}
+
+zest_size zest_GetLayerVertexMemoryInUse(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	return layer->memory_refs[layer->fif].vertex_memory_in_use;
+}
+
 void zest__end_mesh_instructions(zest_layer layer) {
 	zest_context context = (zest_context)layer->handle.store->origin;
     if (layer->current_instruction.total_indexes) {

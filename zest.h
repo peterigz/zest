@@ -5426,6 +5426,10 @@ ZEST_API void zest_UploadInstanceLayerData(const zest_command_list command_list,
 ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
 //Get the current size in bytes of all instances being drawn in the layer
 ZEST_API zest_size zest_GetLayerInstanceSize(zest_layer layer);
+//Get the current amount of index memory used by the layer
+ZEST_API zest_size zest_GetLayerIndexMemoryInUse(zest_layer layer);
+//Get the current amount of vertex memory used by the layer
+ZEST_API zest_size zest_GetLayerVertexMemoryInUse(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Get the current amount of instances being drawn in the layer
