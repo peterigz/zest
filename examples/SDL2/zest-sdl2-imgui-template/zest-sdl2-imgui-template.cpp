@@ -7,11 +7,11 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise(app->context, &app->imgui);
+	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
 
 	//Implement a dark style
-	zest_imgui_DarkStyle();
+	zest_imgui_DarkStyle(&app->imgui);
 	
 	//This is an example of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
@@ -33,9 +33,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	stbi_uc *pixels = stbi_load("examples/assets/wabbit_alpha.png", &width, &height, &channels, 0);
 	int size = width * height * channels;
 	app->wabbit_sprite = zest_AddImageAtlasPixels(&atlas, pixels, size, width, height, zest_format_r8g8_unorm);
-	zest_image_handle image_atlas = zest_CreateImageAtlas(app->context, &atlas, 1024, 1024, 0);
+	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(app->context, &atlas, 1024, 1024, 0);
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    zest_sampler_handle sampler = zest_CreateSampler(app->context, &sampler_info);
+    zest_sampler_handle sampler_handle = zest_CreateSampler(app->context, &sampler_info);
+	zest_image image_atlas = zest_GetImage(image_atlas_handle);
+	zest_sampler sampler = zest_GetSampler(sampler_handle);
 	app->atlas_binding_index = zest_AcquireSampledImageIndex(app->context, image_atlas, zest_texture_2d_binding);
 	app->atlas_sampler_binding_index = zest_AcquireSamplerIndex(app->context, sampler);
 	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
@@ -160,15 +162,12 @@ void MainLoop(ImGuiApp *app) {
 			InitImGuiApp(app);
 		}
 
-		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 		//app->cache_info.test_texture = app->test_texture;
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
-			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
-			//after zest_BeginFrame every frame.
-			zest_imgui_UpdateBuffers(&app->imgui);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -181,24 +180,25 @@ void MainLoop(ImGuiApp *app) {
 					//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui);
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport);
 					if (imgui_pass) {
 						//zest_ConnectInput(test_texture, 0);
 						zest_ConnectSwapChainOutput();
+						zest_EndPass();
 					} else {
 						//If there's no ImGui to render then just render a blank screen
-						zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+						zest_BeginRenderPass("Draw Nothing");
+						zest_SetPassTask(zest_EmptyRenderPass, 0);
 						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 						zest_ConnectSwapChainOutput();
+						zest_EndPass();
 					}
-					zest_EndPass();
 					//----------------------------------------------------------------------------------------------------
 					//End the render graph and execute it. This will submit it to the GPU.
-					zest_frame_graph render_graph = zest_EndFrameGraph();
+					frame_graph = zest_EndFrameGraph();
 				}
-			} else {
-				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
+			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			if (app->request_graph_print) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);
@@ -256,7 +256,7 @@ int main(int argc, char *argv[]) {
 	MainLoop(&imgui_app);
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyContext(imgui_app.context);
+	zest_DestroyDevice(imgui_app.device);
 
 	return 0;
 }
