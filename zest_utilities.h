@@ -481,7 +481,7 @@ void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *f
 #elif defined(ZEST_IMPLEMENT_METAL)
     // Metal equivalent
 #endif
-	SDL_GetWindowSize((SDL_Window*)window_handle, window_width, window_height);
+	SDL_GetWindowSize((SDL_Window*)window_data->window_handle, window_width, window_height);
 }
 
 void zest_implsdl2_DestroyWindow(zest_context context) {
