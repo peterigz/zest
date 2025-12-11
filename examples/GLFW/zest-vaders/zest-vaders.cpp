@@ -365,7 +365,7 @@ void VadersGame::Init() {
 	tfx_SetTemplateEffectUpdateCallback(got_power_up, UpdateGotPowerUpEffect);
 
 	//Initialise imgui
-	zest_imgui_Initialise(context, &imgui);
+	zest_imgui_Initialise(context, &imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(context), true);
 
 	//Set up the font in imgui
@@ -1019,6 +1019,43 @@ void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_layer l
 	tfx_ResetInstanceBufferLoopIndex(pm);
 }
 
+void UploadGameLayerData(const zest_command_list command_list, void *user_data) {
+	VadersGame *game = (VadersGame*)user_data;
+
+	zest_layer font_layer = zest_GetLayer(game->font_layer_handle);
+	zest_layer billboard_layer = zest_GetLayer(game->billboard_layer_handle);
+	zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
+	zest_buffer billboard_staging = zest_GetLayerStagingVertexBuffer(billboard_layer);
+	zest_buffer tfx_staging = zest_GetLayerStagingVertexBuffer(tfx_layer);
+	zest_buffer font_staging = zest_GetLayerStagingVertexBuffer(font_layer);
+	zest_buffer billboard_device = zest_GetLayerResourceBuffer(billboard_layer);
+	zest_buffer tfx_device = zest_GetLayerResourceBuffer(tfx_layer);
+	zest_buffer font_device = zest_GetLayerResourceBuffer(font_layer);
+
+	zest_buffer_uploader_t billboard_upload = { 0, billboard_staging, billboard_device, 0 };
+	zest_buffer_uploader_t font_upload = { 0, font_staging, font_device, 0 };
+	zest_buffer_uploader_t tfx_upload = { 0, tfx_staging, tfx_device, 0 };
+
+	zest_size memory_in_use = zest_GetLayerVertexMemoryInUse(billboard_layer);
+	if (memory_in_use && billboard_device) {
+		zest_AddCopyCommand(command_list->context, &billboard_upload, billboard_staging, billboard_device, memory_in_use);
+	}
+
+	memory_in_use = zest_GetLayerVertexMemoryInUse(font_layer);
+	if (memory_in_use && font_device) {
+		zest_AddCopyCommand(command_list->context, &font_upload, font_staging, font_device, memory_in_use);
+	}
+
+	memory_in_use = zest_GetLayerVertexMemoryInUse(tfx_layer);
+	if (memory_in_use && tfx_device) {
+		zest_AddCopyCommand(command_list->context, &tfx_upload, tfx_staging, tfx_device, memory_in_use);
+	}
+
+	zest_cmd_UploadBuffer(command_list, &billboard_upload);
+	zest_cmd_UploadBuffer(command_list, &font_upload);
+	zest_cmd_UploadBuffer(command_list, &tfx_upload);
+}
+
 void VadersGame::Update(float ellapsed) {
 	zest_UpdateDevice(device);
 
@@ -1160,8 +1197,8 @@ void VadersGame::Update(float ellapsed) {
 			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			//Draw some text for score and wave
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .95f, .5f, .5f, .3f, 0.f, "%i", score);
-			//zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, "High Score: %i", high_score);
-			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave:%i", (int)current_wave);
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .05f, zest_ScreenHeightf(context) * .95f, 0.f, .5f, .3f, 0.f, "High Score: %i", high_score);
+			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave: %i", (int)current_wave);
 		} else if (state == GameState_game_over) {
 			//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
 			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
@@ -1176,7 +1213,7 @@ void VadersGame::Update(float ellapsed) {
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");
 		}
 
-		cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&imgui);
 		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
 		zest_frame_graph_cache_key_t cache_key = {};
@@ -1186,7 +1223,6 @@ void VadersGame::Update(float ellapsed) {
 
 		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
 		//after zest_BeginFrame every frame.
-		zest_imgui_UpdateBuffers(&imgui);
 		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
 		zest_SetSwapchainClearColor(context, 0.f, 0.f, .2f, 1.f);
 
@@ -1209,27 +1245,12 @@ void VadersGame::Update(float ellapsed) {
 				zest_ImportSwapchainResource();
 				//--------------------------------------------------------------------------------------------------
 
-				//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-				zest_BeginTransferPass("Upload TFX Pass"); {
-					zest_ConnectOutput(tfx_read_layer);
+				//-------------------------Game Transfer Pass-------------------------------------------------
+				zest_BeginTransferPass("Upload layers"); {
 					zest_ConnectOutput(tfx_write_layer);
-					zest_SetPassTask(zest_UploadInstanceLayerData, tfx_layer);
-					zest_EndPass();
-				}
-				//--------------------------------------------------------------------------------------------------
-
-				//--------------------------Billboard Transfer Pass-------------------------------------------------
-				zest_BeginTransferPass("Upload Instance Data"); {
 					zest_ConnectOutput(billboard_layer_resource);
-					zest_SetPassTask(zest_UploadInstanceLayerData, billboard_layer);
-					zest_EndPass();
-				}
-				//--------------------------------------------------------------------------------------------------
-
-				//----------------------------Font Transfer Pass----------------------------------------------------
-				zest_BeginTransferPass("Upload Font Data"); {
 					zest_ConnectOutput(font_layer_resources);
-					zest_SetPassTask(zest_UploadInstanceLayerData, font_layer);
+					zest_SetPassTask(UploadGameLayerData, this);
 					zest_EndPass();
 				}
 				//--------------------------------------------------------------------------------------------------
@@ -1266,7 +1287,7 @@ void VadersGame::Update(float ellapsed) {
 
 				//------------------------ ImGui Pass ----------------------------------------------------------------
 				//If there's imgui to draw then draw it
-				zest_pass_node imgui_pass = zest_imgui_BeginPass(&imgui); {
+				zest_pass_node imgui_pass = zest_imgui_BeginPass(&imgui, imgui.main_viewport); {
 					if (imgui_pass) {
 						zest_ConnectSwapChainOutput();
 						zest_EndPass();
