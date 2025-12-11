@@ -23,48 +23,55 @@ typedef struct zest_imgui_callback_data_t {
 	zest_imgui_render_state_t *render_state;
 } zest_imgui_callback_data_t;
 
-//This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
 	zest_context context;
+	ImGuiContext *imgui_context;
     zest_image_handle font_texture;
     zest_pipeline_template pipeline;
     zest_shader_handle vertex_shader;
     zest_shader_handle fragment_shader;
-    zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
-    zest_buffer index_staging_buffer[ZEST_MAX_FIF];
-    zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
-    zest_buffer index_device_buffer[ZEST_MAX_FIF];
-	zest_size vertex_memory_in_use;
-	zest_size index_memory_in_use;
-    zest_uint fif;
-    zest_uint dirty[ZEST_MAX_FIF];
-    zest_imgui_push_t push_constants;
 	zest_atlas_region_t font_region;
 	zest_uint font_texture_binding_index;
 	zest_uint font_sampler_binding_index;
 	zest_shader_resources font_resources;
 	zest_sampler_handle font_sampler;
+	struct zest_imgui_viewport_t *main_viewport;
 } zest_imgui_t;
 
+typedef struct zest_imgui_viewport_t {
+	int index;
+	zest_context context;
+	zest_imgui_t *imgui;
+	ImGuiViewport *imgui_viewport;
+	zest_imgui_push_t push_constants;
+    zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
+    zest_buffer index_staging_buffer[ZEST_MAX_FIF];
+} zest_imgui_viewport_t;
+
 void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui);
-void zest_imgui_RecordLayer(const zest_command_list context, zest_imgui_t *imgui, zest_buffer vertex_buffer, zest_buffer index_buffer);
-zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name);
-zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const char *name);
-void zest_imgui_UpdateBuffers(zest_imgui_t *imgui);
+void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_viewport_t *imgui_viewport, zest_buffer vertex_buffer, zest_buffer index_buffer);
+void zest_imgui_RenderViewport(zest_imgui_viewport_t *viewport);
+zest_resource_node zest_imgui_AddVertexResources(zest_imgui_viewport_t *viewport, const char *name);
+zest_resource_node zest_imgui_AddIndexResources(zest_imgui_viewport_t *viewport, const char *name);
 void zest_imgui_DrawImage(zest_atlas_region_t *image, float width, float height, ImDrawCallback callback, void *user_data);
 void zest_imgui_DrawImage2(zest_atlas_region_t *image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_atlas_region_t *image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region_t *image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels);
-zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui);
-zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);
-zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource);
-void zest_imgui_DrawImGuiRenderPass(const zest_command_list context, void *user_data);
+zest_pass_node zest_imgui_BeginViewportPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport);
+void zest_imgui_DrawImGuiViewportRenderPass(const zest_command_list context, void *user_data);
 void zest_imgui_UploadImGuiPass(const zest_command_list context, void *user_data);
-void zest_imgui_DarkStyle();
-bool zest_imgui_HasGuiToDraw();
+void zest_imgui_DarkStyle(zest_imgui_t *imgui);
+bool zest_imgui_HasGuiToDraw(zest_imgui_t *imgui);
+void zest_imgui_GetWindowSizeCallback(zest_window_data_t *window_handle, int *fb_width, int *fb_height, int *window_width, int *window_height);
 void zest_imgui_Destroy(zest_imgui_t *imgui);
+zest_imgui_viewport_t *zest_imgui_AcquireViewport(zest_device device);
+void zest_imgui_FreeViewport(zest_device device, zest_imgui_viewport_t *viewport);
+
+void zest__imgui_create_viewport(ImGuiViewport* viewport);
+void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg);
+void zest__imgui_destroy_viewport(ImGuiViewport* viewport);
 
 //----------------------
 //Imgui vert shader

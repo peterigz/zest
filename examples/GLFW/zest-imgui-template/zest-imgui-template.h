@@ -13,25 +13,15 @@ struct RenderCacheInfo {
 };
 
 struct ImGuiApp {
-	zest_index imgui_draw_routine_index;
-	zest_image_handle imgui_font_texture;
-	zest_image_handle test_texture;
-	zest_timer_t timer;
-	zest_pipeline_template imgui_sprite_pipeline;
-	zest_shader_handle imgui_sprite_shader;
-	zest_context context;
 	zest_device device;
-	zest_atlas_region_t *wabbit_sprite;
-	zest_imgui_t imgui;
+	zest_context context;
+	zest_imgui_viewport_t *main_viewport;
 	RenderCacheInfo cache_info;
-	zest_uint atlas_binding_index;
-	zest_uint atlas_sampler_binding_index;
-	bool sync_refresh;
-	bool request_graph_print;
-	bool reset;
+	zest_imgui_t imgui;
+	zest_timer_t timer;
 };
 
-void InitImGuiApp(ImGuiApp *app);
+void InitImGui(ImGuiApp *app, zest_context context, zest_imgui_t &imgui);
 void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd);
 
 //----------------------

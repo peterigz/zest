@@ -5,8 +5,11 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
 	*imgui = {};
 	imgui->context = context;
     imgui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
-    ImGui::CreateContext();
+    imgui->imgui_context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(imgui->imgui_context);
     ImGuiIO &io = ImGui::GetIO();
+	io.UserData = imgui;
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_ViewportsEnable;
     io.DisplaySize = ImVec2(zest_ScreenWidthf(context), zest_ScreenHeightf(context));
     io.DisplayFramebufferScale = ImVec2(context->dpi_scale, context->dpi_scale);
     unsigned char *pixels;
@@ -58,15 +61,20 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
 
     imgui->pipeline = imgui_pipeline;
 
-	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
-	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
+	ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+	platform_io.Renderer_CreateWindow = zest__imgui_create_viewport;
+	platform_io.Renderer_DestroyWindow = zest__imgui_destroy_viewport;
+	platform_io.Renderer_RenderWindow = zest__imgui_render_viewport;
 
-    zest_ForEachFrameInFlight(fif) {
-		vertex_info.frame_in_flight = fif;
-		index_info.frame_in_flight = fif;
-        imgui->vertex_device_buffer[fif] = zest_CreateBuffer(context, 1024 * 1024, &vertex_info);
-        imgui->index_device_buffer[fif] = zest_CreateBuffer(context, 1024 * 1024, &index_info);
-    }
+	zest_device device = zest_GetContextDevice(context);
+	zest_imgui_viewport_t* viewport = zest_imgui_AcquireViewport(device);
+	viewport->context = context;
+	viewport->imgui = imgui;
+
+	ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+	viewport->imgui_viewport = main_viewport;
+	main_viewport->RendererUserData = viewport;
+	imgui->main_viewport = viewport;
 }
 
 //Dear ImGui helper functions
@@ -86,82 +94,127 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
     io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
 }
 
-bool zest_imgui_HasGuiToDraw() {
+bool zest_imgui_HasGuiToDraw(zest_imgui_t *imgui) {
+	ImGui::SetCurrentContext(imgui->imgui_context);
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     return (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0);
 }
 
-zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-    
+void zest_imgui_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
+	ImGuiViewport *viewport = (ImGuiViewport *)window_data->user_data;
+	*fb_width = (int)viewport->Size.x;
+	*fb_height = (int)viewport->Size.y;
+	*window_width = (int)viewport->Size.x;
+	*window_height = (int)viewport->Size.y;
+}
+
+zest_pass_node zest_imgui_BeginViewportPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport) {
+    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         //Declare resources
 		zest_image font_image = zest_GetImage(imgui->font_texture);
         zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", font_image, 0);
-		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources(imgui, "Imgui Vertex Buffer");
-		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources(imgui, "Imgui Index Buffer");
-		zest_SetResourceUserData(imgui_vertex_buffer, imgui);
-		zest_SetResourceUserData(imgui_index_buffer, imgui);
+		zest_resource_node imgui_vertex_buffer = zest_imgui_AddVertexResources(viewport, "Viewport Vertex Buffer");
+		zest_resource_node imgui_index_buffer = zest_imgui_AddIndexResources(viewport, "Viewport Index Buffer");
+		zest_SetResourceUserData(imgui_vertex_buffer, viewport);
+		zest_SetResourceUserData(imgui_index_buffer, viewport);
         //Transfer Pass
-        zest_BeginTransferPass("Upload ImGui"); {
+        zest_BeginTransferPass("Upload ImGui Viewport"); {
             zest_ConnectOutput(imgui_vertex_buffer);
             zest_ConnectOutput(imgui_index_buffer);
             //task
-            zest_SetPassTask(zest_imgui_UploadImGuiPass, imgui);
+            zest_SetPassTask(zest_imgui_UploadImGuiPass, viewport);
             zest_EndPass();
         }
         //Graphics Pass for ImGui outputting to the output passed in to this function
-		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Pass");
+		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Viewport Pass");
         //inputs
 		zest_ConnectInput(imgui_font_texture);
         zest_ConnectInput(imgui_vertex_buffer);
 		zest_ConnectInput(imgui_index_buffer);
         //Task
-		zest_SetPassTask(zest_imgui_DrawImGuiRenderPass, imgui);
+		zest_SetPassTask(zest_imgui_DrawImGuiViewportRenderPass, viewport);
         return imgui_pass;
     }
     return 0;
 }
 
-// This is the function that will be called for your pass.
-void zest_imgui_DrawImGuiRenderPass(const zest_command_list command_list, void *user_data) {
-	zest_imgui_t *imgui = (zest_imgui_t*)user_data;
-    zest_buffer vertex_buffer = zest_GetPassInputBuffer(command_list, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassInputBuffer(command_list, "Imgui Index Buffer");
-    zest_imgui_RecordLayer(command_list, imgui, vertex_buffer, index_buffer);
+// This is the function that will be called for each viewport if you're using multi viewport.
+void zest_imgui_DrawImGuiViewportRenderPass(const zest_command_list command_list, void *user_data) {
+	zest_imgui_viewport_t *imgui_viewport = (zest_imgui_viewport_t*)user_data;
+    zest_buffer vertex_buffer = zest_GetPassInputBuffer(command_list, "Viewport Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassInputBuffer(command_list, "Viewport Index Buffer");
+    zest_imgui_RecordViewport(command_list, imgui_viewport, vertex_buffer, index_buffer);
 }
 
 // This is the function that will be called for your pass.
 void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user_data) {
-	zest_imgui_t *imgui = (zest_imgui_t*)user_data;
+	zest_imgui_viewport_t *viewport = (zest_imgui_viewport_t*)user_data;
 
-    if (!imgui->dirty[imgui->fif]) {
-        return;
+    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
+	zest_imgui_t *imgui = viewport->imgui;
+
+	zest_context context = viewport->context;
+
+	zest_FreeBuffer(viewport->index_staging_buffer[context->current_fif]);
+	zest_FreeBuffer(viewport->vertex_staging_buffer[context->current_fif]);
+
+    if (imgui_draw_data) {
+		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
+		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
+		zest_buffer staging_index_buffer = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
+		viewport->index_staging_buffer[context->current_fif] = staging_index_buffer;
+		viewport->vertex_staging_buffer[context->current_fif] = staging_vertex_buffer;
+		zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Vertex Buffer");
+		zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Index Buffer");
+
+		zest_vec2 scale = { 2.0f / imgui_draw_data->DisplaySize.x, 2.0f / imgui_draw_data->DisplaySize.y };
+		zest_vec2 translate = { -1.0f - imgui_draw_data->DisplayPos.x * scale.x, -1.0f - imgui_draw_data->DisplayPos.y * scale.y };
+
+		viewport->push_constants.transform = zest_Vec4Set(scale.x, scale.y, translate.x, translate.y);
+
+        ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(staging_index_buffer);
+        ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(staging_vertex_buffer);
+
+        for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
+            const ImDrawList *cmd_list = imgui_draw_data->CmdLists[n];
+            memcpy(vtxDst, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
+            memcpy(idxDst, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
+            vtxDst += cmd_list->VtxBuffer.Size;
+            idxDst += cmd_list->IdxBuffer.Size;
+        }
+
+		zest_buffer_uploader_t index_upload = { 0, staging_index_buffer, index_buffer, 0 };
+		zest_buffer_uploader_t vertex_upload = { 0, staging_vertex_buffer, vertex_buffer, 0 };
+
+		if (vertex_memory_in_use && index_memory_in_use) {
+			zest_AddCopyCommand(command_list->context, &vertex_upload, staging_vertex_buffer, vertex_buffer, vertex_memory_in_use);
+			zest_AddCopyCommand(command_list->context, &index_upload, staging_index_buffer, index_buffer, index_memory_in_use);
+		}
+
+		zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
+
+		zest_cmd_UploadBuffer(command_list, &vertex_upload);
+		zest_cmd_UploadBuffer(command_list, &index_upload);
     }
-
-    zest_buffer staging_vertex = imgui->vertex_staging_buffer[imgui->fif];
-    zest_buffer staging_index = imgui->index_staging_buffer[imgui->fif];
-    zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Imgui Index Buffer");
-
-    zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
-    zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
-
-    if (imgui->vertex_memory_in_use && imgui->index_memory_in_use) {
-        zest_AddCopyCommand(&vertex_upload, staging_vertex, vertex_buffer, imgui->vertex_memory_in_use);
-        zest_AddCopyCommand(&index_upload, staging_index, index_buffer, imgui->index_memory_in_use);
-    }
-
-    zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
-
-    zest_cmd_UploadBuffer(command_list, &vertex_upload);
-    zest_cmd_UploadBuffer(command_list, &index_upload);
-
-    imgui->dirty[imgui->fif] = 0;
 }
 
-void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *imgui, zest_buffer vertex_buffer, zest_buffer index_buffer) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+zest_imgui_viewport_t *zest_imgui_AcquireViewport(zest_device device) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle!
+	zest_imgui_viewport_t *viewport = (zest_imgui_viewport_t*)zest_AllocateMemory(device, sizeof(zest_imgui_viewport_t));
+	*viewport = ZEST__ZERO_INIT(zest_imgui_viewport_t);
+	return viewport;
+}
+
+void zest_imgui_FreeViewport(zest_device device, zest_imgui_viewport_t *viewport) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle!
+	zest_FreeMemory(device, viewport);
+}
+
+void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_viewport_t *imgui_viewport, zest_buffer vertex_buffer, zest_buffer index_buffer) {
+	ImGui::SetCurrentContext(imgui_viewport->imgui->imgui_context);
+    ImDrawData *imgui_draw_data = imgui_viewport->imgui_viewport->DrawData;
 
     zest_cmd_BindVertexBuffer(command_list, 0, 1, vertex_buffer);
     zest_cmd_BindIndexBuffer(command_list, index_buffer);
@@ -194,7 +247,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
                     ZEST_ASSERT(0); //Needs reimplementing
                 }
 
-                zest_imgui_push_t *push_constants = &imgui->push_constants;
+                zest_imgui_push_t *push_constants = &imgui_viewport->push_constants;
 
 				if (pcmd->UserCallback) {
 					void* original_callback_data = pcmd->UserCallbackData;
@@ -209,12 +262,12 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
 					continue;
 				}
 
-                zest_atlas_region_t *test = &imgui->font_region;
+                zest_atlas_region_t *test = &imgui_viewport->imgui->font_region;
 
-				if (current_image == &imgui->font_region) {
-					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui->pipeline, command_list);
+				if (current_image == &imgui_viewport->imgui->font_region) {
+					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_viewport->imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {
-						render_state.resources = imgui->font_resources;
+						render_state.resources = imgui_viewport->imgui->font_resources;
 						render_state.pipeline = pipeline;
 						zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
 					}
@@ -255,84 +308,93 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
 	zest_cmd_Scissor(command_list, &scissor);
 }
 
-zest_buffer zest_imgui_VertexBufferProvider(zest_context context, zest_resource_node resource) {
-	zest_imgui_t *imgui = (zest_imgui_t*)zest_GetResourceUserData(resource);
-    return imgui->vertex_device_buffer[zest_CurrentFIF(context)];
+void zest_imgui_RenderViewport(zest_imgui_viewport_t *viewport) {
+	zest__imgui_render_viewport(viewport->imgui_viewport, viewport->imgui);
 }
 
-zest_buffer zest_imgui_IndexBufferProvider(zest_context context, zest_resource_node resource) {
-	zest_imgui_t *imgui = (zest_imgui_t*)zest_GetResourceUserData(resource);
-	return imgui->index_device_buffer[zest_CurrentFIF(context)];
+void zest__imgui_create_viewport(ImGuiViewport* viewport) {
+	zest_imgui_viewport_t* app_viewport = (zest_imgui_viewport_t*)viewport->RendererUserData;
+    ImGuiIO &io = ImGui::GetIO();
+	zest_imgui_t *imgui = (zest_imgui_t*)io.UserData;
+	zest_device device = zest_GetContextDevice(imgui->context);
+	if (!app_viewport) {
+		app_viewport = zest_imgui_AcquireViewport(zest_GetContextDevice(imgui->context)); 
+		viewport->RendererUserData = app_viewport;
+	}
+
+	// Create Zest context
+	zest_create_info_t create_info = zest_CreateInfo();
+	zest_window_data_t window_handles = { };  // Adapt from your implglfw
+	window_handles.window_handle = viewport->PlatformHandle;
+	window_handles.native_handle = viewport->PlatformHandleRaw;
+	window_handles.display = GetModuleHandle(NULL);
+	window_handles.width = (int)viewport->Size.x;
+	window_handles.height = (int)viewport->Size.y;
+	window_handles.window_sizes_callback = zest_imgui_GetWindowSizeCallback;
+	window_handles.user_data = viewport;
+	app_viewport->context = zest_CreateContext(device, &window_handles, &create_info);
+	app_viewport->imgui = imgui;
+	app_viewport->imgui_viewport = viewport;
 }
 
-zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
+	zest_imgui_t *imgui = (zest_imgui_t*)render_arg;
+	zest_imgui_viewport_t* viewport = (zest_imgui_viewport_t*)vp->RendererUserData;
+
+	zest_frame_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(viewport->context, 0, 0);
+
+	if (zest_BeginFrame(viewport->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(viewport->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(viewport->context, "ImGui Viewport", 0)) {
+				zest_ImportSwapchainResource();
+				zest_pass_node imgui_pass = zest_imgui_BeginViewportPass(imgui, viewport);
+				if (imgui_pass) {
+					zest_ConnectSwapChainOutput();
+					zest_EndPass();
+				}
+				frame_graph = zest_EndFrameGraph();
+			}
+		}
+		zest_QueueFrameGraphForExecution(viewport->context, frame_graph);
+		zest_EndFrame(viewport->context);
+	}
+}
+
+void zest__imgui_destroy_viewport(ImGuiViewport* viewport) {
+	zest_imgui_viewport_t* app_viewport = (zest_imgui_viewport_t*)viewport->RendererUserData;
+	if (!app_viewport) return;
+	zest_context context = app_viewport->context;
+	zest_implglfw_DestroyWindow(context);
+	zest_imgui_FreeViewport(zest_GetContextDevice(context), app_viewport);
+	zest_DestroyContext(context);
+	viewport->PlatformUserData = NULL;
+	viewport->RendererUserData = NULL;
+}
+
+zest_resource_node zest_imgui_AddVertexResources(zest_imgui_viewport_t *viewport, const char *name) {
+    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
     if (imgui_draw_data) {
-		zest_resource_node node = zest_ImportBufferResource(name, imgui->vertex_device_buffer[imgui->fif], zest_imgui_VertexBufferProvider);
-		ZEST__FLAG(node->type, zest_resource_type_vertex_buffer);
+		zest_buffer_resource_info_t info = {};
+		info.usage_hints = zest_resource_usage_hint_vertex_buffer;
+		info.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
+		zest_resource_node node = zest_AddTransientBufferResource(name, &info);
         return node;
     }
     return NULL;
 }
 
-zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const char *name) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+zest_resource_node zest_imgui_AddIndexResources(zest_imgui_viewport_t *viewport, const char *name) {
+    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
     if (imgui_draw_data) {
-		zest_resource_node node = zest_ImportBufferResource(name, imgui->index_device_buffer[imgui->fif], zest_imgui_IndexBufferProvider);
-		ZEST__FLAG(node->type, zest_resource_type_index_buffer);
+		zest_buffer_resource_info_t info = {};
+		info.usage_hints = zest_resource_usage_hint_index_buffer;
+		info.size = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+		zest_resource_node node = zest_AddTransientBufferResource(name, &info);
         return node;
     }
     return NULL;
-}
-
-void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-
-	//imgui->fif = (imgui->fif + 1) % ZEST_MAX_FIF;
-	imgui->fif = imgui->context->current_fif;
-	zest_FreeBuffer(imgui->vertex_staging_buffer[imgui->fif]);
-	zest_FreeBuffer(imgui->index_staging_buffer[imgui->fif]);
-
-	zest_context context = imgui->context;
-
-    if (imgui_draw_data) {
-        imgui->dirty[imgui->fif] = 1;
-		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
-		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		imgui->vertex_staging_buffer[imgui->fif] = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
-		imgui->index_staging_buffer[imgui->fif] = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
-		zest_buffer staging_vertex_buffer = imgui->vertex_staging_buffer[imgui->fif];
-		zest_buffer staging_index_buffer = imgui->index_staging_buffer[imgui->fif];
-		imgui->vertex_memory_in_use = vertex_memory_in_use;
-		imgui->index_memory_in_use = index_memory_in_use;
-		zest_buffer device_vertex_buffer = imgui->vertex_device_buffer[imgui->fif];
-		zest_buffer device_index_buffer = imgui->index_device_buffer[imgui->fif];
-        ZEST_ASSERT(staging_vertex_buffer); //Make sure you call zest_imgui_Initialise first!
-        ZEST_ASSERT(staging_index_buffer);	//Make sure you call zest_imgui_Initialise first!
-
-		imgui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
-
-        if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
-            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), index_memory_in_use)) {
-				imgui->index_device_buffer[imgui->fif] = device_index_buffer;
-            }
-        }
-        if (vertex_memory_in_use > zest_BufferSize(device_vertex_buffer)) {
-            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), vertex_memory_in_use)) {
-				imgui->vertex_device_buffer[imgui->fif] = device_vertex_buffer;
-            }
-        }
-        ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(staging_index_buffer);
-        ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(staging_vertex_buffer);
-
-        for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
-            const ImDrawList *cmd_list = imgui_draw_data->CmdLists[n];
-            memcpy(vtxDst, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
-            memcpy(idxDst, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
-            vtxDst += cmd_list->VtxBuffer.Size;
-            idxDst += cmd_list->IdxBuffer.Size;
-        }
-    }
 }
 
 void zest_imgui_DrawImage(zest_atlas_region_t *region, float width, float height, ImDrawCallback callback, void *user_data) {
@@ -436,7 +498,8 @@ bool zest_imgui_DrawButton(zest_atlas_region_t *region, const char *user_texture
     return pressed;
 }
 
-void zest_imgui_DarkStyle() {
+void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
+	ImGui::SetCurrentContext(imgui->imgui_context);
     ImGui::GetStyle().FrameRounding = 4.0f;
     ImGui::GetStyle().GrabRounding = 4.0f;
     ImVec4 *colors = ImGui::GetStyle().Colors;
@@ -536,12 +599,6 @@ void zest_imgui_DarkStyle() {
 
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	ImGui::DestroyContext();
-	zest_ForEachFrameInFlight(fif) {
-		zest_FreeBuffer(imgui->index_device_buffer[fif]);
-		zest_FreeBuffer(imgui->vertex_device_buffer[fif]);
-		zest_FreeBuffer(imgui->index_staging_buffer[fif]);
-		zest_FreeBuffer(imgui->vertex_staging_buffer[fif]);
-	}
 	zest_FreeImage(imgui->font_texture);
 	zest_FreePipelineTemplate(imgui->pipeline);
 }
