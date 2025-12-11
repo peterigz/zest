@@ -60,12 +60,13 @@ extern "C" {
 //GLFW Header
 zest_device zest_implglfw_CreateDevice(zest_bool enable_validation);
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
-void zest_implglfw_GetWindowSizeCallback( void* native_window_handle, int* fb_width, int* fb_height, int* window_width, int* window_height );
+void zest_implglfw_GetWindowSizeCallback(zest_window_data_t *window_data, int* fb_width, int* fb_height, int* window_width, int* window_height );
+zest_bool zest_implglfw_WindowIsFocused(void *window_handle);
 void zest_implglfw_DestroyWindow(zest_context context);
 
 //SDL Header
 zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char* title);
-void zest_implsdl2_GetWindowSizeCallback(void *window_handle, int *fb_width, int *fb_height, int *window_width, int *window_height);
+void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 void zest_implsdl2_DestroyWindow(zest_context context);
 
 typedef enum zest_image_collection_flag_bits {
@@ -394,10 +395,15 @@ zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int heig
 	return window_handles;
 }
 
-void zest_implglfw_GetWindowSizeCallback(void *window_handle, int *fb_width, int *fb_height, int *window_width, int *window_height) {
-	GLFWwindow *handle = (GLFWwindow *)window_handle;
+void zest_implglfw_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
+	GLFWwindow *handle = (GLFWwindow *)window_data->window_handle;
     glfwGetFramebufferSize(handle, fb_width, fb_height);
 	glfwGetWindowSize(handle, window_width, window_height);
+}
+
+zest_bool zest_implglfw_WindowIsFocused(void *window_handle) {
+	GLFWwindow *handle = (GLFWwindow *)window_handle;
+	return (zest_bool)glfwGetWindowAttrib(handle, GLFW_FOCUSED);
 }
 
 void zest_implglfw_DestroyWindow(zest_context context) {
@@ -467,9 +473,9 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
     return window_handles;
 }
 
-void zest_implsdl2_GetWindowSizeCallback(void *window_handle, int *fb_width, int *fb_height, int *window_width, int *window_height) {
+void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
-	SDL_Vulkan_GetDrawableSize((SDL_Window*)window_handle, fb_width, fb_height);
+	SDL_Vulkan_GetDrawableSize((SDL_Window*)window_data->window_handle, fb_width, fb_height);
 #elif defined(ZEST_IMPLEMENT_DX12)
     // DX12 equivalent
 #elif defined(ZEST_IMPLEMENT_METAL)
