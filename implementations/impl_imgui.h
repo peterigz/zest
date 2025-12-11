@@ -5,6 +5,8 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 
+typedef void(*zest_destroy_window_callback)(zest_context context);
+
 typedef struct zest_imgui_push_t {
 	zest_vec4 transform;
 	zest_uint font_texture_index;
@@ -37,6 +39,7 @@ typedef struct zest_imgui_t {
 	zest_shader_resources font_resources;
 	zest_sampler_handle font_sampler;
 	struct zest_imgui_viewport_t *main_viewport;
+	zest_destroy_window_callback destroy_window_callback;
 } zest_imgui_t;
 
 typedef struct zest_imgui_viewport_t {
@@ -49,17 +52,17 @@ typedef struct zest_imgui_viewport_t {
     zest_buffer index_staging_buffer[ZEST_MAX_FIF];
 } zest_imgui_viewport_t;
 
-void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui);
+void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback);
 void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_viewport_t *imgui_viewport, zest_buffer vertex_buffer, zest_buffer index_buffer);
 void zest_imgui_RenderViewport(zest_imgui_viewport_t *viewport);
-zest_resource_node zest_imgui_AddVertexResources(zest_imgui_viewport_t *viewport, const char *name);
-zest_resource_node zest_imgui_AddIndexResources(zest_imgui_viewport_t *viewport, const char *name);
+zest_resource_node zest_imgui_AddVertexResources(ImDrawData *draw_data, const char *name);
+zest_resource_node zest_imgui_AddIndexResources(ImDrawData *draw_data, const char *name);
 void zest_imgui_DrawImage(zest_atlas_region_t *image, float width, float height, ImDrawCallback callback, void *user_data);
 void zest_imgui_DrawImage2(zest_atlas_region_t *image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_atlas_region_t *image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region_t *image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels);
-zest_pass_node zest_imgui_BeginViewportPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport);
+zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport);
 void zest_imgui_DrawImGuiViewportRenderPass(const zest_command_list context, void *user_data);
 void zest_imgui_UploadImGuiPass(const zest_command_list context, void *user_data);
 void zest_imgui_DarkStyle(zest_imgui_t *imgui);
@@ -72,6 +75,8 @@ void zest_imgui_FreeViewport(zest_device device, zest_imgui_viewport_t *viewport
 void zest__imgui_create_viewport(ImGuiViewport* viewport);
 void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg);
 void zest__imgui_destroy_viewport(ImGuiViewport* viewport);
+zest_buffer zest__imgui_get_vertex_buffer_size(zest_context context, zest_resource_node node);
+zest_buffer zest__imgui_get_index_buffer_size(zest_context context, zest_resource_node node);
 
 //----------------------
 //Imgui vert shader

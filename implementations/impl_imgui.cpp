@@ -1,11 +1,12 @@
 #include "impl_imgui.h"
 #include "imgui_internal.h"
 
-void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
+void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback) {
 	*imgui = {};
 	imgui->context = context;
     imgui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
     imgui->imgui_context = ImGui::CreateContext();
+	imgui->destroy_window_callback = destroy_window_callback;
 	ImGui::SetCurrentContext(imgui->imgui_context);
     ImGuiIO &io = ImGui::GetIO();
 	io.UserData = imgui;
@@ -108,21 +109,20 @@ void zest_imgui_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_w
 	*window_height = (int)viewport->Size.y;
 }
 
-zest_pass_node zest_imgui_BeginViewportPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport) {
+zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport) {
     ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
+    ImDrawData *all_draw_data =  ImGui::GetDrawData();
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         //Declare resources
 		zest_image font_image = zest_GetImage(imgui->font_texture);
         zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", font_image, 0);
-		zest_resource_node imgui_vertex_buffer = zest_imgui_AddVertexResources(viewport, "Viewport Vertex Buffer");
-		zest_resource_node imgui_index_buffer = zest_imgui_AddIndexResources(viewport, "Viewport Index Buffer");
-		zest_SetResourceUserData(imgui_vertex_buffer, viewport);
-		zest_SetResourceUserData(imgui_index_buffer, viewport);
+		zest_resource_node imgui_vertex_buffer = zest_imgui_AddVertexResources(imgui_draw_data, "Viewport Vertex Buffer");
+		zest_resource_node imgui_index_buffer = zest_imgui_AddIndexResources(imgui_draw_data, "Viewport Index Buffer");
         //Transfer Pass
         zest_BeginTransferPass("Upload ImGui Viewport"); {
             zest_ConnectOutput(imgui_vertex_buffer);
             zest_ConnectOutput(imgui_index_buffer);
-            //task
+            //Task
             zest_SetPassTask(zest_imgui_UploadImGuiPass, viewport);
             zest_EndPass();
         }
@@ -162,12 +162,12 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
     if (imgui_draw_data) {
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
 		zest_buffer staging_index_buffer = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
+		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
 		viewport->index_staging_buffer[context->current_fif] = staging_index_buffer;
 		viewport->vertex_staging_buffer[context->current_fif] = staging_vertex_buffer;
-		zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Vertex Buffer");
 		zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Index Buffer");
+		zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Vertex Buffer");
 
 		zest_vec2 scale = { 2.0f / imgui_draw_data->DisplaySize.x, 2.0f / imgui_draw_data->DisplaySize.y };
 		zest_vec2 translate = { -1.0f - imgui_draw_data->DisplayPos.x * scale.x, -1.0f - imgui_draw_data->DisplayPos.y * scale.y };
@@ -349,7 +349,7 @@ void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
 		if (!frame_graph) {
 			if (zest_BeginFrameGraph(viewport->context, "ImGui Viewport", 0)) {
 				zest_ImportSwapchainResource();
-				zest_pass_node imgui_pass = zest_imgui_BeginViewportPass(imgui, viewport);
+				zest_pass_node imgui_pass = zest_imgui_BeginPass(imgui, viewport);
 				if (imgui_pass) {
 					zest_ConnectSwapChainOutput();
 					zest_EndPass();
@@ -366,32 +366,47 @@ void zest__imgui_destroy_viewport(ImGuiViewport* viewport) {
 	zest_imgui_viewport_t* app_viewport = (zest_imgui_viewport_t*)viewport->RendererUserData;
 	if (!app_viewport) return;
 	zest_context context = app_viewport->context;
-	zest_implglfw_DestroyWindow(context);
+	ZEST_ASSERT(app_viewport->imgui->destroy_window_callback, "You must set the destroy window callback that frees the window associated with the viewport. This might be zest_implglfw_DestroyWindow or zest_implsdl2_DestroyWindow if you're using zest_utilities.");
+	app_viewport->imgui->destroy_window_callback(context);
 	zest_imgui_FreeViewport(zest_GetContextDevice(context), app_viewport);
 	zest_DestroyContext(context);
 	viewport->PlatformUserData = NULL;
 	viewport->RendererUserData = NULL;
 }
 
-zest_resource_node zest_imgui_AddVertexResources(zest_imgui_viewport_t *viewport, const char *name) {
-    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
-    if (imgui_draw_data) {
+zest_buffer zest__imgui_get_vertex_buffer_size(zest_context context, zest_resource_node node) {
+	ImDrawData *draw_data = (ImDrawData*)zest_GetResourceUserData(node);
+	node->buffer_desc.size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
+    return NULL;
+}
+
+zest_buffer zest__imgui_get_index_buffer_size(zest_context context, zest_resource_node node) {
+	ImDrawData *draw_data = (ImDrawData*)zest_GetResourceUserData(node);
+	node->buffer_desc.size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+    return NULL;
+}
+
+zest_resource_node zest_imgui_AddVertexResources(ImDrawData *draw_data, const char *name) {
+    if (draw_data) {
 		zest_buffer_resource_info_t info = {};
 		info.usage_hints = zest_resource_usage_hint_vertex_buffer;
-		info.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
+		info.size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		zest_resource_node node = zest_AddTransientBufferResource(name, &info);
+		zest_SetResourceUserData(node, draw_data);
+		zest_SetResourceBufferProvider(node, zest__imgui_get_vertex_buffer_size);
         return node;
     }
     return NULL;
 }
 
-zest_resource_node zest_imgui_AddIndexResources(zest_imgui_viewport_t *viewport, const char *name) {
-    ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
-    if (imgui_draw_data) {
+zest_resource_node zest_imgui_AddIndexResources(ImDrawData *draw_data, const char *name) {
+    if (draw_data) {
 		zest_buffer_resource_info_t info = {};
 		info.usage_hints = zest_resource_usage_hint_index_buffer;
-		info.size = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+		info.size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_resource_node node = zest_AddTransientBufferResource(name, &info);
+		zest_SetResourceUserData(node, draw_data);
+		zest_SetResourceBufferProvider(node, zest__imgui_get_vertex_buffer_size);
         return node;
     }
     return NULL;
