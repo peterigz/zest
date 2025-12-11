@@ -6,10 +6,10 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise(app->context, &app->imgui);
+	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 	//Implement a dark style
-	zest_imgui_DarkStyle();
+	zest_imgui_DarkStyle(&app->imgui);
 	
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
@@ -49,9 +49,6 @@ void MainLoop(ImGuiApp *app) {
 		} zest_EndTimerLoop(app->timer);
 
 		if (zest_BeginFrame(app->context)) {
-			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
-			//after zest_BeginFrame every frame.
-			zest_imgui_UpdateBuffers(&app->imgui);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
@@ -60,12 +57,13 @@ void MainLoop(ImGuiApp *app) {
 				//If there was no imgui data to render then zest_imgui_BeginPass will return false
 				//Import our test texture with the Bunny sprite
 				//Add the test texture to the imgui render pass
-				zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui);
+				zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport);
 				if (imgui_pass) {
 					zest_ConnectSwapChainOutput();
 				} else {
 					//If there's no ImGui to render then just render a blank screen
-					zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+					zest_BeginRenderPass("Draw Nothing");
+					zest_SetPassTask(zest_EmptyRenderPass, 0);
 					//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 					zest_ConnectSwapChainOutput();
 				}
