@@ -3155,7 +3155,6 @@ typedef struct zest_buffer_usage_t {
 typedef struct zest_buffer_allocator_key_t {
 	zest_buffer_usage_t usage;
 	zest_uint frame_in_flight;
-	zest_context context;
 } zest_buffer_allocator_key_t;
 
 
@@ -3979,6 +3978,8 @@ ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_nod
 ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
 ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
 ZEST_API void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data);
+ZEST_API void zest_SetResourceBufferProvider(zest_resource_node resource_node, zest_resource_buffer_provider buffer_provider);
+ZEST_API void zest_SetResourceImageProvider(zest_resource_node resource_node, zest_resource_image_provider image_provider);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
 ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);

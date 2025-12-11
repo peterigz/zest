@@ -1364,7 +1364,7 @@ void zest_EndFrame(zest_context context) {
             zest__frame_graph_builder = NULL;
         }
     } else {
-        ZEST__REPORT(context, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph.");
+        ZEST__REPORT(context, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph. Also make sure that if you are calling that function the the frame graph you're passing in is not NULL");
     }
 	
 
@@ -1375,7 +1375,7 @@ void zest_EndFrame(zest_context context) {
 		}
 	}
 
-	//Cover some cases where a frame graph wasn't created or it was but there was nothing render etc., to make sure
+	//Cover some cases where a frame graph wasn't created or it was but there was nothing to render etc., to make sure
 	//that the fence is always signalled and another frame can happen
 	if (ZEST__NOT_FLAGGED(flags, zest_frame_graph_present_after_execute) && ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
 		if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
@@ -1957,10 +1957,10 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 	buffer_allocator->context = context;
 	zest_buffer_pool_size_t pre_defined_pool_size = ZEST__ZERO_INIT(zest_buffer_pool_size_t);
 	if (buffer_info->image_usage_flags) {
-		zest_buffer_allocator_key_t usage_key = ZEST__ZERO_INIT(zest_buffer_allocator_key_t);
-		usage_key.usage.property_flags = buffer_info->property_flags;
-		usage_key.usage.memory_pool_type = zest_memory_pool_type_transient_images;
-		zest_key image_key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
+		zest_buffer_usage_t usage_key = ZEST__ZERO_INIT(zest_buffer_usage_t);
+		usage_key.property_flags = buffer_info->property_flags;
+		usage_key.memory_pool_type = zest_memory_pool_type_transient_images;
+		zest_key image_key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_usage_t));
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, image_key);
 	} else {
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, pool_key);
@@ -2177,7 +2177,6 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 	zest_buffer_allocator_key_t usage_key;
 	usage_key.usage = usage;
     usage_key.frame_in_flight = buffer_info->frame_in_flight;
-	usage_key.context = context;
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
@@ -7299,6 +7298,16 @@ void *zest_GetResourceUserData(zest_resource_node resource_node) {
 void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data) {
 	ZEST_ASSERT_HANDLE(resource_node);	 //Not a valid resource handle!
 	resource_node->user_data = user_data;
+}
+
+void zest_SetResourceBufferProvider(zest_resource_node resource_node, zest_resource_buffer_provider buffer_provider) {
+	ZEST_ASSERT_HANDLE(resource_node);	//Not a valid resource node!
+	resource_node->buffer_provider = buffer_provider;
+}
+
+void zest_SetResourceImageProvider(zest_resource_node resource_node, zest_resource_image_provider image_provider) {
+	ZEST_ASSERT_HANDLE(resource_node);	//Not a valid resource node!
+	resource_node->image_provider = image_provider;
 }
 
 void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha) {
