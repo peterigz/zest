@@ -3452,6 +3452,7 @@ typedef struct zest_device_destruction_queue_t {
 } zest_device_destruction_queue_t;
 
 typedef struct zest_context_destruction_queue_t {
+	void **resources[ZEST_MAX_FIF];
 	zest_image_t *transient_images[ZEST_MAX_FIF];
 	zest_image_view_array_t *transient_view_arrays[ZEST_MAX_FIF];
 	zest_binding_index_for_release_t *transient_binding_indexes[ZEST_MAX_FIF];

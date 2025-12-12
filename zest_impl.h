@@ -1586,6 +1586,14 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 		zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]);
     }
 
+    if (zest_vec_size(context->deferred_resource_freeing_list.resources[index])) {
+        zest_vec_foreach(i, context->deferred_resource_freeing_list.resources[index]) {
+            void *handle = context->deferred_resource_freeing_list.resources[index][i];
+			zest__free_handle(context->allocator, handle);
+        }
+		zest_vec_clear(context->deferred_resource_freeing_list.resources[index]);
+    }
+
 	zest_FlushUsedBuffers(context, context->current_fif);
 }
 
@@ -2701,6 +2709,11 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 		case zest_struct_type_view_array: {
 			zest_image_view_array view = (zest_image_view_array)handle;
 			zest__cleanup_image_view_array(view);
+			break;
+		}
+		case zest_struct_type_layer: {
+			zest_layer layer = (zest_layer)handle;
+			zest__cleanup_layer(layer);
 			break;
 		}
 		case zest_struct_type_context: {
@@ -8477,7 +8490,7 @@ zest_layer_handle zest__new_layer(zest_context context, zest_layer *out_layer) {
 void zest_FreeLayer(zest_layer_handle layer_handle) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
 	zest_context context = layer->context;
-    zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.resources[context->current_fif], layer);
+    zest_vec_push(context->allocator, context->deferred_resource_freeing_list.resources[context->current_fif], layer);
 }
 
 void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
