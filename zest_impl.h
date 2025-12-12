@@ -2896,12 +2896,7 @@ void zest__cleanup_context(zest_context context) {
     zest__cleanup_pipelines(context);
 
 	for (int i = 0; i != zest_max_context_handle_type; ++i) {
-		switch ((zest_context_handle_type)i) {
-			case zest_handle_type_shader_resources:		zest__free_store(&context->resource_stores[i]); break;
-			case zest_handle_type_uniform_buffers: 		zest__free_store(&context->resource_stores[i]); break;
-			case zest_handle_type_layers: 				zest__free_store(&context->resource_stores[i]); break;
-			case zest_handle_type_execution_timelines: 	zest__free_store(&context->resource_stores[i]); break;
-		}
+		zest__free_store(&context->resource_stores[i]); 
 	}
 
 	zest__release_all_context_texture_indexes(context);
