@@ -4836,6 +4836,7 @@ ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc
 ZEST_PRIVATE void zest__cleanup_image(zest_image image);
 ZEST_PRIVATE void zest__cleanup_sampler(zest_sampler sampler);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer);
+ZEST_PRIVATE void zest__cleanup_execution_timeline(zest_execution_timeline timeline);
 // --End Maintenance functions
 
 // --Shader_functions

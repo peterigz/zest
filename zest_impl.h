@@ -1586,12 +1586,12 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 		zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]);
     }
 
-    if (zest_vec_size(context->deferred_resource_freeing_list.resources[index])) {
-        zest_vec_foreach(i, context->deferred_resource_freeing_list.resources[index]) {
-            void *handle = context->deferred_resource_freeing_list.resources[index][i];
+    if (zest_vec_size(context->deferred_resource_freeing_list.resources[context->current_fif])) {
+        zest_vec_foreach(i, context->deferred_resource_freeing_list.resources[context->current_fif]) {
+            void *handle = context->deferred_resource_freeing_list.resources[context->current_fif][i];
 			zest__free_handle(context->allocator, handle);
         }
-		zest_vec_clear(context->deferred_resource_freeing_list.resources[index]);
+		zest_vec_clear(context->deferred_resource_freeing_list.resources[context->current_fif]);
     }
 
 	zest_FlushUsedBuffers(context, context->current_fif);
@@ -2721,6 +2721,11 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			zest__cleanup_uniform_buffer(uniform_buffer);
 			break;
 		}
+		case zest_struct_type_execution_timeline: {
+			zest_execution_timeline timeline = (zest_execution_timeline)handle;
+			zest__cleanup_execution_timeline(timeline);
+			break;
+		}
 		case zest_struct_type_context: {
 			zest_context context = (zest_context)handle;
 			zest_PrintReports(context);
@@ -2876,7 +2881,7 @@ void zest__cleanup_execution_timeline_store(zest_context context) {
     for (int i = 0; i != store->data.current_size; ++i) {
 		zest_execution_timeline timeline = zest_bucket_array_get(&store->data, zest_execution_timeline_t, i);
         if (ZEST_VALID_HANDLE(timeline)) {
-			zest_FreeExecutionTimeline(timeline->handle);
+			zest__cleanup_execution_timeline(timeline);
         }
     }
 	zest__clear_store(store);
@@ -7782,8 +7787,8 @@ zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context
 
 void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
     zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_checked(timeline_handle.store, timeline_handle.value);
-	timeline->context->device->platform->cleanup_execution_timeline_backend(timeline);
-	zest__remove_store_resource(timeline_handle.store, timeline_handle.value);
+	zest_context context = timeline->context;
+	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.resources[context->current_fif], timeline);
 }
 
 zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
@@ -7937,6 +7942,11 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
 	zest__cleanup_set_layout(uniform_buffer->set_layout);
     context->device->platform->cleanup_uniform_buffer_backend(uniform_buffer);
     zest__remove_store_resource(uniform_buffer->handle.store, uniform_buffer->handle.value);
+}
+
+void zest__cleanup_execution_timeline(zest_execution_timeline timeline) {
+	timeline->context->device->platform->cleanup_execution_timeline_backend(timeline);
+	zest__remove_store_resource(timeline->handle.store, timeline->handle.value);
 }
 
 void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel) { 
