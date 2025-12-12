@@ -2716,6 +2716,11 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			zest__cleanup_layer(layer);
 			break;
 		}
+		case zest_struct_type_uniform_buffer: {
+			zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)handle;
+			zest__cleanup_uniform_buffer(uniform_buffer);
+			break;
+		}
 		case zest_struct_type_context: {
 			zest_context context = (zest_context)handle;
 			zest_PrintReports(context);
@@ -3058,7 +3063,7 @@ zest_uniform_buffer zest_GetUniformBuffer(zest_uniform_buffer_handle handle) {
 void zest_FreeUniformBuffer(zest_uniform_buffer_handle handle) {
     zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(handle.store, handle.value);
 	zest_context context = (zest_context)handle.store->origin;
-    zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.resources[context->current_fif], uniform_buffer);
+    zest_vec_push(context->allocator, context->deferred_resource_freeing_list.resources[context->current_fif], uniform_buffer);
 }
 
 zest_set_layout_builder_t zest_BeginSetLayoutBuilder(zloc_allocator *allocator) {
