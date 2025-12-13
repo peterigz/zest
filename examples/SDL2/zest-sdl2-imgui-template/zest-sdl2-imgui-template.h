@@ -21,11 +21,12 @@ struct ImGuiApp {
 	zest_shader_handle imgui_sprite_shader;
 	zest_context context;
 	zest_device device;
-	zest_atlas_region_t *wabbit_sprite;
+	zest_image_handle image_handle;
+	zest_atlas_region_t sprite;
 	zest_imgui_t imgui;
 	RenderCacheInfo cache_info;
-	zest_uint atlas_binding_index;
-	zest_uint atlas_sampler_binding_index;
+	zest_uint image_index;
+	zest_uint sampler_index;
 	bool sync_refresh;
 	bool request_graph_print;
 	bool reset;
@@ -58,7 +59,7 @@ static const char *zest_shader_imgui_r8g8_frag = ZEST_GLSL(450 core,
 	void main()
 	{
 		out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
-		out_color = vec4(out_color.r, out_color.r, out_color.r, out_color.g);
+		out_color = vec4(out_color.r, out_color.g, out_color.b, out_color.a);
 	}
 
 );
