@@ -329,8 +329,7 @@ void Mainloop(render_target_app_t *example) {
 					//--------------------------------------------------------------------------------------------------
 
 					//---------------------------------Render Pass------------------------------------------------------
-					//zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
-					zest_BeginRenderPass("Blank Screen"); {
+					zest_BeginRenderPass("Final Render"); {
 						//inputs
 						zest_ConnectInput(upsampler);
 						zest_ConnectInput(downsampler);

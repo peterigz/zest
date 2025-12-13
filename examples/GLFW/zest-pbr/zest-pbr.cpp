@@ -256,10 +256,10 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise(app->context, &app->imgui);
+	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 	//Implement a dark style
-	zest_imgui_DarkStyle();
+	zest_imgui_DarkStyle(&app->imgui);
 	
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
@@ -611,7 +611,7 @@ void MainLoop(SimplePBRExample *app) {
 
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
 		zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
-		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 		app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
 		app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
 		app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
@@ -631,7 +631,6 @@ void MainLoop(SimplePBRExample *app) {
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
-			zest_imgui_UpdateBuffers(&app->imgui);
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", cube_layer, false);
@@ -683,7 +682,7 @@ void MainLoop(SimplePBRExample *app) {
 
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport); {
 						if (imgui_pass) {
 							zest_ConnectGroupedOutput(group);
 						} else {
