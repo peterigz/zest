@@ -37,7 +37,7 @@ struct Test {
 	int frame_count;
 	zest_frame_graph_result result;
 	zest_frame_graph_result expected_result;
-	zest_create_info_t create_info;
+	zest_create_context_info_t create_info;
 	int cache_count;
 };
 
@@ -62,8 +62,8 @@ struct ZestTests {
 	zest_compute_handle compute_verify;
 	zest_buffer cpu_buffer;
 	zest_uint cpu_buffer_index;
-	zest_create_info_t simple_create_info;
-	zest_create_info_t depth_create_info;
+	zest_create_context_info_t simple_create_info;
+	zest_create_context_info_t depth_create_info;
 	StressResources stress_resources;
 };
 

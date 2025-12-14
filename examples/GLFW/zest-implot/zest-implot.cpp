@@ -83,7 +83,7 @@ void MainLoop(ImGuiApp *app) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
@@ -126,7 +126,7 @@ int main(void) {
 }
 #else
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
     ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 

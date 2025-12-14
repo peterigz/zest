@@ -3399,7 +3399,7 @@ typedef struct zest_device_builder_t {
 	const char** required_instance_extensions;
 } zest_device_builder_t;
 
-typedef struct zest_create_info_t {
+typedef struct zest_create_context_info_t {
 	const char *title;                                  //Title that shows in the window
 	zest_size frame_graph_allocator_size;               //The size of the linear allocator used by render graphs to store temporary data
 	int screen_width, screen_height;                    //Default width and height of the window that you open
@@ -3412,7 +3412,7 @@ typedef struct zest_create_info_t {
 	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 	zest_platform_type platform;
 	zest_size memory_pool_size;
-} zest_create_info_t;
+} zest_create_context_info_t;
 
 zest_hash_map(zest_context_queue) zest_map_queue_value;
 
@@ -3428,6 +3428,7 @@ typedef struct zest_queue_t {
 	zest_uint family_index;
 	zest_device_queue_type type;
 	zest_queue_backend backend;
+	zest_execution_timeline timeline;
 } zest_queue_t;
 
 typedef struct zest_context_queue_t {
@@ -4651,7 +4652,7 @@ typedef struct zest_context_t {
 	void *user_data;
 	zest_device_t *device;
 	zest_uint device_frame_counter;
-	zest_create_info_t create_info;
+	zest_create_context_info_t create_info;
 
 } zest_context_t;
 
@@ -4752,7 +4753,7 @@ ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(z
 ZEST_API inline zest_uint zest_CurrentFIF(zest_context context) {
 	return context->current_fif;
 }
-ZEST_PRIVATE zest_bool zest__initialise_context(zest_context context, zest_create_info_t *create_info);
+ZEST_PRIVATE zest_bool zest__initialise_context(zest_context context, zest_create_context_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
 ZEST_PRIVATE void zest__get_window_size_callback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_data);
@@ -4899,12 +4900,12 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
 //Finish and create the device
 ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
-//Create a new zest_create_info_t struct with default values for initialising Zest
-ZEST_API zest_create_info_t zest_CreateInfo();
-//Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
-ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
+//Create a new zest_create_context_info_t struct with default values for initialising Zest
+ZEST_API zest_create_context_info_t zest_CreateInfo();
+//Create a new zest_create_context_info_t struct with default values for initialising Zest but also enable validation layers as well
+ZEST_API zest_create_context_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
-ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_info_t* info);
+ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_context_info_t* info);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
@@ -4923,7 +4924,7 @@ ZEST_API void zest_ResetDevice(zest_device device);
 ZEST_API void zest_ResetContext(zest_context context, zest_window_data_t *window_data);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
-ZEST_API void zest_SetCreateInfo(zest_context context, zest_create_info_t *info);
+ZEST_API void zest_SetCreateInfo(zest_context context, zest_create_context_info_t *info);
 //Set the pointer to user data in the context
 ZEST_API void zest_SetContextUserData(zest_context context, void *user_data);
 //Used internally by platform layers

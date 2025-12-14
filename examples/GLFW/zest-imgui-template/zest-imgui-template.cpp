@@ -86,7 +86,7 @@ int main(void) {
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Dear ImGui Dockspace Example");
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
 	InitImGui(&imgui_app, imgui_app.context, &imgui_app.imgui);
@@ -101,7 +101,7 @@ int main(void) {
 }
 #else
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
     ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 

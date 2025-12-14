@@ -637,7 +637,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see how much FPS we get
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
@@ -670,7 +670,7 @@ int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see how much FPS we get
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 

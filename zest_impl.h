@@ -1094,7 +1094,7 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_info_t* info) {
+zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_context_info_t* info) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
 	zloc_allocator *allocator = device->allocator;
     zest_context context = (zest_context)zloc_Allocate(allocator, sizeof(zest_context_t));
@@ -1394,7 +1394,7 @@ void zest_DestroyDevice(zest_device device) {
     zest__destroy_device(device);
 }
 
-void zest_SetCreateInfo(zest_context context, zest_create_info_t *info) {
+void zest_SetCreateInfo(zest_context context, zest_create_context_info_t *info) {
     context->create_info = *info;
 }
 
@@ -1440,7 +1440,7 @@ void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
     zest_WaitForIdleDevice(context->device);
     zest__cleanup_context(context);
 
-	zest_create_info_t create_info = context->create_info;
+	zest_create_context_info_t create_info = context->create_info;
 	zest_device device = context->device;
 	zest_window_data_t win_dat = context->window_data;
     *context = ZEST__ZERO_INIT(zest_context_t);
@@ -2450,7 +2450,7 @@ void zest_SetDevicePoolSize(zest_device device, const char *name, zest_buffer_us
 // --End Vulkan Buffer Management
 
 // --Renderer and related functions
-zest_bool zest__initialise_context(zest_context context, zest_create_info_t* create_info) {
+zest_bool zest__initialise_context(zest_context context, zest_create_context_info_t* create_info) {
     context->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
 
@@ -4510,8 +4510,8 @@ zest_index zest__next_fif(zest_context context) {
     return (context->current_fif + 1) % ZEST_MAX_FIF;
 }
 
-zest_create_info_t zest_CreateInfo() {
-	zest_create_info_t create_info;
+zest_create_context_info_t zest_CreateInfo() {
+	zest_create_context_info_t create_info;
 	create_info.title = "Zest Window";
 	create_info.frame_graph_allocator_size = zloc__KILOBYTE(256);
 	create_info.screen_width = 1280;
@@ -4530,8 +4530,8 @@ zest_create_info_t zest_CreateInfo() {
     return create_info;
 }
 
-zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags) {
-    zest_create_info_t create_info = zest_CreateInfo();
+zest_create_context_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags) {
+    zest_create_context_info_t create_info = zest_CreateInfo();
     ZEST__FLAG(create_info.flags, zest_init_flag_enable_validation_layers);
     if (flags & zest_validation_flag_enable_sync) {
         create_info.flags |= zest_init_flag_enable_validation_layers_with_sync;
