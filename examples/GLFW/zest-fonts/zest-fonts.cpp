@@ -190,7 +190,7 @@ void MainLoop(zest_fonts_example *app) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	if (!glfwInit()) {
@@ -231,7 +231,7 @@ int main(void) {
 #else
 int main(void) {
 
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	zest_fonts_example example;
     

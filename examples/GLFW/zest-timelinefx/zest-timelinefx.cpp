@@ -304,7 +304,7 @@ void MainLoop(TimelineFXExample *game) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	zest_create_context_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
@@ -340,7 +340,7 @@ int main() {
 }
 #else
 int main(void) {
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;

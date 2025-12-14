@@ -4510,7 +4510,7 @@ zest_index zest__next_fif(zest_context context) {
     return (context->current_fif + 1) % ZEST_MAX_FIF;
 }
 
-zest_create_context_info_t zest_CreateInfo() {
+zest_create_context_info_t zest_CreateContextInfo() {
 	zest_create_context_info_t create_info;
 	create_info.title = "Zest Window";
 	create_info.frame_graph_allocator_size = zloc__KILOBYTE(256);
@@ -4527,18 +4527,6 @@ zest_create_context_info_t zest_CreateInfo() {
 	create_info.platform = zest_platform_vulkan;
 	create_info.maximum_textures = 1024;
 	create_info.memory_pool_size = zloc__MEGABYTE(8);
-    return create_info;
-}
-
-zest_create_context_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags) {
-    zest_create_context_info_t create_info = zest_CreateInfo();
-    ZEST__FLAG(create_info.flags, zest_init_flag_enable_validation_layers);
-    if (flags & zest_validation_flag_enable_sync) {
-        create_info.flags |= zest_init_flag_enable_validation_layers_with_sync;
-    }
-    if (flags & zest_validation_flag_best_practices) {
-        create_info.flags |= zest_init_flag_enable_validation_layers_with_best_practices;
-    }
     return create_info;
 }
 

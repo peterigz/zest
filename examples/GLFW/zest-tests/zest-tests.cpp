@@ -86,7 +86,7 @@ void RunTests(ZestTests *tests) {
 int main(void) {
 
 	//Create new config struct for Zest
-	zest_create_context_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync | zest_validation_flag_best_practices);
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	ZestTests tests = {};
 	tests.simple_create_info = create_info;
@@ -122,7 +122,7 @@ int main(void) {
 }
 #else
 int main(void) {
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	zest_implglfw_SetCallbacks(&create_info);
     ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 

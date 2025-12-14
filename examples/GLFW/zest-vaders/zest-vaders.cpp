@@ -1352,8 +1352,7 @@ void MainLoop(VadersGame *game) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	//zest_create_context_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
@@ -1401,7 +1400,7 @@ int main() {
 int main(void) {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);

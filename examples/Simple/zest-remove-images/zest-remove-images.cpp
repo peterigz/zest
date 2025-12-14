@@ -81,7 +81,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 //int main(void) 
 {
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
@@ -99,7 +99,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 }
 #else
 int main(void) {
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
     
     App app = { 0 };

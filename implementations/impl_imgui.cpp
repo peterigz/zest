@@ -323,7 +323,7 @@ void zest__imgui_create_viewport(ImGuiViewport* viewport) {
 	}
 
 	// Create Zest context
-	zest_create_context_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	zest_window_data_t window_handles = { };  // Adapt from your implglfw
 	window_handles.window_handle = viewport->PlatformHandle;
 	window_handles.native_handle = viewport->PlatformHandleRaw;

@@ -4901,10 +4901,8 @@ ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, z
 //Finish and create the device
 ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 //Create a new zest_create_context_info_t struct with default values for initialising Zest
-ZEST_API zest_create_context_info_t zest_CreateInfo();
-//Create a new zest_create_context_info_t struct with default values for initialising Zest but also enable validation layers as well
-ZEST_API zest_create_context_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
-//Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
+ZEST_API zest_create_context_info_t zest_CreateContextInfo();
+//Initialise Zest. You must call this in order to use Zest. Use zest_CreateContextInfo() to set up some default values to initialise the renderer.
 ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_context_info_t* info);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
