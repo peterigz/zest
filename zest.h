@@ -28,6 +28,7 @@
     [Internal_functions]                Private functions only, no API access
 		[Platform_dependent_functions]
         [Buffer_and_Memory_Management]
+        [Queue_management]
         [Renderer_functions]
         [Draw_layer_internal_functions]
         [Image_internal_functions]
@@ -68,7 +69,7 @@
 
 #define ZEST_DEBUGGING
 #define ZLOC_THREAD_SAFE
-#define ZLOC_EXTRA_DEBUGGING
+//#define ZLOC_EXTRA_DEBUGGING
 #define ZEST_OUTPUT_WARNING_MESSAGES
 #define ZLOC_OUTPUT_ERROR_MESSAGES
 #define ZLOC_SAFEGUARDS
@@ -2355,6 +2356,7 @@ typedef struct zest_frame_graph_builder_t zest_frame_graph_builder_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
 typedef struct zest_queue_t zest_queue_t;
+typedef struct zest_queue_manager_t zest_queue_manager_t;
 typedef struct zest_context_queue_t zest_context_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
@@ -2416,6 +2418,7 @@ ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_device_memory)
 ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_queue)
+ZEST__MAKE_HANDLE(zest_queue_manager)
 ZEST__MAKE_HANDLE(zest_context_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores)
@@ -2469,15 +2472,18 @@ ZEST__MAKE_USER_HANDLE(zest_execution_timeline)
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family_index;
-	zest_uint transfer_family_index;
 	zest_uint compute_family_index;
+	zest_uint transfer_family_index;
+	float *graphics_priorities;
+	float *compute_priorities;
+	float *transfer_priorities;
 } zest_queue_family_indices;
 
 // --Pocket Dynamic Array
 typedef struct zest_vec {
 	int magic;  //For allocation tracking
 	int id;     //and finding leaks.
-	zest_uint current_size;
+	volatile zest_uint current_size;
 	zest_uint capacity;
 } zest_vec;
 
@@ -2823,9 +2829,6 @@ ZEST_API void zest__add_report(zest_context context, zest_report_category catego
 #ifndef ZEST_MAX_THREADS
 #define ZEST_MAX_THREADS 64
 #endif
-
-// Forward declaration
-struct zest_work_queue_t;
 
 // Platform-specific synchronization wrapper
 typedef struct zest_sync_t {
@@ -3425,11 +3428,21 @@ zest_hash_map(const char *) zest_map_queue_names;
 zest_hash_map(zest_text_t) zest_map_validation_errors;
 
 typedef struct zest_queue_t {
-	zest_uint family_index;
-	zest_device_queue_type type;
 	zest_queue_backend backend;
 	zest_execution_timeline timeline;
+	zest_uint index;
+	zest_uint family_index;
+	volatile int in_use;
 } zest_queue_t;
+
+typedef struct zest_queue_manager_t {
+	zest_uint family_index;
+	zest_device_queue_type type;
+	zest_queue_t *queues;
+	zest_sync_t sync;
+	zest_uint current_queue_index;
+	zest_uint queue_count;
+} zest_queue_manager_t;
 
 typedef struct zest_context_queue_t {
 	//We decouple the frame in flight on the queue so that the counts don't get out of sync when the swap chain
@@ -3438,6 +3451,7 @@ typedef struct zest_context_queue_t {
 	zest_u64 current_count[ZEST_MAX_FIF];
 	zest_u64 signal_value;
 	zest_uint next_buffer;
+	zest_queue_manager_t *queue_manager;
 	zest_queue queue;
 	zest_context_queue_backend backend;
 } zest_context_queue_t;
@@ -3529,10 +3543,10 @@ typedef struct zest_device_t {
 	zest_uint graphics_queue_family_index;
 	zest_uint transfer_queue_family_index;
 	zest_uint compute_queue_family_index;
-	zest_queue_t graphics_queue;
-	zest_queue_t compute_queue;
-	zest_queue_t transfer_queue;
-	zest_queue *queues;
+	zest_queue_manager_t graphics_queues;
+	zest_queue_manager_t compute_queues;
+	zest_queue_manager_t transfer_queues;
+	zest_queue_manager *queues;
 	zest_map_queue_names queue_names;
 	zest_text_t log_path;
 	zest_device_builder_t setup_info;
@@ -3556,6 +3570,13 @@ typedef struct zest_device_t {
 
 	//Global descriptor set and layout template.
 	zest_set_layout_builder_t global_layout_builder;
+
+	//Bindless set layout and set
+	zest_set_layout bindless_set_layout;
+	zest_descriptor_set bindless_set;
+
+	//Mip indexes for images
+	zest_map_mip_indexes mip_indexes;
 
 	//GPU buffer allocation
 	zest_map_buffer_allocators buffer_allocators;
@@ -3908,7 +3929,7 @@ typedef struct zest_frame_graph_t {
 	zest_swapchain swapchain;                       // Handle to the current swapchain image resource
 	zest_uint id_counter;
 	zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
-	zest_set_layout bindless_layout;
+	zest_set_layout bindless_layout;				//Todo: remove as this will always be in the device.
 	zest_descriptor_set bindless_set;
 
 	zest_wave_submission_t *submissions;
@@ -4070,7 +4091,7 @@ ZEST_API void zest_SetSwapchainClearColor(zest_context context, float red, float
 
 typedef struct zest_descriptor_indices_t {
 	zest_uint *free_indices;
-	zest_uint next_new_index;
+	volatile zest_uint next_new_index;
 	zest_uint capacity;
 	zest_descriptor_type descriptor_type;
 } zest_descriptor_indices_t;
@@ -4116,6 +4137,7 @@ typedef struct zest_descriptor_set_t {
 typedef struct zest_set_layout_t {
 	int magic;
 	zest_context context;
+	zest_device device;
 	zest_descriptor_binding_desc_t *bindings;
 	zest_set_layout_backend backend;
 	zest_descriptor_indices_t *descriptor_indexes;
@@ -4123,6 +4145,7 @@ typedef struct zest_set_layout_t {
 	zest_u64 binding_indexes;
 	zest_descriptor_pool pool;
 	zest_set_layout_flags flags;
+	zest_sync_t sync;
 } zest_set_layout_t;
 
 typedef struct zest_uniform_buffer_data_t {
@@ -4487,11 +4510,11 @@ typedef struct zest_platform_t {
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
 	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
 	//Set layouts
-	zest_bool                  (*create_set_layout)(zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
-	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
+	zest_bool                  (*create_set_layout)(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
+	zest_bool                  (*create_set_pool)(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
 	zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
-	void                       (*update_bindless_image_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
-	void                       (*update_bindless_buffer_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+	void                       (*update_bindless_image_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
+	void                       (*update_bindless_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
 	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
@@ -4524,10 +4547,10 @@ typedef struct zest_platform_t {
 	void					   (*set_uniform_buffer_backend)(zest_uniform_buffer buffer);
 	void*					   (*new_image_backend)(zest_context context);
 	void*					   (*new_compute_backend)(zest_context context);
-	void*					   (*new_queue_backend)(zest_device device);
+	void*					   (*new_queue_backend)(zest_device device, zest_uint queue_count);
 	void*					   (*new_submission_batch_backend)(zest_context context);
 	void*					   (*new_set_layout_backend)(zloc_allocator *allocator);
-	void*					   (*new_descriptor_pool_backend)(zest_context context);
+	void*					   (*new_descriptor_pool_backend)(zloc_allocator *allocator);
 	void*					   (*new_sampler_backend)(zest_context context);
 	void*					   (*new_context_queue_backend)(zest_context context);
 	//Cleanup backends
@@ -4632,13 +4655,6 @@ typedef struct zest_context_t {
 	//GPU buffer allocation
 	zest_map_buffer_allocators buffer_allocators;
 
-	//Bindless set layout and set
-	zest_set_layout bindless_set_layout;
-	zest_descriptor_set bindless_set;
-
-	//Mip indexes for images
-	zest_map_mip_indexes mip_indexes;
-
 	//Cached pipelines
 	zest_map_cached_pipelines cached_pipelines;
 
@@ -4653,7 +4669,6 @@ typedef struct zest_context_t {
 	zest_device_t *device;
 	zest_uint device_frame_counter;
 	zest_create_context_info_t create_info;
-
 } zest_context_t;
 
 extern zest_platform_t ZestPlatform;
@@ -4749,6 +4764,11 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
 //End Buffer Management
 
+//Queue_management
+ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_uint family_index);
+ZEST_PRIVATE void zest__release_queue(zest_device device, zest_queue queue);
+//End Queue_management
+
 //Renderer_functions
 ZEST_API inline zest_uint zest_CurrentFIF(zest_context context) {
 	return context->current_fif;
@@ -4800,8 +4820,8 @@ ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer, void *push_co
 
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context device);
-ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_context context, zest_image image);
-ZEST_PRIVATE void zest__release_all_context_texture_indexes(zest_context context);
+ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_device device, zest_image image);
+ZEST_PRIVATE void zest__release_all_image_indexes(zest_device device);
 ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
 
@@ -4846,16 +4866,16 @@ ZEST_API void zest__cache_shader(zest_device device, zest_shader shader);
 // --End Shader functions
 
 // --Descriptor_set_functions
-ZEST_PRIVATE zest_set_layout zest__new_descriptor_set_layout(zest_context context, const char *name);
-ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_context context, zest_uint max_sets);
+ZEST_PRIVATE zest_set_layout zest__new_descriptor_set_layout(zest_device device, zest_context context, const char *name);
+ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_device device, zloc_allocator *allocator, zest_uint max_sets);
 ZEST_PRIVATE zest_bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_context context, zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_context context, zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_context context, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_context context, zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_device device, zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_device device, zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4944,23 +4964,23 @@ ZEST_API zest_set_layout_builder_t zest_BeginSetLayoutBuilder(zloc_allocator *al
 ZEST_API void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_descriptor_binding_desc_t description);
 
 //Build the descriptor set layout and add it to the renderer. This is for large global descriptor set layouts
-ZEST_API zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_context context, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...);
+ZEST_API zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
 ZEST_API zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name, ...);
 
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout);
-ZEST_API zest_uint zest_AcquireSampledImageIndex(zest_context context, zest_image image, zest_binding_number_type binding_number);
-ZEST_API zest_uint zest_AcquireStorageImageIndex(zest_context context, zest_image image, zest_binding_number_type binding_number);
-ZEST_API zest_uint zest_AcquireSamplerIndex(zest_context context, zest_sampler sampler);
-ZEST_API zest_uint zest_AcquireStorageBufferIndex(zest_context context, zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_context context, zest_image image, zest_image_view_array image_view_array, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
-ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer layer);
-ZEST_API void zest_ReleaseStorageBufferIndex(zest_context context, zest_uint array_index);
-ZEST_API void zest_ReleaseImageIndex(zest_context context, zest_image image, zest_binding_number_type binding_number);
-ZEST_API void zest_ReleaseAllImageIndexes(zest_context context, zest_image image);
-ZEST_API void zest_ReleaseBindlessIndex(zest_context context, zest_uint index, zest_binding_number_type binding_number);
-ZEST_API zest_descriptor_set zest_GetBindlessSet(zest_context context);
-ZEST_API zest_set_layout zest_GetBindlessLayout(zest_context context);
+ZEST_API zest_uint zest_AcquireSampledImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
+ZEST_API zest_uint zest_AcquireStorageImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
+ZEST_API zest_uint zest_AcquireSamplerIndex(zest_device device, zest_sampler sampler);
+ZEST_API zest_uint zest_AcquireStorageBufferIndex(zest_device device, zest_buffer buffer);
+ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_device device, zest_image image, zest_image_view_array image_view_array, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
+ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer);
+ZEST_API void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index);
+ZEST_API void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
+ZEST_API void zest_ReleaseAllImageIndexes(zest_device device, zest_image image);
+ZEST_API void zest_ReleaseBindlessIndex(zest_device device, zest_uint index, zest_binding_number_type binding_number);
+ZEST_API zest_descriptor_set zest_GetBindlessSet(zest_device device);
+ZEST_API zest_set_layout zest_GetBindlessLayout(zest_device device);
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources_handle zest_CreateShaderResources(zest_context context);
 //Get the opaque pointer to the shader resources handle
