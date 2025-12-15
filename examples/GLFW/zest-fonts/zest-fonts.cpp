@@ -29,11 +29,11 @@ typedef struct zest_fonts_example {
 
 void InitExample(zest_fonts_example *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise(app->context, &app->imgui);
+	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	//Implement a dark style
-	zest_imgui_DarkStyle();
+	zest_imgui_DarkStyle(&app->imgui);
 	
 	/*
 	//This is an exmaple of how to change the font that ImGui uses
@@ -118,15 +118,12 @@ void MainLoop(zest_fonts_example *app) {
 			zest_DrawMSDFText(font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u", fps);
 			zest_DrawMSDFText(font_layer, 20.f, 220.f, .0f, 0.0f, app->font_size, 0.f, "Some more test text !£$%^&*()", fps);
 
-			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 			zest_SetSwapchainClearColor(app->context, 0.f, 0.2f, 0.5f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
-			//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
-			//after zest_BeginFrame every frame.
-			zest_imgui_UpdateBuffers(&app->imgui);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
@@ -157,7 +154,7 @@ void MainLoop(zest_fonts_example *app) {
 
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui);
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport);
 					if (imgui_pass) {
 						//zest_ConnectInput(test_texture, 0);
 						zest_ConnectSwapChainOutput();
