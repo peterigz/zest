@@ -3186,9 +3186,15 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, ze
 
     zest_vec_resize(device->allocator, set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
     zest_vec_foreach(i, builder->bindings) {
-        set_layout->descriptor_indexes[i] = ZEST__ZERO_INIT(zest_descriptor_indices_t);
-        set_layout->descriptor_indexes[i].capacity = builder->bindings[i].count;
-        set_layout->descriptor_indexes[i].descriptor_type = builder->bindings[i].type;
+		zest_descriptor_indices_t *manager = &set_layout->descriptor_indexes[i];
+		*manager = ZEST__ZERO_INIT(zest_descriptor_indices_t);
+        manager->capacity = builder->bindings[i].count;
+        manager->descriptor_type = builder->bindings[i].type;
+		zest_vec_reserve(device->allocator, manager->free_indices, manager->capacity);
+		memset(manager->free_indices, 0, zest_vec_size_in_bytes(manager->free_indices));
+		zest_uint is_free_size = manager->capacity / (8 * sizeof(zest_size));
+		zest_vec_resize(device->allocator, manager->is_free, is_free_size);
+		memset(manager->is_free, 0, zest_vec_size_in_bytes(manager->is_free));
     }
 
     set_layout->bindings = builder->bindings;
@@ -3219,57 +3225,104 @@ zest_set_layout zest__new_descriptor_set_layout(zest_device device, zest_context
 }
 
 zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number) {
-	if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
-		ZEST_PRINT("Attempted to acquire index for out-of-bounds binding_number %u for layout '%s'. Are you sure this is a layout that's configured for bindless descriptors?", binding_number, layout->name.str);
-		return ZEST_INVALID;
-	}
-	zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
-
-	zest_uint current_size = zest_vec_size(manager->free_indices);  
-	while (current_size > 0) {
-		zest_uint new_size = current_size - 1;
-		if (zest__atomic_compare_exchange((volatile int*)&zest__vec_header(manager->free_indices)->current_size, (int)new_size, (int)current_size)) {
-			zest_uint index = manager->free_indices[new_size];
-			return index;
-		}
-		current_size = zest_vec_size(manager->free_indices);
-	}
-
-	zest_uint current = manager->next_new_index;  
-	while (1) {
-		if (current >= manager->capacity) {
-			ZEST__REPORT(layout->context, zest_report_bindless_indexes, "Ran out of bindless indices for binding %u (type %d, capacity %u) in layout '%s'!",
-						 binding_number, manager->descriptor_type, manager->capacity, layout->name.str);
-			return ZEST_INVALID;
-		}
-		zest_uint new_val = current + 1;
-		if (zest__atomic_compare_exchange((volatile int*)&manager->next_new_index, (int)new_val, (int)current)) {
-			return current; 
-		}
-		current = manager->next_new_index; 
-	}
+    if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
+        ZEST_PRINT("Attempted to acquire index for out-of-bounds binding_number %u for layout '%s'.", 
+                   binding_number, layout->name.str);
+        return ZEST_INVALID;
+    }
+    
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
+    zest_uint current_size = zest_vec_size(manager->free_indices);
+    
+    // Try to pop from free list
+    while (current_size > 0) {
+        zest_uint new_size = current_size - 1;
+        zest_uint index = manager->free_indices[new_size];  // Read BEFORE CAS
+        
+        // Atomically check and clear the bit
+        zest_size word_idx = index / ZEST_BITS_PER_WORD;
+        zest_size bit_idx = index % ZEST_BITS_PER_WORD;
+        zest_size mask = (zest_size)1 << bit_idx;
+        
+        // Atomic test-and-clear
+        zest_size old_word = zest__atomic_fetch_and((volatile zest_size*)&manager->is_free[word_idx], ~mask);
+        
+        if (!(old_word & mask)) {
+            // Bit was already clear - someone else got it, retry
+            current_size = zest_vec_size(manager->free_indices);
+            continue;
+        }
+        
+        // We successfully claimed it, now remove from list
+        if (zest__atomic_compare_exchange((volatile int*)&zest__vec_header(manager->free_indices)->current_size, 
+										  (int)new_size, (int)current_size)) {
+            return index;
+        }
+        
+        // CAS failed, put the bit back and retry
+        zest__atomic_fetch_or((volatile zest_size*)&manager->is_free[word_idx], mask);
+        current_size = zest_vec_size(manager->free_indices);
+    }
+    
+    // Allocate new index
+    zest_uint current = manager->next_new_index;
+    while (1) {
+        if (current >= manager->capacity) {
+            ZEST__REPORT(layout->context, zest_report_bindless_indexes, 
+						 "Ran out of bindless indices for binding %u in layout '%s'!",
+						 binding_number, layout->name.str);
+            return ZEST_INVALID;
+        }
+        
+        zest_uint new_val = current + 1;
+        if (zest__atomic_compare_exchange((volatile int*)&manager->next_new_index, 
+										  (int)new_val, (int)current)) {
+            // New indices start as allocated (bit clear), so nothing to update
+            return current;
+        }
+        current = manager->next_new_index;
+    }
 }
 
 void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release) {
-    ZEST_ASSERT_HANDLE(layout);   //Not a valid layout handle!
+    ZEST_ASSERT_HANDLE(layout);
     if (index_to_release == ZEST_INVALID) return;
-
+    
     if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
-        ZEST_PRINT("Attempted to release index for out-of-bounds binding_number %u for layout '%s'. Check that layout is actually intended for bindless.", binding_number, layout->name.str);
+        ZEST_PRINT("Attempted to release index for out-of-bounds binding_number %u for layout '%s'.", 
+                   binding_number, layout->name.str);
         return;
     }
-
+    
     zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
-
-    zest_vec_foreach(i, manager->free_indices) {
-        if (index_to_release == manager->free_indices[i]) {
-			ZEST_PRINT("Attempted to release index for binding_number %u for layout '%s' that is already free. Make sure the binding number is correct.", binding_number, layout->name.str);
-            return;
-        }
+    ZEST_ASSERT(index_to_release < manager->capacity, 
+                "Trying to release an index that's outside the bounds of the descriptor");
+    
+    zest_size word_idx = index_to_release / ZEST_BITS_PER_WORD;
+    zest_size bit_idx = index_to_release % ZEST_BITS_PER_WORD;
+    zest_size mask = (zest_size)1 << bit_idx;
+    
+    // Atomically test-and-set the bit
+    zest_size old_word = zest__atomic_fetch_or((volatile zest_size*)&manager->is_free[word_idx], mask);
+    
+    if (old_word & mask) {
+        // Bit was already set - double free!
+        ZEST_PRINT("Attempted to release index %u for binding_number %u for layout '%s' that is already free.", 
+                   index_to_release, binding_number, layout->name.str);
+        return;
     }
-
-    ZEST_ASSERT(index_to_release < manager->capacity);
-    zest_vec_push(layout->device->allocator, manager->free_indices, index_to_release);
+    
+    // Bit successfully set (marked as free), now add to list
+    zest_uint current_size = zest_vec_size(manager->free_indices);
+    while (1) {
+        zest_uint new_size = current_size + 1;
+        if (zest__atomic_compare_exchange((volatile int*)&zest__vec_header(manager->free_indices)->current_size, 
+										  (int)new_size, (int)current_size)) {
+            manager->free_indices[current_size] = index_to_release;
+            break;
+        }
+        current_size = zest_vec_size(manager->free_indices);
+    }
 }
 
 void zest__cleanup_set_layout(zest_set_layout layout) {
@@ -3278,6 +3331,7 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
     zest_FreeText(allocator, &layout->name);
 	zest_vec_foreach(i, layout->descriptor_indexes) {
 		zest_vec_free(allocator, layout->descriptor_indexes[i].free_indices);
+		zest_vec_free(allocator, layout->descriptor_indexes[i].is_free);
 	}
 	zest_vec_free(allocator, layout->descriptor_indexes);
     layout->device->platform->cleanup_set_layout_backend(layout);

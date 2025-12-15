@@ -1697,6 +1697,7 @@ typedef enum {
 	ZEST_GRAPHICS_QUEUE_INDEX = 0,
 	ZEST_COMPUTE_QUEUE_INDEX = 1,
 	ZEST_TRANSFER_QUEUE_INDEX = 2,
+	ZEST_BITS_PER_WORD = (sizeof(zest_size) * 8),
 } zest_constants;
 
 typedef enum {
@@ -2857,6 +2858,30 @@ ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int ex
 	return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
 	#else
 	return __sync_bool_compare_and_swap(dest, comparand, exchange);
+	#endif
+}
+
+ZEST_PRIVATE inline zest_size zest__atomic_fetch_and(volatile zest_size *ptr, zest_size mask) {
+	#ifdef _WIN32
+	#if defined(_WIN64)
+	return InterlockedAnd64((LONG64 *)ptr, mask);
+	#else
+	return InterlockedAnd((LONG *)ptr, mask);
+	#endif
+	#else
+	return __sync_fetch_and_and(ptr, mask);
+	#endif
+}
+
+ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zest_size mask) {
+	#ifdef _WIN32
+	#if defined(_WIN64)
+	return InterlockedOr64((LONG64 *)ptr, mask);
+	#else
+	return InterlockedOr((LONG *)ptr, mask);
+	#endif
+	#else
+	return __sync_fetch_and_or(ptr, mask);
 	#endif
 }
 
@@ -4091,6 +4116,7 @@ ZEST_API void zest_SetSwapchainClearColor(zest_context context, float red, float
 
 typedef struct zest_descriptor_indices_t {
 	zest_uint *free_indices;
+	zest_size *is_free;
 	volatile zest_uint next_new_index;
 	zest_uint capacity;
 	zest_descriptor_type descriptor_type;
