@@ -130,7 +130,7 @@ layout(push_constant) uniform imgui_push
 
 void main()
 {
-	out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
+	out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
 }
 
 );

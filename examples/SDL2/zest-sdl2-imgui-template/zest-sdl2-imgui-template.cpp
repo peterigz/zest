@@ -11,23 +11,22 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
 	int size = width * height * 4;
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
 	image_info.format = zest_format_r8g8b8a8_unorm;
-	zest_FreeImage(app->image_handle);
 	image_info.flags = zest_image_preset_texture;
-	app->image_handle = zest_CreateImageWithPixels(app->context, pixels, size, &image_info);
-	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    zest_sampler_handle sampler_handle = zest_CreateSampler(app->context, &sampler_info);
-	zest_image image = zest_GetImage(app->image_handle);
-	zest_sampler sampler = zest_GetSampler(sampler_handle);
-	app->sprite = zest_NewAtlasRegion();
-	app->sprite.width = width;
-	app->sprite.height = height;
-	app->image_index = zest_AcquireSampledImageIndex(app->context, image, zest_texture_2d_binding);
-	app->sampler_index = zest_AcquireSamplerIndex(app->context, sampler);
-	zest_BindAtlasRegionToImage(&app->sprite, app->sampler_index, image, zest_texture_2d_binding);
+	zest_image_handle image_handle = zest_CreateImageWithPixels(app->context, pixels, size, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	zest_atlas_region_t sprite = zest_NewAtlasRegion();
+	sprite.width = width;
+	sprite.height = height;
+	zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
+	zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
 	STBI_FREE(pixels);
+	app->sprite_state.staging_image_handle = image_handle;
+	app->sprite_state.staging_sprite = sprite;
+	zest__atomic_store(&app->sprite_state.update_ready, 1);
 }
 
 void InitImGuiApp(ImGuiApp *app) {
+
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
@@ -50,7 +49,13 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
-	LoadSprite(app, "examples/assets/wabbit_alpha.png");
+	app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png");
+	//LoadSprite(app, "examples/assets/wabbit_alpha.png");
+
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+    zest_sampler_handle sampler_handle = zest_CreateSampler(app->context, &sampler_info);
+	zest_sampler sampler = zest_GetSampler(sampler_handle);
+	app->sampler_index = zest_AcquireSamplerIndex(app->device, sampler);
 
 	app->imgui_sprite_shader = zest_CreateShader(app->device, zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", ZEST_TRUE);
 
@@ -66,7 +71,7 @@ void InitImGuiApp(ImGuiApp *app) {
 void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	zest_imgui_callback_data_t *data = (zest_imgui_callback_data_t *)cmd->UserCallbackData;
 	ImGuiApp *app = (ImGuiApp*)data->user_data;
-	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui_sprite_pipeline, data->command_list);
+	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui.pipeline, data->command_list);
 	data->render_state->resources = app->imgui.font_resources;
 	return;
 }
@@ -89,7 +94,7 @@ void MainLoop(ImGuiApp *app) {
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
 		//less frequently.
-		zest_StartTimerLoop(app->timer) {
+		//zest_StartTimerLoop(app->timer) {
 			//Must call the imgui GLFW implementation function
 			ImGui_ImplSDL2_NewFrame();
 			//Draw our imgui stuff
@@ -126,21 +131,43 @@ void MainLoop(ImGuiApp *app) {
 				zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
 			}
 			*/
-		if (ImGui::Button("Glow Image")) {
-			LoadSprite(app, "examples/assets/glow.png");
-		}
-		if (ImGui::Button("Bunny Image")) {
-			LoadSprite(app, "examples/assets/wabbit_alpha.png");
-		}
-		if (ImGui::Button("Particle")) {
-			LoadSprite(app, "examples/assets/particle.png");
-		}
-		if (ImGui::Button("Smoke")) {
-			LoadSprite(app, "examples/assets/smoke.png");
-		}
-		if (ImGui::Button("Jpg")) {
-			LoadSprite(app, "examples/assets/texture.jpg");
-		}
+			if (app->loader_thread.joinable()) {
+				app->loader_thread.join();
+				switch (app->load_image_index % 5) {
+					case 0: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/glow.png"); break; }
+					case 1: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png"); break; }
+					case 2: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/particle.png"); break; }
+					case 3: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/smoke.png"); break; }
+					case 4: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/texture.jpg"); break; }
+				}
+				app->load_image_index++;
+			}
+			//ZEST_PRINT("Index: %i, image index: %i", app->load_image_index, app->image_index);
+			if (ImGui::Button("Glow Image")) {
+				if(app->loader_thread.joinable()) app->loader_thread.join();
+				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/glow.png"); 
+				//LoadSprite(app, "examples/assets/glow.png");
+			}
+			if (ImGui::Button("Bunny Image")) {
+				if(app->loader_thread.joinable()) app->loader_thread.join();
+				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png");
+				//LoadSprite(app, "examples/assets/wabbit_alpha.png");
+			}
+			if (ImGui::Button("Particle")) {
+				if(app->loader_thread.joinable()) app->loader_thread.join();
+				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/particle.png");
+				//LoadSprite(app, "examples/assets/particle.png");
+			}
+			if (ImGui::Button("Smoke")) {
+				if(app->loader_thread.joinable()) app->loader_thread.join();
+				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/smoke.png");
+				//LoadSprite(app, "examples/assets/smoke.png");
+			}
+			if (ImGui::Button("Jpg")) {
+				//if(app->loader_thread.joinable()) app->loader_thread.join();
+				//app->loader_thread = std::thread(LoadSprite, app, "examples/assets/texture.jpg");
+				LoadSprite(app, "examples/assets/texture.jpg");
+			}
 			//Test for memory leaks in zest
 			/*
 		for (int i = 0; i != context->device->memory_pool_count; ++i) {
@@ -149,12 +176,12 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
 		*/
-			zest_vec4 uv = zest_RegionUV(&app->sprite);
+			zest_vec4 uv = zest_RegionUV(&app->sprite_state.active_sprite);
 			//ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
-			zest_imgui_DrawImage(&app->sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
+			zest_imgui_DrawImage(&app->sprite_state.active_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
 			ImGui::Render();
-		} zest_EndTimerLoop(app->timer);
+		//} zest_EndTimerLoop(app->timer);
 
 		if (app->reset) {
 			app->reset = false;
@@ -165,7 +192,7 @@ void MainLoop(ImGuiApp *app) {
 			zest_imgui_Destroy(&app->imgui);
 			zest_implsdl2_DestroyWindow(app->context);
 			zest_window_data_t window_handles = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-			zest_create_info_t create_info = zest_CreateInfo();
+			zest_create_context_info_t create_info = zest_CreateContextInfo();
 			app->context = zest_CreateContext(app->device, &window_handles, &create_info);
 			InitImGuiApp(app);
 		}
@@ -176,12 +203,18 @@ void MainLoop(ImGuiApp *app) {
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
+			if (zest__atomic_load(&app->sprite_state.update_ready) == 1) {
+				zest_FreeImage(app->sprite_state.active_image_handle);
+				app->sprite_state.active_sprite = app->sprite_state.staging_sprite;
+				app->sprite_state.active_image_handle = app->sprite_state.staging_image_handle;
+				zest__atomic_store(&app->sprite_state.update_ready, 0);
+			}
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
@@ -222,7 +255,7 @@ void MainLoop(ImGuiApp *app) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(int argc, char *argv[]) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	 if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		 return 0;
@@ -243,6 +276,7 @@ int main(int argc, char *argv[]) {
 
 	// Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	device_builder->bindless_texture_2d_count = 4096;
 	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
@@ -259,6 +293,7 @@ int main(int argc, char *argv[]) {
 
 	//Start the main loop
 	MainLoop(&imgui_app);
+	if(imgui_app.loader_thread.joinable()) imgui_app.loader_thread.join();
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
 	zest_DestroyDevice(imgui_app.device);
@@ -267,7 +302,7 @@ int main(int argc, char *argv[]) {
 }
 #else
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	zest_implglfw_SetCallbacks(&create_info);
     ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 

@@ -1029,7 +1029,7 @@ typedef char* zest_file;
 #define ZEST_HANDLE_GENERATION(handle) (zest_uint)((handle & 0xFFFFFF00000000) >> 32ull)
 #define ZEST_HANDLE_TYPE(handle) (zest_handle_type)((handle & 0xFF00000000000000) >> 56ull)
 
-#define ZEST_CREATE_HANDLE(type, generation, index) (((zest_u64)type << 56ull) + ((zest_u64)generation << 32ull) + index)
+#define ZEST_CREATE_HANDLE(generation, index) (((zest_u64)generation << 32ull) + index)
 
 //For allocating a new object with handle. Only used internally.
 #define ZEST__NEW(allocator, type) ZEST__ALLOCATE(allocator, sizeof(type##_t))
@@ -2470,6 +2470,198 @@ ZEST__MAKE_USER_HANDLE(zest_shader)
 ZEST__MAKE_USER_HANDLE(zest_compute)
 ZEST__MAKE_USER_HANDLE(zest_execution_timeline)
 
+//Threading
+
+#ifdef _WIN32
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
+#endif
+
+#ifndef ZEST_MAX_QUEUES
+#define ZEST_MAX_QUEUES 64
+#endif
+
+#ifndef ZEST_MAX_QUEUE_ENTRIES
+#define ZEST_MAX_QUEUE_ENTRIES 512
+#endif
+
+#ifndef ZEST_MAX_THREADS
+#define ZEST_MAX_THREADS 64
+#endif
+
+// Platform-specific synchronization wrapper
+typedef struct zest_sync_t {
+	#ifdef _WIN32
+	CRITICAL_SECTION mutex;
+	CONDITION_VARIABLE empty_condition;
+	CONDITION_VARIABLE full_condition;
+	#else
+	pthread_mutex_t mutex;
+	pthread_cond_t empty_condition;
+	pthread_cond_t full_condition;
+	#endif
+} zest_sync_t;
+
+// Platform-specific atomic operations
+ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
+	#ifdef _WIN32
+	return InterlockedIncrement((LONG *)value);
+	#else
+	return __sync_fetch_and_add(value, 1) + 1;
+	#endif
+}
+
+ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
+	#ifdef _WIN32
+	return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
+	#else
+	return __sync_bool_compare_and_swap(dest, comparand, exchange);
+	#endif
+}
+
+ZEST_PRIVATE inline zest_size zest__atomic_fetch_and(volatile zest_size *ptr, zest_size mask) {
+	#ifdef _WIN32
+	#if defined(_WIN64)
+	return InterlockedAnd64((LONG64 *)ptr, mask);
+	#else
+	return InterlockedAnd((LONG *)ptr, mask);
+	#endif
+	#else
+	return __sync_fetch_and_and(ptr, mask);
+	#endif
+}
+
+ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zest_size mask) {
+	#ifdef _WIN32
+	#if defined(_WIN64)
+	return InterlockedOr64((LONG64 *)ptr, mask);
+	#else
+	return InterlockedOr((LONG *)ptr, mask);
+	#endif
+	#else
+	return __sync_fetch_and_or(ptr, mask);
+	#endif
+}
+
+ZEST_API inline void zest__atomic_store(volatile int *ptr, int value) {
+	#ifdef _WIN32
+	InterlockedExchange((LONG *)ptr, value);
+	#else
+	__sync_lock_test_and_set(ptr, value);
+	#endif
+}
+
+ZEST_API inline int zest__atomic_load(volatile int *ptr) {
+	#ifdef _WIN32
+	return InterlockedOr((LONG *)ptr, 0);  // OR with 0 = read without modifying
+	#else
+	return __sync_fetch_and_or(ptr, 0);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__memory_barrier(void) {
+	#ifdef _WIN32
+	MemoryBarrier();
+	#else
+	__sync_synchronize();
+	#endif
+}
+
+// Initialize synchronization primitives
+ZEST_PRIVATE inline void zest__sync_init(zest_sync_t *sync) {
+	#ifdef _WIN32
+	InitializeCriticalSection(&sync->mutex);
+	InitializeConditionVariable(&sync->empty_condition);
+	InitializeConditionVariable(&sync->full_condition);
+	#else
+	pthread_mutex_init(&sync->mutex, NULL);
+	pthread_cond_init(&sync->empty_condition, NULL);
+	pthread_cond_init(&sync->full_condition, NULL);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_cleanup(zest_sync_t *sync) {
+	#ifdef _WIN32
+	DeleteCriticalSection(&sync->mutex);
+	#else
+	pthread_mutex_destroy(&sync->mutex);
+	pthread_cond_destroy(&sync->empty_condition);
+	pthread_cond_destroy(&sync->full_condition);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_lock(zest_sync_t *sync) {
+	#ifdef _WIN32
+	EnterCriticalSection(&sync->mutex);
+	#else
+	pthread_mutex_lock(&sync->mutex);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_unlock(zest_sync_t *sync) {
+	#ifdef _WIN32
+	LeaveCriticalSection(&sync->mutex);
+	#else
+	pthread_mutex_unlock(&sync->mutex);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_wait_empty(zest_sync_t *sync) {
+	#ifdef _WIN32
+	SleepConditionVariableCS(&sync->empty_condition, &sync->mutex, INFINITE);
+	#else
+	pthread_cond_wait(&sync->empty_condition, &sync->mutex);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_wait_full(zest_sync_t *sync) {
+	#ifdef _WIN32
+	SleepConditionVariableCS(&sync->full_condition, &sync->mutex, INFINITE);
+	#else
+	pthread_cond_wait(&sync->full_condition, &sync->mutex);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_signal_empty(zest_sync_t *sync) {
+	#ifdef _WIN32
+	WakeConditionVariable(&sync->empty_condition);
+	#else
+	pthread_cond_signal(&sync->empty_condition);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_signal_full(zest_sync_t *sync) {
+	#ifdef _WIN32
+	WakeConditionVariable(&sync->full_condition);
+	#else
+	pthread_cond_signal(&sync->full_condition);
+	#endif
+}
+
+ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
+	#ifdef _WIN32
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo(&sysinfo);
+	return sysinfo.dwNumberOfProcessors;
+	#else
+	#ifdef _SC_NPROCESSORS_ONLN
+	long count = sysconf(_SC_NPROCESSORS_ONLN);
+	return (count > 0) ? (unsigned int)count : 0;
+	#else
+	return 0;
+	#endif
+	#endif
+}
+
+// Safe version that always returns at least 1
+ZEST_API unsigned int zest_HardwareConcurrencySafe(void);
+
+// Helper function to get a good default thread count for thread pools
+// Usually hardware threads - 1 to leave a core for the OS/main thread
+ZEST_API unsigned int zest_GetDefaultThreadCount(void);
+
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family_index;
@@ -2590,7 +2782,9 @@ typedef struct zest_resource_store_t {
 	zest_uint alignment;
 	zest_uint *generations;
 	zest_uint *free_slots;
+	zest_u64 *initialised;
 	void *origin;
+	zest_sync_t sync;
 } zest_resource_store_t;
 
 ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
@@ -2809,182 +3003,6 @@ ZEST_API void zest__add_report(zest_context context, zest_report_category catego
 #define ZEST_RESET_LOG()
 #define ZEST__REPORT()
 #endif
-
-//Threading
-
-#ifdef _WIN32
-#include <windows.h>
-#include <process.h>
-#else
-#include <pthread.h>
-#endif
-
-#ifndef ZEST_MAX_QUEUES
-#define ZEST_MAX_QUEUES 64
-#endif
-
-#ifndef ZEST_MAX_QUEUE_ENTRIES
-#define ZEST_MAX_QUEUE_ENTRIES 512
-#endif
-
-#ifndef ZEST_MAX_THREADS
-#define ZEST_MAX_THREADS 64
-#endif
-
-// Platform-specific synchronization wrapper
-typedef struct zest_sync_t {
-	#ifdef _WIN32
-	CRITICAL_SECTION mutex;
-	CONDITION_VARIABLE empty_condition;
-	CONDITION_VARIABLE full_condition;
-	#else
-	pthread_mutex_t mutex;
-	pthread_cond_t empty_condition;
-	pthread_cond_t full_condition;
-	#endif
-} zest_sync_t;
-
-// Platform-specific atomic operations
-ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
-	#ifdef _WIN32
-	return InterlockedIncrement((LONG *)value);
-	#else
-	return __sync_fetch_and_add(value, 1) + 1;
-	#endif
-}
-
-ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
-	#ifdef _WIN32
-	return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
-	#else
-	return __sync_bool_compare_and_swap(dest, comparand, exchange);
-	#endif
-}
-
-ZEST_PRIVATE inline zest_size zest__atomic_fetch_and(volatile zest_size *ptr, zest_size mask) {
-	#ifdef _WIN32
-	#if defined(_WIN64)
-	return InterlockedAnd64((LONG64 *)ptr, mask);
-	#else
-	return InterlockedAnd((LONG *)ptr, mask);
-	#endif
-	#else
-	return __sync_fetch_and_and(ptr, mask);
-	#endif
-}
-
-ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zest_size mask) {
-	#ifdef _WIN32
-	#if defined(_WIN64)
-	return InterlockedOr64((LONG64 *)ptr, mask);
-	#else
-	return InterlockedOr((LONG *)ptr, mask);
-	#endif
-	#else
-	return __sync_fetch_and_or(ptr, mask);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__memory_barrier(void) {
-	#ifdef _WIN32
-	MemoryBarrier();
-	#else
-	__sync_synchronize();
-	#endif
-}
-
-// Initialize synchronization primitives
-ZEST_PRIVATE inline void zest__sync_init(zest_sync_t *sync) {
-	#ifdef _WIN32
-	InitializeCriticalSection(&sync->mutex);
-	InitializeConditionVariable(&sync->empty_condition);
-	InitializeConditionVariable(&sync->full_condition);
-	#else
-	pthread_mutex_init(&sync->mutex, NULL);
-	pthread_cond_init(&sync->empty_condition, NULL);
-	pthread_cond_init(&sync->full_condition, NULL);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_cleanup(zest_sync_t *sync) {
-	#ifdef _WIN32
-	DeleteCriticalSection(&sync->mutex);
-	#else
-	pthread_mutex_destroy(&sync->mutex);
-	pthread_cond_destroy(&sync->empty_condition);
-	pthread_cond_destroy(&sync->full_condition);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_lock(zest_sync_t *sync) {
-	#ifdef _WIN32
-	EnterCriticalSection(&sync->mutex);
-	#else
-	pthread_mutex_lock(&sync->mutex);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_unlock(zest_sync_t *sync) {
-	#ifdef _WIN32
-	LeaveCriticalSection(&sync->mutex);
-	#else
-	pthread_mutex_unlock(&sync->mutex);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_wait_empty(zest_sync_t *sync) {
-	#ifdef _WIN32
-	SleepConditionVariableCS(&sync->empty_condition, &sync->mutex, INFINITE);
-	#else
-	pthread_cond_wait(&sync->empty_condition, &sync->mutex);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_wait_full(zest_sync_t *sync) {
-	#ifdef _WIN32
-	SleepConditionVariableCS(&sync->full_condition, &sync->mutex, INFINITE);
-	#else
-	pthread_cond_wait(&sync->full_condition, &sync->mutex);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_signal_empty(zest_sync_t *sync) {
-	#ifdef _WIN32
-	WakeConditionVariable(&sync->empty_condition);
-	#else
-	pthread_cond_signal(&sync->empty_condition);
-	#endif
-}
-
-ZEST_PRIVATE inline void zest__sync_signal_full(zest_sync_t *sync) {
-	#ifdef _WIN32
-	WakeConditionVariable(&sync->full_condition);
-	#else
-	pthread_cond_signal(&sync->full_condition);
-	#endif
-}
-
-ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
-	#ifdef _WIN32
-	SYSTEM_INFO sysinfo;
-	GetSystemInfo(&sysinfo);
-	return sysinfo.dwNumberOfProcessors;
-	#else
-	#ifdef _SC_NPROCESSORS_ONLN
-	long count = sysconf(_SC_NPROCESSORS_ONLN);
-	return (count > 0) ? (unsigned int)count : 0;
-	#else
-	return 0;
-	#endif
-	#endif
-}
-
-// Safe version that always returns at least 1
-ZEST_API unsigned int zest_HardwareConcurrencySafe(void);
-
-// Helper function to get a good default thread count for thread pools
-// Usually hardware threads - 1 to leave a core for the OS/main thread
-ZEST_API unsigned int zest_GetDefaultThreadCount(void);
 
 // --Structs
 // Vectors
@@ -4724,9 +4742,13 @@ ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store,
 	ZEST_ASSERT(store, "Tried to fetch a resource but the store was null. Check the stack trace and make sure it's a valid handle that you're tring to fetch.");
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
+	zest__sync_lock(&store->sync);
 	if (store->generations[index] == generation) {
-		return zest__bucket_array_get(&store->data, index);
+		void *resource = zest__bucket_array_get(&store->data, index);
+		zest__sync_unlock(&store->sync);
+		return resource;
 	}
+	zest__sync_unlock(&store->sync);
 	return NULL;
 }
 
@@ -4735,11 +4757,13 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	void *resource = NULL;
+	zest__sync_lock(&store->sync);
 	if (store->generations[index] == generation) {
 		resource = zest__bucket_array_get(&store->data, index);
 	}
 	ZEST_ASSERT(resource, "Not a valid handle for the resource. Check the stack trace for the calling function and resource type");
 
+	zest__sync_unlock(&store->sync);
 	return resource;
 }
 

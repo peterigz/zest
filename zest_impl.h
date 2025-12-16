@@ -4281,6 +4281,7 @@ void zest__free_store(zest_resource_store_t *store) {
 	zest__free_bucket_array(&store->data);
 	zest_vec_free(store->data.allocator, store->generations);
 	zest_vec_free(store->data.allocator, store->free_slots);
+	zest__sync_cleanup(&store->sync);
 	*store = ZEST__ZERO_INIT(zest_resource_store_t);
 }
 
@@ -4303,6 +4304,7 @@ zest_uint zest__size_in_bytes_store(zest_resource_store_t *store) {
 zest_handle zest__add_store_resource(zest_resource_store_t *store) {
 	zest_uint index;                                                                                                           
 	zest_uint generation;                                                                                                      
+	zest__sync_lock(&store->sync);
 	if (zest_vec_size(store->free_slots) > 0) {
 		index = zest_vec_back(store->free_slots);                                                                          
 		zest_vec_pop(store->free_slots);                                                                                  
@@ -4312,13 +4314,23 @@ zest_handle zest__add_store_resource(zest_resource_store_t *store) {
 		zest_vec_push(store->data.allocator, store->generations, 1);                                                                             
 		generation = 1;                                                                       
 		zest__bucket_array_add(&store->data);
-	}                                                                                                                         
-	return ZEST_STRUCT_LITERAL(zest_handle, ZEST_CREATE_HANDLE(0, generation, index));
+	}                           
+	zest_u64 word_idx = index / ZEST_BITS_PER_WORD;
+	zest_u64 bit_idx = index % ZEST_BITS_PER_WORD;
+	zest_u64 mask = (zest_size)1 << bit_idx;
+	if (word_idx >= zest_vec_size(store->initialised)) {
+		zest_vec_push(store->data.allocator, store->initialised, 0ULL);
+	}
+	store->initialised[word_idx] &= ~mask;
+	zest__sync_unlock(&store->sync);
+	return ZEST_STRUCT_LITERAL(zest_handle, ZEST_CREATE_HANDLE(generation, index));
 }
 
 void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handle) {
 	zest_uint index = ZEST_HANDLE_INDEX(handle);                                                                     
+	zest__sync_lock(&store->sync);
 	zest_vec_push(store->data.allocator, store->free_slots, index);                                                                               
+	zest__sync_unlock(&store->sync);
 }                                                                                                                             
 
 
@@ -4328,6 +4340,7 @@ void zest__initialise_store(zloc_allocator *allocator, void *origin, zest_resour
 	zest__initialise_bucket_array(allocator, &store->data, struct_size, 32);
     store->alignment = 16;
 	store->origin = origin;
+	zest__sync_init(&store->sync);
 }
 
 void zest_SetText(zloc_allocator *allocator, zest_text_t* buffer, const char* text) {
@@ -8011,12 +8024,13 @@ void zest__cleanup_image(zest_image image) {
 	if (ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)) {
 		ZEST__FREE(device->allocator, image->buffer);
 	}
-    zest__remove_store_resource(image->handle.store, image->handle.value);
     if (image->default_view) {
         device->platform->cleanup_image_view_backend(image->default_view);
         ZEST__FREE(device->allocator, image->default_view);
     }
+	zest__release_all_global_texture_indexes(device, image);
     image->magic = 0;
+    zest__remove_store_resource(image->handle.store, image->handle.value);
 }
 
 void zest__cleanup_sampler(zest_sampler sampler) {
@@ -8198,6 +8212,7 @@ zest_image_handle zest_CreateImageWithPixels(zest_context context, void *pixels,
 	ZEST_ASSERT(size == create_info->extent.width * create_info->extent.height * bytes_per_pixel, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height of the image.");
 	zest_image_handle image_handle = zest_CreateImage(context, create_info);
 	zest_image image = zest_GetImage(image_handle);
+	ZEST_ASSERT_HANDLE(image);
 
 	zest_CopyBitmapToImage(context, pixels, size, image, create_info->extent.width, create_info->extent.height);
 

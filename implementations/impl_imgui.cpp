@@ -18,6 +18,8 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     int upload_size = width * height * 4 * sizeof(char);
 
+	zest_device device = zest_GetContextDevice(context);
+
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     imgui->font_texture = zest_CreateImage(context, &image_info);
@@ -28,8 +30,8 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     imgui->font_sampler = zest_CreateSampler(context, &sampler_info);
 	zest_sampler font_sampler = zest_GetSampler(imgui->font_sampler);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(context, font_image, zest_texture_2d_binding);
-    imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(context, font_sampler);
+    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_2d_binding);
+    imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(device, font_sampler);
 	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
     io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
     zest_atlas_region_t *test = &imgui->font_region;
@@ -52,7 +54,7 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     zest_AddVertexAttribute(imgui_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
     zest_SetPipelineShaders(imgui_pipeline, imgui->vertex_shader, imgui->fragment_shader);
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetBindlessLayout(context));
+    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineFrontFace(imgui_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineCullMode(imgui_pipeline, zest_cull_mode_none);
     zest_SetPipelineTopology(imgui_pipeline, zest_topology_triangle_list);
@@ -67,7 +69,6 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 	platform_io.Renderer_DestroyWindow = zest__imgui_destroy_viewport;
 	platform_io.Renderer_RenderWindow = zest__imgui_render_viewport;
 
-	zest_device device = zest_GetContextDevice(context);
 	zest_imgui_viewport_t* viewport = zest_imgui_AcquireViewport(device);
 	viewport->context = context;
 	viewport->imgui = imgui;
@@ -88,7 +89,8 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
 	zest_image font_image = zest_GetImage(imgui->font_texture);
 	imgui->font_region = {};
     zest_CopyBitmapToImage(imgui->context, pixels, upload_size, font_image, width, height);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->context, font_image, zest_texture_2d_binding);
+	zest_device device = zest_GetContextDevice(imgui->context);
+    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_2d_binding);
 	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
     
     ImGuiIO &io = ImGui::GetIO();
@@ -261,8 +263,6 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 					pcmd->UserCallbackData = original_callback_data;
 					continue;
 				}
-
-                zest_atlas_region_t *test = &imgui_viewport->imgui->font_region;
 
 				if (current_image == &imgui_viewport->imgui->font_region) {
 					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_viewport->imgui->pipeline, command_list);

@@ -2,6 +2,7 @@
 
 #include <SDL.h>
 #include <zest.h>
+#include <thread>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
@@ -12,6 +13,14 @@ struct RenderCacheInfo {
 	zest_image_handle test_texture;
 };
 
+struct SpriteState {
+	zest_image_handle staging_image_handle;
+	zest_atlas_region_t staging_sprite;
+	zest_image_handle active_image_handle;
+	zest_atlas_region_t active_sprite;
+	volatile int update_ready;
+};
+
 struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_image_handle imgui_font_texture;
@@ -19,17 +28,17 @@ struct ImGuiApp {
 	zest_timer_t timer;
 	zest_pipeline_template imgui_sprite_pipeline;
 	zest_shader_handle imgui_sprite_shader;
+	SpriteState sprite_state;
 	zest_context context;
 	zest_device device;
-	zest_image_handle image_handle;
-	zest_atlas_region_t sprite;
 	zest_imgui_t imgui;
 	RenderCacheInfo cache_info;
-	zest_uint image_index;
 	zest_uint sampler_index;
+	std::thread loader_thread;
 	bool sync_refresh;
 	bool request_graph_print;
 	bool reset;
+	int load_image_index;
 };
 
 void InitImGuiApp(ImGuiApp *app);
@@ -58,7 +67,7 @@ static const char *zest_shader_imgui_r8g8_frag = ZEST_GLSL(450 core,
 
 	void main()
 	{
-		out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
+		out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
 		out_color = vec4(out_color.r, out_color.g, out_color.b, out_color.a);
 	}
 

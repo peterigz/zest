@@ -1379,7 +1379,9 @@ zest_bool zest__vk_present_frame(zest_context context) {
     presentInfo.pImageIndices = image_index;
     presentInfo.pResults = ZEST_NULL;
 
-	VkResult result = vkQueuePresentKHR(context->device->graphics_queues.queues[0].backend->vk_queue, &presentInfo);
+	ZEST_ASSERT(context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue, "Trying to present but the frame graph did not acquire a graphics queue!");
+
+	VkResult result = vkQueuePresentKHR(context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue->backend->vk_queue, &presentInfo);
     context->device->backend->last_result = result;
 
 	zest_bool status = ZEST_TRUE;
@@ -1455,7 +1457,13 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
-    if (pCallbackData->messageIdNumber == -916546126) {
+    if (pCallbackData->messageIdNumber == -1604639890) {
+        int d = 0;
+    }
+    if (pCallbackData->messageIdNumber == 448332540) {
+        int d = 0;
+    }
+    if (pCallbackData->messageIdNumber == -1575303641) {
         int d = 0;
     }
     if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_memory)) {
@@ -2387,7 +2395,6 @@ void zest__vk_cleanup_image_backend(zest_image image) {
 		zest__vk_cleanup_memory_backend(memory);
 		ZEST__FREE(device->allocator, image->backend);
     }
-	zest__release_all_global_texture_indexes(device, image);
     image->backend = 0;
 }
 
@@ -2409,6 +2416,7 @@ void zest__vk_cleanup_image_view_backend(zest_image_view view) {
 	zest_device device = (zest_device)view->handle.store->origin;
     if (view->backend->vk_view) {
         vkDestroyImageView(device->backend->logical_device, view->backend->vk_view, &device->backend->allocation_callbacks);
+		view->backend->vk_view = VK_NULL_HANDLE;
     }
 }
 
@@ -3806,7 +3814,7 @@ zest_bool zest__vk_begin_single_time_commands(zest_context context) {
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = context->backend->one_time_command_pool[context->current_fif];
+    alloc_info.commandPool = context->backend->one_time_command_pool[0];
     alloc_info.commandBufferCount = 1;
 
     ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_command_buffer);
@@ -3831,8 +3839,6 @@ zest_bool zest__vk_end_single_time_commands(zest_context context) {
 
 	zest_queue queue = zest__acquire_queue(context->device, context->device->graphics_queues.family_index);
 
-	vkQueueWaitIdle(queue->backend->vk_queue);
-
     VkFence fence = zest__vk_create_fence(context);
 	ZEST_CLEANUP_ON_FAIL(context->device, vkQueueSubmit(queue->backend->vk_queue, 1, &submit_info, fence));
     vkWaitForFences(context->device->backend->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
@@ -3840,7 +3846,7 @@ zest_bool zest__vk_end_single_time_commands(zest_context context) {
 
 	zest__release_queue(context->device, queue);
 
-    vkFreeCommandBuffers(context->device->backend->logical_device, context->backend->one_time_command_pool[context->current_fif], 1, &context->backend->one_time_command_buffer);
+    vkFreeCommandBuffers(context->device->backend->logical_device, context->backend->one_time_command_pool[0], 1, &context->backend->one_time_command_buffer);
     context->backend->one_time_command_buffer = VK_NULL_HANDLE;
 
     return ZEST_TRUE;
@@ -3850,9 +3856,9 @@ zest_bool zest__vk_end_single_time_commands(zest_context context) {
 		zest_PrintReports(context);
 	}
     vkDestroyFence(context->device->backend->logical_device, fence, &context->backend->allocation_callbacks);
-	zest__release_queue(context->device, queue);
-    vkFreeCommandBuffers(context->device->backend->logical_device, context->backend->one_time_command_pool[context->current_fif], 1, &context->backend->one_time_command_buffer);
+    vkFreeCommandBuffers(context->device->backend->logical_device, context->backend->one_time_command_pool[0], 1, &context->backend->one_time_command_buffer);
     context->backend->one_time_command_buffer = VK_NULL_HANDLE;
+	zest__release_queue(context->device, queue);
 
 	return ZEST_FALSE;
 }
