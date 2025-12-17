@@ -2784,7 +2784,7 @@ typedef struct zest_resource_store_t {
 	zest_uint *free_slots;
 	zest_u64 *initialised;
 	void *origin;
-	zest_sync_t sync;
+	zest_sync_t sync;	//Todo: use atomics instead
 } zest_resource_store_t;
 
 ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
@@ -2793,6 +2793,7 @@ ZEST_PRIVATE zest_uint zest__size_in_bytes_store(zest_resource_store_t *store);
 ZEST_PRIVATE zest_handle zest__add_store_resource(zest_resource_store_t *store);
 ZEST_PRIVATE void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handle);
 ZEST_PRIVATE void zest__initialise_store(zloc_allocator *allocator, void *origin, zest_resource_store_t *store, zest_uint struct_size);
+ZEST_PRIVATE void zest__activate_resource(zest_resource_store_t *store, zest_handle handle);
 
 
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
@@ -4738,18 +4739,37 @@ ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
 	return ZEST_FALSE;
 }
 
-ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
+ZEST_PRIVATE inline zest_bool zest__resource_is_initialised(zest_resource_store_t *store, zest_uint index) {
+	zest_uint word_idx = index / ZEST_BITS_PER_WORD;
+	zest_u64 bit_idx = index % ZEST_BITS_PER_WORD;
+	return store->initialised[word_idx] & (1ULL << bit_idx);
+}
+
+ZEST_PRIVATE inline void *zest__get_store_resource_unsafe(zest_resource_store_t *store, zest_handle handle) {
 	ZEST_ASSERT(store, "Tried to fetch a resource but the store was null. Check the stack trace and make sure it's a valid handle that you're tring to fetch.");
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
+	void *resource;
 	zest__sync_lock(&store->sync);
 	if (store->generations[index] == generation) {
-		void *resource = zest__bucket_array_get(&store->data, index);
-		zest__sync_unlock(&store->sync);
-		return resource;
+		resource = zest__bucket_array_get(&store->data, index);
 	}
 	zest__sync_unlock(&store->sync);
-	return NULL;
+	return resource;
+}
+
+ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
+	//Temp function remove
+	ZEST_ASSERT(store, "Tried to fetch a resource but the store was null. Check the stack trace and make sure it's a valid handle that you're tring to fetch.");
+	zest_uint index = ZEST_HANDLE_INDEX(handle);
+	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
+	void *resource;
+	zest__sync_lock(&store->sync);
+	if (store->generations[index] == generation) {
+		resource = zest__bucket_array_get(&store->data, index);
+	}
+	zest__sync_unlock(&store->sync);
+	return resource;
 }
 
 ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t *store, zest_handle handle) {
@@ -4758,11 +4778,9 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	void *resource = NULL;
 	zest__sync_lock(&store->sync);
-	if (store->generations[index] == generation) {
+	if (store->generations[index] == generation && zest__resource_is_initialised(store, index)) {
 		resource = zest__bucket_array_get(&store->data, index);
 	}
-	ZEST_ASSERT(resource, "Not a valid handle for the resource. Check the stack trace for the calling function and resource type");
-
 	zest__sync_unlock(&store->sync);
 	return resource;
 }
@@ -4870,10 +4888,12 @@ ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer, void *push_co
 
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context device);
+ZEST_PRIVATE zest_image_handle zest__create_image(zest_context context, zest_image_info_t *create_info);
 ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_device device, zest_image image);
 ZEST_PRIVATE void zest__release_all_image_indexes(zest_device device);
 ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
+ZEST_PRIVATE zest_image zest__get_image_unsafe(zest_image_handle handle);
 
 // --General_layer_internal_functions
 ZEST_PRIVATE zest_layer_handle zest__create_instance_layer(zest_context context, const char *name, zest_size instance_type_size, zest_uint initial_instance_count);

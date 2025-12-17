@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <zest.h>
 #include <thread>
+#include <atomic>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
@@ -18,7 +19,7 @@ struct SpriteState {
 	zest_atlas_region_t staging_sprite;
 	zest_image_handle active_image_handle;
 	zest_atlas_region_t active_sprite;
-	volatile int update_ready;
+	std::atomic_bool update_ready;
 };
 
 struct ImGuiApp {

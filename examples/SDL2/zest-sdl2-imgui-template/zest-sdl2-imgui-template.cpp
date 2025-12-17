@@ -6,6 +6,15 @@
 #include "imgui_internal.h"
 
 void LoadSprite(ImGuiApp *app, const char *filename) {
+	/*
+	Don't call this function if the last image that was loaded hasn't been made active yet. We have to make active
+	after a call to zest_BeginFrame but if the swapchain is not ready yet then new image won't made made active
+	and so this function could be called again and load a new image over the top of the existing staging_image
+	which hasn't been made active or had a chance to be freed leading to a memory leak and other potential issues.
+
+	Obviously loading and replacing the same image that's in use every frame is not likely something that's going to happen
+	a lot but this is just a test for robustness.
+	*/
 	int width, height, channels;
 	stbi_uc *pixels = stbi_load(filename, &width, &height, &channels, 4);
 	int size = width * height * 4;
@@ -13,16 +22,18 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
 	image_info.format = zest_format_r8g8b8a8_unorm;
 	image_info.flags = zest_image_preset_texture;
 	zest_image_handle image_handle = zest_CreateImageWithPixels(app->context, pixels, size, &image_info);
-	zest_image image = zest_GetImage(image_handle);
-	zest_atlas_region_t sprite = zest_NewAtlasRegion();
-	sprite.width = width;
-	sprite.height = height;
-	zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
-	zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
 	STBI_FREE(pixels);
-	app->sprite_state.staging_image_handle = image_handle;
-	app->sprite_state.staging_sprite = sprite;
-	zest__atomic_store(&app->sprite_state.update_ready, 1);
+	zest_image image = zest_GetImage(image_handle);
+	if (image) {
+		zest_atlas_region_t sprite = zest_NewAtlasRegion();
+		sprite.width = width;
+		sprite.height = height;
+		zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
+		zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
+		app->sprite_state.staging_image_handle = image_handle;
+		app->sprite_state.staging_sprite = sprite;
+		app->sprite_state.update_ready.store(true);
+	}
 }
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -131,7 +142,7 @@ void MainLoop(ImGuiApp *app) {
 				zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
 			}
 			*/
-			if (app->loader_thread.joinable()) {
+			if (app->loader_thread.joinable() && app->sprite_state.update_ready.load() == false) {
 				app->loader_thread.join();
 				switch (app->load_image_index % 5) {
 					case 0: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/glow.png"); break; }
@@ -203,18 +214,18 @@ void MainLoop(ImGuiApp *app) {
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
-			if (zest__atomic_load(&app->sprite_state.update_ready) == 1) {
+			if (app->sprite_state.update_ready.load() == true) {
 				zest_FreeImage(app->sprite_state.active_image_handle);
 				app->sprite_state.active_sprite = app->sprite_state.staging_sprite;
 				app->sprite_state.active_image_handle = app->sprite_state.staging_image_handle;
-				zest__atomic_store(&app->sprite_state.update_ready, 0);
+				app->sprite_state.update_ready.store(false);
 			}
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
@@ -254,8 +265,6 @@ void MainLoop(ImGuiApp *app) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(int argc, char *argv[]) {
-	//Create new config struct for Zest
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	 if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		 return 0;
@@ -285,7 +294,10 @@ int main(int argc, char *argv[]) {
 	// Clean up the extensions array
 	free(sdl_extensions);
 
-	//Initialise Zest
+	//Create new config struct for Zest
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
+
+	//Initialise a Zest context
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
 
 	//Initialise our example
