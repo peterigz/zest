@@ -3099,7 +3099,7 @@ zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const 
 }
 
 zest_uniform_buffer zest_GetUniformBuffer(zest_uniform_buffer_handle handle) {
-	zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(handle.store, handle.value);
+	zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(handle.store, handle.value);
 	return uniform_buffer;
 }
 
@@ -3874,7 +3874,7 @@ zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned
 }
 
 zest_shader zest_GetShader(zest_shader_handle shader_handle) {
-	zest_shader shader = (zest_shader)zest__get_store_resource(shader_handle.store, shader_handle.value);
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 	return shader;
 }
 
@@ -7894,7 +7894,7 @@ zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context
 	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
     zest_execution_timeline_handle handle = ZEST_STRUCT_LITERAL(zest_execution_timeline_handle, zest__add_store_resource(store), store);
 	handle.store = store;
-    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource(store, handle.value);
+    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_unsafe(store, handle.value);
     *timeline = ZEST__ZERO_INIT(zest_execution_timeline_t);
     timeline->magic = zest_INIT_MAGIC(zest_struct_type_execution_timeline);
     timeline->current_value = 0;

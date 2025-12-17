@@ -4758,20 +4758,6 @@ ZEST_PRIVATE inline void *zest__get_store_resource_unsafe(zest_resource_store_t 
 	return resource;
 }
 
-ZEST_PRIVATE inline void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
-	//Temp function remove
-	ZEST_ASSERT(store, "Tried to fetch a resource but the store was null. Check the stack trace and make sure it's a valid handle that you're tring to fetch.");
-	zest_uint index = ZEST_HANDLE_INDEX(handle);
-	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
-	void *resource;
-	zest__sync_lock(&store->sync);
-	if (store->generations[index] == generation) {
-		resource = zest__bucket_array_get(&store->data, index);
-	}
-	zest__sync_unlock(&store->sync);
-	return resource;
-}
-
 ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_resource_store_t *store, zest_handle handle) {
 	ZEST_ASSERT(store, "Tried to fetch a resource but the store was null. Check the stack trace and make sure it's a valid handle that you're tring to fetch.");
 	zest_uint index = ZEST_HANDLE_INDEX(handle);
