@@ -67,6 +67,7 @@ void zest_implglfw_DestroyWindow(zest_context context);
 //SDL Header
 zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char* title);
 void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
+void zest_implsdl2_SetWindowMode(zest_context context, zest_window_mode mode);
 void zest_implsdl2_DestroyWindow(zest_context context);
 
 typedef enum zest_image_collection_flag_bits {
@@ -489,6 +490,31 @@ void zest_implsdl2_DestroyWindow(zest_context context) {
 	SDL_DestroyWindow(handle);
 }
 
+void zest_implsdl2_SetWindowMode(zest_context context, zest_window_mode mode) {
+	switch (mode) {
+		case zest_window_mode_bordered: 
+			SDL_SetWindowFullscreen((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_FALSE);
+			SDL_SetWindowBordered((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_TRUE);
+			SDL_SetWindowPosition((SDL_Window *)zest_Window(context), 50, 50);
+			break;
+		case zest_window_mode_borderless: 
+			SDL_SetWindowFullscreen((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_FALSE);
+			SDL_SetWindowBordered((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_FALSE);
+			break;
+		case zest_window_mode_fullscreen: 
+			SDL_SetWindowFullscreen((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_TRUE);
+			break;
+		case zest_window_mode_fullscreen_borderless: 
+			SDL_SetWindowFullscreen((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_FALSE);
+			SDL_SetWindowBordered((SDL_Window *)zest_Window(context), (SDL_bool)ZEST_FALSE);
+			SDL_Rect bounds;
+			SDL_GetDisplayBounds(0, &bounds);
+			SDL_SetWindowPosition((SDL_Window *)zest_Window(context), bounds.x, bounds.y);
+			SDL_SetWindowSize((SDL_Window *)zest_Window(context), bounds.w, bounds.h);
+			break;
+	}
+}
+
 #endif // SDL_MAJOR_VERSION
 // --- End SDL2 Utilities ----------------------------------------------------
 
@@ -890,7 +916,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings_t), zest_shader_all_stages);
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
 	zest_SetPipelineFragShader(font_pipeline, font_frag);
-	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetBindlessLayout(context));
+	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetBindlessLayout(zest_GetContextDevice(context)));
 	zest_SetPipelineDepthTest(font_pipeline, false, false);
 
 	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
@@ -914,8 +940,10 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	zest_msdf_font_t font = ZEST__ZERO_INIT(zest_msdf_font_t);
 	font.sdf_range = sdf_range;
 
+	zest_device device = zest_GetContextDevice(context);
+
     // --- MSDF Font Atlas Generation ---
-    unsigned char* font_buffer = (unsigned char*)zest_ReadEntireFile(context->device, filename, ZEST_FALSE);
+    unsigned char* font_buffer = (unsigned char*)zest_ReadEntireFile(device, filename, ZEST_FALSE);
 	ZEST_ASSERT(font_buffer, "Error loading font file\n");
 
     stbtt_fontinfo font_info;
@@ -985,7 +1013,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	}
 	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(context, &font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
 	zest_image image_atlas = zest_GetImage(image_atlas_handle);
-	font.font_binding_index = zest_AcquireSampledImageIndex(context, image_atlas, zest_texture_array_binding);
+	font.font_binding_index = zest_AcquireSampledImageIndex(device, image_atlas, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
 	zest_uint bitmap_index = 0;
 	for (int i = 32; i < 127; ++i) {
@@ -1078,7 +1106,9 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	zest_CopyBitmapToImage(context, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
 	STBI_FREE(bitmap_buffer);
 
-	font.font_binding_index = zest_AcquireSampledImageIndex(context, font_image, zest_texture_array_binding);
+	zest_device device = zest_GetContextDevice(context);
+
+	font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
 	for (int i = 0; i != 255; ++i) {
 		if (font.characters[i].width && font.characters[i].height) {
