@@ -3921,6 +3921,7 @@ typedef struct zest_frame_graph_cache_key_t {
 typedef struct zest_command_list_t {
 	int magic;
 	zest_context context;
+	zest_device device;
 	zest_command_list_backend backend;
 	zest_frame_graph frame_graph;
 	zest_pass_node pass_node;

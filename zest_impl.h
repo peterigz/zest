@@ -3905,6 +3905,7 @@ zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *fil
     shader->spv_size = zest_vec_size(shader->spv);
 	zest_SetText(device->allocator, &shader->name, filename);
 	ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
+	zest__activate_resource(shader_handle.store, shader_handle.value);
 	return shader_handle;
 }
 
@@ -3925,6 +3926,7 @@ zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *n
 		memcpy(shader->spv, buffer, size);
         ZEST_APPEND_LOG(device->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
         shader->spv_size = size;
+		zest__activate_resource(shader_handle.store, shader_handle.value);
         return shader_handle;
     }
     return ZEST__ZERO_INIT(zest_shader_handle);
@@ -4719,6 +4721,7 @@ zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
     frame_graph->magic = zest_INIT_MAGIC(zest_struct_type_frame_graph);
     frame_graph->command_list.magic = zest_INIT_MAGIC(zest_struct_type_frame_graph_context);
 	frame_graph->command_list.context = context;
+	frame_graph->command_list.device = context->device;
     frame_graph->name = name;
     frame_graph->bindless_layout = context->device->bindless_set_layout;
     frame_graph->bindless_set = context->device->bindless_set;
@@ -8035,8 +8038,8 @@ void zest__release_all_global_texture_indexes(zest_device device, zest_image ima
 	zest_key hashed_key = zest_Hash(&image->handle, sizeof(zest_image_handle), ZEST_HASH_SEED);
 	if (zest_map_valid_key(device->mip_indexes, hashed_key)) {
 		zest_mip_index_collection *collection = zest_map_at_key(device->mip_indexes, hashed_key);
-		zest_uint active_bindings = collection->binding_numbers;
-		zest_uint current_binding = zloc__scan_reverse(active_bindings);
+		int active_bindings = collection->binding_numbers;
+		int current_binding = zloc__scan_reverse(active_bindings);
 		while (current_binding >= 0) {
 			zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
 				zest_uint index = collection->mip_indexes[current_binding][i];
