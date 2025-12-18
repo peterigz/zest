@@ -1288,6 +1288,10 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context co
 zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetCommandPool(context->device->backend->logical_device, context->backend->one_time_command_pool[context->current_fif], 0));
 
+	if (!context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue) {
+		context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue = zest__acquire_queue(context->device, context->device->graphics_queue_family_index);
+	}
+
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VkCommandBuffer command_buffer = context->backend->utility_command_buffer[context->current_fif];
