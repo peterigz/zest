@@ -41,6 +41,7 @@
         [Device_set_up]
         [App_initialise_and_run_functions]
 		[Enum_to_string_functions]
+		[Internal_render_graph_functions]
 
     --API functions
     [Essential_setup_functions]         Functions for initialising Zest
@@ -48,6 +49,7 @@
     [Pipeline_related_helpers]   		Helper functions for setting up your own pipeline_templates
     [Platform_dependent_callbacks]      These are used depending one whether you're using glfw, sdl or just the os directly
     [Buffer_functions]                  Functions for creating and using gpu buffers
+	[Frame_graph_api]					API functions relating to setting up and utilising a frame graph
     [General_Math_helper_functions]     Vector and matrix math functions
     [Camera_helpers]                    Functions for setting up and using a camera including frustom and screen ray etc. 
     [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
@@ -3595,152 +3597,6 @@ typedef struct zest_frame_graph_builder_t {
 	zest_pass_node current_pass;
 }zest_frame_graph_builder_t;
 
-// --- Internal render graph function ---
-ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
-ZEST_API_TMP zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
-ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
-ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
-ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
-ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_image image);
-ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_image_view_array view_array);
-ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
-ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
-ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
-ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource);
-ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
-ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
-ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
-ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name);
-ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
-ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
-ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe);
-ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
-										zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
-ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
-ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
-ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
-ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_frame_graph_result result);
-ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node);
-ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
-ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
-
-// --- Dynamic resource callbacks ---
-ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
-ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource);
-ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_prev_fif(zest_context context, zest_resource_node resource);
-ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest_context context, zest_resource_node resource);
-
-// --- Utility callbacks ---
-ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
-
-// --- General resource functions ---
-ZEST_API zest_resource_node zest_GetPassInputResource(const zest_command_list command_list, const char *name);
-ZEST_API zest_resource_node zest_GetPassOutputResource(const zest_command_list command_list, const char *name);
-ZEST_API zest_buffer zest_GetPassInputBuffer(const zest_command_list command_list, const char *name);
-ZEST_API zest_buffer zest_GetPassOutputBuffer(const zest_command_list command_list, const char *name);
-ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
-ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
-ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
-ZEST_API void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size);
-ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
-ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
-ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
-ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
-ZEST_API void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data);
-ZEST_API void zest_SetResourceBufferProvider(zest_resource_node resource_node, zest_resource_buffer_provider buffer_provider);
-ZEST_API void zest_SetResourceImageProvider(zest_resource_node resource_node, zest_resource_image_provider image_provider);
-ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
-ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
-
-// -- Creating and Executing the render graph
-ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
-ZEST_API zest_frame_graph zest_EndFrameGraph();
-ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
-ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
-
-// --- Add pass nodes that execute user commands ---
-ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
-ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
-ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
-ZEST_API void zest_EndPass();
-
-// --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
-ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
-ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
-
-// --- Add callback tasks to passes
-ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
-
-// --- Add Transient resources ---
-ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
-ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
-
-// --- Render target groups ---
-ZEST_API zest_output_group zest_CreateOutputGroup();
-ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
-ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
-
-// --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportSwapchainResource();
-ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
-ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
-
-// --- Manual Barrier Functions
-ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
-
-// --- Connect Resources to Pass Nodes ---
-ZEST_API void zest_ConnectInput(zest_resource_node resource);
-ZEST_API void zest_ConnectOutput(zest_resource_node resource);
-ZEST_API void zest_ConnectSwapChainOutput();
-ZEST_API void zest_ConnectGroupedOutput(zest_output_group group);
-
-// --- Connect graphs to each other
-ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
-ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
-
-// --- State check functions
-ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
-
-// --- Syncronization Helpers ---
-ZEST_API zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context);
-ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline);
-ZEST_API zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline);
-
-// -- General pass and resource getters/setters
-ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
-
-// -- Command list helpers
-ZEST_API zest_context zest_GetContext(zest_command_list command_list);
-
-// --- Render graph debug functions ---
-ZEST_API zest_frame_graph_result zest_GetFrameGraphResult(zest_frame_graph frame_graph);
-ZEST_API zest_uint zest_GetFrameGraphFinalPassCount(zest_frame_graph frame_graph);
-ZEST_API zest_uint zest_GetFrameGraphPassTransientCreateCount(zest_frame_graph frame_graph, zest_key output_key);
-ZEST_API zest_uint zest_GetFrameGraphPassTransientFreeCount(zest_frame_graph frame_graph, zest_key output_key);
-ZEST_API zest_uint zest_GetFrameGraphCulledResourceCount(zest_frame_graph frame_graph);
-ZEST_API zest_uint zest_GetFrameGraphCulledPassesCount(zest_frame_graph frame_graph);
-ZEST_API zest_uint zest_GetFrameGraphSubmissionCount(zest_frame_graph frame_graph);
-ZEST_API zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame_graph, zest_uint submission_index);
-ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch);
-ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
-ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
-ZEST_API void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph);
-ZEST_API void zest_PrintCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
-
-// --- [Swapchain_helpers]
-ZEST_API zest_swapchain zest_GetSwapchain(zest_context context);
-ZEST_API zest_format zest_GetSwapchainFormat(zest_swapchain swapchain);
-ZEST_API void zest_SetSwapchainClearColor(zest_context context, float red, float green, float blue, float alpha);
-//End Swapchain helpers
-
 typedef struct zest_descriptor_indices_t {
 	zest_uint *free_indices;
 	zest_size *is_free;
@@ -4368,6 +4224,39 @@ ZEST_PRIVATE zest_text_t zest__access_flags_to_string(zest_context context, zest
 ZEST_PRIVATE zest_text_t zest__pipeline_stage_flags_to_string(zest_context context, zest_pipeline_stage_flags flags);
 // -- end Enum_to_string_functions
 
+// --- Internal_render_graph_functions ---
+ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
+ZEST_API_TMP zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
+ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
+ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
+ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
+ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_image image);
+ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_image_view_array view_array);
+ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
+ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
+ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
+ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
+ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
+ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
+ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
+ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name);
+ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
+ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
+ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe);
+ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
+										zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
+ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
+ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
+ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
+ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_frame_graph_result result);
+ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node);
+ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
+ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
+// --- End Internal_render_graph_functions ---
+
 //User API functions
 
 //-----------------------------------------------
@@ -4663,10 +4552,126 @@ ZEST_API void zest_SetSmallHostBufferPoolSize(zest_device device, zest_size mini
 
 //--End Buffer related
 
+// --- Frame_graph_api
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer_handle zest_CreateMeshLayer(zest_context context, const char *name, zest_size vertex_type_size);
 ZEST_API zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char *name);
 //-- End Command queue setup and creation
+
+// --- Dynamic resource callbacks ---
+ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_prev_fif(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest_context context, zest_resource_node resource);
+
+// --- Utility callbacks ---
+ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
+
+// --- General resource functions ---
+ZEST_API zest_resource_node zest_GetPassInputResource(const zest_command_list command_list, const char *name);
+ZEST_API zest_resource_node zest_GetPassOutputResource(const zest_command_list command_list, const char *name);
+ZEST_API zest_buffer zest_GetPassInputBuffer(const zest_command_list command_list, const char *name);
+ZEST_API zest_buffer zest_GetPassOutputBuffer(const zest_command_list command_list, const char *name);
+ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
+ZEST_API void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size);
+ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
+ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
+ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
+ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
+ZEST_API void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data);
+ZEST_API void zest_SetResourceBufferProvider(zest_resource_node resource_node, zest_resource_buffer_provider buffer_provider);
+ZEST_API void zest_SetResourceImageProvider(zest_resource_node resource_node, zest_resource_image_provider image_provider);
+ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
+ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
+
+// -- Creating and Executing the render graph
+ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
+ZEST_API zest_frame_graph zest_EndFrameGraph();
+ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
+ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
+
+// --- Add pass nodes that execute user commands ---
+ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
+ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
+ZEST_API void zest_EndPass();
+
+// --- Helper functions for acquiring bindless desriptor array indexes---
+ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
+ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
+ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
+
+// --- Add callback tasks to passes
+ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
+
+// --- Add Transient resources ---
+ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
+ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
+ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
+ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
+
+// --- Render target groups ---
+ZEST_API zest_output_group zest_CreateOutputGroup();
+ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
+ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
+
+// --- Import external resouces into the render graph ---
+ZEST_API zest_resource_node zest_ImportSwapchainResource();
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
+ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
+
+// --- Manual Barrier Functions
+ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
+
+// --- Connect Resources to Pass Nodes ---
+ZEST_API void zest_ConnectInput(zest_resource_node resource);
+ZEST_API void zest_ConnectOutput(zest_resource_node resource);
+ZEST_API void zest_ConnectSwapChainOutput();
+ZEST_API void zest_ConnectGroupedOutput(zest_output_group group);
+
+// --- Connect graphs to each other
+ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
+ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
+
+// --- State check functions
+ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
+
+// --- Syncronization Helpers ---
+ZEST_API zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context);
+ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline);
+ZEST_API zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline);
+
+// -- General pass and resource getters/setters
+ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
+
+// -- Command list helpers
+ZEST_API zest_context zest_GetContext(zest_command_list command_list);
+
+// --- Render graph debug functions ---
+ZEST_API zest_frame_graph_result zest_GetFrameGraphResult(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphFinalPassCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphPassTransientCreateCount(zest_frame_graph frame_graph, zest_key output_key);
+ZEST_API zest_uint zest_GetFrameGraphPassTransientFreeCount(zest_frame_graph frame_graph, zest_key output_key);
+ZEST_API zest_uint zest_GetFrameGraphCulledResourceCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphCulledPassesCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphSubmissionCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame_graph, zest_uint submission_index);
+ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch);
+ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
+ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
+ZEST_API void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph);
+ZEST_API void zest_PrintCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
+
+// --- [Swapchain_helpers]
+ZEST_API zest_swapchain zest_GetSwapchain(zest_context context);
+ZEST_API zest_format zest_GetSwapchainFormat(zest_swapchain swapchain);
+ZEST_API void zest_SetSwapchainClearColor(zest_context context, float red, float green, float blue, float alpha);
+//End Swapchain helpers
+// --- End Frame_graph_api
 
 //-----------------------------------------------
 //        General_Math_helper_functions
