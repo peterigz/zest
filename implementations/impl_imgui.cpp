@@ -12,7 +12,8 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 	io.UserData = imgui;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_ViewportsEnable;
     io.DisplaySize = ImVec2(zest_ScreenWidthf(context), zest_ScreenHeightf(context));
-    io.DisplayFramebufferScale = ImVec2(context->dpi_scale, context->dpi_scale);
+	float dpi_scale = zest_DPIScale(context);
+    io.DisplayFramebufferScale = ImVec2(dpi_scale, dpi_scale);
     unsigned char *pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -60,7 +61,7 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     zest_SetPipelineTopology(imgui_pipeline, zest_topology_triangle_list);
 	zest_SetPipelineBlend(imgui_pipeline, zest_ImGuiBlendState());
     zest_SetPipelineDepthTest(imgui_pipeline, ZEST_FALSE, ZEST_FALSE);
-    ZEST_APPEND_LOG(context->device->log_path.str, "ImGui pipeline");
+    ZEST_APPEND_LOG(zest_GetErrorLogPath(device), "ImGui pipeline");
 
     imgui->pipeline = imgui_pipeline;
 
@@ -156,18 +157,20 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
     ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
 	zest_imgui_t *imgui = viewport->imgui;
 
-	zest_context context = viewport->context;
+	zest_context context = zest_GetContext(command_list);
 
-	zest_FreeBuffer(viewport->index_staging_buffer[context->current_fif]);
-	zest_FreeBuffer(viewport->vertex_staging_buffer[context->current_fif]);
+	zest_uint fif = zest_CurrentFIF(context);
+
+	zest_FreeBuffer(viewport->index_staging_buffer[fif]);
+	zest_FreeBuffer(viewport->vertex_staging_buffer[fif]);
 
     if (imgui_draw_data) {
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		zest_buffer staging_index_buffer = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
 		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
-		viewport->index_staging_buffer[context->current_fif] = staging_index_buffer;
-		viewport->vertex_staging_buffer[context->current_fif] = staging_vertex_buffer;
+		viewport->index_staging_buffer[fif] = staging_index_buffer;
+		viewport->vertex_staging_buffer[fif] = staging_vertex_buffer;
 		zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Index Buffer");
 		zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Vertex Buffer");
 
@@ -191,8 +194,8 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
 		zest_buffer_uploader_t vertex_upload = { 0, staging_vertex_buffer, vertex_buffer, 0 };
 
 		if (vertex_memory_in_use && index_memory_in_use) {
-			zest_AddCopyCommand(command_list->context, &vertex_upload, staging_vertex_buffer, vertex_buffer, vertex_memory_in_use);
-			zest_AddCopyCommand(command_list->context, &index_upload, staging_index_buffer, index_buffer, index_memory_in_use);
+			zest_AddCopyCommand(context, &vertex_upload, staging_vertex_buffer, vertex_buffer, vertex_memory_in_use);
+			zest_AddCopyCommand(context, &index_upload, staging_index_buffer, index_buffer, index_memory_in_use);
 		}
 
 		zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
@@ -225,7 +228,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 
     zest_cmd_SetScreenSizedViewport(command_list, 0, 1);
 
-	zest_context context = command_list->context;
+	zest_context context = zest_GetContext(command_list);
     
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
@@ -376,13 +379,13 @@ void zest__imgui_destroy_viewport(ImGuiViewport* viewport) {
 
 zest_buffer zest__imgui_get_vertex_buffer_size(zest_context context, zest_resource_node node) {
 	ImDrawData *draw_data = (ImDrawData*)zest_GetResourceUserData(node);
-	node->buffer_desc.size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
+	zest_SetResourceBufferSize(node, draw_data->TotalVtxCount * sizeof(ImDrawVert));
     return NULL;
 }
 
 zest_buffer zest__imgui_get_index_buffer_size(zest_context context, zest_resource_node node) {
 	ImDrawData *draw_data = (ImDrawData*)zest_GetResourceUserData(node);
-	node->buffer_desc.size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+	zest_SetResourceBufferSize(node, draw_data->TotalIdxCount * sizeof(ImDrawIdx));
     return NULL;
 }
 
