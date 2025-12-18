@@ -13,7 +13,7 @@ void InitExample(render_target_app_t *example) {
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->context, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(example->sampler);
-	example->sampler_index = zest_AcquireSamplerIndex(example->context, sampler);
+	example->sampler_index = zest_AcquireSamplerIndex(example->device, sampler);
 
 	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
 	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
@@ -24,7 +24,7 @@ void InitExample(render_target_app_t *example) {
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
 	zest_SetPipelineFragShader(example->composite_pipeline, pass_frag);
     zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
-	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_GetBindlessLayout(example->context));
+	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_GetBindlessLayout(example->device));
 	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
     zest_SetPipelineBlend(example->composite_pipeline, zest_AdditiveBlendState());
 	zest_SetPipelineDisableVertexInput(example->composite_pipeline);
@@ -111,7 +111,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(example->context)
+		zest_GetBindlessSet(example->device)
 	};
 
 	zest_compute downsampler_compute = zest_GetCompute(example->downsampler_compute);
@@ -160,7 +160,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(example->context),
+		zest_GetBindlessSet(example->device),
 	};
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);

@@ -108,7 +108,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	zest_SetPipelineShaders(resources->pipeline, resources->vertex_shader, resources->fragment_shader);
 	zest_SetPipelinePushConstantRange(resources->pipeline, sizeof(tfx_push_constants_t), zest_shader_render_stages);
 	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetUniformBufferLayout(uniform_buffer));
-	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetBindlessLayout(context));
+	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineDepthTest(resources->pipeline, false, true);
 	zest_SetPipelineBlend(resources->pipeline, zest_PreMultiplyBlendState());
 
@@ -117,17 +117,17 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
 	resources->layer = zest_CreateFIFInstanceLayer(context, "TimelineFX Layer", sizeof(tfx_instance_t), 50000);
-	zest_AcquireInstanceLayerBufferIndex(context, zest_GetLayer(resources->layer));
+	zest_AcquireInstanceLayerBufferIndex(device, zest_GetLayer(resources->layer));
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	resources->sampler = zest_CreateSampler(context, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(resources->sampler);
-	resources->sampler_index = zest_AcquireSamplerIndex(context, sampler);
+	resources->sampler_index = zest_AcquireSamplerIndex(device, sampler);
 
 	//Create a buffer to store the image data on the gpu.
 	zest_buffer_info_t image_data_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	resources->image_data = zest_CreateBuffer(context, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
-	resources->image_data_index = zest_AcquireStorageBufferIndex(context, resources->image_data);
+	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
 
 	resources->timeline = zest_CreateExecutionTimeline(context);
 	//End of render specific code

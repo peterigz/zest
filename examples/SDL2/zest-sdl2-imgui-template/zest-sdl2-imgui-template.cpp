@@ -128,20 +128,18 @@ void MainLoop(ImGuiApp *app) {
 			if (ImGui::Button("Reset Renderer")) {
 				app->reset = true;
 			}
-			/*
 			if (ImGui::Button("Bordered")) {
-				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
+				zest_implsdl2_SetWindowMode(app->context, zest_window_mode_bordered);
 			}
 			if (ImGui::Button("Borderless")) {
-				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_borderless);
+				zest_implsdl2_SetWindowMode(app->context, zest_window_mode_borderless);
 			}
 			if (ImGui::Button("Full Screen")) {
-				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen);
+				zest_implsdl2_SetWindowMode(app->context, zest_window_mode_fullscreen);
 			}
-			if (ImGui::Button("Set window size to 1000 x 750")) {
-				zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
+			if (ImGui::Button("Full Screen Borderless")) {
+				zest_implsdl2_SetWindowMode(app->context, zest_window_mode_fullscreen_borderless);
 			}
-			*/
 			if (app->loader_thread.joinable() && app->sprite_state.update_ready.load() == false) {
 				app->loader_thread.join();
 				switch (app->load_image_index % 5) {

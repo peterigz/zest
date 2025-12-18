@@ -272,7 +272,7 @@ void VadersGame::Init() {
 
 	sprite_texture = zest_CreateImageAtlas(context, &game_sprites, 1024, 1024, 0);
 	zest_image sprite_image = zest_GetImage(sprite_texture);
-	sprite_texture_index = zest_AcquireSampledImageIndex(context, sprite_image, zest_texture_array_binding);
+	sprite_texture_index = zest_AcquireSampledImageIndex(device, sprite_image, zest_texture_array_binding);
 
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
 	particle_ds_index = 0;
@@ -280,7 +280,7 @@ void VadersGame::Init() {
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	sampler_handle = zest_CreateSampler(context, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(sampler_handle);
-	sampler_index = zest_AcquireSamplerIndex(context, sampler);
+	sampler_index = zest_AcquireSamplerIndex(device, sampler);
 
 	billboard_push.texture_index = sprite_texture_index;
 	billboard_push.sampler_index = sampler_index;
@@ -293,7 +293,7 @@ void VadersGame::Init() {
 	//Process the texture with all the particle shapes that we just added to
 	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
 	zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
-	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, particle_image, zest_texture_array_binding);
+	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
 
 	//Prepare all the Effect templates we need from the library
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
@@ -319,7 +319,7 @@ void VadersGame::Init() {
 	//Process the color ramp texture to upload it all to the gpu
 	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
-	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, color_ramps_image, zest_texture_array_binding);
+	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
@@ -421,7 +421,7 @@ void VadersGame::Init() {
 	zest_SetPipelineFragShader(billboard_pipeline, billboard_frag_shader);
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering.uniform_buffer);
 	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetUniformBufferLayout(uniform_buffer));
-	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetBindlessLayout(context));
+	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
 
 	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 10000);

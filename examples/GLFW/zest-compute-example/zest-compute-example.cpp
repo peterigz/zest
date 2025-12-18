@@ -37,12 +37,12 @@ void InitComputeExample(ComputeExample *app) {
 	STBI_FREE(particle_pixels);
 	STBI_FREE(gradient_pixels);
 
-	app->particle_image_index = zest_AcquireSampledImageIndex(app->context, zest_GetImage(app->particle_image), zest_texture_2d_binding);
-	app->gradient_image_index = zest_AcquireSampledImageIndex(app->context, zest_GetImage(app->gradient_image), zest_texture_2d_binding);
+	app->particle_image_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->particle_image), zest_texture_2d_binding);
+	app->gradient_image_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->gradient_image), zest_texture_2d_binding);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
-	app->sampler_index = zest_AcquireSamplerIndex(app->context, zest_GetSampler(app->particle_sampler));
+	app->sampler_index = zest_AcquireSamplerIndex(app->device, zest_GetSampler(app->particle_sampler));
 
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
@@ -64,7 +64,7 @@ void InitComputeExample(ComputeExample *app) {
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
-	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->context, app->particle_buffer);
+	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->device, app->particle_buffer);
 	//Copy the staging buffer to the desciptor buffer
 	zest_BeginImmediateCommandBuffer(app->context);
 	zest_imm_CopyBuffer(app->context, staging_buffer, app->particle_buffer, storage_buffer_size);
@@ -103,7 +103,7 @@ void InitComputeExample(ComputeExample *app) {
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
 	zest_ClearPipelineDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineDescriptorLayout(app->particle_pipeline, zest_GetBindlessLayout(app->context));
+	zest_AddPipelineDescriptorLayout(app->particle_pipeline, zest_GetBindlessLayout(app->device));
 	//Set the push constant we'll be using
 	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), zest_shader_fragment_stage);
 	//Switch off any depth testing
@@ -121,7 +121,7 @@ void InitComputeExample(ComputeExample *app) {
 	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->context);
 	//Declare the bindings we want in the shader
 	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(zest_GetUniformBuffer(app->compute_uniform_buffer)));
-	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->context));
+	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->device));
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
@@ -141,7 +141,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, command_list);
 	//You can mix and match descriptor sets but we only need the bindless set there containing the particle texture and gradient
 	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(command_list->context)
+		zest_GetBindlessSet(command_list->device)
 	};
 	//Bind the pipeline with the descriptor set
 	zest_cmd_BindPipeline(command_list, pipeline, sets, 1);
@@ -166,7 +166,7 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	ComputeExample *app = (ComputeExample *)user_data;
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(command_list->context),
+		zest_GetBindlessSet(command_list->device),
 		zest_GetUniformBufferSet(zest_GetUniformBuffer(app->compute_uniform_buffer))
 	};
 	//Bind the compute pipeline

@@ -60,7 +60,7 @@ void TimelineFXExample::Init() {
 	//Process the texture with all the particle shapes that we just added to
 	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
 	zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
-	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, particle_image, zest_texture_array_binding);
+	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
 
 	/*
 	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
@@ -86,7 +86,7 @@ void TimelineFXExample::Init() {
 	//Process the color ramp texture to upload it all to the gpu
 	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
-	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, color_ramps_image, zest_texture_array_binding);
+	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
@@ -234,7 +234,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", 0)) {
+				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
