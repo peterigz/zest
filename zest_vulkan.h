@@ -267,7 +267,7 @@ void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffe
 void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data);
 void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute compute, const void *push_constant);
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
-void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction);
+void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_draw_batch_instruction_t *instruction);
 void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 void zest__vk_set_screen_sized_viewport(const zest_command_list command_list, float min_depth, float max_depth);
 void zest__vk_scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor);
@@ -275,8 +275,8 @@ void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *v
 void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
 void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_pipeline_stage_flags pipeline_stage);
 void zest__vk_clip(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
-void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer);
-void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer);
+void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_draw_batch layer);
+void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_draw_batch layer);
 void zest__vk_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image image);
 
@@ -4442,7 +4442,7 @@ void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count,
     vkCmdDraw(command_list->backend->command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_draw_batch_instruction_t *instruction) {
     vkCmdDraw(command_list->backend->command_buffer, vertex_count, instruction->total_indexes, 0, instruction->start_index);
 }
 
@@ -4670,14 +4670,14 @@ void zest__vk_clip(const zest_command_list command_list, float x, float y, float
 	vkCmdSetScissor(command_list->backend->command_buffer, 0, 1, &scissor);
 }
 
-void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) {
+void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_draw_batch layer) {
     ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->vertex_data;
     VkDeviceSize offsets[] = { buffer->memory_offset };
     vkCmdBindVertexBuffers(command_list->backend->command_buffer, 0, 1, zest__vk_get_device_buffer(buffer), offsets);
 }
 
-void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) {
+void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_draw_batch layer) {
     ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->index_data;
     vkCmdBindIndexBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);

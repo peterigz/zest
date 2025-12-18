@@ -76,7 +76,7 @@ struct Ribbons {
 	zest_shader ribbon_frag_shader;
 	zest_shader ribbon_comp_shader;
 	zest_compute ribbon_compute;
-	zest_layer ribbon_layer;
+	zest_draw_batch ribbon_layer;
 	zest_buffer ribbon_segment_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
 	camera_push_constant camera_push;

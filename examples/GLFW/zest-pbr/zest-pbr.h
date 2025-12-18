@@ -72,9 +72,9 @@ struct SimplePBRExample {
 	zest_camera_t camera;
 	zest_execution_timeline_handle timeline;
 
-	zest_layer_handle cube_layer;
-	zest_layer_handle skybox_layer;
-	zest_layer_handle billboard_layer;
+	zest_draw_batch_handle cube_layer;
+	zest_draw_batch_handle skybox_layer;
+	zest_draw_batch_handle billboard_layer;
 
 	zest_pipeline_template pbr_pipeline;
 	zest_pipeline_template skybox_pipeline;

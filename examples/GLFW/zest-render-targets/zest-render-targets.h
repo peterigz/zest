@@ -35,7 +35,7 @@ struct render_target_app_t {
 	zest_uint render_target_push;
 	zest_sampler_handle sampler;
 	zest_uint sampler_index;
-	zest_layer_handle font_layer;				            //Font layer for drawing some text to the top layer
+	zest_draw_batch_handle font_layer;				            //Font layer for drawing some text to the top layer
 	zest_msdf_font_t font;					            //Handle to the font
 	zest_font_resources_t font_resources;
 	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
