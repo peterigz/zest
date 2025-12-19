@@ -55,7 +55,6 @@
     [Camera_helpers]                    Functions for setting up and using a camera including frustom and screen ray etc. 
     [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
     [Swapchain_helpers]                 General swapchain helpers to get, set clear color etc.
-    [Fonts]                             Basic functions for loading MSDF fonts
     [Draw_Layers_API]                   General helper functions for layers
     [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
     [Draw_instance_mesh_layers]         Functions for drawing the builtin instance mesh layer pipeline
@@ -4534,6 +4533,8 @@ ZEST_API zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_me
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
 //Resize a buffer if the new size if more than the current size of the buffer. Returns true if the buffer was resized successfully.
 ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
+//Get the size of a buffer
+ZEST_API zest_size zest_GetBufferSize(zest_buffer buffer);
 //Copy data to a staging buffer
 void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size);
 //Free a zest_buffer and return it's memory to the pool
@@ -8904,6 +8905,11 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     return new_buffer ? ZEST_TRUE : ZEST_FALSE;
 }
 
+zest_size zest_GetBufferSize(zest_buffer buffer) {
+	ZEST_ASSERT(buffer, "Passed in a NULL buffer when getting the size.");
+	return buffer->size;
+}
+
 zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usage usage) {
     zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);
 	//Implicit src and dst flags
@@ -10349,8 +10355,9 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
 
 	zest_SetText(device->allocator, &shader->shader_code, shader_code);
 	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL)) {
+		zest__activate_resource(shader_handle.store, shader_handle.value);
         zest_FreeShader(shader_handle);
-        ZEST_ASSERT(0); //There's a bug in this shader that needs fixing. You can check the log file for the error message
+        ZEST_ASSERT(0, "There's a bug in this shader that needs fixing. You can check the log file for the error message");
 	}
 
     if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
@@ -12393,7 +12400,7 @@ zest_frame_graph zest__compile_frame_graph() {
 				if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
 					zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
 					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
-					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_all_commands_bit);
+					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
 				} else {
 					// This case needs `p_signal_semaphores` to be a list in your batch struct.
 					// You would then add context->renderer->frame_sync[context->current_fif].render_finished_semaphore to that list.
