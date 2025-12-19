@@ -1,13 +1,12 @@
 #pragma once
 
-#include <vector>
+#include <GLFW/glfw3.h>
 #include <zest.h>
 #include "implementations/impl_imgui.h"
-#include "implementations/impl_glfw.h"
-#include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
+#include <vector>
 
 #define SEGMENT_COUNT 128 
 #define RIBBON_COUNT 10
@@ -58,31 +57,41 @@ struct camera_push_constant {
 };
 
 struct ribbon_drawing_push_constants {
+	zest_uint sampler_index;
 	zest_uint texture_index;
 };
 
+struct RibbonUniform {
+	zest_matrix4 view;
+	zest_matrix4 proj;
+};
+
 struct Ribbons {
-	zest_imgui_t imgui_layer_info;
-	zest_index imgui_draw_routine_index;
-	zest_texture imgui_font_texture;
+	zest_imgui_t imgui;
+	zest_context context;
+	zest_device device;
 	bool sync_refresh;
 
-	zest_timer timer;
+	zest_timer_t timer;
 	zest_camera_t camera;
+	zest_uint last_fps;
 	
 	zest_pipeline_template ribbon_pipeline;
 	zest_index compute_pipeline_index;
-	zest_shader ribbon_vert_shader;
-	zest_shader ribbon_frag_shader;
-	zest_shader ribbon_comp_shader;
-	zest_compute ribbon_compute;
+	zest_shader_handle ribbon_vert_shader;
+	zest_shader_handle ribbon_frag_shader;
+	zest_shader_handle ribbon_comp_shader;
+	zest_compute_handle ribbon_compute;
 	zest_draw_batch ribbon_layer;
+	zest_uniform_buffer_handle uniform_buffer;
 	zest_buffer ribbon_segment_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
 	camera_push_constant camera_push;
 	ribbon_drawing_push_constants ribbon_push_constants;
-	zest_texture ribbon_texture;
-	zest_atlas_region ribbon_image;
+	zest_image_handle ribbon_texture;
+	zest_atlas_region_t ribbon_image;
+	zest_sampler_handle sampler;
+	zest_uint sampler_index;
 	zest_uint index_count;
 	float seconds_passed;
 
@@ -98,14 +107,17 @@ struct Ribbons {
 	std::vector<uint32_t> ribbon_indices;
 	RibbonBufferInfo ribbon_buffer_info;
 	zest_uint ribbon_built;
+
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
 };
 
 RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
-void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-void UploadRibbonData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
+void RecordComputeCommands(zest_command_list command_list, void *user_data);
+void RecordRibbonDrawing(zest_command_list command_list, void *user_data);
+void UploadRibbonData(zest_command_list command_list, void *user_data);
 zest_uint CountSegments(Ribbons *app);
 void UpdateRibbons(Ribbons *app);

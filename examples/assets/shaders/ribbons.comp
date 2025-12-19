@@ -46,19 +46,19 @@ layout(push_constant) uniform push_constants
 
 layout (local_size_x = group_size) in;
 
-layout (std430, binding = 1) readonly buffer InRibbonSegments {
+layout (std430, binding = 5) readonly buffer InRibbonSegments {
     ribbon_segments data[];
 } in_segments[];
 
-layout (std430, binding = 1) readonly buffer InRibbonInstances {
+layout (std430, binding = 5) readonly buffer InRibbonInstances {
     ribbon data[];
 } in_instances[];
 
-layout (std430, binding = 1) buffer OutVertices {
+layout (std430, binding = 5) buffer OutVertices {
     vertex data[];
 }out_vertices[];
 
-layout (std430, binding = 1) buffer OutIndices {  // Changed binding to 2
+layout (std430, binding = 5) buffer OutIndices {  
     uint data[];
 } out_indices[];
 

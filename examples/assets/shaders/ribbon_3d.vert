@@ -5,10 +5,6 @@ layout (binding = 0) uniform ubo_view
 {
 	mat4 view;
 	mat4 proj;
-	vec4 parameters1;
-	vec4 parameters2;
-	vec2 res;
-	uint millisecs;
 } uboView;
 
 layout(location = 0) in vec4 vertex_position;
