@@ -722,10 +722,6 @@ void MainLoop(SimplePBRExample *app) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	//Create new config struct for Zest
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 
 	if (!glfwInit()) {
 		return 0;
@@ -746,6 +742,9 @@ int main(void) {
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+
+	//Create new config struct for Zest
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	//Initialise Zest
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
 
