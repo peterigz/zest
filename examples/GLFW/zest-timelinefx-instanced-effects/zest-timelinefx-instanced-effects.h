@@ -71,8 +71,8 @@ struct ComputeExample {
 	zest_shader_resources floor_resources;
 
 	//Indexes for the compute shader pipeline_templates
-	zest_index compute_pipeline_3d;
-	zest_index bb_compute_pipeline_3d;
+	zest_uint compute_pipeline_3d;
+	zest_uint bb_compute_pipeline_3d;
 
 	tfx_library library;
 	tfx_particle_manager pm;

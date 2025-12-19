@@ -77,7 +77,7 @@ struct Ribbons {
 	zest_uint last_fps;
 	
 	zest_pipeline_template ribbon_pipeline;
-	zest_index compute_pipeline_index;
+	zest_uint compute_pipeline_index;
 	zest_shader_handle ribbon_vert_shader;
 	zest_shader_handle ribbon_frag_shader;
 	zest_shader_handle ribbon_comp_shader;

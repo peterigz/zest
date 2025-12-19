@@ -67,7 +67,7 @@ struct SimplePBRExample {
 	zest_context context;
 	zest_device device;
 	zest_imgui_t imgui;
-	zest_index imgui_draw_routine_index;
+	zest_uint imgui_draw_routine_index;
 	zest_timer_t timer;
 	zest_camera_t camera;
 	zest_execution_timeline_handle timeline;

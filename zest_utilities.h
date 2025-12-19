@@ -240,7 +240,7 @@ ZEST_API float zest_DrawMSDFText(zest_draw_batch layer, float x, float y, float 
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(void *pixels, int size, int width, int height, zest_format format);
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_format format, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
-ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array_t *bitmap_array, zest_index index);
+ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array_t *bitmap_array, zest_uint index);
 ZEST_API zest_bitmap_array_t zest_CreateBitmapArray(int width, int height, zest_format format, zest_uint size_of_array);
 ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
@@ -303,13 +303,13 @@ ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap_t *src);
 ZEST_API zest_color_t zest_SampleBitmap(zest_bitmap_t *image, int x, int y);
 //Get a pointer to the first pixel in a bitmap within the bitmap array. Index must be less than the number of bitmaps in the array
 //Get the size of a bitmap at a specific index
-ZEST_API zest_size zest_BitmapArrayLookUpSize(zest_bitmap_array_t *bitmap_array, zest_index index);
+ZEST_API zest_size zest_BitmapArrayLookUpSize(zest_bitmap_array_t *bitmap_array, zest_uint index);
 //Get the distance in pixels to the furthes pixel from the center that isn't alpha 0
 ZEST_API float zest_FindBitmapRadius(zest_bitmap_t *image);
 //Destory a bitmap array and free its resources
 ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array);
 //Get a bitmap from a bitmap array with the given index
-ZEST_API zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
+ZEST_API zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_uint index);
 //After adding all the images you want to a texture, you will then need to process the texture which will create all of the necessary GPU resources and upload the texture to the GPU.
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
@@ -324,7 +324,7 @@ ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_col
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
 ZEST_API void zest_SetImageHandle(zest_atlas_region image, float x, float y);
 //Get the layer index that the image exists on in the texture
-ZEST_API zest_index zest_RegionLayerIndex(zest_atlas_region image);
+ZEST_API zest_uint zest_RegionLayerIndex(zest_atlas_region image);
 //Get the dimensions of the image
 //Get the uv coords of the image
 ZEST_API zest_vec4 zest_ImageUV(zest_atlas_region image);
@@ -1370,7 +1370,7 @@ void zest_DestroyBitmapArray(zest_bitmap_array_t* bitmap_array) {
     bitmap_array->size_of_array = 0;
 }
 
-zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index index) {
+zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_uint index) {
     zest_bitmap_t bitmap = zest_NewBitmap();
     bitmap.meta.width = bitmap_array->meta[index].width;
     bitmap.meta.height = bitmap_array->meta[index].height;
@@ -1380,7 +1380,7 @@ zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_ind
     return bitmap;
 }
 
-zest_size zest_BitmapArrayLookUpSize(zest_bitmap_array_t *bitmap_array, zest_index index) {
+zest_size zest_BitmapArrayLookUpSize(zest_bitmap_array_t *bitmap_array, zest_uint index) {
     ZEST_ASSERT((zest_uint)index < bitmap_array->size_of_array);	//index out of bounds
     return bitmap_array->meta[index].size;
 }
@@ -1643,7 +1643,7 @@ void zest_ConvertBitmapToAlpha(zest_bitmap_t *image) {
     }
 }
 
-zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index index) {
+zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_uint index) {
     ZEST_ASSERT((zest_uint)index < bitmap_array->size_of_array);	//index out of bounds
     return bitmap_array->data + bitmap_array->meta[index].offset;
 }

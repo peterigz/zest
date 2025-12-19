@@ -1044,7 +1044,6 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 
 typedef unsigned int zest_uint;
 typedef unsigned long zest_long;
-typedef int zest_index;
 typedef unsigned int zest_resource_id;
 typedef unsigned int zest_pass_id;
 typedef unsigned long long zest_ull;
@@ -2971,18 +2970,18 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed);
 //  For internal use only
 typedef struct {
 	zest_key key;
-	zest_index index;
+	zest_uint index;
 } zest_hash_pair;
 
 #ifndef ZEST_HASH_SEED
 #define ZEST_HASH_SEED 0xABCDEF99
 #endif
 ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
-ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { zest_vec_foreach(i, map) { if (map[i].index < index) continue; map[i].index--; } }
-ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
+ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_uint index) { zest_vec_foreach(i, map) { if (map[i].index < index) continue; map[i].index--; } }
+ZEST_PRIVATE zest_uint zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(name, strlen(name), ZEST_HASH_SEED)
 #define zest_map_hash_ptr(ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
-#define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
+#define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_uint *free_slots; zest_uint last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
 #define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
@@ -2999,8 +2998,8 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_at_index(hash_map, index) &hash_map.data[index]
 #define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
-#define zest_map_remove(allocator, hash_map, name) { zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
-#define zest_map_remove_key(allocator, hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
+#define zest_map_remove(allocator, hash_map, name) { zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
+#define zest_map_remove_key(allocator, hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
 #define zest_map_last_index(hash_map) (hash_map.last_index)
 #define zest_map_size(hash_map) (hash_map.map ? zest__vec_header(hash_map.data)->current_size : 0)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data); zest_vec_clear(hash_map.free_slots)
@@ -3282,7 +3281,7 @@ typedef struct zest_atlas_region_t {
 	zest_uint height;
 	zest_vec4 uv;                //UV coords 
 	zest_u64 uv_packed;          //UV coords packed into 16bit floats
-	zest_index layer_index;      //the layer index of the image when it's packed into an image/texture array
+	zest_uint layer_index;      //the layer index of the image when it's packed into an image/texture array
 	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
 	zest_binding_number_type binding_number;
 	zest_uint atlas_index;		 //The index with an image collection where the region might be stored
@@ -3853,12 +3852,12 @@ typedef struct zest_draw_batch_instruction_t {
 	char push_constant[128];                      //Each draw instruction can have different values in the push constants push_constants
 	zest_scissor_rect_t scissor;                  //The drawinstruction can also clip whats drawn
 	zest_viewport_t viewport;                     //The viewport size of the draw call
-	zest_index start_index;                       //The starting index
+	zest_uint start_index;                       //The starting index
 	union {
 		zest_uint total_instances;                //The total number of instances to be drawn in the draw instruction
 		zest_uint total_indexes;                  //The total number of indexes to be drawn in the draw instruction
 	};
-	zest_index last_instance;                     //The last instance that was drawn in the previous instance instruction
+	zest_uint last_instance;                     //The last instance that was drawn in the previous instance instruction
 	zest_pipeline_template pipeline_template;     //The pipeline template to draw the instances.
 	zest_shader_resources shader_resources;       //The descriptor set shader_resources used to draw with
 	void *asset;                                  //Optional pointer to either texture, font etc
@@ -4196,7 +4195,7 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_context context, zest_draw_ba
 ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
 ZEST_PRIVATE zest_bool zest__create_transient_image(zest_context context, zest_resource_node node);
 ZEST_PRIVATE void zest__create_transient_buffer(zest_context context, zest_resource_node node);
-ZEST_PRIVATE zest_index zest__next_fif(zest_context context);
+ZEST_PRIVATE zest_uint zest__next_fif(zest_context context);
 // --End Misc_Helper_Functions
 
 // --Pipeline_Helper_Functions
@@ -4908,7 +4907,7 @@ ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image image, zest_binding_numb
 ZEST_API int zest_ImageRawLayout(zest_image image);
 ZEST_API zest_extent2d_t zest_RegionDimensions(zest_atlas_region_t *region);
 ZEST_API zest_extent2d_t zest_RegionDimensions(zest_atlas_region_t *region);
-ZEST_API zest_index zest_RegionLayerIndex(zest_atlas_region_t *region);
+ZEST_API zest_uint zest_RegionLayerIndex(zest_atlas_region_t *region);
 ZEST_API zest_vec4 zest_RegionUV(zest_atlas_region_t *region);
 ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint sampler_index, zest_image image, zest_binding_number_type binding_number);
 
@@ -5131,7 +5130,7 @@ ZEST_API zest_compute_builder_t zest_BeginComputeBuilder(zest_context context);
 ZEST_API void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout);
 ZEST_API void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout layout);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
-ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
+ZEST_API zest_uint zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
 //If you're using a push constant then you can set it's size in the builder here.
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //Set any pointer to custom user data here. You will be able to access this in the callback functions.
@@ -11184,7 +11183,7 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
     return ZEST_TRUE;
 }
 
-zest_index zest__next_fif(zest_context context) {
+zest_uint zest__next_fif(zest_context context) {
     return (context->current_fif + 1) % ZEST_MAX_FIF;
 }
 
@@ -14881,7 +14880,7 @@ zest_extent2d_t zest_RegionDimensions(zest_atlas_region_t *region) {
     return ZEST_STRUCT_LITERAL(zest_extent2d_t, region->width, region->height );
 }
 
-zest_index zest_RegionLayerIndex(zest_atlas_region_t *region) {
+zest_uint zest_RegionLayerIndex(zest_atlas_region_t *region) {
     return region->layer_index;
 }
 
@@ -16193,7 +16192,7 @@ void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout l
     zest_vec_push(builder->context->device->allocator, builder->non_bindless_layouts, layout);
 }
 
-zest_index zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
+zest_uint zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
 	ZEST_ASSERT(builder->context->device == (zest_device)shader_handle.store->origin);	//The shader and compute builder must match the same device!
 	zest_context context = builder->context;
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);

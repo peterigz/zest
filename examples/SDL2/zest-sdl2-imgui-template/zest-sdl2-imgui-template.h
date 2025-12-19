@@ -23,7 +23,7 @@ struct SpriteState {
 };
 
 struct ImGuiApp {
-	zest_index imgui_draw_routine_index;
+	zest_uint imgui_draw_routine_index;
 	zest_image_handle imgui_font_texture;
 	zest_image_handle test_texture;
 	zest_timer_t timer;

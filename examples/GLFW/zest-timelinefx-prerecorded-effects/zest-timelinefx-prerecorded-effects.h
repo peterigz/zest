@@ -70,8 +70,8 @@ struct ComputeExample {
 	tfx_random_t random;
 
 	//Indexes for the compute shader pipeline_templates
-	zest_index compute_pipeline_3d;
-	zest_index bb_compute_pipeline_3d;
+	zest_uint compute_pipeline_3d;
+	zest_uint bb_compute_pipeline_3d;
 
 	tfx_animation_manager animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
