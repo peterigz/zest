@@ -1044,8 +1044,6 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 
 typedef unsigned int zest_uint;
 typedef unsigned long zest_long;
-typedef unsigned int zest_resource_id;
-typedef unsigned int zest_pass_id;
 typedef unsigned long long zest_ull;
 typedef uint16_t zest_u16;
 typedef uint64_t zest_u64;
