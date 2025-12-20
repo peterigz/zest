@@ -50,6 +50,7 @@ struct ComputeExample {
 	zest_buffer particle_buffer;
 	zest_uint particle_buffer_index;
 	zest_pipeline_template particle_pipeline;
+	zest_pipeline_layout pipeline_layout;
 	zest_uniform_buffer_handle compute_uniform_buffer;
 	zest_compute_handle compute;
 

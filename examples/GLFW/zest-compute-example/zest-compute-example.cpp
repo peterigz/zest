@@ -87,6 +87,15 @@ void InitComputeExample(ComputeExample *app) {
 
 	assert(frag_shader.value && vert_shader.value && comp_shader.value);
 
+	//Setup a uniform buffer
+	app->compute_uniform_buffer = zest_CreateUniformBuffer(app->context, "Compute Uniform", sizeof(ComputeUniformBuffer));
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->compute_uniform_buffer);
+
+	//Create a pipeline layout that we can use for both the compute and graphics pipelines
+	zest_pipeline_layout_info_t layout_info = zest_NewPipelineLayoutInfoWithGlobalBindless(app->device);
+	zest_AddPipelineLayoutDescriptorLayout(&layout_info, zest_GetUniformBufferLayout(uniform_buffer));
+	app->pipeline_layout = zest_CreatePipelineLayout(&layout_info);
+
 	//Create a new pipeline in the renderer based on an existing default one
 	app->particle_pipeline = zest_BeginPipelineTemplate(app->device, "particles");
 	//Add our own vertex binding description using the Particle struct
@@ -95,17 +104,13 @@ void InitComputeExample(ComputeExample *app) {
 	zest_AddVertexAttribute(app->particle_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(Particle, pos));
 	zest_AddVertexAttribute(app->particle_pipeline, 0, 1, zest_format_r32g32b32a32_sfloat, offsetof(Particle, gradient_pos));
 
+	zest_SetPipelineLayout(app->particle_pipeline, app->pipeline_layout);
+
 	//Set the shader file to use in the pipeline
 	zest_SetPipelineFragShader(app->particle_pipeline, frag_shader);
 	zest_SetPipelineVertShader(app->particle_pipeline, vert_shader);
 	//We're going to use point sprites so set that
 	zest_SetPipelineTopology(app->particle_pipeline, zest_topology_point_list);
-	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
-	//by default.
-	zest_ClearPipelineDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineDescriptorLayout(app->particle_pipeline, zest_GetBindlessLayout(app->device));
-	//Set the push constant we'll be using
-	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), zest_shader_fragment_stage);
 	//Switch off any depth testing
 	zest_SetPipelineDepthTest(app->particle_pipeline, false, false);
 	zest_SetPipelineBlend(app->particle_pipeline, zest_AdditiveBlendState2());
@@ -113,15 +118,11 @@ void InitComputeExample(ComputeExample *app) {
 	zest_SetPipelineCullMode(app->particle_pipeline, zest_cull_mode_none);
 	zest_SetPipelineFrontFace(app->particle_pipeline, zest_front_face_counter_clockwise);
 
-	//Setup a uniform buffer
-	app->compute_uniform_buffer = zest_CreateUniformBuffer(app->context, "Compute Uniform", sizeof(ComputeUniformBuffer));
-
 	//Set up the compute shader
 	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->context);
+	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->device);
 	//Declare the bindings we want in the shader
-	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(zest_GetUniformBuffer(app->compute_uniform_buffer)));
-	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->device));
+	zest_SetComputePipelineLayout(&builder, app->pipeline_layout);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
@@ -139,12 +140,8 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	ComputeExample *app = (ComputeExample*)user_data;
 	//Get the pipeline from the template that we created. 
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, command_list);
-	//You can mix and match descriptor sets but we only need the bindless set there containing the particle texture and gradient
-	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(command_list->device)
-	};
-	//Bind the pipeline with the descriptor set
-	zest_cmd_BindPipeline(command_list, pipeline, sets, 1);
+	//Bind the pipeline 
+	zest_cmd_BindPipeline(command_list, pipeline);
 	//The shader needs to know the indexes into the descriptor array for the textures so we use push constants to
 	//do. You could also use a uniform buffer if you wanted.
 	ParticleFragmentPush push;
@@ -164,14 +161,9 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	//Grab the app object from the user_data that we set in the render graph when adding the compute pass task
 	ComputeExample *app = (ComputeExample *)user_data;
-	//Mix the bindless descriptor set with the uniform buffer descriptor set
-	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(command_list->device),
-		zest_GetUniformBufferSet(zest_GetUniformBuffer(app->compute_uniform_buffer))
-	};
 	//Bind the compute pipeline
 	zest_compute compute = zest_GetCompute(app->compute);
-	zest_cmd_BindComputePipeline(command_list, compute, sets, 2);
+	zest_cmd_BindComputePipeline(command_list, compute);
 	//Dispatch the compute shader
 	zest_cmd_DispatchCompute(command_list, PARTICLE_COUNT / 256, 1, 1);
 }
@@ -268,11 +260,18 @@ void MainLoop(ComputeExample *app) {
 			UpdateComputeUniformBuffers(app);
 
 			if (!frame_graph) {
+				zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->compute_uniform_buffer);
+				zest_descriptor_set sets[] = {
+					zest_GetBindlessSet(app->device),
+					zest_GetUniformBufferSet(uniform_buffer)
+				};
 				if (zest_BeginFrameGraph(app->context, "Compute Particles", &cache_key)) {
 					//Resources
 					zest_resource_node particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 					zest_compute compute = zest_GetCompute(app->compute);
+
+					zest_SetDescriptorSets(app->pipeline_layout, sets, 2);
 
 					//---------------------------------Compute Pass-----------------------------------------------------
 					zest_BeginComputePass(compute, "Compute Particles"); {

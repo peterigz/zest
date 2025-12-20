@@ -9,7 +9,6 @@
 
 struct VSInput
 {
-    [vk_format("test")]
     float2 Pos : POSITION0;
     float4 GradientPos : POSITION1;
 };

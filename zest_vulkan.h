@@ -135,6 +135,7 @@ ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffe
 
 //Pipelines
 ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list);
+ZEST_PRIVATE zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layout pipeline_layout, zest_pipeline_layout_info_t *info);
 
 //Set layouts
 ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
@@ -179,7 +180,7 @@ ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(zest_context context
 ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_uniform_buffer_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer buffer);
-ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_swapchain_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
@@ -191,6 +192,7 @@ ZEST_PRIVATE void *zest__vk_new_context_queue_backend(zest_context device);
 ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_pipeline_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_pipeline_layout_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(zest_buffer_allocator buffer_allocator);
 ZEST_PRIVATE void *zest__vk_new_memory_backend(zest_device device);
 
@@ -202,6 +204,7 @@ ZEST_PRIVATE void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer bu
 ZEST_PRIVATE void zest__vk_cleanup_compute_backend(zest_compute compute);
 ZEST_PRIVATE void zest__vk_cleanup_set_layout_backend(zest_set_layout layout);
 ZEST_PRIVATE void zest__vk_cleanup_pipeline_backend(zest_pipeline pipeline);
+ZEST_PRIVATE void zest__vk_cleanup_pipeline_layout_backend(zest_pipeline_layout layout);
 ZEST_PRIVATE void zest__vk_cleanup_image_backend(zest_image image);
 ZEST_PRIVATE void zest__vk_cleanup_sampler_backend(zest_sampler sampler);
 ZEST_PRIVATE void zest__vk_cleanup_queue_backend(zest_device device, zest_queue queue);
@@ -259,13 +262,13 @@ ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapch
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
+void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
 void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
-void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count);
-void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_sets, zest_uint set_count);
+void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline);
+void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute);
 void zest__vk_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
 void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer);
 void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data);
-void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute compute, const void *push_constant);
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_draw_batch_instruction_t *instruction);
 void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
@@ -416,13 +419,15 @@ typedef struct zest_set_layout_backend_t {
 } zest_set_layout_backend_t;
 
 typedef struct zest_pipeline_backend_t {
-    VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
-    VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
+    VkPipeline vk_pipeline;                                                      //The vulkan handle for the pipeline
 } zest_pipeline_backend_t;
 
+typedef struct zest_pipeline_layout_backend_t {
+    VkPipelineLayout vk_pipeline_layout;                                         //The vulkan handle for the pipeline layout
+} zest_pipeline_layout_backend_t;
+
 typedef struct zest_compute_backend_t {
-    VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
-    VkPipeline pipeline;                                      // Compute pipeline
+    VkPipeline pipeline;            					                          // Compute pipeline
     VkPushConstantRange push_constant_range;
 } zest_compute_backend_t;
 
@@ -496,6 +501,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->create_uniform_descriptor_set                 = zest__vk_create_uniform_descriptor_set;
 
     platform->build_pipeline                                = zest__vk_build_pipeline;
+    platform->build_pipeline_layout                         = zest__vk_build_pipeline_layout;
     platform->finish_compute                                = zest__vk_finish_compute;
 
 	platform->wait_for_renderer_semaphore				    = zest__vk_wait_for_renderer_semaphore;
@@ -528,6 +534,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->new_execution_backend                         = zest__vk_new_execution_backend;
     platform->new_frame_graph_semaphores_backend            = zest__vk_new_frame_graph_semaphores_backend;
     platform->new_pipeline_backend                          = zest__vk_new_pipeline_backend;
+    platform->new_pipeline_layout_backend                   = zest__vk_new_pipeline_layout_backend;
     platform->new_memory_pool_backend                       = zest__vk_new_memory_pool_backend;
     platform->new_memory_backend                       		= zest__vk_new_memory_backend;
 	platform->new_device_backend                            = zest__vk_new_device_backend;
@@ -560,6 +567,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->cleanup_compute_backend 					    = zest__vk_cleanup_compute_backend;
 	platform->cleanup_set_layout_backend				    = zest__vk_cleanup_set_layout_backend;
 	platform->cleanup_pipeline_backend 					    = zest__vk_cleanup_pipeline_backend;
+	platform->cleanup_pipeline_layout_backend 		        = zest__vk_cleanup_pipeline_layout_backend;
 	platform->cleanup_sampler_backend 					    = zest__vk_cleanup_sampler_backend;
 	platform->cleanup_queue_backend 					    = zest__vk_cleanup_queue_backend;
 	platform->cleanup_context_queue_backend 				= zest__vk_cleanup_context_queue_backend;
@@ -577,12 +585,12 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->draw_indexed                                  = zest__vk_draw_indexed;
 	platform->copy_buffer                                   = zest__vk_copy_buffer;
 	platform->bind_pipeline_shader_resource                 = zest__vk_bind_pipeline_shader_resource;
+	platform->bind_descriptor_sets                          = zest__vk_bind_descriptor_sets;
 	platform->bind_pipeline                                 = zest__vk_bind_pipeline;
 	platform->bind_compute_pipeline                         = zest__vk_bind_compute_pipeline;
 	platform->bind_vertex_buffer                            = zest__vk_bind_vertex_buffer;
 	platform->bind_index_buffer                             = zest__vk_bind_index_buffer;
 	platform->send_push_constants                           = zest__vk_send_push_constants;
-	platform->send_custom_compute_push_constants            = zest__vk_send_custom_compute_push_constants;
 	platform->draw                                          = zest__vk_draw;
 	platform->draw_layer_instruction                        = zest__vk_draw_layer_instruction;
 	platform->dispatch_compute                              = zest__vk_dispatch_compute;
@@ -785,6 +793,10 @@ ZEST_PRIVATE inline VkSampleCountFlagBits zest__to_vk_sample_count(VkSampleCount
 ZEST_PRIVATE inline shaderc_shader_kind zest__to_shaderc_shader_kind(zest_shader_type type) {
     return (shaderc_shader_kind)type;
 }
+
+ZEST_PRIVATE inline VkPipelineBindPoint zest__to_vk_pipeline_bind_point(zest_pipeline_bind_point bind_point) {
+    return (VkPipelineBindPoint)bind_point;
+}
 // -- End Type_converters
 
 // -- Inline_helpers
@@ -876,14 +888,14 @@ ZEST_PRIVATE inline VkWriteDescriptorSet zest__vk_create_buffer_descriptor_write
     return write;
 }
 
-ZEST_PRIVATE inline VkResult zest__vk_create_shader_module(zest_context context, char *code, VkShaderModule *shader_module) {
+ZEST_PRIVATE inline VkResult zest__vk_create_shader_module(zest_device device, char *code, VkShaderModule *shader_module) {
     VkShaderModuleCreateInfo create_info = ZEST__ZERO_INIT(VkShaderModuleCreateInfo);
     create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     create_info.codeSize = zest_vec_size(code);
     create_info.pCode = (zest_uint*)(code);
 
-	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_shader_module);
-    ZEST_VK_ASSERT_RESULT(context->device, vkCreateShaderModule(context->device->backend->logical_device, &create_info, &context->backend->allocation_callbacks, shader_module));
+	ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_shader_module);
+    ZEST_VK_ASSERT_RESULT(device, vkCreateShaderModule(device->backend->logical_device, &create_info, &device->backend->allocation_callbacks, shader_module));
 
     return VK_SUCCESS;
 }
@@ -1461,7 +1473,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
-    if (pCallbackData->messageIdNumber == -1604639890) {
+    if (pCallbackData->messageIdNumber == 559874765) {
         int d = 0;
     }
     if (pCallbackData->messageIdNumber == 448332540) {
@@ -2193,8 +2205,8 @@ void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator,
     return node_image->backend;
 }
 
-void *zest__vk_new_compute_backend(zest_context context) {
-    zest_compute_backend compute_backend = (zest_compute_backend)ZEST__NEW(context->device->allocator, zest_compute_backend);
+void *zest__vk_new_compute_backend(zest_device device) {
+    zest_compute_backend compute_backend = (zest_compute_backend)ZEST__NEW(device->allocator, zest_compute_backend);
     *compute_backend = ZEST__ZERO_INIT(zest_compute_backend_t);
     return compute_backend;
 }
@@ -2230,35 +2242,12 @@ void *zest__vk_new_frame_graph_semaphores_backend(zest_context context) {
 }
 
 zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute) {
-	zest_context context = builder->context;
-    VkPipelineLayoutCreateInfo pipeline_layout_create_info = ZEST__ZERO_INIT(VkPipelineLayoutCreateInfo);
-    if (builder->push_constant_size) {
-        compute->backend->push_constant_range.offset = 0;
-        compute->backend->push_constant_range.size = builder->push_constant_size;
-        compute->backend->push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        pipeline_layout_create_info.pPushConstantRanges = &compute->backend->push_constant_range;
-        pipeline_layout_create_info.pushConstantRangeCount = 1;
-    }
-    pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    VkDescriptorSetLayout *set_layouts = 0;
-    zest_set_layout bindless_layout = compute->bindless_layout;
-    if (bindless_layout) {
-        zest_vec_push(context->device->allocator, set_layouts, bindless_layout->backend->vk_layout);
-    }
-    zest_vec_foreach(i, builder->non_bindless_layouts) {
-        zest_set_layout non_bindless_layout = builder->non_bindless_layouts[i];
-        zest_vec_push(context->device->allocator, set_layouts, non_bindless_layout->backend->vk_layout);
-    }
-    pipeline_layout_create_info.setLayoutCount = zest_vec_size(set_layouts);
-    pipeline_layout_create_info.pSetLayouts = set_layouts;
+	zest_device device = builder->device;
 
-    VkComputePipelineCreateInfo compute_pipeline_create_info = ZEST__ZERO_INIT(VkComputePipelineCreateInfo);
-    ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_pipeline_layout);
-    ZEST_CLEANUP_ON_FAIL(context->device, vkCreatePipelineLayout(context->device->backend->logical_device, &pipeline_layout_create_info, &context->device->backend->allocation_callbacks, &compute->backend->pipeline_layout));
-
+	VkComputePipelineCreateInfo compute_pipeline_create_info = ZEST__ZERO_INIT(VkComputePipelineCreateInfo);
     // Create compute shader pipeline_templates
     compute_pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    compute_pipeline_create_info.layout = compute->backend->pipeline_layout;
+    compute_pipeline_create_info.layout = compute->pipeline_layout->backend->vk_pipeline_layout;
     compute_pipeline_create_info.flags = 0;
 
     // One pipeline for each effect
@@ -2271,7 +2260,7 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
         VkShaderModule shader_module = 0;
-        ZEST_CLEANUP_ON_FAIL(context->device, zest__vk_create_shader_module(context, shader->spv, &shader_module));
+        ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->spv, &shader_module));
 
         VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
         compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -2284,18 +2273,16 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
         //If you get validation errors here or even a crash then make sure that you're shader has the correct inputs that match the
         //compute builder set up. For example if the shader expects a push constant range then use zest_SetComputePushConstantSize before
         //calling this function.
-        ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_compute_pipeline);
-        context->device->backend->last_result = vkCreateComputePipelines(context->device->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &context->device->backend->allocation_callbacks, &pipeline);
-        vkDestroyShaderModule(context->device->backend->logical_device, shader_module, &context->backend->allocation_callbacks);
-        if (context->device->backend->last_result != VK_SUCCESS) {
+        ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_compute_pipeline);
+        device->backend->last_result = vkCreateComputePipelines(device->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &device->backend->allocation_callbacks, &pipeline);
+        vkDestroyShaderModule(device->backend->logical_device, shader_module, &device->backend->allocation_callbacks);
+        if (device->backend->last_result != VK_SUCCESS) {
             goto cleanup;
         }
         compute->backend->pipeline = pipeline;
     }
-    zest_vec_free(context->device->allocator, set_layouts);
     return ZEST_TRUE;
 cleanup:
-    zest_vec_free(context->device->allocator, set_layouts);
     return ZEST_FALSE;
 }
 
@@ -2311,7 +2298,6 @@ void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator
 void zest__vk_cleanup_compute_backend(zest_compute compute) {
 	zest_device device = (zest_device)compute->handle.store->origin;
 	if(compute->backend->pipeline) vkDestroyPipeline(device->backend->logical_device, compute->backend->pipeline, &device->backend->allocation_callbacks);
-    if(compute->backend->pipeline_layout) vkDestroyPipelineLayout(device->backend->logical_device, compute->backend->pipeline_layout, &device->backend->allocation_callbacks);
     ZEST__FREE(device->allocator, compute->backend);
 }
 
@@ -2359,10 +2345,16 @@ void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer) {
 
 void zest__vk_cleanup_pipeline_backend(zest_pipeline pipeline) {
 	zest_context context = pipeline->context;
-    if(pipeline->backend->pipeline_layout) vkDestroyPipelineLayout(context->device->backend->logical_device, pipeline->backend->pipeline_layout, &context->backend->allocation_callbacks);
-    if(pipeline->backend->pipeline) vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->pipeline, &context->backend->allocation_callbacks);
+    if(pipeline->backend->vk_pipeline) vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->vk_pipeline, &context->backend->allocation_callbacks);
     ZEST__FREE(context->allocator, pipeline->backend);
     pipeline->backend = 0;
+}
+
+void zest__vk_cleanup_pipeline_layout_backend(zest_pipeline_layout layout) {
+	zest_device device = layout->device;
+    if(layout->backend->vk_pipeline_layout) vkDestroyPipelineLayout(device->backend->logical_device, layout->backend->vk_pipeline_layout, &device->backend->allocation_callbacks);
+    ZEST__FREE(device->allocator, layout->backend);
+    layout->backend = 0;
 }
 
 void zest__vk_cleanup_set_layout_backend(zest_set_layout layout) {
@@ -3075,39 +3067,52 @@ void *zest__vk_new_pipeline_backend(zest_context context) {
     return backend;
 }
 
+void *zest__vk_new_pipeline_layout_backend(zest_device device) {
+    zest_pipeline_layout_backend backend = (zest_pipeline_layout_backend)ZEST__NEW(device->allocator, zest_pipeline_layout_backend);
+    *backend = ZEST__ZERO_INIT(zest_pipeline_layout_backend_t);
+    return backend;
+}
+
+zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layout pipeline_layout, zest_pipeline_layout_info_t *info) {
+    zloc_linear_allocator_t *scratch = &device->scratch_arena;
+
+    VkDescriptorSetLayout *layouts = 0;
+
+    zest_vec_foreach(i, info->set_layouts) {
+        zest_set_layout layout = info->set_layouts[i];
+        zest_vec_linear_push(scratch, layouts, layout->backend->vk_layout);
+    }
+
+    VkPushConstantRange push_constant_range = {
+        (VkShaderStageFlags)info->push_constant_range.stage_flags,
+        info->push_constant_range.offset,
+        info->push_constant_range.size,
+    };
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info = ZEST__ZERO_INIT(VkPipelineLayoutCreateInfo);
+	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pushConstantRangeCount = push_constant_range.size > 0 ? 1 : 0;
+    pipeline_layout_info.pPushConstantRanges = push_constant_range.size > 0 ? &push_constant_range : VK_NULL_HANDLE;
+    pipeline_layout_info.setLayoutCount = zest_vec_size(layouts);
+    pipeline_layout_info.pSetLayouts = layouts;
+
+    ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_pipeline_layout);
+    VkResult result = vkCreatePipelineLayout(device->backend->logical_device, &pipeline_layout_info, &device->backend->allocation_callbacks, &pipeline_layout->backend->vk_pipeline_layout);
+	zloc_ResetLinearAllocator(scratch);
+    if (result != VK_SUCCESS) {
+        ZEST_VK_PRINT_RESULT(device, result);
+        return ZEST_FALSE;
+    }
+
+	return ZEST_TRUE;
+}
+
 zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
 	zest_context context = command_list->context;
-    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_pipeline_layout);
 
     zloc_linear_allocator_t *scratch = &context->device->scratch_arena;
 
     zest_pipeline_template pipeline_template = pipeline->pipeline_template;
-
-    VkPushConstantRange push_constant_range = {
-        (VkShaderStageFlags)pipeline_template->push_constant_range.stage_flags,
-        pipeline_template->push_constant_range.offset,
-        pipeline_template->push_constant_range.size,
-    };
-
-    VkDescriptorSetLayout *layouts = 0;
-
-    zest_vec_foreach(i, pipeline_template->set_layouts) {
-        zest_set_layout layout = pipeline_template->set_layouts[i];
-        zest_vec_linear_push(scratch, layouts, layout->backend->vk_layout);
-    }
-
-    VkPipelineLayoutCreateInfo pipeline_layout_info = ZEST__ZERO_INIT(VkPipelineLayoutCreateInfo);
-	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.pushConstantRangeCount = 1;
-    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
-    pipeline_layout_info.setLayoutCount = zest_vec_size(layouts);
-    pipeline_layout_info.pSetLayouts = layouts;
-
-    VkResult result = vkCreatePipelineLayout(context->device->backend->logical_device, &pipeline_layout_info, &context->backend->allocation_callbacks, &pipeline->backend->pipeline_layout);
-    if (result != VK_SUCCESS) {
-        ZEST_VK_PRINT_RESULT(context->device, result);
-        return ZEST_FALSE;
-    }
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly = ZEST__ZERO_INIT(VkPipelineInputAssemblyStateCreateInfo);
     VkPipelineViewportStateCreateInfo viewport_state = ZEST__ZERO_INIT(VkPipelineViewportStateCreateInfo);
@@ -3128,13 +3133,14 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
     VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
     VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
+	VkResult result = VK_SUCCESS;
     if (ZEST_VALID_HANDLE(vert_shader)) {
         if (!vert_shader->spv) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline_template->name);
             result = VK_ERROR_UNKNOWN;
             goto cleanup;
         }
-        result = zest__vk_create_shader_module(context, vert_shader->spv, &vert_shader_module);
+        result = zest__vk_create_shader_module(context->device, vert_shader->spv, &vert_shader_module);
         vert_shader_stage_info.module = vert_shader_module;
     }
 
@@ -3144,7 +3150,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
             result = VK_ERROR_UNKNOWN;
             goto cleanup;
         }
-        result = zest__vk_create_shader_module(context, frag_shader->spv, &frag_shader_module);
+        result = zest__vk_create_shader_module(context->device, frag_shader->spv, &frag_shader_module);
         frag_shader_stage_info.module = frag_shader_module;
     }
 
@@ -3273,7 +3279,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     pipeline_info.pMultisampleState = &multisampling;
     pipeline_info.pColorBlendState = &color_blending;
     pipeline_info.pDepthStencilState = &depth_stencil;
-    pipeline_info.layout = pipeline->backend->pipeline_layout;
+    pipeline_info.layout = pipeline->layout->backend->vk_pipeline_layout;
     pipeline_info.renderPass = VK_NULL_HANDLE;
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -3281,20 +3287,19 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 	pipeline_info.pNext = &vk_rendering_info;
 
 	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_pipelines);
-    result = vkCreateGraphicsPipelines(context->device->backend->logical_device, context->device->backend->pipeline_cache, 1, &pipeline_info, &context->backend->allocation_callbacks, &pipeline->backend->pipeline);
+    result = vkCreateGraphicsPipelines(context->device->backend->logical_device, context->device->backend->pipeline_cache, 1, &pipeline_info, &context->backend->allocation_callbacks, &pipeline->backend->vk_pipeline);
     if (result != VK_SUCCESS) {
         ZEST_VK_PRINT_RESULT(context->device, result);
 		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
-		vkDestroyPipelineLayout(context->device->backend->logical_device, pipeline->backend->pipeline_layout, &context->backend->allocation_callbacks);
-		vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->pipeline, &context->backend->allocation_callbacks);
+		vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->vk_pipeline, &context->backend->allocation_callbacks);
     } else {
         ZEST_APPEND_LOG(context->device->log_path.str, "Built pipeline %s", pipeline_template->name);
 		ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
     }
 
 	cleanup:
-	vkDestroyShaderModule(context->device->backend->logical_device, frag_shader_module, &context->backend->allocation_callbacks);
-	vkDestroyShaderModule(context->device->backend->logical_device, vert_shader_module, &context->backend->allocation_callbacks);
+	vkDestroyShaderModule(context->device->backend->logical_device, frag_shader_module, &context->device->backend->allocation_callbacks);
+	vkDestroyShaderModule(context->device->backend->logical_device, vert_shader_module, &context->device->backend->allocation_callbacks);
     zloc_ResetLinearAllocator(scratch);
     return result == VK_SUCCESS ? ZEST_TRUE : ZEST_FALSE;
 }
@@ -4392,24 +4397,22 @@ void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list
 		zest_vec_linear_push(scratch, binding_sets, set->backend->vk_descriptor_set);
 	}
 	zest_uint sets_size = zest_vec_size(binding_sets);
-    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
-    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, sets_size, binding_sets, 0, 0);
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->vk_pipeline);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout->backend->vk_pipeline_layout, 0, sets_size, binding_sets, 0, 0);
 	zloc_ResetLinearAllocator(scratch);
 }
 
-void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) {
 	zest_context context = command_list->context;
-    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
-    VkDescriptorSet *vk_sets = 0;
-    zest_vec_linear_resize(allocator, vk_sets, set_count);
-    for (zest_uint i = 0; i < set_count; ++i) {
-        vk_sets[i] = descriptor_sets[i]->backend->vk_descriptor_set;
-    }
-    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
-    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->vk_pipeline);
 }
 
-void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute) {
+	zest_context context = command_list->context;
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
+}
+
+void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set) {
 	zest_context context = command_list->context;
     zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
     VkDescriptorSet *vk_sets = 0;
@@ -4417,8 +4420,8 @@ void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_c
     for (zest_uint i = 0; i < set_count; ++i) {
         vk_sets[i] = descriptor_sets[i]->backend->vk_descriptor_set;
     }
-    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
-    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
+	VkPipelineBindPoint vk_bind_point = zest__to_vk_pipeline_bind_point(bind_point);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, vk_bind_point, layout->backend->vk_pipeline_layout, first_set, set_count, vk_sets, 0, 0);
 }
 
 void zest__vk_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
@@ -4431,11 +4434,7 @@ void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffe
 }
 
 void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data) {
-    vkCmdPushConstants(command_list->backend->command_buffer, pipeline->backend->pipeline_layout, zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags), pipeline->pipeline_template->push_constant_range.offset, pipeline->pipeline_template->push_constant_range.size, data);
-}
-
-void zest__vk_send_custom_compute_push_constants(const zest_command_list command_list, zest_compute compute, const void *push_constant) {
-    vkCmdPushConstants(command_list->backend->command_buffer, compute->backend->pipeline_layout, compute->backend->push_constant_range.stageFlags, 0, compute->backend->push_constant_range.size, push_constant);
+    vkCmdPushConstants(command_list->backend->command_buffer, pipeline->layout->backend->vk_pipeline_layout, zest__to_vk_shader_stage(pipeline->layout->push_constant_range.stage_flags), pipeline->layout->push_constant_range.offset, pipeline->layout->push_constant_range.size, data);
 }
 
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {

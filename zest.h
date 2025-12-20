@@ -8,7 +8,7 @@
     Sections in this header file, you can search for the following keywords to jump to that section :
  * 
 	[About_Zest]
-	[Zloc_header - Zloc_implementation] Header for the TLSF allocator
+	[Zloc_header - Zloc_implementation] TLSF allocator. Handles all allocations in Zest.
     [Macro_Defines]                     Just a bunch of typedefs and macro definitions
     [Typedefs_for_numbers]          
     [Platform_specific_code]            Windows/Mac specific, no linux yet
@@ -1041,7 +1041,6 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 #define zest_ForEachFrameInFlight(index) for (unsigned int index = 0; index != ZEST_MAX_FIF; ++index)
 
 //Typedefs_for_numbers
-
 typedef unsigned int zest_uint;
 typedef unsigned long zest_long;
 typedef unsigned long long zest_ull;
@@ -1804,6 +1803,7 @@ typedef enum zest_struct_type {
 	zest_struct_type_file = 47 << 16,
 	zest_struct_type_resource_store = 48 << 16,
 	zest_struct_type_buffer_linear_allocator = 49 << 16,
+	zest_struct_type_pipeline_layout = 50 << 16,
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -2250,6 +2250,12 @@ typedef enum zest_pipeline_set_flag_bits {
 
 typedef zest_uint zest_pipeline_set_flags;
 
+typedef enum zest_pipeline_bind_point {
+	zest_bind_point_graphics,
+	zest_bind_point_compute,
+	zest_bind_point_none = 0xFFFFFFFF
+} zest_pipeline_bind_point;
+
 typedef enum zest_front_face {
 	zest_front_face_counter_clockwise,
 	zest_front_face_clockwise,
@@ -2375,6 +2381,7 @@ typedef struct zest_sampler_t zest_sampler_t;
 typedef struct zest_draw_batch_t zest_draw_batch_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
 typedef struct zest_pipeline_template_t zest_pipeline_template_t;
+typedef struct zest_pipeline_layout_t zest_pipeline_layout_t;
 typedef struct zest_set_layout_t zest_set_layout_t;
 typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_descriptor_pool_t zest_descriptor_pool_t;
@@ -2425,6 +2432,7 @@ typedef struct zest_descriptor_pool_backend_t zest_descriptor_pool_backend_t;
 typedef struct zest_descriptor_set_backend_t zest_descriptor_set_backend_t;
 typedef struct zest_set_layout_backend_t zest_set_layout_backend_t;
 typedef struct zest_pipeline_backend_t zest_pipeline_backend_t;
+typedef struct zest_pipeline_layout_backend_t zest_pipeline_layout_backend_t;
 typedef struct zest_compute_backend_t zest_compute_backend_t;
 typedef struct zest_image_backend_t zest_image_backend_t;
 typedef struct zest_image_view_backend_t zest_image_view_backend_t;
@@ -2448,6 +2456,7 @@ ZEST__MAKE_HANDLE(zest_sampler)
 ZEST__MAKE_HANDLE(zest_draw_batch)
 ZEST__MAKE_HANDLE(zest_pipeline)
 ZEST__MAKE_HANDLE(zest_pipeline_template)
+ZEST__MAKE_HANDLE(zest_pipeline_layout)
 ZEST__MAKE_HANDLE(zest_set_layout)
 ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_shader_resources)
@@ -2491,6 +2500,7 @@ ZEST__MAKE_HANDLE(zest_descriptor_pool_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_set_backend)
 ZEST__MAKE_HANDLE(zest_set_layout_backend)
 ZEST__MAKE_HANDLE(zest_pipeline_backend)
+ZEST__MAKE_HANDLE(zest_pipeline_layout_backend)
 ZEST__MAKE_HANDLE(zest_compute_backend)
 ZEST__MAKE_HANDLE(zest_image_backend)
 ZEST__MAKE_HANDLE(zest_image_view_backend)
@@ -3735,10 +3745,16 @@ typedef struct zest_pipeline_template_t {
 	zest_shader_handle vertex_shader;
 	zest_shader_handle fragment_shader;
 
+	zest_pipeline_layout layout;
+
 	zest_color_blend_attachment_t color_blend_attachment;
+} zest_pipeline_template_t;
+
+typedef struct zest_pipeline_layout_info_t {
+	zest_device device;
 	zest_set_layout *set_layouts;
 	zest_push_constant_range_t push_constant_range;
-} zest_pipeline_template_t;
+} zest_pipeline_layout_info_t;
 
 typedef struct zest_buffer_image_copy_t {
 	zest_size buffer_offset;
@@ -3870,11 +3886,9 @@ typedef struct zest_draw_batch_builder_t {
 } zest_draw_batch_builder_t;
 
 typedef struct zest_compute_builder_t {
-	zest_context context;
-	zest_set_layout *non_bindless_layouts;
-	zest_set_layout bindless_layout;
+	zest_device device;
+	zest_pipeline_layout pipeline_layout;
 	zest_shader_handle *shaders;
-	zest_uint push_constant_size;
 	zest_compute_flags flags;
 	void *user_data;
 } zest_compute_builder_t;
@@ -3935,6 +3949,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 	//Pipelines
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
+	zest_bool                  (*build_pipeline_layout)(zest_device device, zest_pipeline_layout layout, zest_pipeline_layout_info_t *info);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Semaphores
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
@@ -3967,6 +3982,7 @@ typedef struct zest_platform_t {
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
 	void*                      (*new_pipeline_backend)(zest_context context);
+	void*                      (*new_pipeline_layout_backend)(zest_device device);
 	void*                      (*new_memory_pool_backend)(zest_buffer_allocator buffer_allocator);
 	void*                      (*new_memory_backend)(zest_device device);
 	void*					   (*new_device_backend)(zest_device device);
@@ -3976,7 +3992,7 @@ typedef struct zest_platform_t {
 	void*					   (*new_uniform_buffer_backend)(zest_context context);
 	void					   (*set_uniform_buffer_backend)(zest_uniform_buffer buffer);
 	void*					   (*new_image_backend)(zest_context context);
-	void*					   (*new_compute_backend)(zest_context context);
+	void*					   (*new_compute_backend)(zest_device device);
 	void*					   (*new_queue_backend)(zest_device device, zest_uint queue_count);
 	void*					   (*new_submission_batch_backend)(zest_context context);
 	void*					   (*new_set_layout_backend)(zloc_allocator *allocator);
@@ -3999,6 +4015,7 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_compute_backend)(zest_compute compute);
 	void 					   (*cleanup_set_layout)(zest_set_layout layout);
 	void 					   (*cleanup_pipeline_backend)(zest_pipeline pipeline);
+	void 					   (*cleanup_pipeline_layout_backend)(zest_pipeline_layout layout);
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
 	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue queue);
 	void 					   (*cleanup_context_queue_backend)(zest_context context, zest_context_queue context_queue);
@@ -4018,8 +4035,9 @@ typedef struct zest_platform_t {
 	void                       (*scissor)(const zest_command_list command_list, zest_scissor_rect_t *scissor);
 	void                       (*viewport)(const zest_command_list command_list, zest_viewport_t *viewport);
 	void                       (*clip)(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
-	void                       (*bind_pipeline)(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
-	void                       (*bind_compute_pipeline)(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
+	void                       (*bind_descriptor_sets)(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
+	void                       (*bind_pipeline)(const zest_command_list command_list, zest_pipeline pipeline);
+	void                       (*bind_compute_pipeline)(const zest_command_list command_list, zest_compute compute);
 	void                       (*bind_pipeline_shader_resource)(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 	void                       (*copy_buffer)(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);
 	zest_bool                  (*upload_buffer)(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
@@ -4028,7 +4046,6 @@ typedef struct zest_platform_t {
 	zest_bool                  (*image_clear)(const zest_command_list command_list, zest_image image);
 	void                       (*bind_mesh_vertex_buffer)(const zest_command_list command_list, zest_draw_batch layer);
 	void                       (*bind_mesh_index_buffer)(const zest_command_list command_list, zest_draw_batch layer);
-	void                       (*send_custom_compute_push_constants)(const zest_command_list command_list, zest_compute compute, const void *push_constant);
 	void                       (*dispatch_compute)(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 	void                       (*send_push_constants)(const zest_command_list command_list, zest_pipeline pipeline, void *data);
 	void                       (*draw)(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
@@ -4200,6 +4217,7 @@ ZEST_PRIVATE zest_uint zest__next_fif(zest_context context);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(zest_context context);
 ZEST_PRIVATE zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_command_list context, zest_key key, zest_pipeline *out_pipeline);
 ZEST_PRIVATE void zest__cleanup_pipeline_template(zest_pipeline_template pipeline);
+ZEST_PRIVATE void zest__cleanup_pipeline_layout(zest_pipeline_layout layout);
 // --End Pipeline Helper Functions
 
 // --Buffer_allocation_funcitons
@@ -4458,15 +4476,9 @@ ZEST_API zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_p
 ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_template);
 //Clear the input attribute descriptions from the zest_pipeline_template_create_info_t attributeDescriptions array.
 ZEST_API void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_template);
-//Clear the push constant ranges in a pipeline. You can use this after copying a pipeline to set up your own push constants instead
-//if your pipeline will use a different push constant range.
-ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template);
 //Add a vertex attribute to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
 ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, zest_format format, zest_uint offset);
-//Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
-//stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
-ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_info, zest_uint size, zest_supported_shader_stages stage_flags);
 //You can set a pointer in the pipeline template to point to the push constant data that you want to pass to the shader.
 //It MUST match the same data layout/size that you set with zest_SetPipelinePushConstantRange and align with the 
 //push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
@@ -4476,9 +4488,7 @@ ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template
 ZEST_API void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template);
 ZEST_API void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
-ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, zest_set_layout layout);
-//Clear the descriptor layouts in a pipeline template create info
-ZEST_API void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template);
+ZEST_API void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout pipeline_layout);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
 ZEST_API zest_color_blend_attachment_t zest_BlendStateNone(void);
@@ -4497,6 +4507,17 @@ ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest
 //Delete a pipeline including the template and any cached versions of the pipeline
 ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template);
 ZEST_API zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline);
+//Create a new pipeline layout info for creating a pipeline layout. You can use the same pipeline layout
+//in multiple pipelines
+ZEST_API zest_pipeline_layout_info_t zest_NewPipelineLayoutInfo(zest_device device);
+ZEST_API zest_pipeline_layout_info_t zest_NewPipelineLayoutInfoWithGlobalBindless(zest_device device);
+//Add a descriptor layout to the pipeline layout info
+ZEST_API void zest_AddPipelineLayoutDescriptorLayout(zest_pipeline_layout_info_t *info, zest_set_layout layout);
+//Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
+//stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
+ZEST_API void zest_SetPipelineLayoutPushConstantRange(zest_pipeline_layout_info_t *info, zest_uint size, zest_supported_shader_stages stage_flags);
+//Create a pipeline layout using a zest_pipeline_layout_info_t object
+ZEST_API zest_pipeline_layout zest_CreatePipelineLayout(zest_pipeline_layout_info_t *info);
 //-- End Pipeline related
 
 //--End Pipeline_related_helpers
@@ -4661,6 +4682,9 @@ ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_res
 ZEST_API zest_resource_node zest_ImportSwapchainResource();
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
+
+// --- Descriptor Sets
+ZEST_API void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 
 // --- Manual Barrier Functions
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
@@ -5104,16 +5128,6 @@ ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_draw_batch layer, float pos[3], float rot[3], float scale[3]);
-//Create a cylinder mesh of given number of sides, radius and height. Set cap to 1 to cap the cylinder.
-ZEST_API zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color_t color, zest_bool cap);
-//Create a cone mesh of given number of sides, radius and height.
-ZEST_API zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color_t color);
-//Create a uv sphere mesh made up using a number of horizontal rings and vertical sectors of a give radius.
-ZEST_API zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color_t color);
-//Create a cube mesh of a given size.
-ZEST_API zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color);
-//Create a flat rounded rectangle of a give width and height. Pass in the radius to use for the corners and number of segments to use for the corners.
-ZEST_API zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color_t color);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------
@@ -5122,19 +5136,14 @@ ZEST_API zest_mesh zest_CreateRoundedRectangle(zest_context context, float width
 //        See zest-compute-example for a full working example
 //-----------------------------------------------
 //Create a blank ready-to-build compute object and store by name in the renderer.
-ZEST_PRIVATE zest_compute zest__new_compute(zest_context context, const char *name);
+ZEST_PRIVATE zest_compute zest__new_compute(zest_device device, const char *name);
 //To build a compute shader pipeline you can use a zest_compute_builder_t and corresponding commands to add the various settings for the compute object
-ZEST_API zest_compute_builder_t zest_BeginComputeBuilder(zest_context context);
-ZEST_API void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout);
-ZEST_API void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout layout);
+ZEST_API zest_compute_builder_t zest_BeginComputeBuilder(zest_device device);
+ZEST_API void zest_SetComputePipelineLayout(zest_compute_builder_t *builder, zest_pipeline_layout layout);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
 ZEST_API zest_uint zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
-//If you're using a push constant then you can set it's size in the builder here.
-ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //Set any pointer to custom user data here. You will be able to access this in the callback functions.
 ZEST_API void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data);
-//Sets the compute shader to manually record so you have to specify when the compute shader should be recorded
-ZEST_API void zest_SetComputeManualRecord(zest_compute_builder_t *builder);
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest__new_compute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
@@ -5284,9 +5293,12 @@ ZEST_API void zest_cmd_Clip(const zest_command_list command_list, float x, float
 //descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
 //whatever is defined in context->renderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
 //a command buffer then call zest_BindPipelineCB instead.
-ZEST_API void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
+ZEST_API void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline);
 //Bind a pipeline for a compute shader
-ZEST_API void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
+ZEST_API void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute compute);
+//Bind a descriptor set. By default the global bindless set is bound at the start of a command buffer and you shouldn't
+//need to bind it again. You can call this function to bind additional sets that you need like uniform buffers
+ZEST_API void zest_cmd_BindDescriptorSets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *sets, zest_uint set_count, zest_uint first_set);
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
@@ -5303,9 +5315,6 @@ ZEST_API void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zes
 ZEST_API zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image image);
 ZEST_API void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_draw_batch layer);
 ZEST_API void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_draw_batch layer);
-//Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
-//function must be the same size that you set when creating the compute shader
-ZEST_API void zest_cmd_SendCustomComputePushConstants(const zest_command_list command_list, zest_compute compute, const void *push_constant);
 //Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
 ZEST_API void zest_cmd_DispatchCompute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 //Send push constants. For use inside a draw routine callback function. pass in the pipeline,
@@ -6058,6 +6067,7 @@ typedef struct zest_device_t {
 	//Bindless set layout and set
 	zest_set_layout bindless_set_layout;
 	zest_descriptor_set bindless_set;
+	zest_pipeline_layout pipeline_layout;
 
 	//Mip indexes for images
 	zest_map_mip_indexes mip_indexes;
@@ -6145,6 +6155,13 @@ typedef struct zest_context_t {
 	zest_uint device_frame_counter;
 	zest_create_context_info_t create_info;
 } zest_context_t;
+
+typedef struct zest_pipeline_layout_t {
+	int magic;
+	zest_device device;
+	zest_pipeline_layout_backend backend;
+	zest_push_constant_range_t push_constant_range;
+} zest_pipeline_layout_t;
 
 typedef struct zest_command_list_t {
 	int magic;
@@ -6241,6 +6258,9 @@ typedef struct zest_frame_graph_t {
 
 	zest_resource_node *deferred_image_destruction;
 
+	zest_descriptor_set *descriptor_sets;
+	zest_pipeline_layout pipeline_layout;
+
 	zest_execution_timeline wait_on_timeline;
 	zest_execution_timeline signal_timeline;
 	zest_frame_graph_semaphores semaphores;
@@ -6301,6 +6321,7 @@ typedef struct zest_pipeline_t {
 	zest_context context;
 	zest_pipeline_backend backend;
 	zest_pipeline_template pipeline_template;
+	zest_pipeline_layout layout;
 	void(*rebuild_pipeline_function)(void*);                                     //Override the function to rebuild the pipeline when the swap chain is recreated
 	zest_pipeline_set_flags flags;                                               //Flag bits
 } zest_pipeline_t;
@@ -6319,6 +6340,7 @@ typedef struct zest_pass_node_t {
 	zest_compute compute;
 	zest_pass_flags flags;
 	zest_pass_type type;
+	zest_pipeline_bind_point bind_point;
 	zest_pass_node_visit_state visit_state;
 } zest_pass_node_t;
 
@@ -6486,7 +6508,7 @@ typedef struct zest_compute_t {
 	int magic;
 	zest_compute_backend backend;
 	zest_compute_handle handle;
-	zest_set_layout bindless_layout;                   		  // The bindless descriptor set layout to use in the compute shader
+	zest_pipeline_layout pipeline_layout;
 	zest_shader_handle *shaders;                              // List of compute shaders to use
 	void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
 	void *user_data;                                          // Custom user data
@@ -7746,6 +7768,10 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	device->global_layout_builder = layout_builder;
     device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
     device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
+
+	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
+	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
+	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
 
     ZEST_APPEND_LOG(device->log_path.str, "Compile shaders");
     zest__compile_builtin_shaders(device);
@@ -9120,6 +9146,12 @@ void zest__cleanup_pipeline(zest_pipeline pipeline) {
 	ZEST__FREE(context->allocator, pipeline);
 }
 
+void zest__cleanup_pipeline_layout(zest_pipeline_layout layout) {
+	zest_device device = layout->device;
+	device->platform->cleanup_pipeline_layout_backend(layout);
+	ZEST__FREE(device->allocator, layout);
+}
+
 void zest__cleanup_pipelines(zest_context context) {
     zest_map_foreach(i, context->cached_pipelines) {
         zest_pipeline pipeline = *zest_map_at_index(context->cached_pipelines, i);
@@ -9313,6 +9345,11 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			zest__cleanup_execution_timeline(timeline);
 			break;
 		}
+		case zest_struct_type_pipeline_layout: {
+			zest_pipeline_layout layout = (zest_pipeline_layout)handle;
+			zest__cleanup_pipeline_layout(layout);
+			break;
+		}
 		case zest_struct_type_context: {
 			zest_context context = (zest_context)handle;
 			zest_PrintReports(context);
@@ -9345,6 +9382,9 @@ void zest__scan_memory_and_free_resources(zloc_allocator *allocator, zest_bool i
 						zest_vec_push(allocator, memory_to_free, allocation);
 						break;
 					case zest_struct_type_buffer_backend:
+						zest_vec_push(allocator, memory_to_free, allocation);
+						break;
+					case zest_struct_type_pipeline_layout:
 						zest_vec_push(allocator, memory_to_free, allocation);
 						break;
 					case zest_struct_type_context:
@@ -10043,15 +10083,6 @@ void zest_SetPipelinePolygonFillMode(zest_pipeline_template pipeline_template, z
     pipeline_template->rasterization.polygon_mode = polygon_mode;
 }
 
-void zest_SetPipelinePushConstantRange(zest_pipeline_template pipeline_template, zest_uint size, zest_supported_shader_stages stage_flags) {
-    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    zest_push_constant_range_t range;
-    range.size = size;
-    range.offset = 0;
-    range.stage_flags = stage_flags;
-    pipeline_template->push_constant_range = range;
-}
-
 void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
     pipeline_template->push_constants = push_constants;
@@ -10079,14 +10110,58 @@ void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template
 	pipeline_template->no_vertex_input = ZEST_TRUE;
 }
 
-void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, zest_set_layout layout) {
+void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout layout) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    zest_vec_push(layout->device->allocator, pipeline_template->set_layouts, layout);
+	pipeline_template->layout = layout;
 }
 
-void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template) {
-    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    zest_vec_clear(pipeline_template->set_layouts);
+zest_pipeline_layout_info_t zest_NewPipelineLayoutInfo(zest_device device) {
+	zest_pipeline_layout_info_t info = ZEST__ZERO_INIT(zest_pipeline_layout_info_t);
+	zest_SetPipelineLayoutPushConstantRange(&info, 128, zest_shader_all_stages);
+	info.device = device;
+	return info;
+}
+
+zest_pipeline_layout_info_t zest_NewPipelineLayoutInfoWithGlobalBindless(zest_device device) {
+	zest_pipeline_layout_info_t info = ZEST__ZERO_INIT(zest_pipeline_layout_info_t);
+	info.device = device;
+	zest_AddPipelineLayoutDescriptorLayout(&info, zest_GetBindlessLayout(device));
+	zest_SetPipelineLayoutPushConstantRange(&info, 128, zest_shader_all_stages);
+	return info;
+}
+
+void zest_AddPipelineLayoutDescriptorLayout(zest_pipeline_layout_info_t *info, zest_set_layout layout) {
+	ZEST_ASSERT_HANDLE(info->device);	//Not a valid device set in the layout info.
+	zest_vec_push(info->device->allocator, info->set_layouts, layout);
+}
+
+void zest_SetPipelineLayoutPushConstantRange(zest_pipeline_layout_info_t *info, zest_uint size, zest_supported_shader_stages stage_flags) {
+    zest_push_constant_range_t range;
+    range.size = size;
+    range.offset = 0;
+    range.stage_flags = stage_flags;
+    info->push_constant_range = range;
+}
+
+zest_pipeline_layout zest_CreatePipelineLayout(zest_pipeline_layout_info_t *info) {
+	zest_uint set_count = zest_vec_size(info->set_layouts);
+	zest_device device = info->device;
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle in the info.
+	ZEST_ASSERT(set_count > 0 || info->push_constant_range.size > 0, "Error: Either the descriptor set count or the push constant range must be defined when creating a pipeline layout.");
+	zest_pipeline_layout layout = (zest_pipeline_layout)ZEST__NEW(device->allocator, zest_pipeline_layout);
+	*layout = ZEST__ZERO_INIT(zest_pipeline_layout_t);
+	layout->magic = zest_INIT_MAGIC(zest_struct_type_pipeline_layout);
+	layout->device = device;
+	layout->push_constant_range = info->push_constant_range;
+	layout->backend = (zest_pipeline_layout_backend)device->platform->new_pipeline_layout_backend(device);
+	if (!device->platform->build_pipeline_layout(device, layout, info)) {
+		ZEST_PRINT("Error: Could not create a pipeline layout. Check the validation errors.");
+		device->platform->cleanup_pipeline_layout_backend(layout);
+		ZEST__FREE(device->allocator, layout);
+		layout = NULL;
+	}
+	zest_vec_free(device->allocator, info->set_layouts);
+	return layout;
 }
 
 zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, zest_input_rate input_rate) {
@@ -10111,12 +10186,6 @@ void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_te
 
 void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_template) {
     zest_vec_clear(pipeline_template->attribute_descriptions);
-}
-
-void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template) {
-    pipeline_template->push_constant_range.offset = 0;
-    pipeline_template->push_constant_range.size = 0;
-    pipeline_template->push_constant_range.stage_flags = 0;
 }
 
 zest_color_blend_attachment_t zest_AdditiveBlendState() {
@@ -10234,6 +10303,7 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
 	zest_context context = command_list->context;
 	zest_pipeline pipeline = zest__create_pipeline(context);
     pipeline->pipeline_template = pipeline_template;
+	pipeline->layout = pipeline_template->layout;
     zest_bool result = context->device->platform->build_pipeline(pipeline, command_list);
 	if (result == ZEST_TRUE) {
 		zest_map_insert_key(context->allocator, context->cached_pipelines, pipeline_key, pipeline);
@@ -10252,11 +10322,7 @@ zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
 	copy->color_blend_attachment = pipeline_to_copy->color_blend_attachment;
-    copy->push_constant_range = pipeline_to_copy->push_constant_range;
-    zest_vec_clear(copy->set_layouts);
-    zest_vec_foreach(i, pipeline_to_copy->set_layouts) {
-        zest_vec_push(device->allocator, copy->set_layouts, pipeline_to_copy->set_layouts[i]);
-    }
+	copy->layout = pipeline_to_copy->layout;
     if (pipeline_to_copy->binding_descriptions) {
         zest_vec_resize(device->allocator, copy->binding_descriptions, zest_vec_size(pipeline_to_copy->binding_descriptions));
         memcpy(copy->binding_descriptions, pipeline_to_copy->binding_descriptions, zest_vec_size_in_bytes(pipeline_to_copy->binding_descriptions));
@@ -10280,7 +10346,6 @@ zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline) {
 }
 
 void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
-    zest_vec_free(pipeline_template->device->allocator, pipeline_template->set_layouts);
     zest_vec_free(pipeline_template->device->allocator, pipeline_template->attribute_descriptions);
     zest_vec_free(pipeline_template->device->allocator, pipeline_template->binding_descriptions);
     ZEST__FREE(pipeline_template->device->allocator, pipeline_template);
@@ -10527,8 +10592,8 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
 
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list) {
 	zest_context context = command_list->context;
-    if (zest_vec_size(pipeline_template->set_layouts) == 0) {
-        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", pipeline_template->name);
+    if (!ZEST_VALID_HANDLE(pipeline_template->layout)) {
+        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no pipeline layout configured. You can add descriptor layouts when building the pipeline with zest_SetPipelineLayout.", pipeline_template->name);
         return NULL;
     }
 	if (!zest_PipelineIsValid(pipeline_template)) {
@@ -10715,7 +10780,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
         if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_device) {
 			zest_device device = (zest_device)allocator->user_data;
 			header->id = device->vector_id++;
-			if (header->id == 71) {
+			if (header->id == 95) {
 				int d = 0;
 			}
         } else if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_context) {
@@ -11102,11 +11167,12 @@ zest_sampler zest_GetSampler(zest_sampler_handle handle) {
 }
 
 void zest__prepare_standard_pipelines(zest_device device) {
+	zest_pipeline_layout_info_t info = zest_NewPipelineLayoutInfo(device);
+	zest_pipeline_layout swap_layout = zest_CreatePipelineLayout(&info);
 
     //Final Render Pipelines
     device->pipeline_templates.swap = zest_BeginPipelineTemplate(device, "pipeline_swap_chain");
     zest_pipeline_template swap = device->pipeline_templates.swap;
-    zest_SetPipelinePushConstantRange(swap, sizeof(zest_vec2), zest_shader_vertex_stage);
     zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
     swap->no_vertex_input = ZEST_TRUE;
     zest_SetPipelineVertShader(swap, device->builtin_shaders.swap_vert);
@@ -11114,7 +11180,7 @@ void zest__prepare_standard_pipelines(zest_device device) {
     swap->uniforms = 0;
     swap->flags = zest_pipeline_set_flag_is_render_target_pipeline;
 
-    zest_ClearPipelineDescriptorLayouts(swap);
+	zest_SetPipelineLayout(device->pipeline_templates.swap, swap_layout);
     swap->depth_stencil.depth_write_enable = ZEST_FALSE;
     swap->depth_stencil.depth_test_enable = ZEST_FALSE;
 
@@ -12836,6 +12902,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
             ZEST_CLEANUP_ON_FALSE(context->device->platform->begin_command_buffer(&frame_graph->command_list));
 
+			zest_pipeline_bind_point current_bind_point = zest_bind_point_none;
+
             zest_vec_foreach(i, batch->pass_indices) {
                 zest_uint pass_index = batch->pass_indices[i];
                 zest_pass_group_t *grouped_pass = &frame_graph->final_passes.data[pass_index];
@@ -12873,6 +12941,12 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //Execute the callbacks in the pass
                 zest_vec_foreach(pass_index, grouped_pass->passes) {
                     zest_pass_node pass = grouped_pass->passes[pass_index];
+
+					if (frame_graph->descriptor_sets && current_bind_point != pass->bind_point) {
+						current_bind_point = pass->bind_point;
+						zest_cmd_BindDescriptorSets(&frame_graph->command_list, current_bind_point, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+					}
+
                     if (pass->type == zest_pass_type_graphics && !frame_graph->command_list.began_rendering) {
                         ZEST__REPORT(context->device, zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
                         continue;
@@ -13721,6 +13795,22 @@ zest_resource_node zest_ImportSwapchainResource() {
     return frame_graph->swapchain_resource;
 }
 
+void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
+	zest_context context = zest__frame_graph_builder->context;
+	ZEST_ASSERT_HANDLE(layout);	//Invalid layout handle
+	ZEST_ASSERT(!frame_graph->descriptor_sets, "The descriptor sets have already been set in the frame graph, just set all the ones you want in one go by passing in an array of descriptor sets.");
+	ZEST_ASSERT(set_count && set_count <= 64, "set_count must a value greater then 0 and less than 64 must match the number of descriptor sets that you pass in the array");
+	zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+	zest_vec_linear_resize(allocator, frame_graph->descriptor_sets, set_count);
+	zest_vec_foreach(i, frame_graph->descriptor_sets) {
+		ZEST_ASSERT_HANDLE(descriptor_sets[i]);	//Not a valid descriptor set handle!
+		frame_graph->descriptor_sets[i] = descriptor_sets[i];
+	}
+	frame_graph->pipeline_layout = layout;
+}
+
 void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
@@ -13813,6 +13903,7 @@ zest_pass_node zest_BeginRenderPass(const char *name) {
     ZEST_ASSERT(!zest__frame_graph_builder->current_pass, "Already begun a pass. Make sure that you call zest_EndPass before starting a new one");   
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_graphics);
     pass->queue_info.timeline_wait_stage = zest_pipeline_stage_vertex_input_bit | zest_pipeline_stage_vertex_shader_bit;
+	pass->bind_point = zest_bind_point_graphics;
     zest__frame_graph_builder->current_pass = pass;
     return pass;
 }
@@ -13826,6 +13917,7 @@ zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
     node->compute = compute;
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_compute_shader_bit;
     zest__frame_graph_builder->current_pass = node;
+	node->bind_point = zest_bind_point_compute;
     return node;
 }
 
@@ -13836,6 +13928,7 @@ zest_pass_node zest_BeginTransferPass(const char *name) {
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_transfer);
     pass->queue_info.timeline_wait_stage = zest_pipeline_stage_transfer_bit;
     zest__frame_graph_builder->current_pass = pass;
+	pass->bind_point = zest_bind_point_none;
     return pass;
 }
 
@@ -15444,8 +15537,6 @@ void zest_SetInstanceDrawing(zest_draw_batch layer, zest_shader_resources shader
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 
-    //The number of shader resources must match the number of descriptor layouts set in the pipeline.
-    ZEST_ASSERT(zest_vec_size(shader_resources->sets[context->current_fif]) == zest_vec_size(pipeline->set_layouts));
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->last_draw_mode = zest_draw_mode_instance;
@@ -15858,366 +15949,50 @@ void zest_DrawInstancedMesh(zest_draw_batch layer, float pos[3], float rot[3], f
 
 }
 
-zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color_t color, zest_bool cap) {
-    float angle_increment = 2.0f * ZEST_PI / sides;
-
-    int vertex_count = sides * 2 + (cap ? sides * 2 : 0);
-    int index_count = sides * 2 + (cap ? sides : 0);
-
-    zest_mesh mesh = zest_NewMesh(context);
-    zest_vec_resize(context->device->allocator, mesh->vertices, (zest_uint)vertex_count);
-
-    for (int i = 0; i < sides; ++i) {
-        float angle = i * angle_increment;
-        float x = radius * cosf(angle);
-        float z = radius * sinf(angle);
-
-        mesh->vertices[i].pos = zest_Vec3Set( x, height / 2.0f, z );
-        mesh->vertices[i + sides].pos = zest_Vec3Set( x, -height / 2.0f, z );
-        mesh->vertices[i].color = color;
-        mesh->vertices[i + sides].color = color;
-    }
-
-    int base_index = sides * 2;
-
-    if (cap) {
-        // Generate vertices for the caps of the cylinder
-        for (int i = 0; i < sides; ++i) {
-            float angle = i * angle_increment;
-            float x = radius * cosf(angle);
-            float z = radius * sinf(angle);
-
-            mesh->vertices[base_index + i].pos = zest_Vec3Set( x, height / 2.0f, z);
-            mesh->vertices[base_index + sides + i].pos = zest_Vec3Set( x, -height / 2.0f, z);
-			mesh->vertices[base_index + i].color = color;
-			mesh->vertices[base_index + i + sides].color = color;
-        }
-
-        // Generate indices for the caps of the cylinder
-        for (int i = 0; i < sides - 2; ++i) {
-			zest_PushMeshIndex(mesh, base_index );
-			zest_PushMeshIndex(mesh, base_index + i + 2);
-			zest_PushMeshIndex(mesh, base_index + i + 1);
-
-			zest_PushMeshIndex(mesh, base_index + sides);
-			zest_PushMeshIndex(mesh, base_index + sides + i + 1);
-			zest_PushMeshIndex(mesh, base_index + sides + i + 2);
-        }
-    }
-
-    // Generate indices for the sides of the cylinder
-    for (int i = 0; i < sides; ++i) {
-        int next = (i + 1) % sides;
-
-        zest_PushMeshIndex(mesh, i);
-        zest_PushMeshIndex(mesh, (i + 1) % sides);
-        zest_PushMeshIndex(mesh, i + sides);
-
-        zest_PushMeshIndex(mesh, i + sides);
-        zest_PushMeshIndex(mesh, (i + 1) % sides);
-        zest_PushMeshIndex(mesh, (i + 1) % sides + sides );
-    }
-
-    zest_CalculateNormals(mesh);
-    
-    return mesh;
-}
-
-zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color_t color) {
-    // Calculate the angle between each side
-    float angle_increment = 2.0f * ZEST_PI / sides;
-
-    zest_mesh mesh = zest_NewMesh(context);
-    zest_vec_resize(context->device->allocator, mesh->vertices, (zest_uint)sides * 2 + 2);
-
-    // Generate vertices for the base of the cone
-    for (int i = 0; i < sides; ++i) {
-        float angle = i * angle_increment;
-        float x = radius * cosf(angle);
-        float z = radius * sinf(angle);
-        mesh->vertices[i].pos = zest_Vec3Set( x, 0.0f, z);
-        mesh->vertices[i].color = color;
-    }
-
-    // Generate the vertex for the tip of the cone
-    mesh->vertices[sides].pos = zest_Vec3Set( 0.0f, height, 0.0f);
-    mesh->vertices[sides].color = color;
-
-    // Generate indices for the sides of the cone
-    for (int i = 0; i < sides; ++i) {
-        zest_PushMeshTriangle(mesh, i, sides, (i + 1) % sides);
-    }
-
-    int base_index = sides + 1;
-
-    //Base center vertex
-    mesh->vertices[base_index].pos = zest_Vec3Set( 0.0f, 0.0f, 0.0f);
-    mesh->vertices[base_index].color = color;
-
-    // Generate another set of vertices for the base of the cone
-    for (int i = base_index + 1; i < base_index + sides + 1; ++i) {
-        float angle = i * angle_increment;
-        float x = radius * cosf(angle);
-        float z = radius * sinf(angle);
-        mesh->vertices[i].pos = zest_Vec3Set( x, 0.0f, z);
-        mesh->vertices[i].color = color;
-    }
-
-    // Generate indices for the base of the cone
-    for (int i = 0; i < sides; ++i) {
-        zest_uint current_base_vertex = base_index + 1 + i;
-        zest_uint next_base_vertex = base_index + 1 + ((i + 1) % sides);
-        zest_PushMeshTriangle(mesh, base_index, current_base_vertex, next_base_vertex);
-	}
-
-    zest_CalculateNormals(mesh);
-
-    return mesh;
-}
-
-zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color_t color) {
-    // Calculate the angles between rings and sectors
-    float ring_angle_increment = ZEST_PI / rings;
-    float sector_angle_increment = 2.0f * ZEST_PI / sectors;
-    float ring_angle;
-    float sector_angle;
-
-    zest_mesh mesh = zest_NewMesh(context);
-
-    // Generate vertices for the sphere
-    for (int i = 0; i <= rings; ++i)
-    {
-        ring_angle = ZEST_PI / 2.f - i * ring_angle_increment; /* Starting -pi/2 to pi/2 */
-        float xy = radius * cosf(ring_angle);    /* r * cos(phi) */
-        float z = radius * sinf(ring_angle);     /* r * sin(phi )*/
-
-        /*
-* We add (rings + 1) vertices per longitude because of equator,
-* the North pole and South pole are not counted here, as they overlap.
-* The first and last vertices have same position and normal, but
-* different tex coords.
-*/
-        for (int j = 0; j <= sectors; ++j)
-        {
-            sector_angle = j * sector_angle_increment;
-            zest_vec3 vertex;
-            vertex.x = xy * cosf(sector_angle);       /* x = r * cos(phi) * cos(theta)  */
-            vertex.y = xy * sinf(sector_angle);       /* y = r * cos(phi) * sin(theta) */
-            vertex.z = z;                               /* z = r * sin(phi) */
-            zest_PushMeshVertex(mesh, vertex.x, vertex.y, vertex.z, color);
-        }
-    }
-
-    // Generate indices for the sphere    
-    unsigned int k1, k2;
-    for (int i = 0; i < rings; ++i)
-    {
-        k1 = i * (sectors + 1);
-        k2 = k1 + sectors + 1;
-        // 2 Triangles per latitude block excluding the first and last sectors blocks
-        for (int j = 0; j < sectors; ++j, ++k1, ++k2)
-        {
-            if (i != 0)
-            {
-                zest_PushMeshIndex(mesh, k1);
-                zest_PushMeshIndex(mesh, k2);
-                zest_PushMeshIndex(mesh, k1 + 1);
-            }
-
-            if (i != (rings - 1))
-            {
-                zest_PushMeshIndex(mesh, k1 + 1);
-                zest_PushMeshIndex(mesh, k2);
-                zest_PushMeshIndex(mesh, k2 + 1);
-            }
-        }
-    }
-
-    zest_CalculateNormals(mesh);
-    
-    return mesh;
-}
-
-zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color) {
-    zest_mesh mesh = zest_NewMesh(context);
-    float half_size = size * .5f;
-
-    // Front face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 0
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 1
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 2
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 3
-    zest_PushMeshTriangle(mesh, 2, 1, 0);
-    zest_PushMeshTriangle(mesh, 0, 3, 2);
-
-    // Back face
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 4
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 5
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 6
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 7
-    zest_PushMeshTriangle(mesh, 6, 5, 4);
-    zest_PushMeshTriangle(mesh, 4, 7, 6);
-
-    // Left face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 8
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 9
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 10
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 11
-    zest_PushMeshTriangle(mesh, 10, 9, 8);
-    zest_PushMeshTriangle(mesh, 8, 11, 10);
-
-    // Right face
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 12
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 13
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 14
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 15
-    zest_PushMeshTriangle(mesh, 14, 13, 12);
-    zest_PushMeshTriangle(mesh, 12, 15, 14);
-
-    // Bottom face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 16
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 17
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 18
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 19
-    zest_PushMeshTriangle(mesh, 18, 17, 16);
-    zest_PushMeshTriangle(mesh, 16, 19, 18);
-
-    // Top face
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 20
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 21
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 22
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 23
-    zest_PushMeshTriangle(mesh, 22, 21, 20);
-    zest_PushMeshTriangle(mesh, 20, 23, 22);
-
-    zest_CalculateNormals(mesh);
-
-    return mesh;
-}
-
-zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color_t color) {
-    // Calculate the number of vertices and indices needed
-    int num_vertices = segments * 4 + 8;
-
-    zest_mesh mesh = zest_NewMesh(context);
-    //zest_vec_resize(mesh.vertices, (zest_uint)num_vertices);
-
-    // Calculate the step angle
-    float angle_increment = ZEST_PI / 2.0f / segments;
-
-    width = ZEST__MAX(radius, width - radius * 2.f);
-    height = ZEST__MAX(radius, height - radius * 2.f);
-
-    //centre vertex;
-	zest_PushMeshVertex(mesh, 0.f, 0.f, 0.0f, color);
-
-    // Bottom left corner
-    for (int i = 0; i <= segments; ++i) {
-        float angle = angle_increment * i;
-        float x = cosf(angle) * radius;
-        float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, -width / 2.0f - x, -height / 2.0f - y, 0.0f, color);
-    }
-
-    // Bottom right corner
-    for (int i = segments; i >= 0; --i) {
-        float angle = angle_increment * i;
-        float x = cosf(angle) * radius;
-        float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, width / 2.0f + x, -height / 2.0f - y, 0.0f, color);
-    }
-
-    // Top right corner
-    for (int i = 0; i <= segments; ++i) {
-        float angle = angle_increment * i;
-        float x = cosf(angle) * radius;
-        float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, width / 2.0f + x, height / 2.0f + y, 0.0f, color);
-    }
-
-    // Top left corner
-    for (int i = segments; i >= 0; --i) {
-        float angle = angle_increment * i;
-        float x = cosf(angle) * radius;
-        float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, - width / 2.0f - x, height / 2.0f + y, 0.0f, color);
-    }
-
-    zest_uint vertex_count = zest_vec_size(mesh->vertices);
-
-    for (zest_uint i = 1; i < vertex_count - 1; ++i) {
-        zest_PushMeshTriangle(mesh, 0, i, i + 1);
-    }
-	zest_PushMeshTriangle(mesh, 0, vertex_count - 1, 1);
-
-    if (backface) {
-		for (zest_uint i = 1; i < vertex_count - 1; ++i) {
-			zest_PushMeshTriangle(mesh, 0, i + 1, i);
-		}
-		zest_PushMeshTriangle(mesh, 0, 1, vertex_count - 1);
-    }
-
-    return mesh;
-}
 //--End Instance Draw mesh layers
 
 //Compute shaders
-zest_compute zest__new_compute(zest_context context, const char* name) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_compute_pipelines];
+zest_compute zest__new_compute(zest_device device, const char* name) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_compute_pipelines];
     zest_compute_handle handle = ZEST_STRUCT_LITERAL(zest_compute_handle, zest__add_store_resource(store), store );
 	handle.store = store;
     zest_compute compute = (zest_compute)zest__get_store_resource_unsafe(store, handle.value);
     *compute = ZEST__ZERO_INIT(zest_compute_t);
     compute->magic = zest_INIT_MAGIC(zest_struct_type_compute);
-    compute->backend = (zest_compute_backend)context->device->platform->new_compute_backend(context);
+    compute->backend = (zest_compute_backend)device->platform->new_compute_backend(device);
     compute->handle = handle;
     return compute;
 }
 
-zest_compute_builder_t zest_BeginComputeBuilder(zest_context context) {
+zest_compute_builder_t zest_BeginComputeBuilder(zest_device device) {
     zest_compute_builder_t builder = ZEST__ZERO_INIT(zest_compute_builder_t);
-	builder.context = context;
-	//Declare the global bindings as default
-	zest_SetComputeBindlessLayout(&builder, context->device->bindless_set_layout);
+	builder.device = device;
     return builder;
 }
 
-void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout) {
-    builder->bindless_layout = bindless_layout;
-}
-
-void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout layout) {
-    zest_vec_push(builder->context->device->allocator, builder->non_bindless_layouts, layout);
+void zest_SetComputePipelineLayout(zest_compute_builder_t *builder, zest_pipeline_layout layout) {
+    builder->pipeline_layout = layout;
 }
 
 zest_uint zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
-	ZEST_ASSERT(builder->context->device == (zest_device)shader_handle.store->origin);	//The shader and compute builder must match the same device!
-	zest_context context = builder->context;
+	ZEST_ASSERT(builder->device == (zest_device)shader_handle.store->origin);	//The shader and compute builder must match the same device!
+	zest_device device = builder->device;
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-    zest_vec_push(builder->context->device->allocator, builder->shaders, shader_handle);
+    zest_vec_push(builder->device->allocator, builder->shaders, shader_handle);
     return zest_vec_last_index(builder->shaders);
-}
-
-void zest_SetComputePushConstantSize(zest_compute_builder_t* builder, zest_uint size) {
-    assert(size && size <= 256);        //push constants must be within 0 and 256 bytes in size
-    builder->push_constant_size = size;
 }
 
 void zest_SetComputeUserData(zest_compute_builder_t* builder, void* data) {
     builder->user_data = data;
 }
 
-void zest_SetComputeManualRecord(zest_compute_builder_t *builder) {
-    ZEST__FLAG(builder->flags, zest_compute_flag_manual_fif);
-}
-
 zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name) {
-	zest_context context = builder->context;
-	zest_compute compute = zest__new_compute(context, name);
+	zest_device device = builder->device;
+	zest_compute compute = zest__new_compute(device, name);
     compute->user_data = builder->user_data;
     compute->flags = builder->flags;
 
-    compute->bindless_layout = builder->bindless_layout;
+    compute->pipeline_layout = builder->pipeline_layout;
 
     ZEST__FLAG(compute->flags, zest_compute_flag_sync_required);
     ZEST__FLAG(compute->flags, zest_compute_flag_rewrite_command_buffer);
@@ -16225,9 +16000,8 @@ zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const ch
 
     ZEST__FLAG(compute->flags, zest_compute_flag_is_active);
 
-    zest_bool result = context->device->platform->finish_compute(builder, compute);
-    zest_vec_free(builder->context->device->allocator, builder->non_bindless_layouts);
-    zest_vec_free(builder->context->device->allocator, builder->shaders);
+    zest_bool result = device->platform->finish_compute(builder, compute);
+	zest_vec_free(device->allocator, builder->shaders);
     if (!result) {
         zest__cleanup_compute(compute);
         return ZEST__ZERO_INIT(zest_compute_handle);
@@ -16626,17 +16400,21 @@ void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, z
 	command_list->context->device->platform->bind_pipeline_shader_resource(command_list, pipeline, shader_resources);
 }
 
-void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+void zest_cmd_BindDescriptorSets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *sets, zest_uint set_count, zest_uint first_set) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
-    ZEST_ASSERT(set_count && descriptor_sets);    //No descriptor sets. Must bind the pipeline with a valid desriptor set
-	command_list->context->device->platform->bind_pipeline(command_list, pipeline, descriptor_sets, set_count);
+    ZEST_ASSERT(set_count && sets);    //No descriptor sets. Must bind the pipeline with a valid desriptor set
+	command_list->context->device->platform->bind_descriptor_sets(command_list, bind_point, layout, sets, set_count, first_set);
 }
 
-void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute compute, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_pipeline(command_list, pipeline);
+}
+
+void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute compute) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	ZEST_ASSERT_HANDLE(compute);			//Not a valid compute handle
-    ZEST_ASSERT(set_count && descriptor_sets);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
-	command_list->context->device->platform->bind_compute_pipeline(command_list, compute, descriptor_sets, set_count);
+	command_list->context->device->platform->bind_compute_pipeline(command_list, compute);
 }
 
 void zest_cmd_BindVertexBuffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
@@ -16652,12 +16430,6 @@ void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer 
 void zest_cmd_SendPushConstants(const zest_command_list command_list, zest_pipeline pipeline, void *data) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->send_push_constants(command_list, pipeline, data);
-}
-
-void zest_cmd_SendCustomComputePushConstants(const zest_command_list command_list, zest_compute compute, const void *push_constant) {
-    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
-	ZEST_ASSERT_HANDLE(compute);			//Not a valid compute handle
-	command_list->context->device->platform->send_custom_compute_push_constants(command_list, compute, push_constant);
 }
 
 void zest_cmd_Draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
