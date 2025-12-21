@@ -7922,6 +7922,10 @@ void zest_ResetDevice(zest_device device) {
     zest_map_free(device->allocator, device->buffer_allocators);
 
 	zest__initialise_device_stores(device);
+
+	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
+	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
+	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
 }
 
 void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
