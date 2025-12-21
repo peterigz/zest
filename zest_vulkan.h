@@ -130,9 +130,6 @@ ZEST_PRIVATE void zest__vk_cmd_copy_buffer_one_time(zest_context context, zest_b
 ZEST_PRIVATE zest_pipeline_stage_flags zest__vk_get_buffer_last_pipeline_stage(zest_buffer buffer);
 ZEST_PRIVATE zest_uint zest__vk_get_buffer_queue_family_index(zest_buffer buffer);
 
-//Descriptor Sets
-ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout);
-
 //Pipelines
 ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list);
 ZEST_PRIVATE zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layout pipeline_layout, zest_pipeline_layout_info_t *info);
@@ -142,7 +139,8 @@ ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_device device, zest_conte
 ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
 ZEST_PRIVATE zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout);
 ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
-ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+ZEST_PRIVATE void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+ZEST_PRIVATE void zest__vk_update_bindless_uniform_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 
 //General renderer
 ZEST_PRIVATE void zest__vk_set_depth_format(zest_device device);
@@ -178,8 +176,6 @@ ZEST_PRIVATE void *zest__vk_new_device_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_context_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
-ZEST_PRIVATE void *zest__vk_new_uniform_buffer_backend(zest_context context);
-ZEST_PRIVATE void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_swapchain_image_backend(zest_context context);
@@ -398,10 +394,6 @@ typedef struct zest_command_list_backend_t {
     VkCommandBuffer command_buffer;
 } zest_command_list_backend_t;
 
-typedef struct zest_uniform_buffer_backend_t {
-    VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
-} zest_uniform_buffer_backend_t;
-
 typedef struct zest_descriptor_pool_backend_t {
     VkDescriptorPool vk_descriptor_pool;
     VkDescriptorPoolSize *vk_pool_sizes;
@@ -497,8 +489,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->copy_buffer_to_image		 				    = zest__vk_copy_buffer_to_image;
 	platform->generate_mipmaps		 					    = zest__vk_generate_mipmaps;
 
-    platform->create_uniform_descriptor_set                 = zest__vk_create_uniform_descriptor_set;
-
     platform->build_pipeline                                = zest__vk_build_pipeline;
     platform->build_pipeline_layout                         = zest__vk_build_pipeline_layout;
     platform->finish_compute                                = zest__vk_finish_compute;
@@ -510,7 +500,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->create_set_pool                               = zest__vk_create_set_pool;
     platform->create_bindless_set                           = zest__vk_create_bindless_set;
     platform->update_bindless_image_descriptor              = zest__vk_update_bindless_image_descriptor;
-    platform->update_bindless_buffer_descriptor             = zest__vk_update_bindless_buffer_descriptor;
+    platform->update_bindless_storage_buffer_descriptor     = zest__vk_update_bindless_storage_buffer_descriptor;
+    platform->update_bindless_uniform_buffer_descriptor     = zest__vk_update_bindless_uniform_buffer_descriptor;
 
     platform->set_depth_format                              = zest__vk_set_depth_format;
     platform->initialise_context_backend                    = zest__vk_initialise_context_backend;
@@ -540,8 +531,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->new_context_backend                           = zest__vk_new_context_backend;
 	platform->new_frame_graph_context_backend               = zest__vk_new_frame_graph_context_backend;
 	platform->new_swapchain_backend                         = zest__vk_new_swapchain_backend;
-	platform->new_uniform_buffer_backend                    = zest__vk_new_uniform_buffer_backend;
-	platform->set_uniform_buffer_backend                    = zest__vk_set_uniform_buffer_backend;
 	platform->new_image_backend                             = zest__vk_new_image_backend;
 	platform->new_compute_backend                           = zest__vk_new_compute_backend;
 	platform->new_queue_backend                             = zest__vk_new_queue_backend;
@@ -562,7 +551,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->cleanup_context_backend                       = zest__vk_cleanup_context_backend;
     platform->destroy_context_surface                       = zest__vk_destroy_context_surface;
 	platform->cleanup_swapchain_backend 				    = zest__vk_cleanup_swapchain_backend;
-	platform->cleanup_uniform_buffer_backend 			    = zest__vk_cleanup_uniform_buffer_backend;
 	platform->cleanup_compute_backend 					    = zest__vk_cleanup_compute_backend;
 	platform->cleanup_set_layout_backend				    = zest__vk_cleanup_set_layout_backend;
 	platform->cleanup_pipeline_backend 					    = zest__vk_cleanup_pipeline_backend;
@@ -2167,20 +2155,6 @@ void *zest__vk_new_swapchain_backend(zest_context context) {
     return swapchain_backend;
 }
 
-void *zest__vk_new_uniform_buffer_backend(zest_context context) {
-    zest_uniform_buffer_backend uniform_buffer_backend = (zest_uniform_buffer_backend)ZEST__NEW(context->device->allocator, zest_uniform_buffer_backend);
-    *uniform_buffer_backend = ZEST__ZERO_INIT(zest_uniform_buffer_backend_t);
-    return uniform_buffer_backend;
-}
-
-void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer uniform_buffer) {
-    zest_ForEachFrameInFlight(fif) {
-        uniform_buffer->backend->descriptor_info[fif].buffer = *zest__vk_get_device_buffer(uniform_buffer->buffer[fif]);
-		uniform_buffer->backend->descriptor_info[fif].offset = uniform_buffer->buffer[fif]->memory_offset;
-        uniform_buffer->backend->descriptor_info[fif].range = uniform_buffer->buffer[fif]->size;
-    }
-}
-
 void *zest__vk_new_image_backend(zest_context context) {
     zest_image_backend image_backend = (zest_image_backend)ZEST__NEW(context->device->allocator, zest_image_backend);
     *image_backend = ZEST__ZERO_INIT(zest_image_backend_t);
@@ -2333,12 +2307,6 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain) {
 
 	ZEST__FREE(swapchain->context->allocator, swapchain->backend);
 	swapchain->backend = 0;
-}
-
-void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer) {
-	zest_context context = (zest_context)buffer->handle.store->origin;
-    ZEST__FREE(context->device->allocator, buffer->backend);
-    buffer->backend = 0;
 }
 
 void zest__vk_cleanup_pipeline_backend(zest_pipeline pipeline) {
@@ -2952,7 +2920,7 @@ void zest__vk_update_bindless_image_descriptor(zest_device device, zest_uint bin
     vkUpdateDescriptorSets(device->backend->logical_device, 1, &write, 0, 0);
 }
 
-void zest__vk_update_bindless_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
+void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
     VkDescriptorBufferInfo buffer_info = zest__vk_get_buffer_info(buffer);
 
     VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -2960,57 +2928,14 @@ void zest__vk_update_bindless_buffer_descriptor(zest_device device, zest_uint bi
     vkUpdateDescriptorSets(device->backend->logical_device, 1, &write, 0, 0);
 }
 
-zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout) {
-    VkDescriptorSet target_sets[ZEST_MAX_FIF];
-    VkDescriptorSetLayout layouts[ZEST_MAX_FIF];
-	VkWriteDescriptorSet writes[ZEST_MAX_FIF] = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-	zest_context context = (zest_context)buffer->handle.store->origin;
-    zest_ForEachFrameInFlight(fif) {
-        if (ZEST_VALID_HANDLE(buffer->descriptor_set[fif])) {
-            ZEST_ASSERT(0);     //descriptor sets for uniform buffer already exist! This function should only be called
-                                //when the uniform buffer is created.
-        }
-		buffer->descriptor_set[fif] = (zest_descriptor_set)ZEST__NEW(context->device->allocator, zest_descriptor_set);
-		*buffer->descriptor_set[fif] = ZEST__ZERO_INIT(zest_descriptor_set_t);
-        buffer->descriptor_set[fif]->magic = zest_INIT_MAGIC(zest_struct_type_descriptor_set);
-		buffer->descriptor_set[fif]->backend = (zest_descriptor_set_backend)ZEST__NEW(context->device->allocator, zest_descriptor_set_backend);
-		*buffer->descriptor_set[fif]->backend = ZEST__ZERO_INIT(zest_descriptor_set_backend_t);
-        target_sets[fif] = VK_NULL_HANDLE;
-        layouts[fif] = associated_layout->backend->vk_layout;
-    }
+void zest__vk_update_bindless_uniform_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
+    VkDescriptorBufferInfo buffer_info = zest__vk_get_buffer_info(buffer);
 
-    zest_descriptor_pool pool = associated_layout->pool;
-
-	VkDescriptorSetAllocateInfo allocation_info = ZEST__ZERO_INIT(VkDescriptorSetAllocateInfo);
-	allocation_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocation_info.descriptorPool = pool->backend->vk_descriptor_pool;
-	allocation_info.descriptorSetCount = ZEST_MAX_FIF;
-	allocation_info.pSetLayouts = layouts; 
-
-	VkResult result = vkAllocateDescriptorSets(context->device->backend->logical_device, &allocation_info, target_sets);
-	if (result != VK_SUCCESS) {
-		ZEST_VK_PRINT_RESULT(context->device, result);
-		return ZEST_FALSE;
-	}
-
-    zest_ForEachFrameInFlight(fif) {
-        writes[fif].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[fif].dstBinding = 0;
-        writes[fif].dstArrayElement = 0;
-        writes[fif].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[fif].descriptorCount = 1;
-        writes[fif].dstSet = target_sets[fif];
-        writes[fif].pBufferInfo = &buffer->backend->descriptor_info[fif];
-    }
-
-	vkUpdateDescriptorSets( context->device->backend->logical_device, ZEST_MAX_FIF, writes, 0, NULL);
-
-    zest_ForEachFrameInFlight(fif) {
-        buffer->descriptor_set[fif]->backend->vk_descriptor_set = target_sets[fif];
-    }
-
-    return ZEST_TRUE;
+    VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    write.dstArrayElement = array_index;
+    vkUpdateDescriptorSets(device->backend->logical_device, 1, &write, 0, 0);
 }
+
 // -- End Descriptor_sets
 
 // -- General_renderer
