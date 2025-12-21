@@ -292,14 +292,10 @@ void zest_WriteBufferCompute(const zest_command_list command_list, void *user_da
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
 
-	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(tests->device)
-	};
-
 	zest_compute compute = zest_GetCompute(tests->compute_write);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute);
 
 	TestPushConstants push;
 
@@ -307,7 +303,7 @@ void zest_WriteBufferCompute(const zest_command_list command_list, void *user_da
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
 	push.index1 = zest_GetTransientBufferBindlessIndex(command_list, write_buffer);
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_uint group_count_x = (1000 + local_size_x - 1) / local_size_x;
 
@@ -332,7 +328,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 	zest_compute compute_verify = zest_GetCompute(tests->compute_verify);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute_verify, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute_verify);
 
 	TestPushConstants push;
 
@@ -341,7 +337,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 	push.index1 = zest_GetTransientBufferBindlessIndex(command_list, write_buffer);
 	push.index2 = zest_GetTransientBufferBindlessIndex(command_list, verify_buffer);
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute_verify, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_uint group_count_x = (1000 + local_size_x - 1) / local_size_x;
 
@@ -359,11 +355,9 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -373,11 +367,9 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Buffer Verify");
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -503,7 +495,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 	zest_compute compute_verify = zest_GetCompute(tests->compute_verify);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute_verify, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute_verify);
 
 	TestPushConstants push;
 
@@ -521,7 +513,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 	push.index4 = zest_ScreenWidth(tests->context);
 	push.index5 = zest_ScreenHeight(tests->context);
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute_verify, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_uint group_count_x = (zest_ScreenWidth(tests->context) + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (zest_ScreenHeight(tests->context) + local_size_y - 1) / local_size_y;
@@ -539,11 +531,9 @@ Image Write / Read(Clear Color) :
 int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Image Verify");
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -667,7 +657,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 	zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute_write, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute_write);
 
 	TestPushConstants push;
 
@@ -681,7 +671,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
 	push.index1 = zest_GetTransientSampledImageBindlessIndex(command_list, write_buffer, zest_storage_image_binding);
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute_write, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_image_info_t image_desc = zest_GetResourceImageDescription(write_buffer);
 	zest_uint group_count_x = (image_desc.extent.width + local_size_x - 1) / local_size_x;
@@ -702,11 +692,9 @@ Multi-Queue Synchronization:
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;

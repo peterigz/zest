@@ -178,7 +178,7 @@ void zest_WriteBufferStressCompute(const zest_command_list command_list, void *u
 	zest_compute compute = zest_GetCompute(command_list->pass_node->compute->handle);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute);
 
 	TestPushConstants push;
 
@@ -187,7 +187,7 @@ void zest_WriteBufferStressCompute(const zest_command_list command_list, void *u
 	push.index1 = zest_GetTransientBufferBindlessIndex(command_list, write_buffer);
 	if (push.index1 == ZEST_INVALID) return;
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_uint size = write_buffer->storage_buffer->size / sizeof(TestData);
 	zest_uint group_count_x = (size + local_size_x - 1) / local_size_x;
@@ -199,11 +199,9 @@ void zest_WriteBufferStressCompute(const zest_command_list command_list, void *u
 int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -273,11 +271,9 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 int test__stress_transient_images(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -350,11 +346,9 @@ int test__stress_transient_images(ZestTests *tests, Test *test) {
 int test__stress_all_transients(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -460,7 +454,7 @@ void zest_StressWriteImageCompute(const zest_command_list command_list, void *us
 	zest_compute compute = zest_GetCompute(command_list->pass_node->compute->handle);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, compute);
 
 	TestPushConstants push;
 
@@ -469,7 +463,7 @@ void zest_StressWriteImageCompute(const zest_command_list command_list, void *us
 	push.index1 = zest_GetTransientSampledImageBindlessIndex(command_list, write_buffer, zest_storage_image_binding);
 	if (push.index1 == ZEST_INVALID) return;
 
-	zest_cmd_SendCustomComputePushConstants(command_list, compute, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
 
 	zest_image_info_t image_desc = zest_GetResourceImageDescription(write_buffer);
 	zest_uint group_count_x = (image_desc.extent.width + local_size_x - 1) / local_size_x;
@@ -488,11 +482,9 @@ Feed them all as input into a final pass so that they don't get culled.
 int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->device));
+		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
-		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
