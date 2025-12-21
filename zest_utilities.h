@@ -122,7 +122,6 @@ typedef struct zest_imgui_image_t {
 	int magic;
 	zest_atlas_region_t *image;
 	zest_pipeline_template pipeline;
-	zest_shader_resources_handle shader_resources;
 	void *push_constants;
 } zest_imgui_image_t;
 
@@ -156,7 +155,6 @@ typedef zest_uint zest_character_flags;
 
 typedef struct zest_font_resources_t {
 	zest_pipeline_template pipeline;
-	zest_shader_resources_handle shader_resources;
 } zest_font_resources_t;
 
 typedef struct zest_font_uniform_buffer_data_t {
@@ -929,19 +927,13 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
     zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r16g16_sscaled, offsetof(zest_font_instance_t, size));  
     zest_AddVertexAttribute(font_pipeline, 0, 4, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));
 
-	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings_t), zest_shader_all_stages);
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
 	zest_SetPipelineFragShader(font_pipeline, font_frag);
-	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetBindlessLayout(zest_GetContextDevice(context)));
 	zest_SetPipelineDepthTest(font_pipeline, false, false);
-
-	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
-	zest_shader_resources font_resources = zest_GetShaderResources(font_resources_handle);
-	zest_AddGlobalBindlessSetToResources(font_resources);
+	zest_SetPipelineLayout(font_pipeline, zest_GetDefaultPipelineLayout(device));
 
 	zest_font_resources_t resources;
 	resources.pipeline = font_pipeline;
-	resources.shader_resources = font_resources_handle;
 
 	return resources;
 }
@@ -1205,7 +1197,6 @@ void zest_SetMSDFFontDrawing(zest_draw_batch layer, zest_msdf_font_t *font, zest
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = font_resources->pipeline;
-	layer->current_instruction.shader_resources = zest_GetShaderResources(font_resources->shader_resources);
     layer->current_instruction.draw_mode = zest_draw_mode_text;
     layer->current_instruction.asset = font;
     layer->current_instruction.scissor = layer->scissor;

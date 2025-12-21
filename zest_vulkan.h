@@ -263,12 +263,11 @@ zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buff
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
 void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
-void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources);
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline);
 void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute);
 void zest__vk_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
 void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer);
-void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data);
+void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size);
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 void zest__vk_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_draw_batch_instruction_t *instruction);
 void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
@@ -584,7 +583,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
 	platform->draw_indexed                                  = zest__vk_draw_indexed;
 	platform->copy_buffer                                   = zest__vk_copy_buffer;
-	platform->bind_pipeline_shader_resource                 = zest__vk_bind_pipeline_shader_resource;
 	platform->bind_descriptor_sets                          = zest__vk_bind_descriptor_sets;
 	platform->bind_pipeline                                 = zest__vk_bind_pipeline;
 	platform->bind_compute_pipeline                         = zest__vk_bind_compute_pipeline;
@@ -1474,7 +1472,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("-------------------------------------------------------");
     }
     if (pCallbackData->messageIdNumber == 559874765) {
-        int d = 0;
+		ZEST_PRINT("Error: This validation error usually indications that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
     if (pCallbackData->messageIdNumber == 448332540) {
         int d = 0;
@@ -4387,21 +4385,6 @@ void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_
     vkCmdCopyBuffer(command_list->backend->command_buffer, src_buffer->memory_pool->backend->vk_buffer, dst_buffer->memory_pool->backend->vk_buffer, 1, &copyInfo);
 }
 
-void zest__vk_bind_pipeline_shader_resource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources shader_resources) {
-	zest_context context = command_list->context;
-	zloc_linear_allocator_t *scratch = &context->device->scratch_arena;
-	VkDescriptorSet *binding_sets = 0;
-    zest_vec_foreach(set_index, shader_resources->sets[context->current_fif]) {
-        zest_descriptor_set set = shader_resources->sets[context->current_fif][set_index];
-        ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shader resource. Did you set all frames in flight?
-		zest_vec_linear_push(scratch, binding_sets, set->backend->vk_descriptor_set);
-	}
-	zest_uint sets_size = zest_vec_size(binding_sets);
-    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->vk_pipeline);
-    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout->backend->vk_pipeline_layout, 0, sets_size, binding_sets, 0, 0);
-	zloc_ResetLinearAllocator(scratch);
-}
-
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) {
 	zest_context context = command_list->context;
     vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->vk_pipeline);
@@ -4433,8 +4416,8 @@ void zest__vk_bind_index_buffer(const zest_command_list command_list, zest_buffe
     vkCmdBindIndexBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
 }
 
-void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline pipeline, void *data) {
-    vkCmdPushConstants(command_list->backend->command_buffer, pipeline->layout->backend->vk_pipeline_layout, zest__to_vk_shader_stage(pipeline->layout->push_constant_range.stage_flags), pipeline->layout->push_constant_range.offset, pipeline->layout->push_constant_range.size, data);
+void zest__vk_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size) {
+    vkCmdPushConstants(command_list->backend->command_buffer, layout->backend->vk_pipeline_layout, zest__to_vk_shader_stage(layout->push_constant_range.stage_flags), 0, size, data);
 }
 
 void zest__vk_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
