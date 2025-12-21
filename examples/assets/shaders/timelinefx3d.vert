@@ -39,24 +39,7 @@ struct BillboardInstance {					//56 bytes + padding to 64
     ivec2 padding;
 };
 
-layout(set = 0, binding = 0) uniform UboView
-{
-    mat4 view;
-    mat4 proj;
-    vec2 screen_size;
-    float timer_lerp;
-    float update_time;
-} ub;
-
-layout (std430, set = 1, binding = 5) readonly buffer InBillboardInstances {
-	BillboardInstance data[];
-} in_prev_billboards[];
-
-layout (std430, set = 1, binding = 5) readonly buffer InImageData {
-	ImageData data[];
-} in_image_data[];
-
-layout (push_constant) uniform quad_index
+layout(push_constant) uniform quad_index
 {
     uint particle_texture_index;
     uint color_ramp_texture_index;
@@ -64,7 +47,25 @@ layout (push_constant) uniform quad_index
 	uint sampler_index;
     uint prev_billboards_index;
     uint index_offset;
+	uint uniform_index;
 } pc;
+
+layout(binding = 7) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    vec2 screen_size;
+    float timer_lerp;
+    float update_time;
+} ub[];
+
+layout (std430, set = 0, binding = 5) readonly buffer InBillboardInstances {
+	BillboardInstance data[];
+} in_prev_billboards[];
+
+layout (std430, set = 0, binding = 5) readonly buffer InImageData {
+	ImageData data[];
+} in_image_data[];
 
 //Vertex
 //layout(location = 0) in vec2 vertex_position;
@@ -111,15 +112,15 @@ void main() {
     //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
     //define LOW_UPDATE_RATE to compile with this instead.
 	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
-	lerped_size = mix(lerped_size, size, ub.timer_lerp);
-	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.timer_lerp) : position.xyz;
-	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp) : rotations;
+	lerped_size = mix(lerped_size, size, ub[pc.uniform_index].timer_lerp);
+	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp) : position.xyz;
+	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub[pc.uniform_index].timer_lerp) : rotations;
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
-	lerped_size = mix(lerped_size, size, ub.timer_lerp) * interpolate_is_active;
-	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.timer_lerp);
-	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp);
+	lerped_size = mix(lerped_size, size, ub[pc.uniform_index].timer_lerp) * interpolate_is_active;
+	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp);
+	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub[pc.uniform_index].timer_lerp);
     #endif
 
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
@@ -160,7 +161,7 @@ void main() {
     uvs[3].x = uv.z; uvs[3].y = uv.w;
 
     //Calculate components needed for vector_align roll
-    vec3 camera_relative_aligment = final_alignment * inverse(mat3(ub.view));
+    vec3 camera_relative_aligment = final_alignment * inverse(mat3(ub[pc.uniform_index].view));
     // Use vec2 for dot/determinant calculation components
     vec2 align_xy = normalize(camera_relative_aligment.xy + vec2(0,0.00001)); // Add epsilon, normalize
     vec2 up_xy = vec2(0, 1); 
@@ -243,7 +244,7 @@ void main() {
     mat4 model = mat4(1.0);
     model[3].xyz = lerped_position;
 
-    mat4 modelView = ub.view * model;
+    mat4 modelView = ub[pc.uniform_index].view * model;
     vec3 pos = rot_mat * vertex_position;
 
     //Calculate the amount to stretch the particles. A stretch value (set in the editor) of 1 means that the particle is stretched
@@ -269,7 +270,7 @@ void main() {
     modelView[2].xyz = !billboarding ? vec3(0, 0, 1) : modelView[2].xyz;
 
     vec4 p = modelView * vec4(pos, 1.0);
-    gl_Position = ub.proj * p;
+    gl_Position = ub[pc.uniform_index].proj * p;
 
     //----------------
 	int life = int(curved_alpha_life.z * 255);

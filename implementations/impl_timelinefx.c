@@ -106,9 +106,6 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	zest_AddVertexAttribute(resources->pipeline, 0, 7, zest_format_r32_uint, offsetof(tfx_instance_t, captured_index));   				    // Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineShaders(resources->pipeline, resources->vertex_shader, resources->fragment_shader);
-	zest_SetPipelinePushConstantRange(resources->pipeline, sizeof(tfx_push_constants_t), zest_shader_render_stages);
-	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetUniformBufferLayout(uniform_buffer));
-	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineDepthTest(resources->pipeline, false, true);
 	zest_SetPipelineBlend(resources->pipeline, zest_PreMultiplyBlendState());
 
@@ -144,14 +141,6 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 	zest_FreeBuffer(staging_buffer);
 }
 
-void zest_tfx_CreateTimelineFXShaderResources(zest_context context, tfx_render_resources_t *tfx_rendering) {
-	tfx_rendering->shader_resource = zest_CreateShaderResources(context);
-	zest_shader_resources shader_resources = zest_GetShaderResources(tfx_rendering->shader_resource);
-	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering->uniform_buffer);
-	zest_AddUniformBufferToResources(shader_resources, uniform_buffer);
-	zest_AddGlobalBindlessSetToResources(shader_resources);
-}
-
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
 	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
 	zest_draw_batch layer = zest_GetLayer(tfx_resources->layer);
@@ -159,15 +148,20 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 	zest_buffer device_buffer = zest_GetLayerVertexBuffer(layer);
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, device_buffer);
 
+	zest_pipeline current_pipeline = 0;
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_resources->uniform_buffer);
+
 	zest_draw_batch_instruction_t *current = zest_NextLayerInstruction(layer);
 	while(current) {
 
 		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
 		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
-		if (pipeline) {
-			zest_cmd_BindPipelineShaderResource(command_list, pipeline, current->shader_resources);
-		} else {
+		if (pipeline && current_pipeline != pipeline) {
+			current_pipeline = pipeline;
+			zest_cmd_BindPipeline(command_list, pipeline);
+		} else if(!pipeline) {
+			current = zest_NextLayerInstruction(layer);
 			continue;
 		}
 
@@ -177,8 +171,9 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 		push_constants->sampler_index = tfx_resources->sampler_index;
 		push_constants->image_data_index = tfx_resources->image_data_index;
 		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
+		push_constants->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
-		zest_cmd_SendPushConstants(command_list, pipeline, push_constants);
+		zest_cmd_SendPushConstants(command_list, push_constants, sizeof(tfx_push_constants_t));
 
 		zest_cmd_DrawLayerInstruction(command_list, 6, current);
 
@@ -190,7 +185,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources) {
 	zest_draw_batch layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, zest_GetShaderResources(resources->shader_resource), resources->pipeline);
+	zest_SetInstanceDrawing(layer, resources->pipeline);
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	int instance_count = tfx_GetInstanceCount(pm);
@@ -210,7 +205,7 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {
 	zest_draw_batch layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, zest_GetShaderResources(resources->shader_resource), resources->pipeline);
+	zest_SetInstanceDrawing(layer, resources->pipeline);
 
 	tfx_instance_t *billboards = NULL;
 	tfx_effect_instance_data_t *instance_data;

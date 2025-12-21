@@ -6,14 +6,15 @@ layout(location = 1) in vec4 color;
 
 layout(location = 0) out vec4 out_color;
 
-layout(set = 1, binding = 0) uniform sampler samplers[];
-layout(set = 1, binding = 1) uniform texture2D images[];
+layout(set = 0, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 1) uniform texture2D images[];
 
 //The push constant struct for storing 
 layout(push_constant) uniform push_constants
 {
 	uint sampler_index;
 	uint texture_index;
+	uint uniform_index;
 } pc;
 
 void main() {

@@ -1,16 +1,18 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 
-layout(set = 0, binding = 0) uniform UboView {
+layout(binding = 7) uniform UboView {
     mat4 view;
     mat4 proj;
     vec2 screen_size;
     float timer_lerp;
     float update_time;
-} uboView;
+} uboView[];
 
 layout(push_constant) uniform Push {
     uint texture_index;
     uint sample_index;
+    uint uniform_index;
 } pc;
 
 layout(location = 0) in vec3 position;
@@ -88,7 +90,7 @@ void main()
 
         if (axial_billboard) {
             // Cylindrical: project camera direction onto plane perpendicular to alignment
-            vec3 toCam = normalize((inverse(uboView.view) * vec4(0,0,0,1)).xyz - position);
+            vec3 toCam = normalize((inverse(uboView[pc.uniform_index].view) * vec4(0,0,0,1)).xyz - position);
             vec3 proj = normalize(toCam - dot(toCam, alignNorm) * alignNorm);
             vec3 camRight = proj;
             vec3 camUp = cross(camRight, alignNorm);
@@ -98,8 +100,8 @@ void main()
         }
     } else {
         // Standard spherical billboard
-        vec3 camRight = vec3(uboView.view[0][0], uboView.view[1][0], uboView.view[2][0]);
-        vec3 camUp    = vec3(uboView.view[0][1], uboView.view[1][1], uboView.view[2][1]);
+        vec3 camRight = vec3(uboView[pc.uniform_index].view[0][0], uboView[pc.uniform_index].view[1][0], uboView[pc.uniform_index].view[2][0]);
+        vec3 camUp    = vec3(uboView[pc.uniform_index].view[0][1], uboView[pc.uniform_index].view[1][1], uboView[pc.uniform_index].view[2][1]);
 
         finalOffset = camRight * localOffset.x + camUp * localOffset.y;
     }
@@ -111,7 +113,7 @@ void main()
     }
 
     vec3 worldPos = position + finalOffset;
-    gl_Position = uboView.proj * uboView.view * vec4(worldPos, 1.0);
+    gl_Position = uboView[pc.uniform_index].proj * uboView[pc.uniform_index].view * vec4(worldPos, 1.0);
 
     out_frag_color = in_color * intensity;
 }

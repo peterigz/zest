@@ -23,15 +23,8 @@ void InitExample(render_target_app_t *example) {
     example->composite_pipeline = zest_BeginPipelineTemplate(example->device, "pipeline_pass_through");
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
 	zest_SetPipelineFragShader(example->composite_pipeline, pass_frag);
-    zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
-	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_GetBindlessLayout(example->device));
-	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
     zest_SetPipelineBlend(example->composite_pipeline, zest_AdditiveBlendState());
 	zest_SetPipelineDisableVertexInput(example->composite_pipeline);
-
-	example->render_target_resources = zest_CreateShaderResources(example->context);
-	zest_shader_resources render_target_resources = zest_GetShaderResources(example->render_target_resources);
-	zest_AddGlobalBindlessSetToResources(render_target_resources);
 
 	//Load a font
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
@@ -46,10 +39,9 @@ void InitExample(render_target_app_t *example) {
 
 	//Set up the compute shader pipeline for downsampling
 	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t downsampler_builder = zest_BeginComputeBuilder(example->context);
+	zest_compute_builder_t downsampler_builder = zest_BeginComputeBuilder(example->device);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&downsampler_builder, example);
-	zest_SetComputePushConstantSize(&downsampler_builder, sizeof(BlurPushConstants));
 	//Declare the actual shader to use
 	zest_AddComputeShader(&downsampler_builder, downsampler_shader);
 	//Finally, make the compute shader using the downsampler_builder
@@ -57,10 +49,9 @@ void InitExample(render_target_app_t *example) {
 
 	//Set up the compute shader pipeline for up sampling
 	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t upsampler_builder = zest_BeginComputeBuilder(example->context);
+	zest_compute_builder_t upsampler_builder = zest_BeginComputeBuilder(example->device);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&upsampler_builder, example);
-	zest_SetComputePushConstantSize(&upsampler_builder, sizeof(BlurPushConstants));
 	//Declare the actual shader to use
 	zest_AddComputeShader(&upsampler_builder, upsampler_shader);
 	//Finally, make the compute shader using the builder
@@ -77,10 +68,8 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
-	zest_shader_resources resources = zest_GetShaderResources(example->render_target_resources);
-
 	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, command_list);
-	zest_cmd_BindPipelineShaderResource(command_list, pipeline, resources);
+	zest_cmd_BindPipeline(command_list, pipeline);
 
 	CompositePushConstants push;
 	push.base_index = down_bindless_index;
@@ -88,7 +77,7 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 	push.bloom_alpha = example->bloom_constants.settings.x;
 	push.sampler_index = example->sampler_index;
 
-	zest_cmd_SendPushConstants(command_list, pipeline, &push);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(CompositePushConstants));
 
 	zest_cmd_Draw(command_list, 3, 1, 0, 0);
 
@@ -110,14 +99,10 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
 
-	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(example->device)
-	};
-
 	zest_compute downsampler_compute = zest_GetCompute(example->downsampler_compute);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, downsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, downsampler_compute);
 	push.sampler_index = example->sampler_index;
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
@@ -134,7 +119,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 		current_width = ZEST__MAX(1u, current_width >> 1);
 		current_height = ZEST__MAX(1u, current_height >> 1);
 
-		zest_cmd_SendCustomComputePushConstants(command_list, downsampler_compute, &push);
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(BlurPushConstants));
 
 		//Dispatch the compute shader
 		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
@@ -159,10 +144,6 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
 
-	zest_descriptor_set sets[] = {
-		zest_GetBindlessSet(example->device),
-	};
-
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
 	zest_uint mip_to_blit = mip_levels - 1;
 
@@ -171,7 +152,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_compute upsampler_compute = zest_GetCompute(example->upsampler_compute);
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(command_list, upsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, upsampler_compute);
 
 	zest_uint resource_width = zest_GetResourceWidth(upsampler_target);
 	zest_uint resource_height = zest_GetResourceHeight(upsampler_target);
@@ -190,7 +171,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
 		zest_uint group_count_y = (current_height + local_size_y - 1) / local_size_y;
 
-		zest_cmd_SendCustomComputePushConstants(command_list, upsampler_compute, &push);
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(BlurPushConstants));
 
 		//Dispatch the compute shader
 		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);

@@ -83,7 +83,6 @@ void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd
 	zest_imgui_callback_data_t *data = (zest_imgui_callback_data_t *)cmd->UserCallbackData;
 	ImGuiApp *app = (ImGuiApp*)data->user_data;
 	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui.pipeline, data->command_list);
-	data->render_state->resources = app->imgui.font_resources;
 	return;
 }
 
@@ -140,6 +139,8 @@ void MainLoop(ImGuiApp *app) {
 			if (ImGui::Button("Full Screen Borderless")) {
 				zest_implsdl2_SetWindowMode(app->context, zest_window_mode_fullscreen_borderless);
 			}
+			
+			//Spam load images to test that they can be loaded in ascync
 			if (app->loader_thread.joinable() && app->sprite_state.update_ready.load() == false) {
 				app->loader_thread.join();
 				switch (app->load_image_index % 5) {
@@ -151,32 +152,7 @@ void MainLoop(ImGuiApp *app) {
 				}
 				app->load_image_index++;
 			}
-			//ZEST_PRINT("Index: %i, image index: %i", app->load_image_index, app->image_index);
-			if (ImGui::Button("Glow Image")) {
-				if(app->loader_thread.joinable()) app->loader_thread.join();
-				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/glow.png"); 
-				//LoadSprite(app, "examples/assets/glow.png");
-			}
-			if (ImGui::Button("Bunny Image")) {
-				if(app->loader_thread.joinable()) app->loader_thread.join();
-				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png");
-				//LoadSprite(app, "examples/assets/wabbit_alpha.png");
-			}
-			if (ImGui::Button("Particle")) {
-				if(app->loader_thread.joinable()) app->loader_thread.join();
-				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/particle.png");
-				//LoadSprite(app, "examples/assets/particle.png");
-			}
-			if (ImGui::Button("Smoke")) {
-				if(app->loader_thread.joinable()) app->loader_thread.join();
-				app->loader_thread = std::thread(LoadSprite, app, "examples/assets/smoke.png");
-				//LoadSprite(app, "examples/assets/smoke.png");
-			}
-			if (ImGui::Button("Jpg")) {
-				//if(app->loader_thread.joinable()) app->loader_thread.join();
-				//app->loader_thread = std::thread(LoadSprite, app, "examples/assets/texture.jpg");
-				LoadSprite(app, "examples/assets/texture.jpg");
-			}
+
 			//Test for memory leaks in zest
 			/*
 		for (int i = 0; i != context->device->memory_pool_count; ++i) {

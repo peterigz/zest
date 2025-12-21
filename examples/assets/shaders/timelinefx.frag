@@ -7,8 +7,8 @@ layout(location = 2) in vec4 in_intensity_curved_alpha_map;
 
 layout(location = 0) out vec4 out_color;
 
-layout(set = 1, binding = 3) uniform texture2DArray images[];
-layout(set = 1, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 3) uniform texture2DArray images[];
+layout(set = 0, binding = 0) uniform sampler samplers[];
 
 layout(push_constant) uniform quad_index
 {
@@ -18,6 +18,7 @@ layout(push_constant) uniform quad_index
 	uint sampler_index;
     uint prev_billboards_index;
     uint index_offset;
+	uint uniform_index;
 } pc;
 
 void main() {

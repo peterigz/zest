@@ -38,14 +38,6 @@ void InitImGuiApp(Ribbons *app) {
 		app->ribbon_segment_staging_buffer[fif] = zest_CreateStagingBuffer(app->context, SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
 		app->ribbon_instance_staging_buffer[fif] = zest_CreateStagingBuffer(app->context, SEGMENT_COUNT * sizeof(ribbon_instance) * 10, 0);
 	}
-	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->context);
-	//Declare the bindings we want in the shader
-	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->device));
-	//The add the buffers for binding in the same order as the layout bindings
-	zest_SetComputePushConstantSize(&builder, sizeof(camera_push_constant));
-	//Set the user data so that we can use it in the callback funcitons
-	zest_SetComputeUserData(&builder, app);
 
 	//Create a uniform buffer for the ribbon shader
 	app->uniform_buffer = zest_CreateUniformBuffer(app->context, "Ribbon Uniform", sizeof(RibbonUniform));
@@ -56,6 +48,10 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_vert_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", zest_vertex_shader, true);
 	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", zest_fragment_shader, true);
 
+	//A builder is used to simplify the compute shader setup process
+	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->device);
+	//Set the user data so that we can use it in the callback funcitons
+	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
 	app->compute_pipeline_index = zest_AddComputeShader(&builder, app->ribbon_comp_shader);
 	app->ribbon_compute = zest_FinishCompute(&builder, "Ribbon Compute");
@@ -69,9 +65,6 @@ void InitImGuiApp(Ribbons *app) {
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineVertShader(app->ribbon_pipeline, app->ribbon_vert_shader);
 	zest_SetPipelineFragShader(app->ribbon_pipeline, app->ribbon_frag_shader);
-	zest_SetPipelinePushConstantRange(app->ribbon_pipeline, sizeof(ribbon_drawing_push_constants), zest_shader_fragment_stage);
-	zest_AddPipelineDescriptorLayout(app->ribbon_pipeline, zest_GetUniformBufferLayout(uniform_buffer));
-	zest_AddPipelineDescriptorLayout(app->ribbon_pipeline, zest_GetBindlessLayout(app->device));
 	zest_SetPipelineDepthTest(app->ribbon_pipeline, false, true);
 	zest_SetPipelineBlend(app->ribbon_pipeline, zest_PreMultiplyBlendState());
 	zest_SetPipelineTopology(app->ribbon_pipeline, zest_topology_triangle_list);
@@ -175,13 +168,9 @@ void RecordRibbonDrawing(zest_command_list command_list, void *user_data) {
 
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
 
-	zest_descriptor_set sets[] = {
-		zest_GetUniformBufferSet(uniform_buffer),
-		zest_GetBindlessSet(device)
-	};
 	//Draw all the sprites in the buffer that is built by the compute shader
-	zest_cmd_BindPipeline(command_list, pipeline, sets, 2);
-	zest_cmd_SendPushConstants(command_list, pipeline, &app->ribbon_push_constants);
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, &app->ribbon_push_constants, sizeof(ribbon_drawing_push_constants));
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
 	//zest_DrawIndexedIndirect(command_buffer, app->ribbon_draw_commands);
@@ -206,7 +195,7 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	zest_compute ribbon_compute = zest_GetCompute(app->ribbon_compute);
 
 	//Bind the compute shader pipeline
-	zest_cmd_BindComputePipeline(command_list, ribbon_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, ribbon_compute);
 
     zest_resource_node segment_buffer = zest_GetPassInputResource(command_list, "Ribbon Segment Buffer");
     zest_resource_node ribbon_instance_buffer = zest_GetPassInputResource(command_list, "Ribbon Instance Buffer");
@@ -219,7 +208,7 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	app->camera_push.index_buffer_index = zest_GetTransientBufferBindlessIndex(command_list, index_buffer);
 
 	//Send the push constants in the compute object to the shader
-	zest_cmd_SendCustomComputePushConstants(command_list, ribbon_compute, &app->camera_push);
+	zest_cmd_SendPushConstants(command_list, &app->camera_push, sizeof(camera_push_constant));
 
 	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 	//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
@@ -236,6 +225,7 @@ void UpdateUniform3d(Ribbons *app) {
 	buffer_3d->screen_size.x = zest_ScreenWidthf(app->context);
 	buffer_3d->screen_size.y = zest_ScreenHeightf(app->context);
 	buffer_3d->millisecs = 0;
+	app->ribbon_push_constants.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 }
 
 zest_vec3 zest_Vec4ToVec3(zest_vec4 v) {

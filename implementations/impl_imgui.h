@@ -16,7 +16,6 @@ typedef struct zest_imgui_push_t {
 
 typedef struct zest_imgui_render_state_t {
 	zest_pipeline pipeline;
-	zest_shader_resources resources;
 } zest_imgui_render_state_t;
 
 typedef struct zest_imgui_callback_data_t {
@@ -31,12 +30,12 @@ typedef struct zest_imgui_t {
 	ImGuiContext *imgui_context;
     zest_image_handle font_texture;
     zest_pipeline_template pipeline;
+	zest_pipeline_layout pipeline_layout;
     zest_shader_handle vertex_shader;
     zest_shader_handle fragment_shader;
 	zest_atlas_region_t font_region;
 	zest_uint font_texture_binding_index;
 	zest_uint font_sampler_binding_index;
-	zest_shader_resources font_resources;
 	zest_sampler_handle font_sampler;
 	struct zest_imgui_viewport_t *main_viewport;
 	zest_destroy_window_callback destroy_window_callback;

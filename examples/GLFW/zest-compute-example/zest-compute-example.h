@@ -24,10 +24,11 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 	int32_t write_particle_buffer_index = 0;
 } ubo;
 
-struct ParticleFragmentPush {
+struct ParticlePushConsts {
 	int particle_index;
 	int gradient_index;
 	int sampler_index;
+	int uniform_index;
 };
 
 struct RenderCacheInfo {

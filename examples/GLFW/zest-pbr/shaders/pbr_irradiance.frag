@@ -22,13 +22,15 @@ layout(push_constant) uniform quad_index
 	uint pre_filtered_index;
 	uint sampler_index;
 	uint skybox_sampler_index;
+	uint view_index;
+	uint lights_index;
 } material;
 
-layout (set = 2, binding = 0) uniform UBOLights {
+layout (binding = 7) uniform UBOLights {
 	vec4 lights[4];
 	float exposure;
 	float gamma;
-} ubo_lights;
+} ubo_lights[];
 
 #define PI 3.1415926535897932384626433832795
 #define ALBEDO vec3(material.color.r, material.color.g, material.color.b)
@@ -126,8 +128,8 @@ void main()
 	F0 = mix(F0, ALBEDO, metallic);
 
 	vec3 Lo = vec3(0.0);
-	for(int i = 0; i < ubo_lights.lights.length(); i++) {
-		vec3 L = normalize(ubo_lights.lights[i].xyz - in_world_position);
+	for(int i = 0; i < ubo_lights[material.lights_index].lights.length(); i++) {
+		vec3 L = normalize(ubo_lights[material.lights_index].lights[i].xyz - in_world_position);
 		Lo += specularContribution(L, V, N, F0, metallic, roughness);
 	}   
 	
@@ -155,10 +157,10 @@ void main()
 	vec3 color = ambient + Lo;
 
 	// Tone mapping
-	color = Uncharted2Tonemap(color * ubo_lights.exposure);
+	color = Uncharted2Tonemap(color * ubo_lights[material.lights_index].exposure);
 	color = color * (1.0f / Uncharted2Tonemap(vec3(11.2f)));	
 	// Gamma correction
-	color = pow(color, vec3(1.0f / ubo_lights.gamma));
+	color = pow(color, vec3(1.0f / ubo_lights[material.lights_index].gamma));
 
 	out_color = vec4(color, 1.0);
 }

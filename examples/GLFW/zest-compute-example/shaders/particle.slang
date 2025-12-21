@@ -39,13 +39,14 @@ struct UBO
 	int read_particle_buffer_index;
 	int write_particle_buffer_index;
 };
-[[vk::binding(0, 1)]] ConstantBuffer<UBO> ubo;
+[[vk::binding(7, 0)]] ConstantBuffer<UBO> ubo[];
 
 struct PushConsts
 {
 	int particle_index;
 	int gradient_index;
 	int sampler_index;
+	int uniform_index;
 };
 [[vk::push_constant]] ConstantBuffer<PushConsts> pc;
 
@@ -91,35 +92,35 @@ void computeMain(uint3 GlobalInvocationID : SV_DispatchThreadID)
     // Current SSBO index
     uint index = GlobalInvocationID.x;
     // Don't try to write beyond particle count
-    if (index >= ubo.particleCount) {
+    if (index >= ubo[pc.uniform_index].particleCount) {
         return;
     }
 
     // Read position and velocity
-    float2 vVel = particles[ubo.read_particle_buffer_index][index].vel.xy;
-    float2 vPos = particles[ubo.read_particle_buffer_index][index].pos.xy;
+    float2 vVel = particles[ubo[pc.uniform_index].read_particle_buffer_index][index].vel.xy;
+    float2 vPos = particles[ubo[pc.uniform_index].read_particle_buffer_index][index].pos.xy;
 
-    float2 destPos = float2(ubo.destX, ubo.destY);
+    float2 destPos = float2(ubo[pc.uniform_index].destX, ubo[pc.uniform_index].destY);
 
     float2 delta = destPos - vPos;
     float targetDistance = sqrt(dot(delta, delta));
     vVel += repulsion(vPos, destPos.xy) * 0.05;
 
     // Move by velocity
-    vPos += vVel * ubo.deltaT;
+    vPos += vVel * ubo[pc.uniform_index].deltaT;
 
     // collide with boundary
     if ((vPos.x < -1.0) || (vPos.x > 1.0) || (vPos.y < -1.0) || (vPos.y > 1.0)) {
         vVel = (-vVel * 0.1) + attraction(vPos, destPos) * 12;
     } else {
-        particles[ubo.write_particle_buffer_index][index].pos.xy = vPos;
+        particles[ubo[pc.uniform_index].write_particle_buffer_index][index].pos.xy = vPos;
     }
 
     // Write back
-    particles[ubo.write_particle_buffer_index][index].vel.xy = vVel;
-    particles[ubo.write_particle_buffer_index][index].gradientPos.x += 0.02 * ubo.deltaT;
-    if (particles[ubo.read_particle_buffer_index][index].gradientPos.x > 1.0) {
-        particles[ubo.write_particle_buffer_index][index].gradientPos.x -= 1.0;
+    particles[ubo[pc.uniform_index].write_particle_buffer_index][index].vel.xy = vVel;
+    particles[ubo[pc.uniform_index].write_particle_buffer_index][index].gradientPos.x += 0.02 * ubo[pc.uniform_index].deltaT;
+    if (particles[ubo[pc.uniform_index].read_particle_buffer_index][index].gradientPos.x > 1.0) {
+        particles[ubo[pc.uniform_index].write_particle_buffer_index][index].gradientPos.x -= 1.0;
     }
 }
 

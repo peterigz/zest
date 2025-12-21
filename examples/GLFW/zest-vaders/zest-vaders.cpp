@@ -87,6 +87,7 @@ enum GameState {
 struct billboard_push_constant_t {
 	tfxU32 texture_index;
 	tfxU32 sampler_index;
+	tfxU32 uniform_index;
 };
 
 struct VadersGame {
@@ -156,7 +157,6 @@ struct VadersGame {
 	zest_draw_batch_handle billboard_layer_handle;
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
-	zest_shader_resources_handle sprite_resources_handle;
 	tfx_render_resources_t tfx_rendering;
 	billboard_push_constant_t billboard_push;
 	zest_image_collection_t game_sprites;
@@ -326,7 +326,6 @@ void VadersGame::Init() {
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
 	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
-	zest_tfx_CreateTimelineFXShaderResources(context, &tfx_rendering);
 
 	tfxU32 layer_max_values[tfxLAYERS];
 	memset(layer_max_values, 0, 16);
@@ -416,23 +415,14 @@ void VadersGame::Init() {
 	zest_AddVertexAttribute(billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
 	zest_AddVertexAttribute(billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
 
-	zest_SetPipelinePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(billboard_pipeline, billboard_vert_shader);
 	zest_SetPipelineFragShader(billboard_pipeline, billboard_frag_shader);
-	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering.uniform_buffer);
-	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetUniformBufferLayout(uniform_buffer));
-	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
 
 	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 10000);
 
 	font_resources = zest_CreateFontResources(context, "shaders/font.vert", "shaders/font.frag");
 	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
-
-	sprite_resources_handle = zest_CreateShaderResources(context);
-	zest_shader_resources sprite_resources = zest_GetShaderResources(sprite_resources_handle);
-	zest_AddUniformBufferToResources(sprite_resources, uniform_buffer);
-	zest_AddGlobalBindlessSetToResources(sprite_resources);
 
 	zest_ForEachFrameInFlight(fif) {
 		index_offset[fif] = 0;
@@ -995,7 +985,7 @@ void ResetGame(VadersGame *game) {
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_draw_batch layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, zest_GetShaderResources(game->tfx_rendering.shader_resource), game->tfx_rendering.pipeline);
+	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
 	int fif = zest_GetLayerFrameInFlight(layer);
@@ -1005,7 +995,7 @@ void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_draw_batch 
 //Render the particles by effect
 void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_draw_batch layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, zest_GetShaderResources(game->tfx_rendering.shader_resource), game->tfx_rendering.pipeline);
+	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
@@ -1069,7 +1059,9 @@ void VadersGame::Update(float ellapsed) {
 	zest_draw_batch font_layer = zest_GetLayer(font_layer_handle);
 	zest_draw_batch billboard_layer = zest_GetLayer(billboard_layer_handle);
 	zest_draw_batch tfx_layer = zest_GetLayer(tfx_rendering.layer);
-	zest_shader_resources sprite_resources = zest_GetShaderResources(sprite_resources_handle);
+
+	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering.uniform_buffer);
+	billboard_push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
 	if (zest_BeginFrame(context)) {
 
@@ -1178,13 +1170,13 @@ void VadersGame::Update(float ellapsed) {
 			}
 			//Draw the start text
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, .5f, 0.f, "Press Button to Start");
-			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawPlayer(this, billboard_layer);
 		} else if (state == GameState_game) {
 			//If the game is in the play state draw all the game billboards
 			//Set the billboard drawing to the sprite texture
-			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			//Draw the player and vaders
 			DrawPlayer(this, billboard_layer);
@@ -1195,7 +1187,7 @@ void VadersGame::Update(float ellapsed) {
 			}
 			//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
 			//We want to draw the vader bullets over the top of the particles so that they're easier to see
-			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			//Draw some text for score and wave
@@ -1204,13 +1196,13 @@ void VadersGame::Update(float ellapsed) {
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave: %i", (int)current_wave);
 		} else if (state == GameState_game_over) {
 			//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
-			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
 				RenderEffectParticles(game_pm, this, tfx_layer);
 			}
-			zest_SetInstanceDrawing(billboard_layer, sprite_resources, billboard_pipeline);
+			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");

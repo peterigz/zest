@@ -61,6 +61,8 @@ struct pbr_consts_t {
 	zest_uint pre_filtered_index;
 	zest_uint sampler_index;
 	zest_uint skybox_sampler_index;
+	zest_uint view_buffer_index;
+	zest_uint lights_buffer_index;
 };
 
 struct SimplePBRExample {
@@ -89,10 +91,6 @@ struct SimplePBRExample {
 	billboard_push_constant_t billboard_push;
 	irr_push_constant_t irr_push_constant;
 	prefiltered_push_constant_t prefiltered_push_constant;
-
-	zest_shader_resources_handle sprite_resources;
-	zest_shader_resources_handle pbr_shader_resources;
-	zest_shader_resources_handle skybox_shader_resources;
 
 	zest_shader_handle brd_shader;
 	zest_shader_handle irr_shader;

@@ -59,6 +59,7 @@ struct camera_push_constant {
 struct ribbon_drawing_push_constants {
 	zest_uint sampler_index;
 	zest_uint texture_index;
+	zest_uint uniform_index;
 };
 
 struct RibbonUniform {

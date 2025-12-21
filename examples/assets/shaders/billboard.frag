@@ -9,13 +9,14 @@ layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
 layout(location = 0) out vec4 outColor;
 
-layout(set = 1, binding = 3) uniform texture2DArray images[];
-layout(set = 1, binding = 0) uniform sampler samplers[];
+layout(binding = 3) uniform texture2DArray images[];
+layout(binding = 0) uniform sampler samplers[];
 
 layout(push_constant) uniform quad_index
 {
     uint texture_index;
     uint sampler_index;
+    uint uniform_index;
 } pc;
 
 void main() {

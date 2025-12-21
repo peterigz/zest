@@ -42,20 +42,18 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 
 	imgui->vertex_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", ZEST_TRUE);
 	imgui->fragment_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
-	zest_shader_resources_handle font_resources_handle = zest_CreateShaderResources(context);
-	imgui->font_resources = zest_GetShaderResources(font_resources_handle);
-    zest_AddGlobalBindlessSetToResources(imgui->font_resources);
+
+	zest_pipeline_layout_info_t layout_info = zest_NewPipelineLayoutInfoWithGlobalBindless(device);
+	imgui->pipeline_layout = zest_CreatePipelineLayout(&layout_info);
 
     //ImGuiPipeline
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(zest_GetContextDevice(imgui->context), "pipeline_imgui");
-    zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_imgui_push_t), zest_shader_render_stages);
     zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
     zest_AddVertexAttribute(imgui_pipeline, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
     zest_AddVertexAttribute(imgui_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
+	zest_SetPipelineLayout(imgui_pipeline, imgui->pipeline_layout);
     zest_SetPipelineShaders(imgui_pipeline, imgui->vertex_shader, imgui->fragment_shader);
-    zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetBindlessLayout(device));
 	zest_SetPipelineFrontFace(imgui_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineCullMode(imgui_pipeline, zest_cull_mode_none);
     zest_SetPipelineTopology(imgui_pipeline, zest_topology_triangle_list);
@@ -270,19 +268,18 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 				if (current_image == &imgui_viewport->imgui->font_region) {
 					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_viewport->imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {
-						render_state.resources = imgui_viewport->imgui->font_resources;
 						render_state.pipeline = pipeline;
-						zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
+						zest_cmd_BindPipeline(command_list, render_state.pipeline);
 					}
 				} else {
-					ZEST_ASSERT(render_state.pipeline && render_state.resources, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
-					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
+					ZEST_ASSERT(render_state.pipeline, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
+					zest_cmd_BindPipeline(command_list, render_state.pipeline);
 				}
 				push_constants->font_texture_index = current_image->image_index;
 				push_constants->font_sampler_index = current_image->sampler_index;
 				push_constants->image_layer = zest_RegionLayerIndex(current_image);
 
-                zest_cmd_SendPushConstants(command_list, render_state.pipeline, push_constants);
+                zest_cmd_SendPushConstants(command_list, push_constants, sizeof(zest_imgui_push_t));
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -346,6 +343,8 @@ void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
 
 	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(viewport->context, 0, 0);
+
+	zest_device device = zest_GetContextDevice(viewport->context);
 
 	if (zest_BeginFrame(viewport->context)) {
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(viewport->context, &cache_key);

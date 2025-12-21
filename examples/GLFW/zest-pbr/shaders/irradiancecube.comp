@@ -6,9 +6,9 @@
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // Generic sampler array
-layout (set = 0, binding = 0) uniform sampler samplers[];
+layout (binding = 0) uniform sampler samplers[];
 // Source environment maps (as separate textures)
-layout (set = 0, binding = 2) uniform textureCube textureEnv[];
+layout (binding = 2) uniform textureCube textureEnv[];
 // Bindless array for the destination irradiance maps (as storage images)
 layout (binding = 6, rg16f) uniform writeonly imageCube imageIrradiance[];
 

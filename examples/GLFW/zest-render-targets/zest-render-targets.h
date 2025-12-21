@@ -29,7 +29,6 @@ struct render_target_app_t {
 	zest_device device;
 	zest_context context;
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
-	zest_shader_resources_handle render_target_resources;	//Shader resources for drawing the render target to the screen
 	zest_compute_handle downsampler_compute;
 	zest_compute_handle upsampler_compute;
 	zest_uint render_target_push;

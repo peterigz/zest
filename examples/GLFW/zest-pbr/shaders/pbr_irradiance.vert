@@ -1,14 +1,15 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
+#extension GL_EXT_nonuniform_qualifier : require
 
-layout(set = 1, binding = 0) uniform UboView
+layout(binding = 7) uniform UboView
 {
     mat4 view;
     mat4 proj;
     vec2 screen_size;
     float timer_lerp;
     float update_time;
-} uboView;
+} uboView[];
 
 layout(push_constant) uniform quad_index
 {
@@ -21,7 +22,9 @@ layout(push_constant) uniform quad_index
 	uint pre_filtered_index;
 	uint sampler_index;
 	uint skybox_sampler_index;
-};
+	uint view_index;
+	uint lights_index;
+} pc;
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec4 vertex_color;
@@ -66,7 +69,7 @@ void main() {
 
 	mat3 rotation_matrix = mz * my * mx;
 	vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
-	gl_Position = (uboView.proj * uboView.view * vec4(position, 1.0));
+	gl_Position = (uboView[pc.view_index].proj * uboView[pc.view_index].view * vec4(position, 1.0));
 
 	vec4 color = vertex_color * instance_color;
 	

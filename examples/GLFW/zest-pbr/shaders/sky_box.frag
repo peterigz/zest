@@ -9,13 +9,19 @@ layout (location = 0) in vec3 inUVW;
 
 layout (location = 0) out vec4 outColor;
 
-layout (set = 2, binding = 0) uniform UBOParams {
+layout (binding = 7) uniform UBOParams {
 	vec4 lights[4];
 	float exposure;
 	float gamma;
 	uint texture_index;
 	uint sampler_index;
-} consts;
+} consts[];
+
+layout(push_constant) uniform quad_index
+{
+	uint view_index;
+	uint lights_index;
+} pc;
 
 // From http://filmicworlds.com/blog/filmic-tonemapping-operators/
 vec3 Uncharted2Tonemap(vec3 color)
@@ -32,13 +38,13 @@ vec3 Uncharted2Tonemap(vec3 color)
 
 void main() 
 {
-	vec3 color = textureLod(samplerCube(textures[consts.texture_index], samplers[consts.sampler_index]), inUVW, 0.0).rgb;
+	vec3 color = textureLod(samplerCube(textures[consts[pc.lights_index].texture_index], samplers[consts[pc.lights_index].sampler_index]), inUVW, 0.0).rgb;
 
 	// Tone mapping
-	color = Uncharted2Tonemap(color * consts.exposure);
+	color = Uncharted2Tonemap(color * consts[pc.lights_index].exposure);
 	color = color * (1.0f / Uncharted2Tonemap(vec3(11.2f)));	
 	// Gamma correction
-	color = pow(color, vec3(1.0f / consts.gamma));
+	color = pow(color, vec3(1.0f / consts[pc.lights_index].gamma));
 	
 	outColor = vec4(color, 1.0);
 }

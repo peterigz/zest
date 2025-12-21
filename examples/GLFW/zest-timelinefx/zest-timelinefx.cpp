@@ -93,7 +93,6 @@ void TimelineFXExample::Init() {
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
 	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
-	zest_tfx_CreateTimelineFXShaderResources(context, &tfx_rendering);
 
 	/*
 	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call tfx_CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
@@ -234,6 +233,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
 			if (!frame_graph) {
+				zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(game->tfx_rendering.uniform_buffer);
 				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
@@ -320,7 +320,7 @@ int main() {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	game.device = zest_implglfw_CreateDevice(false);
+	game.device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

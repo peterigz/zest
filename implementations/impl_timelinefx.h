@@ -10,6 +10,7 @@ typedef struct tfx_push_constants_s {
 	tfxU32 sampler_index;
 	tfxU32 prev_billboards_index;
 	tfxU32 index_offset;
+	tfxU32 uniform_index;
 } tfx_push_constants_t;
 
 typedef struct tfx_uniform_buffer_data_t {
@@ -37,7 +38,6 @@ typedef struct tfx_render_resources_s {
 	zest_pipeline_template pipeline;
 	zest_shader_handle fragment_shader;
 	zest_shader_handle vertex_shader;
-	zest_shader_resources_handle shader_resource;
 	zest_camera_t camera;
 	zest_timer_t timer;
 	zest_execution_timeline_handle timeline;
@@ -51,7 +51,6 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_render_resources_t *
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources);
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources);
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
-void zest_tfx_CreateTimelineFXShaderResources(zest_context context, tfx_render_resources_t *tfx_rendering);
 void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_library library);
 void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context context, tfx_render_resources_t *render_resources, const char *library_path);
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
