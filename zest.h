@@ -2798,6 +2798,7 @@ extern "C" {
 
 // --Pocket_bucket_array
 // The main purpose of this bucket array is to produce stable pointers for render graph resources
+// Also used for resource stores.
 typedef struct zest_bucket_array_t {
 	void** buckets;             // A zest_vec of pointers to individual buckets
 	zloc_allocator *allocator;
@@ -3785,22 +3786,6 @@ typedef struct zest_billboard_instance_t {         //56 bytes
 	zest_u64 padding;
 } zest_billboard_instance_t;
 
-//SDF Lines
-typedef struct zest_shape_instance_t {
-	zest_vec4 rect;                                //The rectangle containing the sdf shade, x,y = top left, z,w = bottom right
-	zest_vec4 parameters;                          //Extra parameters, for example line widths, roundness, depending on the shape type
-	zest_color_t start_color;                        //The color tint of the first point in the line
-	zest_color_t end_color;                          //The color tint of the second point in the line
-} zest_shape_instance_t;
-
-//SDF 3D Lines
-typedef struct zest_line_instance_t {
-	zest_vec4 start;
-	zest_vec4 end;
-	zest_color_t start_color;
-	zest_color_t end_color;
-} zest_line_instance_t;
-
 typedef struct zest_textured_vertex_t {
 	zest_vec3 pos;                                 //3d position
 	float intensity;                               //Alpha level (can go over 1 to increase intensity of colors)
@@ -3826,8 +3811,7 @@ typedef struct zest_vertex_t {
 
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
-typedef struct zest_ImDrawVert_t
-{
+typedef struct zest_ImDrawVert_t {
 	zest_vec2 pos;
 	zest_vec2 uv;
 	zest_uint col;

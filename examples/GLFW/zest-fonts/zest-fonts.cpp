@@ -34,23 +34,6 @@ void InitExample(zest_fonts_example *app) {
 
 	//Implement a dark style
 	zest_imgui_DarkStyle(&app->imgui);
-	
-	/*
-	//This is an exmaple of how to change the font that ImGui uses
-	ImGuiIO& io = ImGui::GetIO();
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	io.Fonts->Clear();
-	float font_size_imgui = 16.f;
-	unsigned char *font_data_imgui;
-	int tex_width, tex_height;
-	ImFontConfig config;
-	config.PixelSnapH = true;
-	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size_imgui);
-	io.Fonts->GetTexDataAsRGBA32(&font_data_imgui, &tex_width, &tex_height);
-
-	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data_imgui);
-	*/
 
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
