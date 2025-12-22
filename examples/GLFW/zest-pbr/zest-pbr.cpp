@@ -79,7 +79,6 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
 	zest_AddComputeShader(&compute_builder, app->brd_shader);
-	zest_SetComputePipelineLayout(&compute_builder, zest_GetDefaultPipelineLayout(app->device));
 	app->brd_compute = zest_FinishCompute(&compute_builder, "brd compute");
 
 	zest_BeginFrameGraph(app->context, "BRDFLUT", 0);
@@ -140,7 +139,6 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
 	zest_AddComputeShader(&compute_builder, app->irr_shader);
-	zest_SetComputePipelineLayout(&compute_builder, zest_GetDefaultPipelineLayout(app->device));
 	app->irr_compute = zest_FinishCompute(&compute_builder, "irradiance compute");
 
 	zest_BeginFrameGraph(app->context, "Irradiance", 0);
@@ -211,7 +209,6 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
 	zest_AddComputeShader(&compute_builder, app->prefiltered_shader);
-	zest_SetComputePipelineLayout(&compute_builder, zest_GetDefaultPipelineLayout(app->device));
 	app->prefiltered_compute = zest_FinishCompute(&compute_builder, "prefiltered compute");
 
 	zest_BeginFrameGraph(app->context, "Prefiltered", 0);

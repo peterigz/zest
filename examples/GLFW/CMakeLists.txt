@@ -164,9 +164,6 @@ set(EXAMPLES
 	zest-tests
 	zest-vaders
 	zest-timelinefx
-	zest-timelinefx-c
-	zest-timelinefx-instanced-effects
-	zest-timelinefx-prerecorded-effects
 	zest-ribbons
 	zest-implot
 	zest-pbr

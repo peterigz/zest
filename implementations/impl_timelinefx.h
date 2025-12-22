@@ -26,7 +26,7 @@ typedef struct tfx_render_resources_s {
 	zest_image_collection_t color_ramps_collection;
 	zest_image_handle particle_texture;
 	zest_image_handle color_ramps_texture;
-	zest_draw_batch_handle layer;
+	zest_layer_handle layer;
 	zest_sampler_handle sampler;
 	zest_uint layer_index;
 	zest_uint color_ramps_index;
