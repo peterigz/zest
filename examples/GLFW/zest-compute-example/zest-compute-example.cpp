@@ -139,7 +139,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	push.gradient_index = app->gradient_image_index;
 	push.sampler_index = app->sampler_index;
 	//Send the the push constant
-	zest_cmd_SendPushConstants(command_list, zest_GetPipelineLayout(pipeline), &push, sizeof(ParticlePushConsts));
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(ParticlePushConsts));
 	//Set the viewport with this helper function
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
@@ -158,7 +158,7 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->compute_uniform_buffer);
 	ParticlePushConsts push;
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
-	zest_cmd_SendPushConstants(command_list, zest_GetComputePipelineLayout(compute), &push, sizeof(ParticlePushConsts));
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(ParticlePushConsts));
 	//Dispatch the compute shader
 	zest_cmd_DispatchCompute(command_list, PARTICLE_COUNT / 256, 1, 1);
 }
