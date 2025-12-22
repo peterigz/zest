@@ -23,7 +23,7 @@ typedef struct zest_fonts_example {
 	RenderCacheInfo cache_info;
 	zest_msdf_font_t font;
 	zest_font_resources_t font_resources;
-	zest_draw_batch_handle font_layer;
+	zest_layer_handle font_layer;
 	float font_size;
 } zest_fonts_example;
 
@@ -93,7 +93,7 @@ void MainLoop(zest_fonts_example *app) {
 			ImGui::Render();
 		} zest_EndTimerLoop(app->timer);
 
-		zest_draw_batch font_layer = zest_GetLayer(app->font_layer);
+		zest_layer font_layer = zest_GetLayer(app->font_layer);
 
 		if (zest_BeginFrame(app->context)) {
 			zest_SetMSDFFontDrawing(font_layer, &app->font, &app->font_resources);

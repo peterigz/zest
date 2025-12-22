@@ -62,7 +62,7 @@ struct ComputeExample {
 	zest_timer timer;
 	zest_camera_t camera;
 
-	zest_draw_batch mesh_layer;			//To draw the floor plain
+	zest_layer mesh_layer;			//To draw the floor plain
 	zest_pipeline mesh_pipeline;
 	zest_atlas_region floor_image;
 	zest_texture floor_texture;

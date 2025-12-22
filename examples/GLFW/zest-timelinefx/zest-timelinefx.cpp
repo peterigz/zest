@@ -170,7 +170,7 @@ void MainLoop(TimelineFXExample *game) {
 
 		UpdateMouse(game);
 
-		zest_draw_batch tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
+		zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
 
 		zest_StartTimerLoop(game->tfx_rendering.timer) {
 			BuildUI(game, fps);

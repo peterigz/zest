@@ -226,7 +226,7 @@ void Mainloop(render_target_app_t *example) {
 		example->bloom_constants.settings.y = knee;
 		//example->downsampler->recorder->outdated[context->current_fif] = 1;
 
-		zest_draw_batch font_layer = zest_GetLayer(example->font_layer);
+		zest_layer font_layer = zest_GetLayer(example->font_layer);
 
 		//Set the font to use for the font layer
 		zest_SetMSDFFontDrawing(font_layer, &example->font, &example->font_resources);

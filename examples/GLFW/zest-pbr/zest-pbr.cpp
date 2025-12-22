@@ -384,14 +384,14 @@ void UpdateLights(SimplePBRExample *app, float timer) {
 void UploadMeshData(const zest_command_list context, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
-	zest_draw_batch_handle layers[3]{
+	zest_layer_handle layers[3]{
 		app->cube_layer,
 		app->skybox_layer,
 		app->billboard_layer
 	};
 
 	for (int i = 0; i != 3; ++i) {
-		zest_draw_batch layer = zest_GetLayer(layers[i]);
+		zest_layer layer = zest_GetLayer(layers[i]);
 		zest_UploadLayerStagingData(layer, context);
 	}
 }
@@ -528,9 +528,9 @@ void MainLoop(SimplePBRExample *app) {
 		zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
 		zest_vec3 scale = { 1.f, 1.f, 1.f };
 
-		zest_draw_batch cube_layer = zest_GetLayer(app->cube_layer);
-		zest_draw_batch skybox_layer = zest_GetLayer(app->skybox_layer);
-		zest_draw_batch billboard_layer = zest_GetLayer(app->billboard_layer);
+		zest_layer cube_layer = zest_GetLayer(app->cube_layer);
+		zest_layer skybox_layer = zest_GetLayer(app->skybox_layer);
+		zest_layer billboard_layer = zest_GetLayer(app->billboard_layer);
 
 		zest_image brd_image = zest_GetImage(app->brd_texture);
 		zest_image irr_image = zest_GetImage(app->irr_texture);

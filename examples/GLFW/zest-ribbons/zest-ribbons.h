@@ -83,7 +83,7 @@ struct Ribbons {
 	zest_shader_handle ribbon_frag_shader;
 	zest_shader_handle ribbon_comp_shader;
 	zest_compute_handle ribbon_compute;
-	zest_draw_batch ribbon_layer;
+	zest_layer ribbon_layer;
 	zest_uniform_buffer_handle uniform_buffer;
 	zest_buffer ribbon_segment_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];

@@ -152,9 +152,9 @@ struct VadersGame {
 	zest_device device;
 	zest_msdf_font_t font;
 	zest_imgui_t imgui;
-	zest_draw_batch_handle font_layer_handle;
+	zest_layer_handle font_layer_handle;
 	zest_font_resources_t font_resources;
-	zest_draw_batch_handle billboard_layer_handle;
+	zest_layer_handle billboard_layer_handle;
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
 	tfx_render_resources_t tfx_rendering;
@@ -237,7 +237,7 @@ zest_atlas_region_t *AddGameSprite(zest_image_collection_t *collection, const ch
 	return region;
 }
 
-void zest_DrawBillboard(zest_draw_batch layer, zest_atlas_region_t *image, float position[3], float angle, float sx, float sy) {
+void zest_DrawBillboard(zest_layer layer, zest_atlas_region_t *image, float position[3], float angle, float sx, float sy) {
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
@@ -933,7 +933,7 @@ void BuildUI(VadersGame *game) {
 }
 
 //Draw all the billboards for the game
-void DrawPlayer(VadersGame *game, zest_draw_batch layer) {
+void DrawPlayer(VadersGame *game, zest_layer layer) {
 	zest_SetLayerColor(layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(layer, 1.f);
 	zest_DrawBillboard(layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
@@ -943,7 +943,7 @@ tfx_vec3_t InterpolateVec3(float tween, tfx_vec3_t from, tfx_vec3_t to) {
 	return to * tween + from * (1.f - tween);
 }
 
-void DrawVaders(VadersGame *game, zest_draw_batch layer, float lerp) {
+void DrawVaders(VadersGame *game, zest_layer layer, float lerp) {
 	zest_SetLayerColor(layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(layer, 1.f);
 	for (auto &vader : game->vaders[game->current_buffer]) {
@@ -956,7 +956,7 @@ void DrawVaders(VadersGame *game, zest_draw_batch layer, float lerp) {
 	}
 }
 
-void DrawVaderBullets(VadersGame *game, zest_draw_batch layer, float lerp) {
+void DrawVaderBullets(VadersGame *game, zest_layer layer, float lerp) {
 	for (auto &bullet : game->vader_bullets[game->current_buffer]) {
 		int frame_offset = (int)bullet.frame % 64;
 		tfx_vec3_t tween = InterpolateVec3(lerp, bullet.captured, bullet.position);
@@ -983,7 +983,7 @@ void ResetGame(VadersGame *game) {
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_draw_batch layer) {
+void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
@@ -993,7 +993,7 @@ void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_draw_batch 
 }
 
 //Render the particles by effect
-void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_draw_batch layer) {
+void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
 
@@ -1015,9 +1015,9 @@ void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_draw_ba
 void UploadGameLayerData(const zest_command_list command_list, void *user_data) {
 	VadersGame *game = (VadersGame*)user_data;
 
-	zest_draw_batch font_layer = zest_GetLayer(game->font_layer_handle);
-	zest_draw_batch billboard_layer = zest_GetLayer(game->billboard_layer_handle);
-	zest_draw_batch tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
+	zest_layer font_layer = zest_GetLayer(game->font_layer_handle);
+	zest_layer billboard_layer = zest_GetLayer(game->billboard_layer_handle);
+	zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
 	zest_buffer billboard_staging = zest_GetLayerStagingVertexBuffer(billboard_layer);
 	zest_buffer tfx_staging = zest_GetLayerStagingVertexBuffer(tfx_layer);
 	zest_buffer font_staging = zest_GetLayerStagingVertexBuffer(font_layer);
@@ -1056,9 +1056,9 @@ void VadersGame::Update(float ellapsed) {
 
 	UpdateMouse(this);
 
-	zest_draw_batch font_layer = zest_GetLayer(font_layer_handle);
-	zest_draw_batch billboard_layer = zest_GetLayer(billboard_layer_handle);
-	zest_draw_batch tfx_layer = zest_GetLayer(tfx_rendering.layer);
+	zest_layer font_layer = zest_GetLayer(font_layer_handle);
+	zest_layer billboard_layer = zest_GetLayer(billboard_layer_handle);
+	zest_layer tfx_layer = zest_GetLayer(tfx_rendering.layer);
 
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering.uniform_buffer);
 	billboard_push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);

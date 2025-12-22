@@ -224,7 +224,7 @@ typedef struct zest_stbi_mem_context_t {
 ZEST_PRIVATE void* zest__msdf_allocation(size_t size, void* ctx);
 ZEST_PRIVATE void zest__msdf_free(void* ptr, void* ctx);
 ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader);
-ZEST_API zest_draw_batch_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters);
+ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters);
 ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_handle, float font_size, float sdf_range);
 ZEST_API void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename);
 ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_sampler);
@@ -235,8 +235,8 @@ ZEST_API void zest_SetFontShadowColor(zest_msdf_font_t *font, float r, float g, 
 ZEST_API void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y);
 ZEST_API void zest_FreeFont(zest_msdf_font_t *font);
 ZEST_API float zest_TextWidth(zest_msdf_font_t *font, const char* text, float font_size, float letter_spacing);
-ZEST_API void zest_SetMSDFFontDrawing(zest_draw_batch layer, zest_msdf_font_t *font, zest_font_resources_t *font_resources);
-ZEST_API float zest_DrawMSDFText(zest_draw_batch layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...);
+ZEST_API void zest_SetMSDFFontDrawing(zest_layer layer, zest_msdf_font_t *font, zest_font_resources_t *font_resources);
+ZEST_API float zest_DrawMSDFText(zest_layer layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...);
 
 //Bitmaps and images
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(void *pixels, int size, int width, int height, zest_format format);
@@ -938,9 +938,9 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	return resources;
 }
 
-zest_draw_batch_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters) {
+zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name, zest_uint max_characters) {
 	ZEST_ASSERT(name, "Specify a name for the font layer");
-	zest_draw_batch_handle layer = zest_CreateInstanceLayer(context, name, sizeof(zest_font_instance_t), max_characters);
+	zest_layer_handle layer = zest_CreateInstanceLayer(context, name, sizeof(zest_font_instance_t), max_characters);
 	return layer;
 }
 
@@ -1192,7 +1192,7 @@ float zest_TextWidth(zest_msdf_font_t *font, const char* text, float font_size, 
     return max_width;
 }
 
-void zest_SetMSDFFontDrawing(zest_draw_batch layer, zest_msdf_font_t *font, zest_font_resources_t *font_resources) {
+void zest_SetMSDFFontDrawing(zest_layer layer, zest_msdf_font_t *font, zest_font_resources_t *font_resources) {
 	ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
@@ -1205,7 +1205,7 @@ void zest_SetMSDFFontDrawing(zest_draw_batch layer, zest_msdf_font_t *font, zest
     layer->last_draw_mode = zest_draw_mode_text;
 }
 
-float zest__draw_msdf_text(zest_draw_batch layer, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
+float zest__draw_msdf_text(zest_layer layer, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
 	ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_text);        //Call zest_StartFontDrawing before calling this function
 
@@ -1254,7 +1254,7 @@ float zest__draw_msdf_text(zest_draw_batch layer, const char* text, float x, flo
     return xpos;
 }
 
-float zest_DrawMSDFText(zest_draw_batch layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...) {
+float zest_DrawMSDFText(zest_layer layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...) {
 	ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle
     char buffer[1024];
     va_list args;

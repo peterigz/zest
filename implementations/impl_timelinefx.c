@@ -143,7 +143,7 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
 	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
-	zest_draw_batch layer = zest_GetLayer(tfx_resources->layer);
+	zest_layer layer = zest_GetLayer(tfx_resources->layer);
 
 	zest_buffer device_buffer = zest_GetLayerVertexBuffer(layer);
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, device_buffer);
@@ -151,7 +151,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 	zest_pipeline current_pipeline = 0;
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_resources->uniform_buffer);
 
-	zest_draw_batch_instruction_t *current = zest_NextLayerInstruction(layer);
+	zest_layer_instruction_t *current = zest_NextLayerInstruction(layer);
 	while(current) {
 
 		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
@@ -183,7 +183,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources) {
-	zest_draw_batch layer = zest_GetLayer(resources->layer);
+	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(layer, resources->pipeline);
 
@@ -203,7 +203,7 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 }
 
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {
-	zest_draw_batch layer = zest_GetLayer(resources->layer);
+	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(layer, resources->pipeline);
 
