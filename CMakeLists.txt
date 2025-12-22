@@ -131,7 +131,6 @@ endif ()
 target_link_options(zest-interface INTERFACE "/ignore:4099")
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
-add_subdirectory(examples/Simple)
 if (GLFW3_FOUND)
     add_subdirectory(examples/GLFW)
 endif ()
