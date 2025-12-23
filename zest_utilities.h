@@ -852,11 +852,11 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
     image_handle = zest_CreateImage(context, &create_info);
 	zest_image image = zest_GetImage(image_handle);
 
-	zest_BeginImmediateCommandBuffer(context);
-	zest_imm_TransitionImage(context, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6);
-	zest_imm_CopyBufferRegionsToImage(context, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
-    zest_imm_TransitionImage(context, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, 6);
-	zest_EndImmediateCommandBuffer(context);
+	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_transfer);
+	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6);
+	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
+    zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, 6);
+	zest_EndImmediateCommandBuffer(queue);
 
     zest_FreeBitmapArray(bitmap_array);
 	zest_FreeBuffer(staging_buffer);
@@ -2185,15 +2185,15 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
     zest_uint mip_levels =  zest_ImageInfo(image)->mip_levels;
 	zest_uint layer_count = atlas->bitmap_array.size_of_array;
 
-	zest_BeginImmediateCommandBuffer(context);
-    zest_imm_TransitionImage(context, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
-	zest_imm_CopyBufferRegionsToImage(context, atlas->buffer_copy_regions, atlas->bitmap_array.size_of_array, staging_buffer, image);
+	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_graphics);
+    zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
+	zest_imm_CopyBufferRegionsToImage(queue, atlas->buffer_copy_regions, atlas->bitmap_array.size_of_array, staging_buffer, image);
 	if (mip_levels > 1) {
-		zest_imm_GenerateMipMaps(context, image);
+		zest_imm_GenerateMipMaps(queue, image);
 	} else {
-		zest_imm_TransitionImage(context, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
+		zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
 	}
-	zest_EndImmediateCommandBuffer(context);
+	zest_EndImmediateCommandBuffer(queue);
 
 	zest_FreeBuffer(staging_buffer);
     return image_handle;

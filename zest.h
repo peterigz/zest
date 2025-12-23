@@ -3913,17 +3913,17 @@ typedef struct zest_platform_t {
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
-	void					   (*cmd_copy_buffer_one_time)(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+	void					   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 	//Images
 	zest_bool 				   (*create_image)(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 	zest_image_view 		   (*create_image_view)(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_image_view_array 	   (*create_image_views_per_mip)(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
-	zest_bool 				   (*copy_buffer_regions_to_image)(zest_context context, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
-	zest_bool 				   (*transition_image_layout)(zest_context context, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+	zest_bool 				   (*copy_buffer_regions_to_image)(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
+	zest_bool 				   (*transition_image_layout)(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 	zest_bool 				   (*create_sampler)(zest_sampler sampler);
 	int 	  				   (*get_image_raw_layout)(zest_image image);
-	zest_bool 				   (*copy_buffer_to_image)(zest_context context, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
-	zest_bool 				   (*generate_mipmaps)(zest_context context, zest_image image);
+	zest_bool 				   (*copy_buffer_to_image)(zest_queue queue, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
+	zest_bool 				   (*generate_mipmaps)(zest_queue queue, zest_image image);
 	//Descriptor Sets
 	zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 	//Pipelines
@@ -3942,8 +3942,8 @@ typedef struct zest_platform_t {
 	void                       (*update_bindless_uniform_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
 	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
-	zest_bool 				   (*begin_single_time_commands)(zest_context context);
-	zest_bool 				   (*end_single_time_commands)(zest_context context);
+	zest_queue 				   (*begin_single_time_commands)(zest_device device, zest_device_queue_type target_queue);
+	zest_bool 				   (*end_single_time_commands)(zest_queue queue);
 	//General Context
 	void                       (*set_depth_format)(zest_device device);
 	zest_bool                  (*initialise_context_backend)(zest_context context);
@@ -3971,7 +3971,7 @@ typedef struct zest_platform_t {
 	void*					   (*new_swapchain_backend)(zest_context context);
 	void*					   (*new_image_backend)(zest_context context);
 	void*					   (*new_compute_backend)(zest_device device);
-	void*					   (*new_queue_backend)(zest_device device, zest_uint queue_count);
+	void*					   (*new_queue_backend)(zest_device device, zest_uint family_index);
 	void*					   (*new_submission_batch_backend)(zest_context context);
 	void*					   (*new_set_layout_backend)(zloc_allocator *allocator);
 	void*					   (*new_descriptor_pool_backend)(zloc_allocator *allocator);
@@ -4118,7 +4118,7 @@ ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(z
 
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_uint family_index);
-ZEST_PRIVATE void zest__release_queue(zest_device device, zest_queue queue);
+ZEST_PRIVATE void zest__release_queue(zest_queue queue);
 //End Queue_management
 
 //Renderer_functions
@@ -5215,17 +5215,17 @@ ZEST_API void zest_ResetValidationErrors(zest_device device);
 
 //Helper functions for executing commands on the GPU immediately
 //For now this just handles buffer/image copying but will expand this as we go.
-ZEST_API void zest_BeginImmediateCommandBuffer(zest_context context);
-ZEST_API void zest_EndImmediateCommandBuffer(zest_context context);
+ZEST_API zest_queue zest_BeginImmediateCommandBuffer(zest_device device, zest_device_queue_type target_queue);
+ZEST_API void zest_EndImmediateCommandBuffer(zest_queue queue);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
-ZEST_API zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
-ZEST_API zest_bool zest_imm_CopyBufferToImage(zest_context context, zest_buffer src_buffer, zest_image dst_image, zest_size size);
+ZEST_API zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+ZEST_API zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size);
 //Copies an area of a zest_texture to another zest_texture
 ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-ZEST_API zest_bool zest_imm_TransitionImage(zest_context context, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
-ZEST_API zest_bool zest_imm_CopyBufferRegionsToImage(zest_context context, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_image image_handle);
-ZEST_API zest_bool zest_imm_GenerateMipMaps(zest_context context, zest_image image_handle);
+ZEST_API zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+ZEST_API zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_image image_handle);
+ZEST_API zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image_handle);
 
 //-----------------------------------------------
 // Command_buffer_functions
@@ -5914,10 +5914,12 @@ typedef struct zest_buffer_linear_allocator_t {
 } zest_buffer_linear_allocator_t;
 
 typedef struct zest_queue_t {
+	int magic;
 	zest_queue_backend backend;
 	zest_execution_timeline timeline;
 	zest_uint index;
 	zest_uint family_index;
+	zest_device device;
 	volatile int in_use;
 } zest_queue_t;
 
@@ -7774,7 +7776,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
 		zest_context_queue context_queue = context->queues[i];
 		if (context_queue->queue) {
-			zest__release_queue(context->device, context_queue->queue);
+			zest__release_queue(context_queue->queue);
 			context_queue->queue = NULL;
 		}
 	}
@@ -8750,7 +8752,8 @@ zest_queue zest__acquire_queue(zest_device device, zest_uint family_index) {
 	return queue;
 }
 
-void zest__release_queue(zest_device device, zest_queue queue) {
+void zest__release_queue(zest_queue queue) {
+	zest_device device = queue->device;
 	zest_queue_manager queue_manager = device->queues[queue->family_index];
 	zest__sync_lock(&queue_manager->sync);
 	queue->in_use = 0;
@@ -8758,52 +8761,54 @@ void zest__release_queue(zest_device device, zest_queue queue) {
 	zest__sync_unlock(&queue_manager->sync);
 }
 
-void zest_BeginImmediateCommandBuffer(zest_context context) {
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
-    context->device->platform->begin_single_time_commands(context);
+zest_queue zest_BeginImmediateCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid queue handle
+    return device->platform->begin_single_time_commands(device, target_queue);
 }
 
-void zest_EndImmediateCommandBuffer(zest_context context) {
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
-    context->device->platform->end_single_time_commands(context);
+void zest_EndImmediateCommandBuffer(zest_queue queue) {
+	ZEST_ASSERT_HANDLE(queue);		//Not a valid context handle
+    queue->device->platform->end_single_time_commands(queue);
 }
 
-zest_bool zest_imm_TransitionImage(zest_context context, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
+zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	mip_levels = ZEST__MIN(mip_levels, image->info.mip_levels);
 	layer_count = ZEST__MIN(layer_count, image->info.layer_count);
-	zest_device device = context->device;
-	if (device->platform->transition_image_layout(context, image, new_layout, base_mip_index, mip_levels, base_array_index, layer_count)) {
+	zest_device device = queue->device;
+	if (device->platform->transition_image_layout(queue, image, new_layout, base_mip_index, mip_levels, base_array_index, layer_count)) {
 		image->info.layout = new_layout;
 		return ZEST_TRUE;
 	}
 	return ZEST_FALSE;
 }
 
-zest_bool zest_imm_CopyBufferRegionsToImage(zest_context context, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer staging_buffer, zest_image image) {
+zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer staging_buffer, zest_image image) {
+	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	if (!regions_count) return ZEST_FALSE;
-	return context->device->platform->copy_buffer_regions_to_image(context, regions, regions_count, staging_buffer, staging_buffer->memory_offset, image);
+	return queue->device->platform->copy_buffer_regions_to_image(queue, regions, regions_count, staging_buffer, staging_buffer->memory_offset, image);
 }
 
-zest_bool zest_imm_GenerateMipMaps(zest_context context, zest_image image) {
-	return context->device->platform->generate_mipmaps(context, image);
+zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
+	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
+	return queue->device->platform->generate_mipmaps(queue, image);
 }
 
-zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
-    ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
+zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
+    ZEST_ASSERT(size <= src_buffer->size);      //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
-	context->device->platform->cmd_copy_buffer_one_time(context, src_buffer, dst_buffer, size);
+	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size);
     return ZEST_TRUE;
 }
 
-zest_bool zest_imm_CopyBufferToImage(zest_context context, zest_buffer src_buffer, zest_image dst_image, zest_size size) {
-	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
-    ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
+zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size) {
+	ZEST_ASSERT_HANDLE(queue);						//Not a valid queue handle
+    ZEST_ASSERT(size <= src_buffer->size);       	//size must be less than or equal to the staging buffer size and the device buffer size
 	zest_buffer buffer = (zest_buffer)dst_image->buffer;
     ZEST_ASSERT(size <= buffer->size);
-	context->device->platform->copy_buffer_to_image(context, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
+	queue->device->platform->copy_buffer_to_image(queue, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
     return ZEST_TRUE;
 }
 
@@ -9145,13 +9150,6 @@ void zest__free_device_buffer_allocators(zest_device device) {
 void zest__free_context_buffer_allocators(zest_context context) {
     zest_map_foreach(i, context->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(context->buffer_allocators, i);
-		/*
-ZEST_PRINT("  Allocator %s. ", buffer_allocator->name);
-ZEST_PRINT("    Property flags: %s. Intended use: %s.", 
-zest__memory_property_to_string(buffer_allocator->usage.property_flags),
-zest__memory_type_to_string(buffer_allocator->usage.memory_pool_type)
-);
-*/
 		zest_size total_size = 0;
         zest_vec_foreach(j, buffer_allocator->memory_pools) {
 			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
@@ -10484,7 +10482,7 @@ void zest_WaitForIdleDevice(zest_device device) {
 		zest_queue_manager queue_manager = device->queues[i];
 		zest_vec_foreach(j, queue_manager->queues) {
 			zest_queue queue = &queue_manager->queues[j];
-			zest__release_queue(device, queue);
+			zest__release_queue(queue);
 		}
 	}
 }
@@ -14540,9 +14538,9 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_context context, zest_ima
     }
 	image->info.layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
-        device->platform->begin_single_time_commands(context);
-        zest_imm_TransitionImage(context, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
-        device->platform->end_single_time_commands(context);
+        zest_queue queue = device->platform->begin_single_time_commands(device, zest_queue_transfer);
+        zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
+        device->platform->end_single_time_commands(queue);
     }
     zest_image_view_type view_type = zest__get_image_view_type(image);
     image->default_view = device->platform->create_image_view(context, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, 0);
@@ -15807,10 +15805,10 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
 	layer->vertex_data = zest_CreateBuffer(context, vertex_staging_buffer->size, &vertex_info);
 	layer->index_data = zest_CreateBuffer(context, index_staging_buffer->size, &index_info);
-	zest_BeginImmediateCommandBuffer(context);
-    zest_imm_CopyBuffer(context, vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
-    zest_imm_CopyBuffer(context, index_staging_buffer, layer->index_data, index_staging_buffer->size);
-	zest_EndImmediateCommandBuffer(context);
+	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_transfer);
+    zest_imm_CopyBuffer(queue, vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
+    zest_imm_CopyBuffer(queue, index_staging_buffer, layer->index_data, index_staging_buffer->size);
+	zest_EndImmediateCommandBuffer(queue);
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
 }
