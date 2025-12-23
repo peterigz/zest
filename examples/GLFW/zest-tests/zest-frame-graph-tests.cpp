@@ -687,7 +687,8 @@ Multi-Queue Synchronization:
 * Pass A (Compute Queue): Processes data in a buffer
 * Pass B (Transfer Queue): Transfers data to a buffer
 * Pass C (Graphics Queue): Uses the compute buffer as a vertex buffer for rendering.
-* The graph must handle the queue ownership transfer and synchronization (semaphores).
+* The graph must handle the queue ownership transfer and synchronization (semaphores). It must also run fine
+* if the only queue available is the graphics queue.
 */
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {

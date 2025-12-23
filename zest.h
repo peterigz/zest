@@ -3393,6 +3393,9 @@ typedef struct zest_device_builder_t {
 	zest_uint bindless_storage_buffer_count;
 	zest_uint bindless_storage_image_count;
 	zest_uint bindless_uniform_buffer_count;
+	int graphics_queue_count;	//For testing only
+	int transfer_queue_count;	//For testing only
+	int compute_queue_count;	//For testing only
 	zest_size max_small_buffer_size;
 	const char *log_path;                               //path to the log to store log and validation messages
 	const char *cached_shader_path;
@@ -6060,7 +6063,7 @@ typedef struct zest_context_t {
 
 	//The timeout for the fence that waits for gpu work to finish for the frame
 	zest_u64 fence_wait_timeout_ns;
-	zest_wait_timeout_callback fence_wait_timeout_callback;
+	zest_wait_timeout_callback frame_wait_timeout_callback;
 	zest_execution_timeline_handle frame_timeline[ZEST_MAX_FIF];
 	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
 
@@ -8101,8 +8104,8 @@ zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context) {
                 break;
             } else if (result == zest_semaphore_status_timeout) {
 				zest_millisecs total_wait_time = zest_Millisecs() - start_time;
-				if (context->fence_wait_timeout_callback) {
-                    if (context->fence_wait_timeout_callback(total_wait_time, retry_count++, context->user_data)) {
+				if (context->frame_wait_timeout_callback) {
+                    if (context->frame_wait_timeout_callback(total_wait_time, retry_count++, context->user_data)) {
                         continue;
                     } else {
                         return result;
@@ -12716,8 +12719,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
     zest_execution_backend backend = (zest_execution_backend)context->device->platform->new_execution_backend(allocator);
 
-    //context->device->platform->set_execution_fence(context, backend, is_intraframe);
-
 	zest_vec_foreach(resource_index, frame_graph->resources_to_update) {
 		zest_resource_node resource = frame_graph->resources_to_update[resource_index];
 		if (resource->buffer_provider) {
@@ -12797,7 +12798,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 zest_vec_foreach(pass_index, grouped_pass->passes) {
                     zest_pass_node pass = grouped_pass->passes[pass_index];
 
-					if (frame_graph->descriptor_sets && current_bind_point != pass->bind_point) {
+					if (pass->bind_point != zest_bind_point_none && frame_graph->descriptor_sets && current_bind_point != pass->bind_point) {
 						current_bind_point = pass->bind_point;
 						zest_cmd_BindDescriptorSets(&frame_graph->command_list, current_bind_point, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
 					}
@@ -14538,7 +14539,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_context context, zest_ima
     }
 	image->info.layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
-        zest_queue queue = device->platform->begin_single_time_commands(device, zest_queue_transfer);
+        zest_queue queue = device->platform->begin_single_time_commands(device, zest_queue_compute);
         zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
         device->platform->end_single_time_commands(queue);
     }

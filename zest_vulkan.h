@@ -1412,12 +1412,14 @@ zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
 }
 // -- End Swapchain_presenting
 
-
 // -- Initialisation_functions
 zest_device_builder zest_BeginVulkanDeviceBuilder() {
 	zest__register_platform(zest_platform_vulkan, zest__vk_initialise_platform_callbacks);
     void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
 	zest_device_builder builder = zest__begin_device_builder();
+	builder->graphics_queue_count = -1;
+	builder->compute_queue_count = -1;
+	builder->transfer_queue_count = -1;
 	builder->platform = zest_platform_vulkan;
 	return builder;
 }
@@ -1807,6 +1809,10 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     zest_uint compute_queue_count = 0;
     zest_uint transfer_queue_count = 0;
 
+	int graphics_queue_count_overide = device->setup_info.graphics_queue_count;
+	int compute_queue_count_overide = device->setup_info.compute_queue_count;
+	int transfer_queue_count_overide = device->setup_info.transfer_queue_count;
+
 	ZEST_APPEND_LOG(device->log_path.str, "Iterate available queues:");
     zest_vec_foreach(i, device->backend->queue_families) {
         VkQueueFamilyProperties properties = device->backend->queue_families[i];
@@ -1820,16 +1826,16 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
             !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
             !(properties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
 			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated transfer queue on index %i", i);
-			transfer_queue_count = properties.queueCount;
-            transfer_candidate = i;
+			transfer_queue_count = transfer_queue_count_overide >= 0 ? (zest_uint)transfer_queue_count_overide : properties.queueCount;
+            transfer_candidate = transfer_queue_count ? i : ZEST_INVALID;
         }
 
         // Is it a dedicated compute queue?
         if ((properties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
             !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
 			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated compute queue on index %i", i);
-			compute_queue_count = properties.queueCount;
-            compute_candidate = i;
+			compute_queue_count = compute_queue_count_overide >= 0 ? (zest_uint)compute_queue_count_overide : properties.queueCount;
+            compute_candidate = compute_queue_count ? i : ZEST_INVALID;
         }
     }
 
@@ -1840,7 +1846,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         if (properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             if (graphics_candidate == ZEST_INVALID) {
                 graphics_candidate = i;
-				graphics_queue_count = properties.queueCount;
+				graphics_queue_count = graphics_queue_count_overide >= 0 ? (zest_uint)graphics_queue_count_overide : properties.queueCount;
             }
         }
 
@@ -1864,9 +1870,6 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 		return 0;
 	}
 
-	//compute_candidate = ZEST_INVALID;
-	//transfer_candidate = ZEST_INVALID;
-
 	if (compute_candidate == ZEST_INVALID) {
 		compute_candidate = graphics_candidate;
 	}
@@ -1889,7 +1892,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
         queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue_info.queueFamilyIndex = indices.graphics_family_index;
-		queue_info.queueCount = device->backend->queue_families[indices.graphics_family_index].queueCount;
+		queue_info.queueCount = graphics_queue_count;
         queue_info.pQueuePriorities = indices.graphics_priorities;
         queue_create_infos[0] = queue_info;
         queue_create_count++;
@@ -1898,7 +1901,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     }
 
     // Dedicated compute queue
-    {
+    if(compute_queue_count > 0) {
         indices.compute_family_index = compute_candidate;
         if (indices.compute_family_index != indices.graphics_family_index)
         {
@@ -1920,7 +1923,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     }
 
     //Dedicated transfer queue
-    {
+    if(transfer_queue_count > 0) {
         indices.transfer_family_index = transfer_candidate;
         if (indices.transfer_family_index != indices.graphics_family_index && indices.transfer_family_index != indices.compute_family_index)
         {
@@ -2063,10 +2066,6 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 			vkGetDeviceQueue(device->backend->logical_device, indices.transfer_family_index, i, &device->transfer_queues.queues[i].backend->vk_queue);
 		}
 	}
-
-    device->graphics_queue_family_index = indices.graphics_family_index;
-    device->transfer_queue_family_index = indices.transfer_family_index;
-    device->compute_queue_family_index = indices.compute_family_index;
 
     device->graphics_queue_family_index = indices.graphics_family_index;
     device->transfer_queue_family_index = indices.transfer_family_index;

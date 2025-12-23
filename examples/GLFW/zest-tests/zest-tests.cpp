@@ -104,6 +104,9 @@ int main(void) {
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	zest_DeviceBuilderLogToMemory(device_builder);
+	device_builder->graphics_queue_count = -1;
+	device_builder->compute_queue_count = -1;
+	device_builder->transfer_queue_count = -1;
 	tests.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
