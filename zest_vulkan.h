@@ -3770,7 +3770,7 @@ zest_queue zest__vk_begin_single_time_commands(zest_device device, zest_device_q
 		case zest_queue_graphics: queue = zest__acquire_queue(device, device->graphics_queue_family_index); break;
 		case zest_queue_compute: queue = zest__acquire_queue(device, device->compute_queue_family_index); break;
 		case zest_queue_transfer: queue = zest__acquire_queue(device, device->transfer_queue_family_index); break;
-		default: ZEST_ASSERT(0, "Invalid target queue when trying to begin single time commands");
+		default: queue = zest__acquire_queue(device, device->graphics_queue_family_index);
 	}
 
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
