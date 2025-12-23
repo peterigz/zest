@@ -135,9 +135,10 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(context, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
-	zest_BeginImmediateCommandBuffer(context);
-	zest_imm_CopyBuffer(context, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
-	zest_EndImmediateCommandBuffer(context);
+	zest_device device = zest_GetContextDevice(context);
+	zest_queue queue = zest_BeginImmediateCommandBuffer(device, zest_queue_transfer);
+	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_EndImmediateCommandBuffer(queue);
 	zest_FreeBuffer(staging_buffer);
 }
 
