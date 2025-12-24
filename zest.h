@@ -12984,6 +12984,7 @@ const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_grap
 }
 
 void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
+#ifdef ZEST_TEST_MODE
     if (!ZEST_VALID_HANDLE(frame_graph)) {
         ZEST_PRINT("frame graph handle is NULL.");
         return;
@@ -13232,6 +13233,9 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
         }
     }
 	ZEST_PRINT("--- End of Report ---");
+#else
+	ZEST_PRINT("--- Printing the frame graph is only available in debug mode or if you define ZEST_TEST_MODE ---");
+#endif
 }
 
 void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data) {
