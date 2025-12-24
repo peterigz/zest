@@ -998,21 +998,21 @@ ZEST_PRIVATE inline VkDescriptorBufferInfo zest__vk_get_buffer_info(zest_buffer 
 }
 
 ZEST_PRIVATE inline zest_bool zest__validation_layers_are_enabled(zest_device device) {
-    return ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_validation_layers);
+    return ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers);
 }
 
 ZEST_PRIVATE inline zest_bool zest__validation_layers_with_sync_are_enabled(zest_device device) {
-    return ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_validation_layers_with_sync);
+    return ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers_with_sync);
 }
 
 ZEST_PRIVATE inline zest_bool zest__validation_layers_with_best_practices_are_enabled(zest_device device) {
-    return ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_validation_layers_with_best_practices);
+    return ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers_with_best_practices);
 }
 // -- End Inline_helpers
 
 // -- Swapchain_setup
-zest_swapchain_support_details_t zest__vk_query_swapchain_support(zest_context context, VkPhysicalDevice physical_device) {
-    zest_swapchain_support_details_t details;
+ZEST_PRIVATE inline zest_swapchain_support_details_t zest__vk_query_swapchain_support(zest_context context, VkPhysicalDevice physical_device) {
+	zest_swapchain_support_details_t details = ZEST__ZERO_INIT(zest_swapchain_support_details_t);
 
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, context->backend->surface, &details.capabilities);
 
@@ -1033,11 +1033,9 @@ zest_swapchain_support_details_t zest__vk_query_swapchain_support(zest_context c
     return details;
 }
 
-VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurfaceFormatKHR *available_formats) {
-    size_t num_available_formats = zest_vec_size(available_formats);
-
+ZEST_PRIVATE VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurfaceFormatKHR *available_formats, zest_uint format_count) {
     // --- 1. Handle the rare case where the surface provides no preferred formats ---
-    if (num_available_formats == 1 && available_formats[0].format == VK_FORMAT_UNDEFINED) {
+    if (format_count == 1 && available_formats[0].format == VK_FORMAT_UNDEFINED) {
         ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Surface format is UNDEFINED. Choosing VK_FORMAT_B8G8R8A8_SRGB by default.");
         VkSurfaceFormatKHR chosen_format = {
             VK_FORMAT_B8G8R8A8_SRGB, // Prefer SRGB for automatic gamma correction
@@ -1059,7 +1057,7 @@ VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurf
     }
 
     // --- 3. Search for the User's Preferred Format with SRGB Color Space ---
-    for (size_t i = 0; i < num_available_formats; ++i) {
+    for (size_t i = 0; i < format_count; ++i) {
         if (available_formats[i].format == desired_format &&
             available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Found exact user preference: Format %d, Colorspace %d", available_formats[i].format, available_formats[i].colorSpace);
@@ -1069,14 +1067,14 @@ VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurf
 	ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: User preferred format (%d) with SRGB colorspace not available.", desired_format);
 
     // --- 4. Fallback: Search for *any* SRGB Format with SRGB Color Space ---
-    for (size_t i = 0; i < num_available_formats; ++i) {
+    for (size_t i = 0; i < format_count; ++i) {
         if (available_formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
             available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Falling back to available VK_FORMAT_B8G8R8A8_SRGB.");
             return available_formats[i];
         }
     }
-    for (size_t i = 0; i < num_available_formats; ++i) {
+    for (size_t i = 0; i < format_count; ++i) {
         if (available_formats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
             available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Falling back to available VK_FORMAT_R8G8B8A8_SRGB.");
@@ -1088,14 +1086,14 @@ VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurf
     // --- 5. Fallback: Search for *any* UNORM Format with SRGB Color Space ---
     // If no SRGB format works, take any UNORM format as long as the colorspace is right.
     // This means we'll have to handle gamma correction manually in the shader.
-    for (size_t i = 0; i < num_available_formats; ++i) {
+    for (size_t i = 0; i < format_count; ++i) {
         if (available_formats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
             available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Falling back to VK_FORMAT_B8G8R8A8_UNORM with SRGB colorspace (Manual gamma needed).");
             return available_formats[i];
         }
     }
-    for (size_t i = 0; i < num_available_formats; ++i) {
+    for (size_t i = 0; i < format_count; ++i) {
         if (available_formats[i].format == VK_FORMAT_R8G8B8A8_UNORM &&
             available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Swapchain: Falling back to VK_FORMAT_R8G8B8A8_UNORM with SRGB colorspace (Manual gamma needed).");
@@ -1109,14 +1107,19 @@ VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurf
     return available_formats[0];
 }
 
-VkPresentModeKHR zest__vk_choose_present_mode(VkPresentModeKHR* available_present_modes, zest_bool use_vsync) {
+ZEST_PRIVATE VkPresentModeKHR zest__vk_choose_present_mode(VkPresentModeKHR* available_present_modes, zest_uint mode_count, zest_bool use_vsync) {
     VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
+	if (use_vsync) {
+		ZEST_PRINT("Using VSync");
+	} else {
+		ZEST_PRINT("NOT Using VSync");
+	}
 
     if (use_vsync) {
         return best_mode;
     }
 
-    zest_vec_foreach(i, available_present_modes) {
+    for(int i = 0; i != mode_count; i++) {
         if (available_present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
             return available_present_modes[i];
         }
@@ -1137,7 +1140,7 @@ VkExtent2D zest__vk_choose_swap_extent(zest_context context, VkSurfaceCapabiliti
         return capabilities->currentExtent;
     }
     else {
-     */
+    */
     ZEST_ASSERT(context->window_data.window_sizes_callback, "You must set a window size callback in the window data struct.");
     int fb_width = 0, fb_height = 0;
     int window_width = 0, window_height = 0;
@@ -1163,8 +1166,8 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
 	zest_swapchain swapchain = context->swapchain;
     zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(context, context->device->backend->physical_device);
 
-    VkSurfaceFormatKHR surfaceFormat = zest__vk_choose_swapchain_format(context, swapchain_support_details.formats);
-    VkPresentModeKHR presentMode = zest__vk_choose_present_mode(swapchain_support_details.present_modes, context->flags & zest_context_flag_vsync_enabled);
+    VkSurfaceFormatKHR surfaceFormat = zest__vk_choose_swapchain_format(context, swapchain_support_details.formats, swapchain_support_details.formats_count);
+    VkPresentModeKHR presentMode = zest__vk_choose_present_mode(swapchain_support_details.present_modes, swapchain_support_details.present_modes_count, context->flags & zest_context_flag_vsync_enabled);
     VkExtent2D extent = zest__vk_choose_swap_extent(context, &swapchain_support_details.capabilities);
     context->dpi_scale = (float)extent.width / (float)context->window_data.width;
     swapchain->format = (zest_format)surfaceFormat.format;
@@ -1455,7 +1458,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (device->log_path.str) {
         ZEST_APPEND_LOG(device->log_path.str, "Validation Layer: %s", pCallbackData->pMessage);
     }
-    if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_console)) {
+    if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_console)) {
         ZEST_PRINT("%s", pCallbackData->pMessageIdName);
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
@@ -1469,7 +1472,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == -1575303641) {
         int d = 0;
     }
-    if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_memory)) {
+    if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_memory)) {
         if (!zest_map_valid_key(device->validation_errors, (zest_key)pCallbackData->messageIdNumber)) {
             zest_text_t error_message = ZEST__ZERO_INIT(zest_text_t);
             zest_SetText(device->allocator, &error_message, pCallbackData->pMessage);
@@ -1696,7 +1699,7 @@ zest_bool zest__vk_create_instance(zest_device device) {
         ZEST_APPEND_LOG(device->log_path.str, "Checking for validation support");
         if (!validation_support) {
             ZEST_APPEND_LOG(device->log_path.str, "Validation layers not supported. Disabling.");
-            ZEST__UNFLAG(device->setup_info.flags, zest_init_flag_enable_validation_layers);;
+            ZEST__UNFLAG(device->setup_info.flags, zest_device_init_flag_enable_validation_layers);;
         }
     }
 
@@ -1965,7 +1968,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.multiDrawIndirect = VK_TRUE;
     device_features.shaderInt64 = VK_TRUE;
-    if (ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
+    if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
     VkPhysicalDeviceVulkan12Features device_features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     //For bindless descriptor sets:
@@ -2006,7 +2009,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     create_info.ppEnabledExtensionNames = zest_required_extensions;
 	create_info.pNext = &device_features_12;
 
-    if (ZEST__FLAGGED(device->setup_info.flags, zest_init_flag_enable_validation_layers)) {
+    if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers)) {
         create_info.enabledLayerCount = zest__validation_layer_count;
         create_info.ppEnabledLayerNames = zest_validation_layers;
     }
