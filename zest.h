@@ -1898,20 +1898,26 @@ typedef enum zest_swapchain_flag_bits {
 
 typedef zest_uint zest_swapchain_flags;
 
-typedef enum zest_init_flag_bits {
-	zest_init_flag_none = 0,
-	zest_init_flag_maximised = 1 << 1,
-	zest_init_flag_cache_shaders = 1 << 2,
-	zest_init_flag_enable_vsync = 1 << 3,
-	zest_init_flag_enable_fragment_stores_and_atomics = 1 << 4,
-	zest_init_flag_enable_validation_layers = 1 << 6,
-	zest_init_flag_enable_validation_layers_with_sync = 1 << 7,
-	zest_init_flag_enable_validation_layers_with_best_practices = 1 << 8,
-	zest_init_flag_log_validation_errors_to_console = 1 << 9,
-	zest_init_flag_log_validation_errors_to_memory = 1 << 10,
-} zest_init_flag_bits;
+typedef enum zest_device_init_flag_bits {
+	zest_device_init_flag_none = 0,
+	zest_device_init_flag_cache_shaders = 1 << 0,
+	zest_device_init_flag_enable_fragment_stores_and_atomics = 1 << 1,
+	zest_device_init_flag_enable_validation_layers = 1 << 2,
+	zest_device_init_flag_enable_validation_layers_with_sync = 1 << 3,
+	zest_device_init_flag_enable_validation_layers_with_best_practices = 1 << 4,
+	zest_device_init_flag_log_validation_errors_to_console = 1 << 5,
+	zest_device_init_flag_log_validation_errors_to_memory = 1 << 6,
+} zest_device_init_flag_bits;
 
-typedef zest_uint zest_init_flags;
+typedef zest_uint zest_device_init_flags;
+
+typedef enum zest_context_init_flag_bits {
+	zest_context_init_flag_none = 0,
+	zest_context_init_flag_maximised = 1 << 1,
+	zest_context_init_flag_enable_vsync = 1 << 2,
+} zest_context_init_flag_bits;
+
+typedef zest_uint zest_context_init_flags;
 
 typedef enum zest_validation_flag_bits {
 	zest_validation_flag_none = 0,
@@ -3381,7 +3387,7 @@ typedef struct zest_device_builder_t {
 	int magic;
 	zloc_allocator *allocator;
 	// Flag to enable validation layers, etc.
-	zest_init_flags flags;
+	zest_device_init_flags flags;
 	zest_platform_type platform;
 	zest_size memory_pool_size;
 	int thread_count;
@@ -3413,8 +3419,7 @@ typedef struct zest_create_context_info_t {
 	zest_millisecs semaphore_wait_timeout_ms;           //The amount of time the main loop fence should wait before timing out
 	zest_millisecs max_semaphore_timeout_ms;            //The maximum amount of time to wait before giving up
 	zest_format color_format;                   		//The format to use for the swapchain
-	zest_init_flags flags;                              //Set flags to apply different initialisation options
-	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
+	zest_context_init_flags flags;                              //Set flags to apply different initialisation options
 	zest_platform_type platform;
 	zest_size memory_pool_size;
 } zest_create_context_info_t;
@@ -5970,7 +5975,7 @@ typedef struct zest_device_t {
 	zest_format depth_format;
 	zest_uint max_image_size;
 
-	zest_init_flags init_flags;
+	zest_device_init_flags init_flags;
 
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
@@ -7622,22 +7627,22 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 }
 
 void zest_AddDeviceBuilderValidation(zest_device_builder builder) {
-    ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers);
-	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_sync);
+    ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers);
+	ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers_with_sync);
 }
 
 void zest_AddDeviceBuilderFullValidation(zest_device_builder builder) {
-    ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers);
-	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_sync);
-	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_best_practices);
+    ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers);
+	ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers_with_sync);
+	ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers_with_best_practices);
 }
 
 void zest_DeviceBuilderLogToConsole(zest_device_builder builder) {
-	ZEST__FLAG(builder->flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__FLAG(builder->flags, zest_device_init_flag_log_validation_errors_to_console);
 }
 
 void zest_DeviceBuilderLogToMemory(zest_device_builder builder) {
-	ZEST__FLAG(builder->flags, zest_init_flag_log_validation_errors_to_memory);
+	ZEST__FLAG(builder->flags, zest_device_init_flag_log_validation_errors_to_memory);
 }
 
 void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path) {
@@ -8991,7 +8996,7 @@ void zest_SetDevicePoolSize(zest_device device, const char *name, zest_buffer_us
 
 // --Renderer and related functions
 zest_bool zest__initialise_context(zest_context context, zest_create_context_info_t* create_info) {
-    context->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
+    context->flags |= (create_info->flags & zest_context_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
 
 	void *context_memory = ZEST__ALLOCATE(context->device->allocator, create_info->memory_pool_size);
@@ -9013,8 +9018,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		return ZEST_FALSE;
 	}
     context->swapchain = zest__create_swapchain(context, create_info->title);
-
-    ZEST_APPEND_LOG(context->device->log_path.str, "Create descriptor layouts");
 
     if (!context->device->platform->initialise_context_backend(context)) {
         return ZEST_FALSE;
@@ -10258,7 +10261,7 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
     shader->name = shader_name;
-    if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
+    if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
         shader->spv = zest_ReadEntireFile(device, shader->name.str, ZEST_FALSE);
         if (shader->spv) {
             shader->spv_size = zest_vec_size(shader->spv);
@@ -10276,7 +10279,7 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
         ZEST_ASSERT(0, "There's a bug in this shader that needs fixing. You can check the log file for the error message");
 	}
 
-    if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
+    if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
         zest__cache_shader(device, shader);
     }
 	zest__activate_resource(shader_handle.store, shader_handle.value);
@@ -11113,9 +11116,8 @@ zest_create_context_info_t zest_CreateContextInfo() {
 	create_info.semaphore_wait_timeout_ms = 250;
 	create_info.max_semaphore_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10);
 	create_info.color_format = zest_format_b8g8r8a8_unorm;
-	create_info.flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders;
+	create_info.flags = 0;
 	create_info.platform = zest_platform_vulkan;
-	create_info.maximum_textures = 1024;
 	create_info.memory_pool_size = zloc__MEGABYTE(8);
     return create_info;
 }
