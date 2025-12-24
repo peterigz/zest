@@ -196,7 +196,7 @@ inline zest_shader_handle zest_slang_CreateShader(zest_device device, const char
     }
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 
-    if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
+    if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
         zest__cache_shader(device, shader);
     }
 

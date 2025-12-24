@@ -311,8 +311,7 @@ void MainLoop(ComputeExample *app) {
 int main(void) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	//Disable vsync so we can see how fast it runs
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	ComputeExample compute_example = { 0 };
 

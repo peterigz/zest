@@ -1345,8 +1345,7 @@ void MainLoop(VadersGame *game) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	VadersGame game = { 0 };
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
@@ -1361,8 +1360,8 @@ int main() {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
+	//zest_AddDeviceBuilderValidation(device_builder);
+	//zest_DeviceBuilderLogToConsole(device_builder);
 	game.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW

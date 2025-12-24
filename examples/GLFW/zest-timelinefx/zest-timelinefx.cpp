@@ -305,8 +305,7 @@ void MainLoop(TimelineFXExample *game) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	TimelineFXExample game = {0};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.

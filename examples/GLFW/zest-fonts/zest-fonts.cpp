@@ -171,7 +171,7 @@ void MainLoop(zest_fonts_example *app) {
 int main(void) {
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	if (!glfwInit()) {
 		return 0;
