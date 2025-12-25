@@ -4687,6 +4687,7 @@ ZEST_API zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame
 ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch);
 ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
 ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
+ZEST_API zest_size *zest_GetFrameGraphSize(zest_frame_graph frame_graph);
 ZEST_API void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph);
 ZEST_API void zest_PrintCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 
@@ -6238,6 +6239,7 @@ typedef struct zest_frame_graph_t {
 	void *user_data;
 	zest_command_list_t command_list;
 	zest_key cache_key;
+	zest_size cached_size;
 
 	zest_microsecs compile_time;
 	zest_microsecs execute_time;
@@ -11213,7 +11215,7 @@ zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_ke
 void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
-	//Don't cache the frame graph if the frame graph allocator had to be increase in size.
+	//Don't cache the frame graph if the frame graph allocator had to be increased in size.
 	if (context->frame_graph_allocator[context->current_fif].next) {
 		zest_size capacity = zloc_GetLinearAllocatorCapacity(&context->frame_graph_allocator[context->current_fif]);
 		ZEST_PRINT("Cannot cache the frame graph this frame as the frame graph allocator was not big enough. Consider increasing the size of the frame graph allocator by setting frame_graph_allocation_size in the create info of the context when you create it. The current capacity of the frame graph after being grown is %llu bytes.", capacity);
@@ -11222,9 +11224,7 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     if (!frame_graph->cache_key) return;    //Only cache if there's a key
     if (frame_graph->error_status) return;  //Don't cache a frame graph that had errors
 	zest_size offset = context->frame_graph_allocator[context->current_fif].current_offset;
-	zest_size capacity = context->frame_graph_allocator[context->current_fif].buffer_size;
-	float used = (float)offset / (float)capacity * 100.f;
-	ZEST_PRINT("Cached frame graph used %zu bytes, %%%.2f of capacity", offset, used);
+	frame_graph->cached_size = offset;
     zest_cached_frame_graph_t new_cached_graph = {
         zloc_PromoteLinearBlock(context->allocator, context->frame_graph_allocator[context->current_fif].data, context->frame_graph_allocator[context->current_fif].current_offset),
         frame_graph
@@ -13001,6 +13001,11 @@ const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_grap
         return &frame_graph->final_passes.data[pass_index];
     }
     return NULL;
+}
+
+zest_size zest_GetFrameGraphCachedSize(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+	return frame_graph->cached_size;
 }
 
 void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
