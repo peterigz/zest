@@ -1109,11 +1109,6 @@ ZEST_PRIVATE VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context co
 
 ZEST_PRIVATE VkPresentModeKHR zest__vk_choose_present_mode(VkPresentModeKHR* available_present_modes, zest_uint mode_count, zest_bool use_vsync) {
     VkPresentModeKHR best_mode = VK_PRESENT_MODE_FIFO_KHR;
-	if (use_vsync) {
-		ZEST_PRINT("Using VSync");
-	} else {
-		ZEST_PRINT("NOT Using VSync");
-	}
 
     if (use_vsync) {
         return best_mode;
