@@ -8,6 +8,11 @@ typedef struct minimal_app_t {
 	zest_context context;
 } minimal_app_t;
 
+void BlankScreen(const zest_command_list command_list, void *user_data) {
+	//Usually you'd have zest_cmd_ commands like zest_cmd_Draw or zest_cmd_DrawIndexed
+	//But with nothing here it will just be a blank screen.
+}
+
 void MainLoop(minimal_app_t *app) {
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		zest_UpdateDevice(app->device);
@@ -29,7 +34,7 @@ void MainLoop(minimal_app_t *app) {
 						zest_ConnectSwapChainOutput();
 						//Set the callback that will record the command buffer that draws to the swap chain. In this
 						//case though we're not drawing anything other then a blank screen.
-						zest_SetPassTask(zest_EmptyRenderPass, 0);
+						zest_SetPassTask(BlankScreen, 0);
 						//Declare the end of the render pass
 						zest_EndPass();
 					}
