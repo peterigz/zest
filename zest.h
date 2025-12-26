@@ -56,8 +56,8 @@
     [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
     [Swapchain_helpers]                 General swapchain helpers to get, set clear color etc.
     [Draw_Layers_API]                   General helper functions for layers
-    [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
-    [Draw_instance_mesh_layers]         Functions for drawing the builtin instance mesh layer pipeline
+    [Draw_mesh_layers]                  Functions for drawing meshes
+    [Draw_instance_mesh_layers]         Functions for drawing instances of meshes
     [Compute_shaders]                   Functions for setting up your own custom compute shaders
     [Events_and_States]                 Just one function for now
     [Timer_functions]                   High resolution timer functions
@@ -72,39 +72,50 @@
 --- [About_Zest]
 
 A lightweight single header library + platform layer, so for example you would include zest.h and then the 
-platform that you want to use such as zest_vulkan.h. There is also a zest_utilities.h file which is more of
-an example file that is used by all the examples to show how you can implement various things such as loading
-images, fonts, opening windows with sdl or glfw etc. You don't have to use this file but it can help with just
-getting started with the library.
+platform that you want to use such as zest_vulkan.h. The aim of this library is to provide the minimal API
+to execute things on the GPU and handle the tedious tasks of synchronization, barriers, image transitions etc.
+This is for programmers that don't want bloat and features that they won't need, rather they can code their own 
+things without a complex renderer getting in the way.
+
+There is also a zest_utilities.h file which is more of an example file that is used by all the examples to 
+show how you can implement various things such as loading images, fonts, opening windows with sdl or glfw etc. 
+You don't have to use this file but it can help with just getting started with the library.
+
+This is a more forward looking library in that Vulkan 1.2 is the minimum requirement and the GPU must be able to 
+handle bindless descriptor sets and dynamic rendering and so it's more for desktop rendering, this is not a renderer
+for mobiles for now.
 
 Core Architecture & Features
 * 	Separate platform layer so that the API can be compiled with Vulkan/DX12/Metal. Currently only Vulkan exists 
 	in the API in the file zest_vulkan.h
 *	Two main objects are create at startup, a "Device" which handles the platform layer of the rendering
-	(Vulkan, DX12, Metal) and Contexts which handle windows swap chains and frame graphs. Each window that you open will
-	have it's own context so there is essentially a one to many relationship between the Device and Contexts.
+	(Vulkan, DX12, Metal) and then Contexts which handle windows swap chains and frame graphs. Each window that you 
+	open will have it's own context so there is essentially a one to many relationship between the Device and 
+	Contexts.
 * 	Dedicated Two Level Segregated Fit (TLSF) Allocator to manage both Host memory and also GPU Memory for speed and 
 	minimal fragmentation. A linear allocator is also used for short lifetime memory. This means that memory 
-	pools are allocated from the system and then the TLSF sub allocates from that pool. This allocator also 
-	handles memory allocations on the GPU as well.
+	pools are allocated infrequently from the system and then the TLSF sub-allocates from that pool. This 
+	allocator also handles memory allocations on the GPU as well in a similar way (pools and sub-allocations).
 * 	Frame graph that allows you to declare resources, passes and inputs and outputs to those passes. The frame 
-	graph is compiled and executed with necessary semaphores, barriers, transient resource creation/freeing. 
-	It also makes use of async where it can automatically, otherwise everything is put on to the graphics queue 
+	graph is compiled and executed with necessary semaphores, barriers, image transitions and transient resource 
+	creation/freeing. 
+	It also makes use of async where it can, otherwise everything is merged on to the graphics queue 
 	to optimize queue ownership and transfer of resources. All of the memory for the frame graph has a lifetime 
-	of a single frame using a linear allocator located in the Context. 
+	of a single frame using a linear allocator located in the Context that the frame graph belongs to. 
 
-	Frame graphs also create transient buffers and images and use the TLSF allocator to achieve memory aliasing.
+	Frame graphs also create transient buffers and images and use the TLSF allocator to for memory aliasing.
 	This means that any resource that is used in a frame and gets freed, that memory can then be immediately 
 	re-used in the same frame to save memory.
 
 	Frame graphs can also be cached so that they don't have to be compiled each frame.
-* 	Descriptor sets are all bindless and managed with a single global descriptor layout stored in the device. 
-	Uniform buffers are an exception, these have their own descriptor sets/pools created with the uniform buffer.
+* 	Descriptor sets are all bindless and managed with a single global descriptor layout stored in the device. This
+	means that this global set is bound once in each command buffer and that's it, you can just index into the
+	descriptor array that you need.
 * 	Render passes are handled using dynamic render passes.
 * 	Simple to use API for creating pipelines, compute shader pipelines and GPU resources like buffers and images.
 * 	It also includes a separate implementation for Dear Imgui so it can be easily added to a project.
-* 	There's also an implementation for slang (see zest-compute-example).
-
+* 	Shaderc is used to compile shaders with Vulkan and there's also an implementation for slang 
+	(see zest-compute-example).
 */
 
 #define ZEST_DEBUGGING
