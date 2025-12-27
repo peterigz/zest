@@ -2891,9 +2891,11 @@ ZEST_PRIVATE zest_bool zest__is_aligned(void *ptr, size_t alignment) {
 ZEST_PRIVATE inline zest_ull zest__hash_rotate_left(zest_ull x, unsigned char bits) {
 	return (x << bits) | (x >> (64 - bits));
 }
+
 ZEST_PRIVATE inline zest_ull zest__hash_process_single(zest_ull previous, zest_ull input) {
 	return zest__hash_rotate_left(previous + input * zest__PRIME2, 31) * zest__PRIME1;
 }
+
 ZEST_PRIVATE inline void zest__hasher_process(const void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) {
 	zest_ull *block = (zest_ull*)data;
 	zest_ull blocks[4];
@@ -2903,6 +2905,7 @@ ZEST_PRIVATE inline void zest__hasher_process(const void* data, zest_ull *state0
 	*state2 = zest__hash_process_single(*state2, blocks[2]);
 	*state3 = zest__hash_process_single(*state3, blocks[3]);
 }
+
 ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher_t *hasher, const void* input, zest_ull length)
 {
 	if (!input || length == 0) return ZEST_FALSE;
@@ -3030,6 +3033,31 @@ ZEST_PRIVATE zest_uint zest__map_get_index(zest_hash_pair *map, zest_key key) { 
 #define zest_map_index(hash_map, i) (hash_map.map[i].index)
 #define zest_map_foreach(index, hash_map) zest_vec_foreach(index, hash_map.map)
 // --End pocket hash map
+
+//Another hash map with open addressing probing. This is very simple and designed for frame graphs only but
+//but the frame graph only has to hash a few things and there's negligable difference between this and the above
+//hash map when the numbers are small so therefore this is currently unused. The above hash map uses binary 
+//search and has the advantage of not needing the data table to be larger to avoid collisions and there's not 
+//much overhead if the table runs out of space and needs to be resized. 
+
+//If the below hash map runs out of space then everything needs to be re-hashed again so it needs to be oversized 
+//to begin with. Because it's for the frame graph only there's no need to be able to remove things from the table
+//but it wouldn't be too hard to add I think.
+typedef struct zest_map_t {
+	void *table;				//Table containing all the data
+	zest_uint *filled_slots;	//A parallel table so that elements can be iterated over easily
+	zest_uint element_size;		//The size of each data element stored in the table
+	zest_uint current_size;		//The current number of used slots in the table
+	zest_uint capacity;			//The total capacity of the table
+	zest_uint collisions;		//Keep a count of all the collisions that happened
+} zest_map_t;
+
+void zest__initialise_map(zest_context context, zest_map_t *map, zest_uint element_size, zest_uint capacity);
+void zest__insert_key(zest_map_t *map, zest_key key, void *value);
+void zest__insert(zest_map_t *map, const char *name, void *value);
+void *zest__at_key(zest_map_t *map, zest_key key);
+void *zest__at_index(zest_map_t *map, zest_uint index);
+void *zest__at(zest_map_t *map, const char *name);
 
 // --Begin Pocket_text_buffer
 typedef struct zest_text_t {
@@ -10842,6 +10870,66 @@ void zest__initialise_store(zloc_allocator *allocator, void *origin, zest_resour
     store->alignment = 16;
 	store->origin = origin;
 	zest__sync_init(&store->sync);
+}
+
+void zest__initialise_map(zest_context context, zest_map_t *map, zest_uint element_size, zest_uint capacity) {
+	*map = ZEST__ZERO_INIT(zest_map_t);
+	map->element_size = element_size;
+	map->capacity = capacity;
+	map->table = zest__allocate(context->allocator, (element_size + sizeof(zest_key)) * capacity);
+	map->filled_slots = (zest_uint*)zest__allocate(context->allocator, sizeof(zest_uint) * capacity);
+	memset(map->table, 0, (map->element_size + sizeof(zest_key)) * capacity);
+}
+
+void zest__insert_key(zest_map_t *map, zest_key key, void *value) {
+	zest_uint index = key % map->capacity;
+	zest_uint size = map->element_size + sizeof(zest_key);
+	zest_key *element = (zest_key*)((char*)map->table + size * index);
+	zest_uint probe = 1;
+	while (key != *element && *element != 0) {
+		map->collisions++;
+		if (map->current_size >= map->capacity) {
+			return;
+		}
+		index = (index + probe * probe) % map->capacity;
+		//index = (index + 1) % map->capacity;
+		element = (zest_key*)((char*)map->table + size * index);
+		probe++;
+	}
+	memcpy((char*)element + sizeof(zest_key), value, map->element_size);
+	map->filled_slots[map->current_size] = index;
+	*element = key;
+	map->current_size++;
+}
+
+void zest__insert(zest_map_t *map, const char *name, void *value) {
+	zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
+	zest__insert_key(map, key, value);
+}
+
+void *zest__at_key(zest_map_t *map, zest_key key) {
+	zest_uint index = key % map->capacity;
+	zest_uint size = map->element_size + sizeof(zest_key);
+	zest_key *element = (zest_key*)((char*)map->table + size * index);
+	zest_uint probe = 1;
+	while (key != *element && *element != 0) {
+		index = (index + probe * probe) % map->capacity;
+		//index = (index + 1) % map->capacity;
+		element = (zest_key*)((char*)map->table + size * index);
+		probe++;
+	}
+	return (char*)element + sizeof(zest_key);
+}
+
+void *zest__at_index(zest_map_t *map, zest_uint index) {
+	zest_uint size = map->element_size + sizeof(zest_key);
+	zest_key *element = (zest_key*)((char*)map->table + size * index);
+	return (char*)element + sizeof(zest_key);
+}
+
+void *zest__at(zest_map_t *map, const char *name) {
+	zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
+	return zest__at_key(map, key);
 }
 
 void zest_SetText(zloc_allocator *allocator, zest_text_t* buffer, const char* text) {
