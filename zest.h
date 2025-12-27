@@ -3053,11 +3053,15 @@ typedef struct zest_map_t {
 } zest_map_t;
 
 void zest__initialise_map(zest_context context, zest_map_t *map, zest_uint element_size, zest_uint capacity);
-void zest__insert_key(zest_map_t *map, zest_key key, void *value);
-void zest__insert(zest_map_t *map, const char *name, void *value);
+zest_bool zest__insert_key(zest_map_t *map, zest_key key, void *value);
+zest_bool zest__insert(zest_map_t *map, const char *name, void *value);
 void *zest__at_key(zest_map_t *map, zest_key key);
 void *zest__at_index(zest_map_t *map, zest_uint index);
 void *zest__at(zest_map_t *map, const char *name);
+zest_bool zest__find_key(zest_map_t *map, zest_key key, void **out_value);
+zest_bool zest__find(zest_map_t *map, const char *name, void **out_value);
+zest_bool zest__ensure_capacity(zest_map_t *map, zest_uint required_capacity);
+void zest__free_map(zest_context context, zest_map_t *map);
 
 // --Begin Pocket_text_buffer
 typedef struct zest_text_t {
@@ -10879,57 +10883,154 @@ void zest__initialise_map(zest_context context, zest_map_t *map, zest_uint eleme
 	map->table = zest__allocate(context->allocator, (element_size + sizeof(zest_key)) * capacity);
 	map->filled_slots = (zest_uint*)zest__allocate(context->allocator, sizeof(zest_uint) * capacity);
 	memset(map->table, 0, (map->element_size + sizeof(zest_key)) * capacity);
+	memset(map->filled_slots, 0, sizeof(zest_uint) * capacity);
 }
 
-void zest__insert_key(zest_map_t *map, zest_key key, void *value) {
+zest_bool zest__insert_key(zest_map_t *map, zest_key key, void *value) {
+	// Check if key already exists first
+	void *existing_value;
+	if (zest__find_key(map, key, &existing_value)) {
+		// Key exists, update the value
+		memcpy(existing_value, value, map->element_size);
+		return ZEST_TRUE;
+	}
+	
+	// Check for capacity overflow
+	if (map->current_size >= map->capacity) {
+		return ZEST_FALSE;
+	}
+	
 	zest_uint index = key % map->capacity;
 	zest_uint size = map->element_size + sizeof(zest_key);
 	zest_key *element = (zest_key*)((char*)map->table + size * index);
 	zest_uint probe = 1;
-	while (key != *element && *element != 0) {
+	
+	// Find empty slot using quadratic probing
+	while (*element != 0) {
 		map->collisions++;
-		if (map->current_size >= map->capacity) {
-			return;
-		}
 		index = (index + probe * probe) % map->capacity;
-		//index = (index + 1) % map->capacity;
 		element = (zest_key*)((char*)map->table + size * index);
 		probe++;
+		
+		// Safety check to prevent infinite loop
+		if (probe > map->capacity) {
+			return ZEST_FALSE;
+		}
 	}
+	
+	// Store the key and value
+	*element = key;
 	memcpy((char*)element + sizeof(zest_key), value, map->element_size);
 	map->filled_slots[map->current_size] = index;
-	*element = key;
 	map->current_size++;
+	return ZEST_TRUE;
 }
 
-void zest__insert(zest_map_t *map, const char *name, void *value) {
+zest_bool zest__insert(zest_map_t *map, const char *name, void *value) {
+	if (!name) return ZEST_FALSE;
 	zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
-	zest__insert_key(map, key, value);
+	return zest__insert_key(map, key, value);
 }
 
 void *zest__at_key(zest_map_t *map, zest_key key) {
+	if (map->current_size == 0) return NULL;
+	
 	zest_uint index = key % map->capacity;
 	zest_uint size = map->element_size + sizeof(zest_key);
 	zest_key *element = (zest_key*)((char*)map->table + size * index);
 	zest_uint probe = 1;
-	while (key != *element && *element != 0) {
+	
+	while (*element != 0) {
+		if (key == *element) {
+			return (char*)element + sizeof(zest_key);
+		}
 		index = (index + probe * probe) % map->capacity;
-		//index = (index + 1) % map->capacity;
 		element = (zest_key*)((char*)map->table + size * index);
 		probe++;
+		
+		// Safety check to prevent infinite loop
+		if (probe > map->capacity) {
+			return NULL;
+		}
 	}
-	return (char*)element + sizeof(zest_key);
+	
+	// Key not found
+	return NULL;
 }
 
 void *zest__at_index(zest_map_t *map, zest_uint index) {
+	if (index >= map->capacity) return NULL;
+	
 	zest_uint size = map->element_size + sizeof(zest_key);
 	zest_key *element = (zest_key*)((char*)map->table + size * index);
 	return (char*)element + sizeof(zest_key);
 }
 
 void *zest__at(zest_map_t *map, const char *name) {
+	if (!name) return NULL;
 	zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
 	return zest__at_key(map, key);
+}
+
+zest_bool zest__find_key(zest_map_t *map, zest_key key, void **out_value) {
+	if (!out_value || map->current_size == 0) return ZEST_FALSE;
+	
+	zest_uint index = key % map->capacity;
+	zest_uint size = map->element_size + sizeof(zest_key);
+	zest_key *element = (zest_key*)((char*)map->table + size * index);
+	zest_uint probe = 1;
+	
+	while (*element != 0) {
+		if (key == *element) {
+			*out_value = (char*)element + sizeof(zest_key);
+			return ZEST_TRUE;
+		}
+		index = (index + probe * probe) % map->capacity;
+		element = (zest_key*)((char*)map->table + size * index);
+		probe++;
+		
+		// Safety check to prevent infinite loop
+		if (probe > map->capacity) {
+			break;
+		}
+	}
+	
+	*out_value = NULL;
+	return ZEST_FALSE;
+}
+
+zest_bool zest__find(zest_map_t *map, const char *name, void **out_value) {
+	if (!name || !out_value) return ZEST_FALSE;
+	zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
+	return zest__find_key(map, key, out_value);
+}
+
+zest_bool zest__ensure_capacity(zest_map_t *map, zest_uint required_capacity) {
+	if (required_capacity <= map->capacity) {
+		return ZEST_TRUE;
+	}
+	
+	// Needs implementing
+	ZEST_PRINT("WARNING: zest__ensure_capacity called but not implemented. Current capacity: %u, Required: %u", 
+		map->capacity, required_capacity);
+	return ZEST_FALSE;
+}
+
+void zest__free_map(zest_context context, zest_map_t *map) {
+	if (!map) return;
+	
+	if (map->table) {
+		ZEST__FREE(context->allocator, map->table);
+		map->table = NULL;
+	}
+	
+	if (map->filled_slots) {
+		ZEST__FREE(context->allocator, map->filled_slots);
+		map->filled_slots = NULL;
+	}
+	
+	// Reset all fields
+	memset(map, 0, sizeof(zest_map_t));
 }
 
 void zest_SetText(zloc_allocator *allocator, zest_text_t* buffer, const char* text) {
