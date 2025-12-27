@@ -41,6 +41,11 @@ struct RibbonBufferInfo {
 	uint32_t indicesPerSegment;       // Number of indices per segment
 };
 
+struct RenderCacheInfo {
+	bool draw_imgui;
+	zest_uint fif;
+};
+
 struct camera_push_constant {
     zest_vec4 position;
 	float uv_scale;
@@ -100,6 +105,8 @@ struct Ribbons {
 	zest_buffer_resource_info_t instance_buffer_info;
 	zest_buffer_resource_info_t vertex_buffer_info;
 	zest_buffer_resource_info_t index_buffer_info;
+
+	RenderCacheInfo cache_info;
 
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];

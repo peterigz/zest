@@ -432,99 +432,102 @@ void MainLoop(Ribbons *app) {
 
 		float elapsed = (float)current_frame_time;
 
-		UpdateUniform3d(app);
-
-		//First control the camera with the mosue if the right mouse is clicked
-		bool camera_free_look = false;
-		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-			camera_free_look = true;
-			if (glfwRawMouseMotionSupported()) {
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-			}
-			ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-		} else if (glfwRawMouseMotionSupported()) {
-			camera_free_look = false;
-			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		} else {
-			camera_free_look = false;
-			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		}
-
-		if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
-			app->ribbon_built = true;
-		}
-
-		zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
-		zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(uniform_buffer);
-		zest_StartTimerLoop(app->timer) {
-			BuildUI(app);
-
-			if (ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyReleased(ImGuiKey_N)) {
-				UpdateRibbons(app);
-			}
-
-			float speed = 5.f * (float)app->timer.update_time;
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-				ImGui::SetWindowFocus(nullptr);
-
-				if (ImGui::IsKeyDown(ImGuiKey_W)) {
-					zest_CameraMoveForward(&app->camera, speed);
-				}
-				if (ImGui::IsKeyDown(ImGuiKey_S)) {
-					zest_CameraMoveBackward(&app->camera, speed);
-				}
-				if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-					zest_CameraMoveUp(&app->camera, speed);
-				}
-				if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-					zest_CameraMoveDown(&app->camera, speed);
-				}
-				if (ImGui::IsKeyDown(ImGuiKey_A)) {
-					zest_CameraStrafLeft(&app->camera, speed);
-				}
-				if (ImGui::IsKeyDown(ImGuiKey_D)) {
-					zest_CameraStrafRight(&app->camera, speed);
-				}
-			}
-
-			//Restore the mouse when right mouse isn't held down
-			if (camera_free_look) {
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-			} else {
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			}
-
-		} zest_EndTimerLoop(app->timer);
-
-		zest_uint fif = zest_CurrentFIF(app->context);
-
-		app->camera_push.position = { app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f };
-		app->camera_push.segment_count = SEGMENT_COUNT;
-		app->camera_push.index_offset = 0;
-		app->camera_push.ribbon_count = app->ribbon_count;
-		zest_uint total_segments = SEGMENT_COUNT * app->ribbon_count;
-		app->index_count = 0;
-		zest_StageData(app->ribbon_segments, app->ribbon_segment_staging_buffer[fif], SEGMENT_COUNT *RIBBON_COUNT * sizeof(ribbon_segment));
-		app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
-		zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[fif], app->ribbon_count * sizeof(ribbon_instance));
-
-		app->segment_buffer_info.size = zest_GetBufferSize(app->ribbon_segment_staging_buffer[fif]);
-		app->instance_buffer_info.size = zest_GetBufferSize(app->ribbon_instance_staging_buffer[fif]);
-		app->vertex_buffer_info.size = app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex);
-		app->index_buffer_info.size = app->index_count * sizeof(zest_uint);
-
-		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
-
 		if (zest_BeginFrame(app->context)) {
+
+			UpdateUniform3d(app);
+
+			//First control the camera with the mosue if the right mouse is clicked
+			bool camera_free_look = false;
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+				camera_free_look = true;
+				if (glfwRawMouseMotionSupported()) {
+					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+				}
+				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
+			} else if (glfwRawMouseMotionSupported()) {
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			} else {
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+			}
+
+			if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
+				app->ribbon_built = true;
+			}
+
+			zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
+			zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(uniform_buffer);
+			zest_StartTimerLoop(app->timer) {
+				BuildUI(app);
+
+				if (ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyReleased(ImGuiKey_N)) {
+					UpdateRibbons(app);
+				}
+
+				float speed = 5.f * (float)app->timer.update_time;
+				if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+					ImGui::SetWindowFocus(nullptr);
+
+					if (ImGui::IsKeyDown(ImGuiKey_W)) {
+						zest_CameraMoveForward(&app->camera, speed);
+					}
+					if (ImGui::IsKeyDown(ImGuiKey_S)) {
+						zest_CameraMoveBackward(&app->camera, speed);
+					}
+					if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
+						zest_CameraMoveUp(&app->camera, speed);
+					}
+					if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
+						zest_CameraMoveDown(&app->camera, speed);
+					}
+					if (ImGui::IsKeyDown(ImGuiKey_A)) {
+						zest_CameraStrafLeft(&app->camera, speed);
+					}
+					if (ImGui::IsKeyDown(ImGuiKey_D)) {
+						zest_CameraStrafRight(&app->camera, speed);
+					}
+				}
+
+				//Restore the mouse when right mouse isn't held down
+				if (camera_free_look) {
+					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+				} else {
+					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+				}
+
+			} zest_EndTimerLoop(app->timer);
+
+			zest_uint fif = zest_CurrentFIF(app->context);
+
+			app->camera_push.position = { app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f };
+			app->camera_push.segment_count = SEGMENT_COUNT;
+			app->camera_push.index_offset = 0;
+			app->camera_push.ribbon_count = app->ribbon_count;
+			zest_uint total_segments = SEGMENT_COUNT * app->ribbon_count;
+			app->index_count = 0;
+			zest_StageData(app->ribbon_segments, app->ribbon_segment_staging_buffer[fif], SEGMENT_COUNT *RIBBON_COUNT * sizeof(ribbon_segment));
+			app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
+			zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[fif], app->ribbon_count * sizeof(ribbon_instance));
+
+			app->segment_buffer_info.size = zest_GetBufferSize(app->ribbon_segment_staging_buffer[fif]);
+			app->instance_buffer_info.size = zest_GetBufferSize(app->ribbon_instance_staging_buffer[fif]);
+			app->vertex_buffer_info.size = app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex);
+			app->index_buffer_info.size = app->index_count * sizeof(zest_uint);
+
+			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
+			app->cache_info.fif = fif;
+			zest_frame_graph_cache_key_t cache_key = {};
+			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
+
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "Ribbons render graph", 0)) {
+				if (zest_BeginFrameGraph(app->context, "Ribbons render graph", &cache_key)) {
 					//Resources
 					zest_resource_node ribbon_segment_buffer = zest_AddTransientBufferResource("Ribbon Segment Buffer", &app->segment_buffer_info);
 					zest_resource_node ribbon_instance_buffer = zest_AddTransientBufferResource("Ribbon Instance Buffer", &app->instance_buffer_info);
