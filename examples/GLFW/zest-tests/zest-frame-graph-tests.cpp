@@ -606,9 +606,9 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 			zest_FlagResourceAsEssential(depth);
 			zest_BeginRenderPass("Draw Nothing");
 			zest_ConnectSwapChainOutput();
+			zest_ConnectOutput(depth);
 			zest_SetPassTask(zest_EmptyRenderPass, NULL);
 			zest_SetSwapchainClearColor(tests->context, 0.0f, 0.1f, 0.2f, 1.0f);
-			zest_ConnectOutput(depth);
 			zest_EndPass();
 			frame_graph = zest_EndFrameGraph();
 			zest_QueueFrameGraphForExecution(tests->context, frame_graph);

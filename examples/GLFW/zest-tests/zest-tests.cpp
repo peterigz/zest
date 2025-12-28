@@ -6,6 +6,7 @@
 #include "imgui_internal.h"
 #include "zest-frame-graph-tests.cpp"
 #include "zest-frame-graph-stress.cpp"
+#include "zest-pipeline-tests.cpp"
 
 void InitialiseTests(ZestTests *tests) {
 
@@ -33,6 +34,15 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[21] = { "Stress Test Transient Images", test__stress_transient_images, 0, 0, 0, tests->simple_create_info };
 	tests->tests[22] = { "Stress Test All Transients", test__stress_all_transients, 0, 0, 0, tests->simple_create_info };
 	tests->tests[23] = { "Stress Test Multi Queue", test__stress_multi_queue_sync, 0, 0, 0, tests->simple_create_info };
+	tests->tests[24] = { "Pipeline Test State Depth", test__pipeline_state_depth, 0, 0, 0, tests->simple_create_info };
+	tests->tests[25] = { "Pipeline Test State Blending", test__pipeline_state_blending, 0, 0, 0, tests->simple_create_info };
+	tests->tests[26] = { "Pipeline Test State Culling", test__pipeline_state_culling, 0, 0, 0, tests->simple_create_info };
+	tests->tests[27] = { "Pipeline Test State Topology", test__pipeline_state_topology, 0, 0, 0, tests->simple_create_info };
+	tests->tests[28] = { "Pipeline Test State Polygon Mode", test__pipeline_state_polygon_mode, 0, 0, 0, tests->simple_create_info };
+	tests->tests[29] = { "Pipeline Test State Front Face", test__pipeline_state_front_face, 0, 0, 0, tests->simple_create_info };
+	tests->tests[30] = { "Pipeline Test State Vertex Input", test__pipeline_state_vertex_input, 0, 0, 0, tests->simple_create_info };
+	tests->tests[31] = { "Pipeline Test State MultiBlend", test__pipeline_state_multiblend, 0, 0, 0, tests->simple_create_info };
+	tests->tests[32] = { "Pipeline Test State Rasterization", test__pipeline_state_rasterization, 0, 0, 0, tests->simple_create_info };
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
@@ -74,6 +84,7 @@ void RunTests(ZestTests *tests) {
 				zest_ResetValidationErrors(tests->device);
 				ResetTests(tests);
 			} else {
+				zest_ResetDevice(tests->device);
 				break;
 			}
 		}
