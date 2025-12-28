@@ -1959,10 +1959,15 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         return 0;
     }
 
-    VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures);
+VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures);
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.multiDrawIndirect = VK_TRUE;
     device_features.shaderInt64 = VK_TRUE;
+    // Enable features needed for comprehensive pipeline testing
+    device_features.fillModeNonSolid = VK_TRUE;
+    device_features.geometryShader = VK_TRUE;
+    device_features.tessellationShader = VK_TRUE;
+    device_features.shaderTessellationAndGeometryPointSize = VK_TRUE;
     if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
     VkPhysicalDeviceVulkan12Features device_features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
