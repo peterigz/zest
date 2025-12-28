@@ -4192,7 +4192,7 @@ ZEST_PRIVATE void zest__cleanup_compute_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_view_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_view_array_store(zest_device device);
 ZEST_PRIVATE void zest__free_handle(zloc_allocator *allocator, void *handle);
-ZEST_PRIVATE void zest__scan_memory_and_free_resources(zloc_allocator *allocator, zest_bool including_context);
+ZEST_PRIVATE void zest__scan_memory_and_free_resources(void *origin, zest_bool including_context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
@@ -4507,6 +4507,8 @@ ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API zest_color_blend_attachment_t zest_MaxAlphaBlendState(void);
 ZEST_API zest_color_blend_attachment_t zest_ImGuiBlendState(void);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list);
+//Cache a pipeline ahead of time so that it's ready for use within a frame graph
+ZEST_API zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
@@ -7943,7 +7945,8 @@ void zest_DestroyContext(zest_context context) {
 
 void zest_ResetDevice(zest_device device) {
     zest__cleanup_buffers_in_allocators(device);
-	zest__scan_memory_and_free_resources(device->allocator, ZEST_FALSE);
+	zest__cleanup_pipeline_layout(device->pipeline_layout);
+	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
 	zest__free_all_device_resource_stores(device);
 	zest_ResetValidationErrors(device);
 
@@ -7951,8 +7954,6 @@ void zest_ResetDevice(zest_device device) {
         zest_report_t *report = &device->reports.data[i];
         zest_FreeText(device->allocator, &report->message);
     }
-
-	ZEST_PRINT("GPU Buffer Allocator and Memory Pools used:");
 
 	zest__free_device_buffer_allocators(device);
 
@@ -9067,6 +9068,10 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
     context->allocator->user_data = context;
     context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
 
+    context->memory_pools[0] = context_memory;
+    context->memory_pool_sizes[0] = create_info->memory_pool_size;
+    context->memory_pool_count = 1;
+
 	for (int i = 0; i != zest_max_context_handle_type; ++i) {
 		switch ((zest_context_handle_type)i) {
 			case zest_handle_type_uniform_buffers: 		zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
@@ -9251,8 +9256,9 @@ void zest__cleanup_device(zest_device device) {
 		zest_vec_free(device->allocator, queue_manager->queues);
 	}
 
+	zest__cleanup_pipeline_layout(device->pipeline_layout);
     zest__cleanup_buffers_in_allocators(device);
-	zest__scan_memory_and_free_resources(device->allocator, ZEST_TRUE);
+	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
 	zest__free_all_device_resource_stores(device);
 
 	zest__cleanup_set_layout(device->bindless_set_layout);
@@ -9370,43 +9376,64 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
     }
 }
 
-void zest__scan_memory_and_free_resources(zloc_allocator *allocator, zest_bool including_context) {
+void zest__scan_memory_and_free_resources(void *origin, zest_bool including_context) {
+	void **memory_pools = 0;
+	zest_uint memory_pool_count;
+	zloc_allocator *allocator = 0;
+	if (ZEST_STRUCT_TYPE(origin) == zest_struct_type_device) {
+		zest_device device = (zest_device)origin;
+		memory_pools = device->memory_pools;
+		memory_pool_count = device->memory_pool_count;
+		allocator = device->allocator;
+	} else {
+		zest_context context = (zest_context)origin;
+		memory_pools = context->memory_pools;
+		memory_pool_count = context->memory_pool_count;
+		allocator = context->allocator;
+	}
     zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
     if (stats.used_blocks == 0) {
         return;
     }
     void **memory_to_free = 0;
     zest_vec_reserve(allocator, memory_to_free, (zest_uint)stats.used_blocks);
-    zloc_header *current_block = zloc__first_block_in_pool(zloc_GetPool(allocator));
-    while (!zloc__is_last_block_in_pool(current_block)) {
-        if (!zloc__is_free_block(current_block)) {
-            zest_size block_size = zloc__block_size(current_block);
-            void *allocation = (void *)((char *)current_block + zloc__BLOCK_POINTER_OFFSET);
-			if (ZEST_VALID_HANDLE(allocation)) {
-				zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
-				switch (struct_type) {
-					case zest_struct_type_pipeline_template:
-						zest_vec_push(allocator, memory_to_free, allocation);
-						break;
-					case zest_struct_type_execution_timeline:
-						zest_vec_push(allocator, memory_to_free, allocation);
-						break;
-					case zest_struct_type_buffer_backend:
-						zest_vec_push(allocator, memory_to_free, allocation);
-						break;
-					case zest_struct_type_pipeline_layout:
-						zest_vec_push(allocator, memory_to_free, allocation);
-						break;
-					case zest_struct_type_context:
-						if (including_context) {
+	zloc_header *current_block = 0;
+	for (int i = 0; i != memory_pool_count; i++) {
+		if (i == 0) {
+			current_block = zloc__first_block_in_pool(zloc_GetPool(allocator));
+		} else {
+			current_block = zloc__first_block_in_pool((zloc_pool*)memory_pools[i]);
+		}
+		while (!zloc__is_last_block_in_pool(current_block)) {
+			if (!zloc__is_free_block(current_block)) {
+				zest_size block_size = zloc__block_size(current_block);
+				void *allocation = (void *)((char *)current_block + zloc__BLOCK_POINTER_OFFSET);
+				if (ZEST_VALID_HANDLE(allocation)) {
+					zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
+					switch (struct_type) {
+						case zest_struct_type_pipeline_template:
 							zest_vec_push(allocator, memory_to_free, allocation);
-						}
-						break;
+							break;
+						case zest_struct_type_execution_timeline:
+							zest_vec_push(allocator, memory_to_free, allocation);
+							break;
+						case zest_struct_type_buffer_backend:
+							zest_vec_push(allocator, memory_to_free, allocation);
+							break;
+						case zest_struct_type_pipeline_layout:
+							zest_vec_push(allocator, memory_to_free, allocation);
+							break;
+						case zest_struct_type_context:
+							if (including_context) {
+								zest_vec_push(allocator, memory_to_free, allocation);
+							}
+							break;
+					}
 				}
-            }
-        }
-        current_block = zloc__next_physical_block(current_block);
-    }
+			}
+			current_block = zloc__next_physical_block(current_block);
+		}
+	}
     zest_vec_foreach(i, memory_to_free) {
         void *allocation = memory_to_free[i];
         zest__free_handle(allocator, allocation);
@@ -9524,7 +9551,7 @@ void zest__cleanup_context(zest_context context) {
 		zest__free_store(&context->resource_stores[i]); 
 	}
 
-	zest__scan_memory_and_free_resources(context->allocator, ZEST_FALSE);
+	zest__scan_memory_and_free_resources(context, ZEST_FALSE);
 
     zest_map_foreach(i, context->cached_frame_graph_semaphores) {
         zest_frame_graph_semaphores semaphores = context->cached_frame_graph_semaphores.data[i];
@@ -9599,7 +9626,6 @@ void zest__cleanup_context(zest_context context) {
 	for (int i = 0; i != context->memory_pool_count; i++) {
 		ZEST__FREE(context->device->allocator, context->memory_pools[i]);
 	}
-	ZEST__FREE(context->device->allocator, context->allocator);
 }
 
 zest_bool zest__recreate_swapchain(zest_context context) {
@@ -10070,7 +10096,7 @@ zest_pipeline_layout zest_CreatePipelineLayout(zest_pipeline_layout_info_t *info
 	layout->push_constant_range = info->push_constant_range;
 	layout->backend = (zest_pipeline_layout_backend)device->platform->new_pipeline_layout_backend(device);
 	if (!device->platform->build_pipeline_layout(device, layout, info)) {
-		ZEST_PRINT("Error: Could not create a pipeline layout. Check the validation errors.");
+		ZEST_PRINT("Error: Could not create a pipeline layout. Check for validation errors.");
 		device->platform->cleanup_pipeline_layout_backend(layout);
 		ZEST__FREE(device->allocator, layout);
 		layout = NULL;
@@ -10533,6 +10559,13 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template
 	return pipeline;
 }
 
+zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context) {
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = context;
+	zest_pipeline pipeline = zest_PipelineWithTemplate(pipeline_template, &command_list);
+	return pipeline;
+}
+
 zest_extent2d_t zest_GetSwapChainExtent(zest_context context) { return context->swapchain->size; }
 zest_uint zest_ScreenWidth(zest_context context) { return (zest_uint)context->swapchain->size.width; }
 zest_uint zest_ScreenHeight(zest_context context) { return (zest_uint)context->swapchain->size.height; }
@@ -10695,7 +10728,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
         if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_device) {
 			zest_device device = (zest_device)allocator->user_data;
 			header->id = device->vector_id++;
-			if (header->id == 95) {
+			if (header->id == 600) {
 				int d = 0;
 			}
         } else if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_context) {
