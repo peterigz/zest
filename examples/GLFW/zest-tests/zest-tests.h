@@ -7,7 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 33
+#define TEST_COUNT 45
 #define MAX_TEST_RESOURCES 1000
 
 struct ZestTests;
@@ -35,6 +35,7 @@ struct Test {
 	const char *name;
 	test_callback the_test;
 	int frame_count;
+	int run_count;		//Number of frames the test should run for
 	zest_frame_graph_result result;
 	zest_frame_graph_result expected_result;
 	zest_create_context_info_t create_info;
@@ -70,6 +71,7 @@ struct ZestTests {
 void InitialiseTests(ZestTests *tests);
 void ResetTests(ZestTests *tests);
 void RunTests(ZestTests *tests);
+void PrintTestUpdate(Test *test, int phase, zest_bool passed);
 
 int test__blank_screen(ZestTests *tests, Test *test);
 
@@ -77,10 +79,10 @@ int test__blank_screen(ZestTests *tests, Test *test);
  Core Tests:
 1. test__instanced_rendering_basic - Basic instanced rendering (100 instances)
 2. test__instanced_rendering_large_count - Stress test (10K instances)
-3. test__vertex_format_validation - Multiple vertex format validation
-4. test__pipeline_state_depth - Depth testing configurations
-5. test__pipeline_state_blending - Blend state testing
-6. test__pipeline_state_culling - Rasterization culling
+Done 3. test__vertex_format_validation - Multiple vertex format validation
+Done 4. test__pipeline_state_depth - Depth testing configurations
+Done 5. test__pipeline_state_blending - Blend state testing
+Done 6. test__pipeline_state_culling - Rasterization culling
  Resource Management:
 7. test__image_format_support - Multiple image format validation
 8. test__buffer_type_validation - Different buffer type testing
