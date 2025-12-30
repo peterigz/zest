@@ -852,7 +852,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
     image_handle = zest_CreateImage(context, &create_info);
 	zest_image image = zest_GetImage(image_handle);
 
-	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_transfer);
+	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_graphics);
 	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6);
 	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
     zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, 6);
@@ -1090,7 +1090,7 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 
     fread(&file.magic, sizeof(zest_uint), 1, font_file);
 	unsigned char *png_buffer = 0;
-	if (ZEST_VALID_HANDLE(&file)) {
+	if (ZEST_VALID_IDENTIFIER(&file)) {
 		fread(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
 		fread(&file.png_size, sizeof(zest_uint), 1, font_file);
 		png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(file.png_size);
