@@ -199,10 +199,7 @@ void zest_WriteBufferStressCompute(const zest_command_list command_list, void *u
 int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
@@ -271,10 +268,7 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 int test__stress_transient_images(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
@@ -346,10 +340,7 @@ int test__stress_transient_images(ZestTests *tests, Test *test) {
 int test__stress_all_transients(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
@@ -482,10 +473,7 @@ Feed them all as input into a final pass so that they don't get culled.
 int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
