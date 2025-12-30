@@ -381,7 +381,6 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
 		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
 		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
-			
 	}
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;

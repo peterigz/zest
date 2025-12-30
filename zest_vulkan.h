@@ -225,6 +225,7 @@ ZEST_PRIVATE zest_bool zest__vk_create_logical_device(zest_device device);
 ZEST_PRIVATE void zest__vk_set_limit_data(zest_device device);
 ZEST_PRIVATE void zest__vk_setup_validation(zest_device device);
 ZEST_PRIVATE void zest__vk_pick_physical_device(zest_device device);
+ZEST_PRIVATE zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags);
 ZEST_PRIVATE zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image);
@@ -233,6 +234,7 @@ ZEST_PRIVATE zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, z
 ZEST_PRIVATE zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__vk_create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__vk_get_image_raw_layout(zest_image image);
+ZEST_PRIVATE zest_bool zest__vk_image_layout_is_valid_for_desriptor(zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
 ZEST_PRIVATE zest_bool zest__vk_generate_mipmaps(zest_queue queue, zest_image image);
 ZEST_PRIVATE zest_queue zest__vk_begin_single_time_commands(zest_device device, zest_device_queue_type target_queue);
@@ -478,6 +480,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->flush_used_buffers                            = zest__vk_flush_used_buffers;
     platform->cmd_copy_buffer_one_time                      = zest__vk_cmd_copy_buffer_one_time;
 
+	platform->is_image_format_supported					    = zest__vk_is_image_format_supported;
 	platform->create_image 								    = zest__vk_create_image;
 	platform->create_image_view         				    = zest__vk_create_image_view;
 	platform->create_image_views_per_mip		 		    = zest__vk_create_image_views_per_mip;
@@ -485,6 +488,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->transition_image_layout			 		    = zest__vk_transition_image_layout;
 	platform->create_sampler		 					    = zest__vk_create_sampler;
 	platform->get_image_raw_layout		 				    = zest__vk_get_image_raw_layout;
+	platform->image_layout_is_valid_for_descriptor			= zest__vk_image_layout_is_valid_for_desriptor;
 	platform->copy_buffer_to_image		 				    = zest__vk_copy_buffer_to_image;
 	platform->generate_mipmaps		 					    = zest__vk_generate_mipmaps;
 
@@ -1651,6 +1655,10 @@ void zest__vk_pick_physical_device(zest_device device) {
     vkGetPhysicalDeviceProperties(device->backend->physical_device, &device->backend->properties);
     // Features should be checked by the examples before using them
     vkGetPhysicalDeviceFeatures(device->backend->physical_device, &device->backend->features);
+    // Store commonly needed limits in platform-agnostic device struct
+    device->min_uniform_buffer_offset_alignment = device->backend->properties.limits.minUniformBufferOffsetAlignment;
+    device->max_uniform_buffer_size = device->backend->properties.limits.maxUniformBufferRange;
+    device->max_storage_buffer_size = device->backend->properties.limits.maxStorageBufferRange;
     // Memory properties are used regularly for creating all kinds of buffers
     vkGetPhysicalDeviceMemoryProperties(device->backend->physical_device, &device->backend->memory_properties);
 
@@ -1987,6 +1995,7 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
     device_features_12.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
     device_features_12.bufferDeviceAddress = VK_TRUE;
     device_features_12.timelineSemaphore = VK_TRUE;
+    device_features_12.samplerMirrorClampToEdge = VK_TRUE;
 
 	VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features = ZEST__ZERO_INIT(VkPhysicalDeviceSynchronization2FeaturesKHR);
 	sync2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
@@ -3073,7 +3082,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
     VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	VkResult result = VK_SUCCESS;
-    if (ZEST_VALID_HANDLE(vert_shader)) {
+    if (ZEST_VALID_HANDLE(vert_shader, zest_struct_type_shader)) {
         if (!vert_shader->spv) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline_template->name);
             result = VK_ERROR_UNKNOWN;
@@ -3083,7 +3092,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
         vert_shader_stage_info.module = vert_shader_module;
     }
 
-    if (ZEST_VALID_HANDLE(frag_shader)) {
+    if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
         if (!frag_shader->spv) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
             result = VK_ERROR_UNKNOWN;
@@ -3246,6 +3255,38 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 // -- End Pipelines
 
 // -- Images
+zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags) {
+	VkImageTiling tiling = ZEST__FLAGGED(flags, zest_image_flag_host_visible) ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
+	VkFormatProperties props;
+	vkGetPhysicalDeviceFormatProperties(device->backend->physical_device, (VkFormat)format, &props);
+
+	VkFormatFeatureFlags available_features = (tiling == VK_IMAGE_TILING_LINEAR)
+		? props.linearTilingFeatures
+		: props.optimalTilingFeatures;
+
+	//Check if the format supports the required features based on flags
+	if (ZEST__FLAGGED(flags, zest_image_flag_sampled) && !(available_features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) {
+		return ZEST_FALSE;
+	}
+	if (ZEST__FLAGGED(flags, zest_image_flag_storage) && !(available_features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT)) {
+		return ZEST_FALSE;
+	}
+	if (ZEST__FLAGGED(flags, zest_image_flag_color_attachment) && !(available_features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) {
+		return ZEST_FALSE;
+	}
+	if (ZEST__FLAGGED(flags, zest_image_flag_depth_stencil_attachment) && !(available_features & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
+		return ZEST_FALSE;
+	}
+	if (ZEST__FLAGGED(flags, zest_image_flag_transfer_src) && !(available_features & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT)) {
+		return ZEST_FALSE;
+	}
+	if (ZEST__FLAGGED(flags, zest_image_flag_transfer_dst) && !(available_features & VK_FORMAT_FEATURE_TRANSFER_DST_BIT)) {
+		return ZEST_FALSE;
+	}
+
+	return ZEST_TRUE;
+}
+
 zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
 
     VkImageUsageFlags usage = ZEST__FLAGGED(flags, zest_image_flag_sampled) ? VK_IMAGE_USAGE_SAMPLED_BIT : 0;
@@ -3328,6 +3369,25 @@ zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uin
 
 int zest__vk_get_image_raw_layout(zest_image image) {
     return (int)image->backend->vk_current_layout;
+}
+
+zest_bool zest__vk_image_layout_is_valid_for_desriptor(zest_image image) {
+	switch (image->backend->vk_current_layout) {
+		case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+		case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+		case VK_IMAGE_LAYOUT_GENERAL:
+		case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+		case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+		case VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL:
+		case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:
+		case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL:
+			return ZEST_TRUE;
+			break;
+		default:
+			return ZEST_FALSE;
+			break;
+	}
+	return ZEST_FALSE;
 }
 
 zest_bool inline zest__vk_has_stencil_format(VkFormat format) {
