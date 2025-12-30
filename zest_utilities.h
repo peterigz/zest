@@ -1090,7 +1090,8 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 
     fread(&file.magic, sizeof(zest_uint), 1, font_file);
 	unsigned char *png_buffer = 0;
-	if (ZEST_VALID_IDENTIFIER(&file)) {
+	
+	if ((*((int*)&file) & 0xFFFF) == 0x4E57) {
 		fread(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
 		fread(&file.png_size, sizeof(zest_uint), 1, font_file);
 		png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(file.png_size);
@@ -1099,6 +1100,7 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 		ZEST_PRINT("Unable to read font file");
 		return ZEST__ZERO_INIT(zest_msdf_font_t);
 	}
+
 	int width, height, channels;
 	stbi_uc *bitmap_buffer = stbi_load_from_memory(png_buffer, file.png_size, &width, &height, &channels, 0);
 	int size = width * height * channels;
