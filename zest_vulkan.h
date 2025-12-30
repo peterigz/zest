@@ -192,7 +192,7 @@ ZEST_PRIVATE void *zest__vk_new_pipeline_layout_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(zest_buffer_allocator buffer_allocator);
 ZEST_PRIVATE void *zest__vk_new_memory_backend(zest_device device);
 
-ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
+ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_device device, zest_compute compute);
 
 //Cleanup backends
 ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain);
@@ -2237,46 +2237,37 @@ void *zest__vk_new_frame_graph_semaphores_backend(zest_context context) {
     return backend;
 }
 
-zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute) {
-	zest_device device = builder->device;
-
+zest_bool zest__vk_finish_compute(zest_device device, zest_compute compute) {
 	VkComputePipelineCreateInfo compute_pipeline_create_info = ZEST__ZERO_INIT(VkComputePipelineCreateInfo);
     // Create compute shader pipeline_templates
     compute_pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     compute_pipeline_create_info.layout = compute->pipeline_layout->backend->vk_pipeline_layout;
     compute_pipeline_create_info.flags = 0;
 
-    // One pipeline for each effect
-    ZEST_ASSERT(zest_vec_size(builder->shaders));
-    compute->shaders = builder->shaders;
     VkShaderModule shader_module = ZEST__ZERO_INIT(VkShaderModule);
-    zest_vec_foreach(i, compute->shaders) {
-        zest_shader_handle shader_handle = compute->shaders[i];
-        zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(compute->shader.store, compute->shader.value);
 
-        ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
-        VkShaderModule shader_module = 0;
-        ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->spv, &shader_module));
+	ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
+	ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->spv, &shader_module));
 
-        VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
-        compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        compute_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        compute_shader_stage_info.module = shader_module;
-        compute_shader_stage_info.pName = "main";
-        compute_pipeline_create_info.stage = compute_shader_stage_info;
+	VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
+	compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	compute_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+	compute_shader_stage_info.module = shader_module;
+	compute_shader_stage_info.pName = "main";
+	compute_pipeline_create_info.stage = compute_shader_stage_info;
 
-        VkPipeline pipeline;
-        //If you get validation errors here or even a crash then make sure that you're shader has the correct inputs that match the
-        //compute builder set up. For example if the shader expects a push constant range then use zest_SetComputePushConstantSize before
-        //calling this function.
-        ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_compute_pipeline);
-        device->backend->last_result = vkCreateComputePipelines(device->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &device->backend->allocation_callbacks, &pipeline);
-        vkDestroyShaderModule(device->backend->logical_device, shader_module, &device->backend->allocation_callbacks);
-        if (device->backend->last_result != VK_SUCCESS) {
-            goto cleanup;
-        }
-        compute->backend->pipeline = pipeline;
-    }
+	VkPipeline pipeline;
+	//If you get validation errors here or even a crash then make sure that you're shader has the correct inputs that match the
+	//compute builder set up. For example if the shader expects a push constant range then use zest_SetComputePushConstantSize before
+	//calling this function.
+	ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_compute_pipeline);
+	device->backend->last_result = vkCreateComputePipelines(device->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &device->backend->allocation_callbacks, &pipeline);
+	vkDestroyShaderModule(device->backend->logical_device, shader_module, &device->backend->allocation_callbacks);
+	if (device->backend->last_result != VK_SUCCESS) {
+		goto cleanup;
+	}
+	compute->backend->pipeline = pipeline;
     return ZEST_TRUE;
 cleanup:
     return ZEST_FALSE;

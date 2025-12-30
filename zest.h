@@ -3924,14 +3924,6 @@ typedef struct zest_layer_builder_t {
 	zest_uint initial_count;
 } zest_layer_builder_t;
 
-typedef struct zest_compute_builder_t {
-	zest_device device;
-	zest_pipeline_layout pipeline_layout;
-	zest_shader_handle *shaders;
-	zest_compute_flags flags;
-	void *user_data;
-} zest_compute_builder_t;
-
 zest_hash_map(zest_render_pass) zest_map_render_passes;
 zest_hash_map(zest_sampler_handle) zest_map_samplers;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
@@ -3991,7 +3983,7 @@ typedef struct zest_platform_t {
 	//Pipelines
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool                  (*build_pipeline_layout)(zest_device device, zest_pipeline_layout layout, zest_pipeline_layout_info_t *info);
-	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
+	zest_bool				   (*finish_compute)(zest_device device, zest_compute compute);
 	//Semaphores
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
 	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
@@ -5165,24 +5157,15 @@ ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3
 //-----------------------------------------------
 //Create a blank ready-to-build compute object and store by name in the renderer.
 ZEST_PRIVATE zest_compute zest__new_compute(zest_device device, const char *name);
-//To build a compute shader pipeline you can use a zest_compute_builder_t and corresponding commands to add the various settings for the compute object
-ZEST_API zest_compute_builder_t zest_BeginComputeBuilder(zest_device device);
-ZEST_API void zest_SetComputePipelineLayout(zest_compute_builder_t *builder, zest_pipeline_layout layout);
-//Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
-ZEST_API zest_uint zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
-//Set any pointer to custom user data here. You will be able to access this in the callback functions.
-ZEST_API void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data);
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest__new_compute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
-ZEST_API zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name);
+ZEST_API zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader, void* user_data);
 //Get a compute pointer from a handle that you can use to pass in to functions. If the the compute resource
 //is freed then the pointer is no longer valid.
 ZEST_API zest_compute zest_GetCompute(zest_compute_handle compute_handle);
 //Free a compute shader and all its resources
 ZEST_API void zest_FreeCompute(zest_compute_handle compute);
-//Get the pipeline layout of a comput shader
-zest_pipeline_layout zest_GetComputePipelineLayout(zest_compute compute);
 //--End Compute shaders
 
 //-----------------------------------------------
@@ -6531,7 +6514,7 @@ typedef struct zest_compute_t {
 	zest_compute_backend backend;
 	zest_compute_handle handle;
 	zest_pipeline_layout pipeline_layout;
-	zest_shader_handle *shaders;                              // List of compute shaders to use
+	zest_shader_handle shader;                                // The shader handle that the compute dispatches to
 	void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
 	void *user_data;                                          // Custom user data
 	zest_compute_flags flags;
@@ -7844,8 +7827,12 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 }
 
 zest_bool zest_BeginFrame(zest_context context) {
-	ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), "You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.");
-	ZEST_ASSERT(context->device_frame_counter < context->device->frame_counter, "zest_UpdateDevice was not called this frame. Make sure you call it at least once each frame before calling zest_BeginFrame.");
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), context->device, 
+							"You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.",
+							ZEST_FALSE);
+	ZEST_ASSERT_OR_VALIDATE(context->device_frame_counter < context->device->frame_counter, context->device,
+							"zest_UpdateDevice was not called this frame. Make sure you call it at least once each frame before calling zest_BeginFrame.",
+							ZEST_FALSE);
 	context->device_frame_counter = context->device->frame_counter;
 	zest_semaphore_status fence_wait_result = zest__main_loop_semaphore_wait(context);
 	if (fence_wait_result == zest_semaphore_status_success) {
@@ -9499,10 +9486,12 @@ void zest__scan_memory_and_free_resources(void *origin, zest_bool including_cont
 void zest__cleanup_image_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_images];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_image image = zest_bucket_array_get(&store->data, zest_image_t, i);
-        if (ZEST_VALID_HANDLE(image, zest_struct_type_image)) {
-            zest__cleanup_image(image);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_image image = zest_bucket_array_get(&store->data, zest_image_t, i);
+			if (ZEST_VALID_HANDLE(image, zest_struct_type_image)) {
+				zest__cleanup_image(image);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9510,10 +9499,12 @@ void zest__cleanup_image_store(zest_device device) {
 void zest__cleanup_sampler_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_samplers];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_sampler sampler = zest_bucket_array_get(&store->data, zest_sampler_t, i);
-        if (ZEST_VALID_HANDLE(sampler, zest_struct_type_sampler)) {
-            zest__cleanup_sampler(sampler);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_sampler sampler = zest_bucket_array_get(&store->data, zest_sampler_t, i);
+			if (ZEST_VALID_HANDLE(sampler, zest_struct_type_sampler)) {
+				zest__cleanup_sampler(sampler);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9521,10 +9512,12 @@ void zest__cleanup_sampler_store(zest_device device) {
 void zest__cleanup_uniform_buffer_store(zest_context context) {
 	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_uniform_buffers];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_uniform_buffer buffer = zest_bucket_array_get(&store->data, zest_uniform_buffer_t, i);
-        if (ZEST_VALID_HANDLE(buffer, zest_struct_type_uniform_buffer)) {
-            zest__cleanup_uniform_buffer(buffer);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_uniform_buffer buffer = zest_bucket_array_get(&store->data, zest_uniform_buffer_t, i);
+			if (ZEST_VALID_HANDLE(buffer, zest_struct_type_uniform_buffer)) {
+				zest__cleanup_uniform_buffer(buffer);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9532,10 +9525,12 @@ void zest__cleanup_uniform_buffer_store(zest_context context) {
 void zest__cleanup_layer_store(zest_context context) {
 	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_layers];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_layer layer = zest_bucket_array_get(&store->data, zest_layer_t, i);
-        if (ZEST_VALID_HANDLE(layer, zest_struct_type_layer)) {
-            zest__cleanup_layer(layer);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_layer layer = zest_bucket_array_get(&store->data, zest_layer_t, i);
+			if (ZEST_VALID_HANDLE(layer, zest_struct_type_layer)) {
+				zest__cleanup_layer(layer);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9543,10 +9538,12 @@ void zest__cleanup_layer_store(zest_context context) {
 void zest__cleanup_shader_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_shader shader = zest_bucket_array_get(&store->data, zest_shader_t, i);
-        if (ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) {
-            zest_FreeShader(shader->handle);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_shader shader = zest_bucket_array_get(&store->data, zest_shader_t, i);
+			if (ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) {
+				zest_FreeShader(shader->handle);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9554,10 +9551,12 @@ void zest__cleanup_shader_store(zest_device device) {
 void zest__cleanup_compute_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_compute_pipelines];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_compute compute = zest_bucket_array_get(&store->data, zest_compute_t, i);
-        if (ZEST_VALID_HANDLE(compute, zest_struct_type_compute)) {
-            zest__cleanup_compute(compute);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_compute compute = zest_bucket_array_get(&store->data, zest_compute_t, i);
+			if (ZEST_VALID_HANDLE(compute, zest_struct_type_compute)) {
+				zest__cleanup_compute(compute);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9565,10 +9564,12 @@ void zest__cleanup_compute_store(zest_device device) {
 void zest__cleanup_view_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_views];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_image_view *view = (zest_image_view*)zest__bucket_array_get(&store->data, i);
-        if (ZEST_VALID_HANDLE(*view, zest_struct_type_view)) {
-            zest__cleanup_image_view(*view);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_image_view *view = (zest_image_view *)zest__bucket_array_get(&store->data, i);
+			if (ZEST_VALID_HANDLE(*view, zest_struct_type_view)) {
+				zest__cleanup_image_view(*view);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9576,10 +9577,12 @@ void zest__cleanup_view_store(zest_device device) {
 void zest__cleanup_view_array_store(zest_device device) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_view_arrays];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_image_view_array *view = (zest_image_view_array*)zest__bucket_array_get(&store->data, i);
-        if (ZEST_VALID_HANDLE(*view, zest_struct_type_view_array)) {
-            zest__cleanup_image_view_array(*view);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_image_view_array *view = (zest_image_view_array *)zest__bucket_array_get(&store->data, i);
+			if (ZEST_VALID_HANDLE(*view, zest_struct_type_view_array)) {
+				zest__cleanup_image_view_array(*view);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -9587,10 +9590,12 @@ void zest__cleanup_view_array_store(zest_device device) {
 void zest__cleanup_execution_timeline_store(zest_context context) {
 	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
     for (int i = 0; i != store->data.current_size; ++i) {
-		zest_execution_timeline timeline = zest_bucket_array_get(&store->data, zest_execution_timeline_t, i);
-        if (ZEST_VALID_HANDLE(timeline, zest_struct_type_execution_timeline)) {
-			zest__cleanup_execution_timeline(timeline);
-        }
+		if (zest__resource_is_initialised(store, i)) {
+			zest_execution_timeline timeline = zest_bucket_array_get(&store->data, zest_execution_timeline_t, i);
+			if (ZEST_VALID_HANDLE(timeline, zest_struct_type_execution_timeline)) {
+				zest__cleanup_execution_timeline(timeline);
+			}
+		}
     }
 	zest__free_store(store);
 }
@@ -10739,11 +10744,6 @@ void zest_SetSmallHostBufferPoolSize(zest_device device, zest_size minimum_size,
 zest_compute zest_GetCompute(zest_compute_handle compute_handle) {
 	zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.store, compute_handle.value);
 	return compute;
-}
-
-zest_pipeline_layout zest_GetComputePipelineLayout(zest_compute compute) {
-	ZEST_ASSERT_HANDLE(compute);		//Not a valid pipeline!
-	return compute->pipeline_layout;
 }
 
 void zest_FreeCompute(zest_compute_handle compute_handle) {
@@ -16322,45 +16322,18 @@ zest_compute zest__new_compute(zest_device device, const char* name) {
     return compute;
 }
 
-zest_compute_builder_t zest_BeginComputeBuilder(zest_device device) {
-    zest_compute_builder_t builder = ZEST__ZERO_INIT(zest_compute_builder_t);
-	builder.device = device;
-	builder.pipeline_layout = device->pipeline_layout;
-    return builder;
-}
-
-void zest_SetComputePipelineLayout(zest_compute_builder_t *builder, zest_pipeline_layout layout) {
-    builder->pipeline_layout = layout;
-}
-
-zest_uint zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
-	ZEST_ASSERT(builder->device == (zest_device)shader_handle.store->origin);	//The shader and compute builder must match the same device!
-	zest_device device = builder->device;
-	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-    zest_vec_push(builder->device->allocator, builder->shaders, shader_handle);
-    return zest_vec_last_index(builder->shaders);
-}
-
-void zest_SetComputeUserData(zest_compute_builder_t* builder, void* data) {
-    builder->user_data = data;
-}
-
-zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name) {
-	zest_device device = builder->device;
+zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader, void* user_data) {
 	zest_compute compute = zest__new_compute(device, name);
-    compute->user_data = builder->user_data;
-    compute->flags = builder->flags;
+    compute->user_data = user_data;
+	compute->shader = shader;
 
-    compute->pipeline_layout = builder->pipeline_layout;
+    compute->pipeline_layout = device->pipeline_layout;
 
     ZEST__FLAG(compute->flags, zest_compute_flag_sync_required);
     ZEST__FLAG(compute->flags, zest_compute_flag_rewrite_command_buffer);
-    ZEST__MAYBE_FLAG(compute->flags, zest_compute_flag_manual_fif, builder->flags & zest_compute_flag_manual_fif);
-
     ZEST__FLAG(compute->flags, zest_compute_flag_is_active);
 
-    zest_bool result = device->platform->finish_compute(builder, compute);
-	zest_vec_free(device->allocator, builder->shaders);
+    zest_bool result = device->platform->finish_compute(device, compute);
     if (!result) {
         zest__cleanup_compute(compute);
         return ZEST__ZERO_INIT(zest_compute_handle);
