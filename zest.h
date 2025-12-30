@@ -9305,8 +9305,8 @@ void zest__cleanup_device(zest_device device) {
 				void *handle = device->deferred_resource_freeing_list.resources[fif][i];
 				zest__free_handle(device->allocator, handle);
 			}
-			zest_vec_clear(device->deferred_resource_freeing_list.resources[fif]);
 		}
+		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
 	}
 
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
@@ -10804,7 +10804,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
         if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_device) {
 			zest_device device = (zest_device)allocator->user_data;
 			header->id = device->vector_id++;
-			if (header->id == 600) {
+			if (header->id == 84) {
 				int d = 0;
 			}
         } else if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_context) {
