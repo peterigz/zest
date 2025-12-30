@@ -56,6 +56,7 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[42] = { "Resource Test Image With Pixels Creation", test__image_with_pixels_creation, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[43] = { "Resource Test Sampler Creation", test__sampler_creation, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[44] = { "Resource Test Image Array Descriptor Indexes", test__image_array_descriptor_indexes, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[45] = { "Resource Test Compute Shader Resources", test__compute_shader_resources, 0, 1, 0, 0, tests->simple_create_info };
 	// Comment out remaining tests until we get working build
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };

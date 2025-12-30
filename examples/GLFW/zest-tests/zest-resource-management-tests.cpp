@@ -1963,3 +1963,414 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+//Test compute shader creation/destruction and storage buffer binding
+int test__compute_shader_resources(ZestTests *tests, Test *test) {
+	int passed_tests = 0;
+	int total_tests = 0;
+
+	// Phase 1: Basic Compute Creation/Destruction
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		// Create compute shader from file
+		zest_shader_handle shader = zest_CreateShaderFromFile(
+			tests->device,
+			"examples/GLFW/zest-tests/shaders/buffer_write.comp",
+			"test_compute.spv",
+			zest_compute_shader,
+			1  // disable caching
+		);
+
+		if (shader.value != 0) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Build compute pipeline
+		zest_compute_handle compute = zest_CreateCompute(tests->device, "Test Compute", shader, 0);
+
+		if (compute.value != 0) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Verify GetCompute returns valid pointer
+		zest_compute comp = zest_GetCompute(compute);
+		if (comp != NULL) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Free compute pipeline
+		zest_FreeCompute(compute);
+
+		// Run cleanup frames
+		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
+			zest_UpdateDevice(tests->device);
+			zest_BeginFrame(tests->context);
+			zest_EndFrame(tests->context);
+		}
+
+		// Cleanup shader
+		zest_FreeShader(shader);
+
+		PrintTestUpdate(test, 1, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 2: Storage Buffer for Compute
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		// Create GPU-only storage buffer
+		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+		zest_buffer storage_buffer = zest_CreateBuffer(tests->context, 1024, &buffer_info);
+
+		if (storage_buffer) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Acquire descriptor index
+		if (storage_buffer) {
+			zest_uint index = zest_AcquireStorageBufferIndex(tests->device, storage_buffer);
+			if (index != ZEST_INVALID) {
+				phase_passed++;
+			}
+			phase_total++;
+		} else {
+			phase_total++;
+		}
+
+		// Create multiple storage buffers and verify unique indexes
+		const int multi_count = 5;
+		zest_buffer multi_buffers[5];
+		zest_uint multi_indexes[5];
+		int created = 0;
+
+		for (int i = 0; i < multi_count; i++) {
+			zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+			multi_buffers[i] = zest_CreateBuffer(tests->context, 256 * (i + 1), &info);
+			if (multi_buffers[i]) {
+				multi_indexes[i] = zest_AcquireStorageBufferIndex(tests->device, multi_buffers[i]);
+				if (multi_indexes[i] != ZEST_INVALID) {
+					created++;
+				}
+			}
+		}
+
+		// Verify all indexes are unique
+		int all_unique = 1;
+		for (int i = 0; i < created; i++) {
+			for (int j = i + 1; j < created; j++) {
+				if (multi_indexes[i] == multi_indexes[j]) {
+					all_unique = 0;
+					break;
+				}
+			}
+			if (!all_unique) break;
+		}
+
+		if (created == multi_count && all_unique) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Cleanup
+		if (storage_buffer) zest_FreeBuffer(storage_buffer);
+		for (int i = 0; i < multi_count; i++) {
+			if (multi_buffers[i]) zest_FreeBuffer(multi_buffers[i]);
+		}
+
+		PrintTestUpdate(test, 2, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 3: Multiple Compute Pipelines
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		const int compute_count = 3;
+		zest_shader_handle shaders[3];
+		zest_compute_handle computes[3];
+		int created = 0;
+
+		// Create multiple compute pipelines
+		for (int i = 0; i < compute_count; i++) {
+			shaders[i] = zest_CreateShaderFromFile(
+				tests->device,
+				"examples/GLFW/zest-tests/shaders/buffer_write.comp",
+				"multi_compute.spv",
+				zest_compute_shader,
+				1
+			);
+
+			if (shaders[i].value != 0) {
+				char name[32];
+				snprintf(name, sizeof(name), "Multi Compute %d", i);
+				computes[i] = zest_CreateCompute(tests->device, name, shaders[i], 0);
+
+				if (computes[i].value != 0) {
+					created++;
+				}
+			}
+		}
+
+		if (created == compute_count) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Verify all handles are unique
+		int handles_unique = 1;
+		for (int i = 0; i < created; i++) {
+			for (int j = i + 1; j < created; j++) {
+				if (computes[i].value == computes[j].value) {
+					handles_unique = 0;
+					break;
+				}
+			}
+			if (!handles_unique) break;
+		}
+
+		if (handles_unique) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		// Cleanup
+		for (int i = 0; i < compute_count; i++) {
+			if (computes[i].value != 0) zest_FreeCompute(computes[i]);
+			if (shaders[i].value != 0) zest_FreeShader(shaders[i]);
+		}
+
+		// Run cleanup frames
+		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
+			zest_UpdateDevice(tests->device);
+			zest_BeginFrame(tests->context);
+			zest_EndFrame(tests->context);
+		}
+
+		PrintTestUpdate(test, 3, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 4: Compute with User Data
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		int user_data_value = 12345;
+
+		zest_shader_handle shader = zest_CreateShaderFromFile(
+			tests->device,
+			"examples/GLFW/zest-tests/shaders/buffer_write.comp",
+			"userdata_compute.spv",
+			zest_compute_shader,
+			1
+		);
+
+		if (shader.value != 0) {
+			zest_compute_handle compute = zest_CreateCompute(tests->device, "UserData Compute", shader, &user_data_value);
+
+			if (compute.value != 0) {
+				zest_compute comp = zest_GetCompute(compute);
+				if (comp && comp->user_data == &user_data_value) {
+					phase_passed++;
+				}
+				phase_total++;
+
+				zest_FreeCompute(compute);
+			} else {
+				phase_total++;
+			}
+
+			zest_FreeShader(shader);
+		} else {
+			phase_total++;
+		}
+
+		PrintTestUpdate(test, 4, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 5: Storage Buffer Sizes
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		zest_size sizes[] = {64, 1024, 64 * 1024, 1024 * 1024};
+		int success_count = 0;
+
+		for (int i = 0; i < 4; i++) {
+			zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+			zest_buffer buffer = zest_CreateBuffer(tests->context, sizes[i], &info);
+
+			if (buffer) {
+				zest_uint index = zest_AcquireStorageBufferIndex(tests->device, buffer);
+				if (index != ZEST_INVALID) {
+					success_count++;
+				}
+				zest_FreeBuffer(buffer);
+			}
+		}
+
+		if (success_count == 4) {
+			phase_passed++;
+		}
+		phase_total++;
+
+		PrintTestUpdate(test, 5, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 6: Combined Vertex+Storage Buffers
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
+		zest_buffer combined_buffer = zest_CreateBuffer(tests->context, 4096, &info);
+
+		if (combined_buffer) {
+			phase_passed++;
+			phase_total++;
+
+			// Acquire storage descriptor index (should work for vertex_storage type)
+			zest_uint index = zest_AcquireStorageBufferIndex(tests->device, combined_buffer);
+			if (index != ZEST_INVALID) {
+				phase_passed++;
+			}
+			phase_total++;
+
+			zest_FreeBuffer(combined_buffer);
+		} else {
+			phase_total += 2;
+		}
+
+		PrintTestUpdate(test, 6, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 7: Index+Storage Buffers
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_index_storage, zest_memory_usage_gpu_only);
+		zest_buffer index_storage_buffer = zest_CreateBuffer(tests->context, 4096, &info);
+
+		if (index_storage_buffer) {
+			phase_passed++;
+			phase_total++;
+
+			// Acquire storage descriptor index
+			zest_uint index = zest_AcquireStorageBufferIndex(tests->device, index_storage_buffer);
+			if (index != ZEST_INVALID) {
+				phase_passed++;
+			}
+			phase_total++;
+
+			zest_FreeBuffer(index_storage_buffer);
+		} else {
+			phase_total += 2;
+		}
+
+		PrintTestUpdate(test, 7, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	// Phase 8: Edge Cases
+	{
+		int phase_total = 0;
+		int phase_passed = 0;
+
+		// Create compute with NULL user data (should be fine)
+		zest_shader_handle shader = zest_CreateShaderFromFile(
+			tests->device,
+			"examples/GLFW/zest-tests/shaders/buffer_write.comp",
+			"edge_compute.spv",
+			zest_compute_shader,
+			1
+		);
+
+		if (shader.value != 0) {
+			zest_compute_handle compute = zest_CreateCompute(tests->device, "Edge Compute", shader, 0);
+
+			if (compute.value != 0) {
+				zest_compute comp = zest_GetCompute(compute);
+				if (comp && comp->user_data == NULL) {
+					phase_passed++;
+				}
+				phase_total++;
+
+				zest_FreeCompute(compute);
+			} else {
+				phase_total++;
+			}
+
+			zest_FreeShader(shader);
+		} else {
+			phase_total++;
+		}
+
+		// Create/free cycle test
+		{
+			const int cycle_count = 5;
+			int successful_cycles = 0;
+
+			for (int i = 0; i < cycle_count; i++) {
+				zest_shader_handle cycle_shader = zest_CreateShaderFromFile(
+					tests->device,
+					"examples/GLFW/zest-tests/shaders/buffer_write.comp",
+					"cycle_compute.spv",
+					zest_compute_shader,
+					1
+				);
+
+				if (cycle_shader.value != 0) {
+					zest_compute_handle compute = zest_CreateCompute(tests->device, "Cycle Compute", cycle_shader, 0);
+
+					if (compute.value != 0) {
+						zest_FreeCompute(compute);
+						successful_cycles++;
+					}
+
+					zest_FreeShader(cycle_shader);
+				}
+			}
+
+			if (successful_cycles == cycle_count) {
+				phase_passed++;
+			}
+			phase_total++;
+		}
+
+		// Run cleanup frames
+		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
+			zest_UpdateDevice(tests->device);
+			zest_BeginFrame(tests->context);
+			zest_EndFrame(tests->context);
+		}
+
+		PrintTestUpdate(test, 8, phase_passed == phase_total);
+		passed_tests += phase_passed;
+		total_tests += phase_total;
+	}
+
+	test->result = (passed_tests == total_tests) ? 0 : 1;
+	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->frame_count++;
+	return test->result;
+}
