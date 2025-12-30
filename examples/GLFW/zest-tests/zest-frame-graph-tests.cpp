@@ -25,6 +25,7 @@ int test__single_pass(ZestTests *tests, Test *test) {
 
 //Blank Screen: Compile and execute a blank screen. 
 int test__blank_screen(ZestTests *tests, Test *test) {
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -48,6 +49,7 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 //output. Verify that Pass A is culled and never executed.
 int test__pass_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Pass Culling", 0)) {
@@ -79,6 +81,7 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 //Unused Resource Culling: Declare a resource that is never used by any pass. The graph should compile and run without trying to allocate memory for it.
 int test__resource_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Resource Culling", 0)) {
@@ -105,6 +108,7 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 int test__chained_pass_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Chained Pass Culling", 0)) {
@@ -147,6 +151,7 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 //manage the creation and destruction of the transient texture in the appropriate passes.
 int test__transient_image(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Transient Image", 0)) {
@@ -196,6 +201,7 @@ int test__import_image(ZestTests *tests, Test *test) {
 		image_info.flags = zest_image_preset_storage;
 		tests->texture = zest_CreateImage(tests->context, &image_info);
 	}
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Import Image", 0)) {
@@ -229,6 +235,7 @@ Automatic Barrier Test(Layout Transition) :
 */
 int test__image_barrier_tests(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Transient Image", 0)) {
@@ -355,10 +362,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
@@ -367,10 +371,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_verify = zest_FinishCompute(&builder, "Buffer Verify");
+		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = -1;
@@ -427,6 +428,7 @@ The graph should correctly synchronize this so B and C only execute after A is c
 */
 int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Multi Reader Barrier", 0)) {
@@ -530,10 +532,7 @@ Image Write / Read(Clear Color) :
 int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_verify = zest_FinishCompute(&builder, "Image Verify");
+		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = 1;
@@ -597,6 +596,7 @@ Depth Attachment Test:
 int test__depth_attachment(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
 	zest_image_resource_info_t depth_info = { zest_format_depth };
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -692,10 +692,7 @@ Multi-Queue Synchronization:
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
-		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->device);
-		zest_SetComputeUserData(&builder, tests);
-		zest_AddComputeShader(&builder, shader);
-		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
@@ -707,6 +704,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm };
 	zest_buffer_resource_info_t buffer_info = {};
 	buffer_info.size = sizeof(float) * 1024;
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Multi Queue Sync", 0)) {
@@ -750,6 +748,7 @@ Pass Grouping : Define two graphics passes that render to the same render target
 group these into a single render pass with two subpasses for efficiency.
 */
 int test__pass_grouping(ZestTests *tests, Test *test) {
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Pass Grouping", 0)) {
@@ -784,6 +783,7 @@ cycle and return an error instead of crashing.
 */
 int test__cyclic_dependency(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Cyclic Dependency", 0)) {
@@ -825,6 +825,7 @@ Verify that no memory leaks or synchronization issues occur.
 */
 int test__simple_caching(ZestTests *tests, Test *test) {
 	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
 		if (!frame_graph) {

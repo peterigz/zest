@@ -37,25 +37,11 @@ void InitExample(render_target_app_t *example) {
 	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
 	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer", 500);
 
-	//Set up the compute shader pipeline for downsampling
-	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t downsampler_builder = zest_BeginComputeBuilder(example->device);
-	//Set the user data so that we can use it in the callback funcitons
-	zest_SetComputeUserData(&downsampler_builder, example);
-	//Declare the actual shader to use
-	zest_AddComputeShader(&downsampler_builder, downsampler_shader);
-	//Finally, make the compute shader using the downsampler_builder
-	example->downsampler_compute = zest_FinishCompute(&downsampler_builder, "Downsampler Compute");
+	//Create the compute shader pipeline for downsampling
+	example->downsampler_compute = zest_CreateCompute(example->device, "Downsampler Compute", downsampler_shader, example);
 
-	//Set up the compute shader pipeline for up sampling
-	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t upsampler_builder = zest_BeginComputeBuilder(example->device);
-	//Set the user data so that we can use it in the callback funcitons
-	zest_SetComputeUserData(&upsampler_builder, example);
-	//Declare the actual shader to use
-	zest_AddComputeShader(&upsampler_builder, upsampler_shader);
-	//Finally, make the compute shader using the builder
-	example->upsampler_compute = zest_FinishCompute(&upsampler_builder, "Upsampler Compute");
+	//Create the compute shader pipeline for up sampling
+	example->upsampler_compute = zest_CreateCompute(example->device, "Upsampler Compute", upsampler_shader, example);
 }
 
 void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {

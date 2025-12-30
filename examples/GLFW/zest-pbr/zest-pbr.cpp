@@ -77,9 +77,7 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
-	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
-	zest_AddComputeShader(&compute_builder, app->brd_shader);
-	app->brd_compute = zest_FinishCompute(&compute_builder, "brd compute");
+	app->brd_compute = zest_CreateCompute(app->device, "Brd Compute", app->brd_shader, app);
 
 	zest_BeginFrameGraph(app->context, "BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
@@ -137,9 +135,7 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
-	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
-	zest_AddComputeShader(&compute_builder, app->irr_shader);
-	app->irr_compute = zest_FinishCompute(&compute_builder, "irradiance compute");
+	app->irr_compute = zest_CreateCompute(app->device, "irradiance compute", app->irr_shader, app);
 
 	zest_BeginFrameGraph(app->context, "Irradiance", 0);
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", skybox_image, 0);
@@ -207,9 +203,7 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 
 	zest_execution_timeline timeline = zest_GetExecutionTimeline(app->timeline);
 
-	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->device);
-	zest_AddComputeShader(&compute_builder, app->prefiltered_shader);
-	app->prefiltered_compute = zest_FinishCompute(&compute_builder, "prefiltered compute");
+	app->prefiltered_compute = zest_CreateCompute(app->device, "prefiltered compute", app->prefiltered_shader, app);
 
 	zest_BeginFrameGraph(app->context, "Prefiltered", 0);
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", skybox_image, 0);

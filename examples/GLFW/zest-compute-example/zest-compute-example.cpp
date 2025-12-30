@@ -111,14 +111,7 @@ void InitComputeExample(ComputeExample *app) {
 	zest_SetPipelineFrontFace(app->particle_pipeline, zest_front_face_counter_clockwise);
 
 	//Set up the compute shader
-	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->device);
-	//Set the user data so that we can use it in the callback funcitons
-	zest_SetComputeUserData(&builder, app);
-	//Declare the actual shader to use
-	zest_AddComputeShader(&builder, comp_shader);
-	//Finally, make the compute shader using the builder
-	app->compute = zest_FinishCompute(&builder, "Particles Compute");
+	app->compute = zest_CreateCompute(app->device, "Particles Compute", comp_shader, app);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
