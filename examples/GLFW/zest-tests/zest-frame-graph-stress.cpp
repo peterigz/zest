@@ -28,6 +28,7 @@ int test__stress_simple(ZestTests *tests, Test *test) {
 	zest_CreateImageResources(tests);
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES][16];
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -69,6 +70,7 @@ int test__stress_pass_dependencies(ZestTests *tests, Test *test) {
 	zest_CreateImageResources(tests);
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES * 2][16];
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -122,6 +124,7 @@ int test__stress_pass_dependency_chain(ZestTests *tests, Test *test) {
 	zest_CreateImageResources(tests);
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES * 2][16];
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -214,6 +217,7 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES * 2][16];
 	zest_buffer_resource_info_t info = {};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -283,6 +287,7 @@ int test__stress_transient_images(ZestTests *tests, Test *test) {
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES * 2][16];
 	zest_buffer_resource_info_t info = {};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -356,6 +361,7 @@ int test__stress_all_transients(ZestTests *tests, Test *test) {
 	zest_CreateBufferResources(tests);
 	char name_string[MAX_TEST_RESOURCES * 3][16];
 	zest_buffer_resource_info_t info = {};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
@@ -489,6 +495,7 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 	char name_string[MAX_TEST_RESOURCES * 2][16];
 	buffer_info.size = sizeof(float) * 1024;
 	zest_buffer_resource_info_t info = {};
+	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
 		if (zest_BeginFrameGraph(tests->context, "Multi Queue Sync", 0)) {
