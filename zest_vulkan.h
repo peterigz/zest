@@ -600,10 +600,12 @@ void zest__log_vulkan_error(zest_device device, VkResult result, const char *fil
     // Only log actual errors, not warnings or success codes
     const char *error_str = zest__vulkan_error_string(result);
     if (result < 0) { // Vulkan errors are negative enum values
-        ZEST_PRINT("Zest Vulkan Error: %s in %s at line %d", error_str, file, line);
+        ZEST_ALERT("Zest Vulkan Error in %s at line %d", file, line);
+        ZEST_PRINT("%s", error_str);
         ZEST_APPEND_LOG(device->log_path.str, "Zest Vulkan Error: %s in %s at line %d", error_str, file, line);
     } else {
-        ZEST_PRINT("Zest Vulkan Warning: %s in %s at line %d", error_str, file, line);
+        ZEST_ALERT("Zest Vulkan Warning: in %s at line %d", file, line);
+        ZEST_PRINT("%s", error_str);
         ZEST_APPEND_LOG(device->log_path.str, "Zest Vulkan Warning: %s in %s at line %d", error_str, file, line);
     }
 }
@@ -1458,12 +1460,12 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_APPEND_LOG(device->log_path.str, "Validation Layer: %s", pCallbackData->pMessage);
     }
     if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_console)) {
-        ZEST_PRINT("%s", pCallbackData->pMessageIdName);
+        ZEST_ALERT("%s", pCallbackData->pMessageIdName);
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
     if (pCallbackData->messageIdNumber == 559874765) {
-		ZEST_PRINT("Error: This validation error usually indications that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
+		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
     if (pCallbackData->messageIdNumber == 448332540) {
         int d = 0;
@@ -1717,7 +1719,7 @@ zest_bool zest__vk_create_instance(zest_device device) {
             return VK_ERROR_INCOMPATIBLE_DRIVER;
         }
     } else {
-        ZEST_PRINT("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
+        ZEST_ALERT("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
 		ZEST_APPEND_LOG(device->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.");
 		return VK_ERROR_INCOMPATIBLE_DRIVER;
     }
@@ -4915,7 +4917,7 @@ zest_bool zest__vk_validate_shader(zest_device device, const char *shader_code, 
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader_code, strlen(shader_code), zest__to_shaderc_shader_kind(type), name, "main", NULL);
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
-		ZEST_PRINT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+		ZEST_ALERT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
 		return ZEST_FALSE;
     }
@@ -4940,7 +4942,7 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
-		ZEST_PRINT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+		ZEST_ALERT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
 		return ZEST_FALSE;
     }
