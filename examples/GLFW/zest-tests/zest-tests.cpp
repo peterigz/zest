@@ -8,6 +8,7 @@
 #include "zest-frame-graph-stress.cpp"
 #include "zest-pipeline-tests.cpp"
 #include "zest-resource-management-tests.cpp"
+#include "zest-user-tests.cpp"
 
 void InitialiseTests(ZestTests *tests) {
 
@@ -57,6 +58,9 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[43] = { "Resource Test Sampler Creation", test__sampler_creation, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[44] = { "Resource Test Image Array Descriptor Indexes", test__image_array_descriptor_indexes, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[45] = { "Resource Test Compute Shader Resources", test__compute_shader_resources, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[46] = { "User Test No Update Device", test__no_update_device, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[47] = { "User Test No End Frame", test__no_end_frame, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[48] = { "User Test No Swapchain Import", test__no_swapchain_import, 0, 1, 0, 0, tests->simple_create_info };
 	// Comment out remaining tests until we get working build
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };
@@ -100,7 +104,6 @@ void RunTests(ZestTests *tests) {
 	int completed_tests = 0;
 
 	while (1) {
-		zest_UpdateDevice(tests->device);
 		Test *current_test = &tests->tests[tests->current_test];
 		int result = current_test->the_test(tests, current_test);
 
