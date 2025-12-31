@@ -418,3 +418,4 @@ spv/
 /.gemini
 gemini.md
 /examples/GLFW/build
+/.claude
