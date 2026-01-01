@@ -5279,7 +5279,9 @@ ZEST_API void zest_OutputMemoryUsage(zest_context context);
 ZEST_API zest_bool zest_SetErrorLogPath(zest_device device, const char *path);
 ZEST_API const char *zest_GetErrorLogPath(zest_device device);
 //Print out any reports that have been collected to the console
+ZEST_API zest_uint zest_ReportCount(zest_context context);
 ZEST_API void zest_PrintReports(zest_context context);
+ZEST_API void zest_ResetReports(zest_context context);
 ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
@@ -7906,6 +7908,16 @@ zest_bool zest_BeginFrame(zest_context context) {
 }
 
 void zest_EndFrame(zest_context context) {
+    ZEST_ASSERT_OR_VALIDATE(ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired),
+							context->device, 
+							"zest_EndFrame was called but a swap chain image was not acquired. Make sure that zest_BeginFrame was called to acquire a swap chain image.",
+							(void)0);
+	if (zest__frame_graph_builder) {
+		ZEST_ASSERT_OR_VALIDATE(!zest__frame_graph_builder,
+							context->device, 
+							"If zest_EndFrame is called then the frame graph builder should be NULL. If it's not NULL then this indicates that zest_BeginFrameGraph was called but no zest_EndFrameGraph was called after to finish and compile the frame graph.",
+							(void)0);
+	}
 	zest_frame_graph_flags flags = 0;
 	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     if (zest_vec_size(context->frame_graphs)) {
@@ -8018,6 +8030,8 @@ void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 	context->window_data = win_dat;
 
 	context->frame_counter = 0;
+
+	zest__frame_graph_builder = NULL;
 
 	if (window_data) {
 		context->window_data = *window_data;
@@ -11672,7 +11686,9 @@ void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph fra
 }
 
 zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
-	ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph));  //frame graph already being built. You cannot build a frame graph within another begin frame graph process.
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph), 
+							context->device, "Frame graph already being built. You cannot build a frame graph within another begin frame graph process.",
+							ZEST_FALSE);  
 	
 	ZEST_ASSERT(zest__frame_graph_builder == NULL);		//The thread local frame graph builder must be null
 	//If it's not null then is there already a frame graph being set up, and 
@@ -12685,9 +12701,10 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_image_available_semaphore, 0 };
                     zest_vec_linear_push(allocator, first_batch->wait_semaphores, semaphore_reference);
                     zest_vec_linear_push(allocator, first_batch->wait_dst_stage_masks, compatible_dummy_wait_stage);
-                    ZEST_REPORT(context->device, zest_report_unused_swapchain,"RenderGraph: Swapchain image acquired but not used by any pass. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %i.",
+                    ZEST_REPORT(context->device, zest_report_unused_swapchain,"RenderGraph: Swapchain image acquired but not used by any pass. Graph invalidated because present would have no semaphore to wait on. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %i.",
 							   queue_family_index,
 							   compatible_dummy_wait_stage);
+					frame_graph->error_status |= zest_fgs_critical_error;
                 }
             }
         }
@@ -14052,11 +14069,16 @@ zest_resource_node zest_ImportSwapchainResource() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
+    ZEST_ASSERT_OR_VALIDATE(ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired),
+							context->device, 
+							"Swap chain is being imported but no swap chain image has been acquired. Make sure that you call zest_BeginFrame() and build the frame graph within zest_BeginFrame and zest_EndFrame to make sure that a swapchain image is acquired.",
+							NULL);
+    ZEST_ASSERT_OR_VALIDATE(!ZEST_VALID_HANDLE(frame_graph->swapchain, zest_struct_type_swapchain),
+							context->device, 
+							"Swap chain resource has already been imported! You only need to import it once per frame graph.",
+							NULL);
 	zest_swapchain swapchain = context->swapchain;
     zest__frame_graph_builder->frame_graph->swapchain = swapchain;
-    if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
-        ZEST_REPORT(context->device, zest_report_swapchain_not_acquired, "WARNING: Swap chain is being imported but no swap chain image has been acquired. Make sure that you call zest_BeginFrame() to make sure that a swapchain image is acquired.");
-    }
     zest_resource_node_t node = ZEST__ZERO_INIT(zest_resource_node_t);
     node.swapchain = swapchain;
     node.name = swapchain->name;
@@ -14101,7 +14123,8 @@ void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *de
 
 void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
+    ZEST_ASSERT_OR_VALIDATE(zest__frame_graph_builder->current_pass, context->device, 
+							"No current pass found, make sure you call zest_BeginPass", (void)0);
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = callback;
@@ -14186,9 +14209,13 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 }
 
 zest_pass_node zest_BeginRenderPass(const char *name) {
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+	if (!zest__frame_graph_builder) return NULL;
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT(!zest__frame_graph_builder->current_pass, "Already begun a pass. Make sure that you call zest_EndPass before starting a new one");   
+	ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(zest__frame_graph_builder->frame_graph, zest_struct_type_frame_graph),
+							context->device, "Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen", NULL);
+	if (zest__frame_graph_builder->current_pass) {
+		zest_EndPass();
+	}
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_graphics);
     pass->queue_info.timeline_wait_stage = zest_pipeline_stage_vertex_input_bit | zest_pipeline_stage_vertex_shader_bit;
 	pass->bind_point = zest_bind_point_graphics;
@@ -14198,9 +14225,11 @@ zest_pass_node zest_BeginRenderPass(const char *name) {
 
 zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    ZEST_ASSERT_HANDLE(compute);        //Not a valid compute handle
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT(!zest__frame_graph_builder->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
+    ZEST_ASSERT_OR_VALIDATE(compute, context->device, "Invalid compute object passed into zest_BeingComputePass.", NULL);        //Not a valid compute handle
+	if (zest__frame_graph_builder->current_pass) {
+		zest_EndPass();
+	}
     zest_pass_node node = zest__add_pass_node(name, zest_queue_compute);
     node->compute = compute;
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_compute_shader_bit;
@@ -14212,7 +14241,9 @@ zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
 zest_pass_node zest_BeginTransferPass(const char *name) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT(!zest__frame_graph_builder->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
+	if (zest__frame_graph_builder->current_pass) {
+		zest_EndPass();
+	}
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_transfer);
     pass->queue_info.timeline_wait_stage = zest_pipeline_stage_transfer_bit;
     zest__frame_graph_builder->current_pass = pass;
@@ -14222,7 +14253,8 @@ zest_pass_node zest_BeginTransferPass(const char *name) {
 
 void zest_EndPass() {
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass); //No begin pass found, make sure you call BeginRender/Compute/TransferPass
+    ZEST_ASSERT_OR_VALIDATE(zest__frame_graph_builder->current_pass, context->device, 
+							"No begin pass found, make sure you call BeginRender/Compute/TransferPass", (void)0); 
     zest__frame_graph_builder->current_pass = 0;
 }
 
@@ -14651,7 +14683,8 @@ void zest_ConnectInput(zest_resource_node resource) {
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);          //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
-    if(!ZEST_VALID_HANDLE(resource, zest_struct_type_resource_node)) return;  
+    ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(resource, zest_struct_type_resource_node), 
+							context->device, "Not a valid resource node pointer. Make sure you pass in a valid resource node", (void)0);
     zest_pipeline_stage_flags stages = 0;
     zest_resource_purpose purpose = zest_purpose_none;
     if (resource->type & zest_resource_type_is_image) {
@@ -14701,11 +14734,12 @@ void zest_ConnectInput(zest_resource_node resource) {
 void zest_ConnectSwapChainOutput() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called withing a Being/EndRenderGraph block
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass); //No current pass found. Make sure you call zest_BeginPass
+    ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(zest__frame_graph_builder->current_pass, zest_struct_type_pass_node), 
+							context->device, "Tried to connect output but no BeginPass function was called.", (void)0); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
     ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(frame_graph->swapchain_resource, zest_struct_type_resource_node),
-							context->device, "Not a valid swapchain resource, did you call zest_ImportSwapchainResource?",
+							context->device, "Not a valid swapchain resource, did you call zest_ImportSwapchainResource and/or call zest_BeginFrame to ensure a swap chain image was acquired?",
 							(void)0);  //
     zest_clear_value_t cv = frame_graph->swapchain->clear_color;
     // Assuming clear for swapchain if not explicitly loaded
@@ -14718,9 +14752,11 @@ void zest_ConnectSwapChainOutput() {
 void zest_ConnectOutput(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called withing a Being/EndRenderGraph block
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass); //No current pass found. Make sure you call zest_BeginPass
+    ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(zest__frame_graph_builder->current_pass, zest_struct_type_pass_node), 
+							context->device, "Tried to connect output but no BeginPass function was called.", (void)0); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
-    if (!ZEST_VALID_HANDLE(resource, zest_struct_type_resource_node)) return;
+    ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(resource, zest_struct_type_resource_node), 
+							context->device, "Not a valid resource node pointer. Make sure you pass in a valid resource node", (void)0);
     if (resource->image.info.sample_count > 1) {
         ZEST__FLAG(pass->flags, zest_pass_flag_output_resolve);
     }
@@ -16407,6 +16443,19 @@ void zest_PrintReports(zest_context context) {
         }
         ZEST_PRINT("");
     }
+}
+
+zest_uint zest_ReportCount(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context pointer
+	return (zest_map_size(context->device->reports));
+}
+
+void zest_ResetReports(zest_context context) {
+    zest_map_foreach(i, context->device->reports) {
+        zest_report_t *report = &context->device->reports.data[i];
+        zest_FreeText(context->device->allocator, &report->message);
+    }
+	zest_map_free(context->device->allocator, context->device->reports);
 }
 
 const char *zest__struct_type_to_string(zest_struct_type struct_type) {

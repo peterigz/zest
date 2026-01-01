@@ -61,6 +61,16 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[46] = { "User Test No Update Device", test__no_update_device, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[47] = { "User Test No End Frame", test__no_end_frame, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[48] = { "User Test No Swapchain Import", test__no_swapchain_import, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[49] = { "User Test Missing End Pass", test__no_end_pass, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[50] = { "User Test Bad Frame Graph Ordering", test__bad_frame_graph_ordering, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[51] = { "User Test Frame Graph State Errors", test__frame_graph_state_errors, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[52] = { "User Test Pass Without Task", test__pass_without_task, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[53] = { "User Test Unused Imported Resource", test__unused_imported_resource, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[54] = { "User Test Unused Swapchain", test__unused_swapchain, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[55] = { "User Test Buffer Output In Render Pass", test__buffer_output_in_render_pass, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[56] = { "User Test Multiple Swapchain Imports", test__multiple_swapchain_imports, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[57] = { "User Test Transient Dependency Ordering", test__transient_dependency_ordering, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[58] = { "User Test Invalid Compute Handle", test__invalid_compute_handle, 0, 1, 0, 0, tests->simple_create_info };
 	// Comment out remaining tests until we get working build
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };
@@ -124,6 +134,7 @@ void RunTests(ZestTests *tests) {
 				zest_ResetValidationErrors(tests->device);
 				ResetTests(tests);
 			} else {
+				zest_ResetReports(tests->context);
 				break;
 			}
 		}
