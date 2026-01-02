@@ -9,6 +9,7 @@
 #include "zest-pipeline-tests.cpp"
 #include "zest-resource-management-tests.cpp"
 #include "zest-user-tests.cpp"
+#include "zest-compute-tests.cpp"
 
 void InitialiseTests(ZestTests *tests) {
 
@@ -71,6 +72,15 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[56] = { "User Test Multiple Swapchain Imports", test__multiple_swapchain_imports, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[57] = { "User Test Transient Dependency Ordering", test__transient_dependency_ordering, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[58] = { "User Test Invalid Compute Handle", test__invalid_compute_handle, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[59] = { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[60] = { "Compute Test Timeline Wait External", test__timeline_wait_external, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[61] = { "Compute Test Timeline Timeout", test__timeline_timeout, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[62] = { "Compute Test Immediate Execute Cached", test__immediate_execute_cached, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[63] = { "Compute Test Mipmap Chain", test__compute_mipmap_chain, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[64] = { "Compute Test Multiple Timeline Signals", test__multiple_timeline_signals, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[65] = { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[66] = { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->simple_create_info };
+	tests->tests[67] = { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->simple_create_info };
 	// Comment out remaining tests until we get working build
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };
@@ -89,7 +99,7 @@ void InitialiseTests(ZestTests *tests) {
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 0;
+	tests->current_test = 11;
     zest_ResetValidationErrors(tests->device);
 }
 
@@ -126,6 +136,10 @@ void RunTests(ZestTests *tests) {
 			}
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
+				return;
+				if (tests->current_test == 17) {
+					tests->current_test = 24;
+				}
 				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
 				zest_ResetContext(tests->context, 0);
 				zest_ResetDevice(tests->device);

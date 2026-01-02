@@ -7,7 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 59
+#define TEST_COUNT 68
 #define MAX_TEST_RESOURCES 1000
 
 struct ZestTests;
@@ -61,6 +61,10 @@ struct ZestTests {
 	TestPushConstants push;
 	zest_compute_handle compute_write;
 	zest_compute_handle compute_verify;
+	zest_compute_handle brd_compute;
+	zest_shader_handle brd_shader;
+	zest_image_handle brd_texture;
+	zest_uint brd_bindless_texture_index;
 	zest_buffer cpu_buffer;
 	zest_uint cpu_buffer_index;
 	zest_create_context_info_t simple_create_info;
