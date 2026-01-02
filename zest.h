@@ -5299,11 +5299,23 @@ ZEST_API void zest_EndImmediateCommandBuffer(zest_queue queue);
 //the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
 ZEST_API zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 ZEST_API zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size);
+//Fill a buffer with a value
+ZEST_API void zest_imm_FillBuffer (zest_queue queue, zest_buffer buffer, zest_uint value);
+//Update a buffer (max size 64k)
+ZEST_API void zest_imm_UpdateBuffer (zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size);
 //Copies an area of a zest_texture to another zest_texture
 ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 ZEST_API zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_API zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_image image_handle);
 ZEST_API zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image_handle);
+//Clear a color image to the specified color value. Image must be a color format.
+ZEST_API zest_bool zest_imm_ClearColorImage(zest_queue queue, zest_image image, zest_clear_value_t clear_value);
+//Clear a depth/stencil image to the specified depth and stencil values.
+ZEST_API zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, float depth, zest_uint stencil);
+//Blit (scaled copy) from one image to another with filtering. Useful for resizing images or format conversion.
+ZEST_API zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter);
+//Resolve a multisampled image to a single-sampled image.
+ZEST_API zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_image dst_image);
 
 //-----------------------------------------------
 // Command_buffer_functions
