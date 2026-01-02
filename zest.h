@@ -11603,6 +11603,20 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	}
     if (!frame_graph->cache_key) return;    //Only cache if there's a key
     if (frame_graph->error_status) return;  //Don't cache a frame graph that had errors
+	/*
+	Improvement required here: If you execute multiple frame graphs in a frame and one is cached but the 
+	prior frame graphs were not cached then this doesn't currently take into account the fact that the start
+	of the allocation space will be filled with a frame graph that is unused and therefore shouldn't be included
+	in the cached memory. Care also needs to be taken to preserve the memory of the old frame graphs so that 
+	any deferred resources for destruction can be taken care of. So the likely solution will be to create a new 
+	block starting from the caching frame graph offset for it's capacitiy, trimming the free space at the end 
+	then setting the capacity of the linear allocator to the offset of the frame graph that was cached. Then 
+	when the allocator is reset n frames in the future it should check the capacity of the allocator, if it's 
+	lower then what it should be then free it and re-allocate. 
+	If frame graphs are then continued to be created after that the linear allocator will be at capacity so therefore
+	caching will not be possible at that point until the allocator is consolidated and remade. I don't know if
+	this is a problem or not, need tests to experiment.
+	*/
 	zest_size offset = context->frame_graph_allocator[context->current_fif].current_offset;
 	frame_graph->cached_size = offset;
     zest_cached_frame_graph_t new_cached_graph = {
@@ -12110,7 +12124,8 @@ zest_frame_graph zest__compile_frame_graph() {
             if (ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_culled) && ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_do_not_cull)) {
                 zest_bool all_outputs_non_referenced = ZEST_TRUE;
                 zest_map_foreach(j, pass_node->outputs) {
-                    if (pass_node->outputs.data[j].resource_node->reference_count > 0) {
+                    zest_resource_node resource = pass_node->outputs.data[j].resource_node;
+                    if (resource->reference_count > 0 || ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output)) {
                         all_outputs_non_referenced = ZEST_FALSE;
                         break;
                     }
@@ -12119,10 +12134,12 @@ zest_frame_graph zest__compile_frame_graph() {
                     ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
                     a_pass_was_culled = ZEST_TRUE;
                     zest_map_foreach(j, pass_node->inputs) {
-						ZEST_MAYBE_REPORT(context->device, pass_node->inputs.data[j].resource_node->reference_count == 0, zest_report_invalid_reference_counts, zest_message_pass_culled_not_consumed, frame_graph->name);
-                        frame_graph->error_status |= zest_fgs_critical_error;
-                        return frame_graph;
                         pass_node->inputs.data[j].resource_node->reference_count--;
+                        if (pass_node->inputs.data[j].resource_node->reference_count == 0) {
+                            ZEST_REPORT(context->device, zest_report_invalid_reference_counts, zest_message_pass_culled_not_consumed, frame_graph->name);
+                            frame_graph->error_status |= zest_fgs_critical_error;
+                            return frame_graph;
+                        }
                     }
 					ZEST_REPORT(context->device, zest_report_pass_culled, zest_message_pass_culled_not_consumed, pass_node->name);
                 }
