@@ -4696,7 +4696,10 @@ ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_d
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
 ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
+
+// --- Special flags for passes and resource
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
+ZEST_API void zest_DoNotCull();
 
 // --- Render target groups ---
 ZEST_API zest_output_group zest_CreateOutputGroup();
@@ -12082,6 +12085,7 @@ zest_frame_graph zest__compile_frame_graph() {
     zest_bool a_pass_was_culled = 0;
     zest_bucket_array_foreach(i, frame_graph->potential_passes) {
         zest_pass_node pass_node = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, i);
+		if (ZEST__FLAGGED(pass_node->flags, zest_pass_flag_do_not_cull)) continue;
         if (zest_map_size(pass_node->outputs) == 0 || pass_node->execution_callback.callback == 0) {
 			//Cull passes that have no output and/or no execution callback and reduce any input resource reference counts 
             zest_map_foreach(j, pass_node->inputs) {
@@ -13906,6 +13910,14 @@ zest_resource_node zest__add_transient_image_resource(const char *name, const ze
 void zest_FlagResourceAsEssential(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
     ZEST__FLAG(resource->flags, zest_resource_node_flag_essential_output);
+}
+
+void zest_DoNotCull() {
+    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  	//This function must be called withing a Being/EndRenderGraph block
+	zest_context context = zest__frame_graph_builder->context;
+    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);    //No current pass found. Make sure you call zest_BeginPass
+    zest_pass_node pass = zest__frame_graph_builder->current_pass;
+	ZEST__FLAG(pass->flags, zest_pass_flag_do_not_cull);
 }
 
 void zest_AddSwapchainToRenderTargetGroup(zest_output_group group) {
