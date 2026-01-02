@@ -167,7 +167,6 @@ ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *c
 //Semaphores
 ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context);
 ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout);
-ZEST_PRIVATE zest_u64 zest__vk_get_semaphore_counter_value(zest_execution_timeline timeline);
 
 //Command buffers/queues
 ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_context context, zest_context_queue queue);
@@ -175,7 +174,7 @@ ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_context context, zest_c
 //New backends
 ZEST_PRIVATE void *zest__vk_new_device_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_context_backend(zest_context context);
-ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_image_backend(zest_context context);
@@ -186,7 +185,7 @@ ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(zloc_allocator *allocato
 ZEST_PRIVATE void *zest__vk_new_sampler_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_queue_backend(zest_device device, zest_uint family_index);
 ZEST_PRIVATE void *zest__vk_new_context_queue_backend(zest_context device);
-ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_pipeline_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_pipeline_layout_backend(zest_device device);
@@ -499,7 +498,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 
 	platform->wait_for_renderer_semaphore				    = zest__vk_wait_for_renderer_semaphore;
 	platform->wait_for_timeline							    = zest__vk_wait_for_timeline;
-	platform->get_semaphore_counter_value				    = zest__vk_get_semaphore_counter_value;
 
     platform->create_set_layout                             = zest__vk_create_set_layout;
     platform->create_set_pool                               = zest__vk_create_set_pool;
@@ -2155,8 +2153,8 @@ void *zest__vk_new_queue_backend(zest_device device, zest_uint family_index) {
     return backend;
 }
 
-void *zest__vk_new_submission_batch_backend(zloc_linear_allocator_t *allocator) {
-    zest_submission_batch_backend backend = (zest_submission_batch_backend)zloc_LinearAllocation(allocator, sizeof(zest_submission_batch_backend_t));
+void *zest__vk_new_submission_batch_backend(zest_context context) {
+    zest_submission_batch_backend backend = (zest_submission_batch_backend)zloc_LinearAllocation(&context->frame_graph_allocator[context->current_fif], sizeof(zest_submission_batch_backend_t));
     *backend = ZEST__ZERO_INIT(zest_submission_batch_backend_t);
     return backend;
 }
@@ -2171,8 +2169,8 @@ void *zest__vk_new_context_backend(zest_context context) {
     return backend;
 }
 
-void *zest__vk_new_frame_graph_context_backend(zloc_linear_allocator_t *allocator) {
-    zest_command_list_backend_t *backend_context = (zest_command_list_backend_t*)zloc_LinearAllocation(allocator, sizeof(zest_command_list_backend_t) );
+void *zest__vk_new_frame_graph_context_backend(zest_context context) {
+    zest_command_list_backend_t *backend_context = (zest_command_list_backend_t*)zloc_LinearAllocation( &context->frame_graph_allocator[context->current_fif], sizeof(zest_command_list_backend_t) );
     *backend_context = ZEST__ZERO_INIT(zest_command_list_backend_t);
     return backend_context;
 }
@@ -2501,15 +2499,8 @@ zest_semaphore_status zest__vk_wait_for_timeline(zest_execution_timeline timelin
 		return zest_semaphore_status_success;
 	} else if (result == VK_TIMEOUT) {
 		return zest_semaphore_status_timeout;
-	}
+	} 
 	return zest_semaphore_status_error;
-}
-
-zest_u64 zest__vk_get_semaphore_counter_value(zest_execution_timeline timeline) {
-	zest_context context = timeline->context;
-	zest_u64 value = 0;
-	vkGetSemaphoreCounterValue(context->device->backend->logical_device, timeline->backend->semaphore, &value);
-	return value;
 }
 // -- End Fences
 
@@ -3334,7 +3325,7 @@ zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uin
 	zest_device device = context->device;
     ZEST_SET_MEMORY_CONTEXT(device, zest_platform_context, zest_command_image);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkCreateImage(device->backend->logical_device, &image_info, &device->backend->allocation_callbacks, &image->backend->vk_image));
-	ZEST_PRINT("%p", image->backend->vk_image);
+
     VkMemoryRequirements memory_requirements;
     vkGetImageMemoryRequirements(device->backend->logical_device, image->backend->vk_image, &memory_requirements);
 
@@ -4159,7 +4150,7 @@ void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_subm
 	zest_context context = frame_graph->command_list.context;
 	zest_vec_clear(backend->wave_wait_semaphores);
 	zest_vec_clear(backend->wave_wait_values);
-    zloc_linear_allocator_t *allocator = &frame_graph->allocator_entry->allocator;
+    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
 		if (wave_submission->batches[queue_index].magic) {
 			zest_vec_linear_push(allocator, backend->wave_wait_semaphores, frame_graph->semaphores->backend->vk_semaphores[context->current_fif][queue_index]);
@@ -4209,7 +4200,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     queue->signal_value = signal_value;
     queue->current_count[queue_fif] = signal_value;
 
-    zloc_linear_allocator_t *allocator = &frame_graph->allocator_entry->allocator;
+    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 
     zest_map_insert_linear_key(allocator, (*queues), (zest_key)queue, queue);
 
@@ -4282,17 +4273,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 			zest_vec_linear_push(allocator, signal_values, timeline->current_value);
 			zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
         }
-		//Signal the internal allocator timeline for safe memory reuse
-		if (frame_graph->allocator_entry) {
-			zest_frame_graph_allocator_t *entry = frame_graph->allocator_entry;
-			zest_execution_timeline timeline = zest_GetExecutionTimeline(entry->timeline);
-			entry->signal_value = timeline->current_value + 1;
-			timeline->current_value = entry->signal_value;
-			entry->in_use = ZEST_FALSE;  //Mark as no longer in use
-			zest_vec_linear_push(allocator, signal_semaphores, timeline->backend->semaphore);
-			zest_vec_linear_push(allocator, signal_values, entry->signal_value);
-			zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
-		}
     } else {
         //Make sure the submission includes the queue semaphores to chain together the dependencies
         //between each wave but only if this is not the last wave as we only signal intraframe
@@ -4348,13 +4328,12 @@ void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barr
         0, resource->image.info.mip_levels);
     image_barrier.srcQueueFamilyIndex = src_family;
     image_barrier.dstQueueFamilyIndex = dst_family;
-	zloc_linear_allocator_t *allocator = &resource->frame_graph->allocator_entry->allocator;
     if (acquire) {
-        zest_vec_linear_push(allocator, barriers->backend->acquire_image_barriers, image_barrier);
-        zest_vec_linear_push(allocator, barriers->acquire_image_barrier_nodes, resource);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->acquire_image_barriers, image_barrier);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->acquire_image_barrier_nodes, resource);
     } else {
-        zest_vec_linear_push(allocator, barriers->backend->release_image_barriers, image_barrier);
-        zest_vec_linear_push(allocator, barriers->release_image_barrier_nodes, resource);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->release_image_barriers, image_barrier);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->release_image_barrier_nodes, resource);
     }
 }
 
@@ -4370,13 +4349,12 @@ void zest__vk_add_memory_buffer_barrier(zest_resource_node resource, zest_execut
         0, 0);
     buffer_barrier.srcQueueFamilyIndex = src_family;
     buffer_barrier.dstQueueFamilyIndex = dst_family;
-	zloc_linear_allocator_t *allocator = &resource->frame_graph->allocator_entry->allocator;
     if (acquire) {
-        zest_vec_linear_push(allocator, barriers->backend->acquire_buffer_barriers, buffer_barrier);
-        zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->acquire_buffer_barriers, buffer_barrier);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->acquire_buffer_barrier_nodes, resource);
     } else {
-        zest_vec_linear_push(allocator, barriers->backend->release_buffer_barriers, buffer_barrier);
-        zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->release_buffer_barriers, buffer_barrier);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->release_buffer_barrier_nodes, resource);
     }
 }
 // -- End Internal_Frame_graph_context_functions
@@ -4393,7 +4371,7 @@ zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buff
 		buffer_copy.srcOffset = copy->src_offset;
 		buffer_copy.dstOffset = copy->dst_offset;
 		buffer_copy.size = copy->size;
-        zest_vec_linear_push(&command_list->frame_graph->allocator_entry->allocator, buffer_copies, buffer_copy);
+        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], buffer_copies, buffer_copy);
     }
 
     vkCmdCopyBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(uploader->source_buffer), *zest__vk_get_device_buffer(uploader->target_buffer), zest_vec_size(buffer_copies), buffer_copies);
@@ -4430,7 +4408,7 @@ void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_c
 
 void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set) {
 	zest_context context = command_list->context;
-    zloc_linear_allocator_t *allocator = &command_list->frame_graph->allocator_entry->allocator;
+    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
     VkDescriptorSet *vk_sets = 0;
     zest_vec_linear_resize(allocator, vk_sets, set_count);
     for (zest_uint i = 0; i < set_count; ++i) {
