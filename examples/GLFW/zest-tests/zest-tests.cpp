@@ -99,7 +99,7 @@ void InitialiseTests(ZestTests *tests) {
 
 	tests->sampler_info = zest_CreateSamplerInfo();
 
-	tests->current_test = 11;
+	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
 }
 
@@ -136,10 +136,6 @@ void RunTests(ZestTests *tests) {
 			}
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
-				return;
-				if (tests->current_test == 17) {
-					tests->current_test = 24;
-				}
 				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
 				zest_ResetContext(tests->context, 0);
 				zest_ResetDevice(tests->device);
