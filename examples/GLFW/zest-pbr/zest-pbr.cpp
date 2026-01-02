@@ -82,11 +82,12 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_BeginFrameGraph(app->context, "BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
-	zest_compute compute = zest_GetCompute(app->brd_compute);
-	zest_BeginComputePass(compute, "Brd compute");
-	zest_ConnectOutput(texture_resource);
-	zest_SetPassTask(zest_DispatchBRDSetup, app);
-	zest_EndPass();
+	zest_compute compute = zest_GetCompute(app->brd_compute); {
+		zest_BeginComputePass(compute, "Brd compute");
+		zest_ConnectOutput(texture_resource);
+		zest_SetPassTask(zest_DispatchBRDSetup, app);
+		zest_EndPass();
+	}
 
 	zest_SignalTimeline(timeline);
 	zest_EndFrameGraphAndExecute();
@@ -562,6 +563,11 @@ void MainLoop(SimplePBRExample *app) {
 
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
 		zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
+		//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
+		//image layout general. When they are used in the frame graph below they will be transitioned to read only
+		//so we store the current layout of the image in a custom cache info struct so that when the layout changes
+		//the cache will be invalidated and a new cache will be created. The other option is to transition them
+		//before hand but this is just to show an example of how the frame graph caching can work.
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 		app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
 		app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
@@ -608,8 +614,6 @@ void MainLoop(SimplePBRExample *app) {
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
-
-					//Todo, comment out a pass and handle the errors.
 
 					//------------------------ Skybox Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Skybox Pass"); {
