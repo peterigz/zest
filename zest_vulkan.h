@@ -1330,7 +1330,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	render_signal_info.value = 0;
 	render_signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
-	zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
+	zest_execution_timeline timeline = &context->frame_timeline[context->current_fif];
 	timeline->current_value += 1;
 	context->frame_sync_timeline[context->current_fif] = timeline;
 
@@ -2035,7 +2035,7 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
 			device->graphics_queues.queues[i].family_index = indices.graphics_family_index;
 			device->graphics_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.graphics_family_index);
 			device->graphics_queues.queues[i].device = device;
-			device->graphics_queues.queues[i].timeline = zest_CreateExecutionTimeline(device);
+			zest__initialise_timeline(device, &device->graphics_queues.queues[i].timeline);
 			vkGetDeviceQueue(device->backend->logical_device, indices.graphics_family_index, i, &device->graphics_queues.queues[i].backend->vk_queue);
 		}
 	}
@@ -2049,7 +2049,7 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
 			device->compute_queues.queues[i].family_index = indices.compute_family_index;
 			device->compute_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.compute_family_index);
 			device->compute_queues.queues[i].device = device;
-			device->compute_queues.queues[i].timeline = zest_CreateExecutionTimeline(device);
+			zest__initialise_timeline(device, &device->compute_queues.queues[i].timeline);
 			vkGetDeviceQueue(device->backend->logical_device, indices.compute_family_index, i, &device->compute_queues.queues[i].backend->vk_queue);
 		}
 	}
@@ -2063,7 +2063,7 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
 			device->transfer_queues.queues[i].family_index = indices.transfer_family_index;
 			device->transfer_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.transfer_family_index);
 			device->transfer_queues.queues[i].device = device;
-			device->transfer_queues.queues[i].timeline = zest_CreateExecutionTimeline(device);
+			zest__initialise_timeline(device, &device->transfer_queues.queues[i].timeline);
 			vkGetDeviceQueue(device->backend->logical_device, indices.transfer_family_index, i, &device->transfer_queues.queues[i].backend->vk_queue);
 		}
 	}
@@ -3855,11 +3855,11 @@ zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
 	VkCommandBufferSubmitInfo buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 	buffer_submit_info.commandBuffer = queue->backend->command_buffer;
 
-	queue->timeline->current_value++;
+	queue->timeline.current_value++;
 
 	VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-	signal_info.semaphore = queue->timeline->backend->semaphore;
-	signal_info.value = queue->timeline->current_value;
+	signal_info.semaphore = queue->timeline.backend->semaphore;
+	signal_info.value = queue->timeline.current_value;
 	signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
 	VkSubmitInfo2 submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
@@ -3870,7 +3870,7 @@ zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
 
 	ZEST_CLEANUP_ON_FAIL(device, device->backend->pfn_vkQueueSubmit2(queue->backend->vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
-	zest_semaphore_status status = zest_WaitForSignal(queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
+	zest_semaphore_status status = zest_WaitForSignal(&queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
 	queue->last_bound_compute = NULL;
 	if (status == zest_semaphore_status_success) {
 		zest__release_queue(queue);
@@ -4306,7 +4306,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	}
 
 	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
-    //ZEST_RETURN_FALSE_ON_FAIL(context->device, vkQueueSubmit(batch->queue->queue->backend->vk_queue, 1, &submit_info, submit_fence));
     ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
 
     batch->backend->final_wait_semaphores = wait_semaphores;

@@ -2326,6 +2326,7 @@ typedef enum zest_supported_shader_stage_bits {
 typedef enum zest_report_category {
 	zest_report_unused_pass,
 	zest_report_taskless_pass,
+	zest_report_no_work,
 	zest_report_unconnected_resource,
 	zest_report_pass_culled,
 	zest_report_resource_culled,
@@ -4183,6 +4184,7 @@ ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(z
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_uint family_index);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
+ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
 //End Queue_management
 
 //Renderer_functions
@@ -6005,10 +6007,17 @@ typedef struct zest_buffer_linear_allocator_t {
 	zest_size current_offset;
 } zest_buffer_linear_allocator_t;
 
+typedef struct zest_execution_timeline_t {
+	int magic;
+	zest_device device;
+	zest_execution_timeline_backend backend;
+	zest_u64 current_value;
+} zest_execution_timeline_t;
+
 typedef struct zest_queue_t {
 	int magic;
 	zest_queue_backend backend;
-	zest_execution_timeline timeline;
+	zest_execution_timeline_t timeline;
 	zest_uint index;
 	zest_uint family_index;
 	zest_device device;
@@ -6157,7 +6166,7 @@ typedef struct zest_context_t {
 	//The timeout for the fence that waits for gpu work to finish for the frame
 	zest_u64 fence_wait_timeout_ns;
 	zest_wait_timeout_callback frame_wait_timeout_callback;
-	zest_execution_timeline frame_timeline[ZEST_MAX_FIF];
+	zest_execution_timeline_t frame_timeline[ZEST_MAX_FIF];
 	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
 
 	//Window data
@@ -6534,13 +6543,6 @@ typedef struct zest_layer_t {
 	zest_layer_flags flags;
 	void *user_data;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
-
-typedef struct zest_execution_timeline_t {
-	int magic;
-	zest_device device;
-	zest_execution_timeline_backend backend;
-	zest_u64 current_value;
-} zest_execution_timeline_t;
 
 typedef struct zest_compute_t {
 	int magic;
@@ -9192,7 +9194,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
         int result = zloc_InitialiseLinearAllocator(&context->frame_graph_allocator[fif], frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 		ZEST_ASSERT(result, "Unable to allocate a frame graph allocator, out of memory.");
 		zloc_SetLinearAllocatorUserData(&context->frame_graph_allocator[fif], context);
-		context->frame_timeline[fif] = zest_CreateExecutionTimeline(context->device);
+		zest__initialise_timeline(context->device, &context->frame_timeline[fif]);
     }
 
     ZEST_APPEND_LOG(context->device->log_path.str, "Finished zest initialisation");
@@ -9318,6 +9320,7 @@ void zest__cleanup_device(zest_device device) {
 		zest_queue_manager_t *queue_manager = device->queues[i];
 		zest_vec_foreach(c, queue_manager->queues) {
 			zest_queue queue = &queue_manager->queues[c];
+			device->platform->cleanup_execution_timeline_backend(&queue->timeline);
 			device->platform->cleanup_queue_backend(device, queue);
 		}
 		zest_vec_free(device->allocator, queue_manager->queues);
@@ -9684,6 +9687,8 @@ void zest__cleanup_context(zest_context context) {
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_images[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_view_arrays[fif]);
+
+		context->device->platform->cleanup_execution_timeline_backend(&context->frame_timeline[fif]);
     }
 
     zest_map_foreach(i, context->cached_frame_graphs) {
@@ -12053,7 +12058,7 @@ zest_frame_graph zest__compile_frame_graph() {
 	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
 	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
-		zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
+		zest_execution_timeline timeline = &context->frame_timeline[context->current_fif];
 		zest_SignalTimeline(timeline);
 	}
 
@@ -12218,6 +12223,7 @@ zest_frame_graph zest__compile_frame_graph() {
     zest_uint final_passes = zest_map_size(frame_graph->final_passes);
 
     if (!has_execution_callback) {
+		ZEST_REPORT(context->device, zest_report_no_work, "No passes in frame graph [%s] had any tasks set so there is no work to do in the frame graph.", frame_graph->name);
         zest__set_rg_error_status(frame_graph, zest_fgs_no_work_to_do);
         return frame_graph;
     }
@@ -14122,7 +14128,7 @@ zest_resource_node zest_ImportSwapchainResource() {
     frame_graph->swapchain_resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 	ZEST__FLAG(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
 	if (!frame_graph->wait_on_timeline) {
-		zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
+		zest_execution_timeline timeline = &context->frame_timeline[context->current_fif];
 		zest_WaitOnTimeline(timeline);
 	}
     return frame_graph->swapchain_resource;
@@ -14765,7 +14771,6 @@ void zest_ConnectSwapChainOutput() {
 							(void)0);  //
     zest_clear_value_t cv = frame_graph->swapchain->clear_color;
     // Assuming clear for swapchain if not explicitly loaded
-    ZEST__FLAG(pass->flags, zest_pass_flag_do_not_cull);
     zest__add_pass_image_usage(pass, frame_graph->swapchain_resource, zest_purpose_color_attachment_write, 
 							   zest_pipeline_stage_color_attachment_output_bit, ZEST_TRUE,
 							   zest_load_op_clear, zest_store_op_store, zest_load_op_dont_care, zest_store_op_dont_care, cv);
@@ -14881,9 +14886,7 @@ void zest_SignalTimeline(zest_execution_timeline timeline) {
     frame_graph->signal_timeline = timeline;
 }
 
-zest_execution_timeline zest_CreateExecutionTimeline(zest_device device) {
-    zest_execution_timeline timeline = ZEST__NEW(device->allocator, zest_execution_timeline);
-    *timeline = ZEST__ZERO_INIT(zest_execution_timeline_t);
+zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline) {
     timeline->magic = zest_INIT_MAGIC(zest_struct_type_execution_timeline);
     timeline->current_value = 0;
 	timeline->device = device;
@@ -14892,8 +14895,18 @@ zest_execution_timeline zest_CreateExecutionTimeline(zest_device device) {
             ZEST__FREE(device->allocator, timeline->backend);
         }
 		ZEST__FREE(device->allocator, timeline);
-		return NULL;
+		return ZEST_FALSE;
     }
+	return ZEST_TRUE;
+}
+
+zest_execution_timeline zest_CreateExecutionTimeline(zest_device device) {
+    zest_execution_timeline timeline = ZEST__NEW(device->allocator, zest_execution_timeline);
+    *timeline = ZEST__ZERO_INIT(zest_execution_timeline_t);
+	if (!zest__initialise_timeline(device, timeline)) {
+		ZEST__FREE(device->allocator, timeline);
+		timeline = NULL;
+	}
     return timeline;
 }
 
