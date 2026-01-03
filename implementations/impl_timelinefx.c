@@ -126,7 +126,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	resources->image_data = zest_CreateBuffer(context, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
 	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
 
-	resources->timeline = zest_CreateExecutionTimeline(context);
+	resources->timeline = zest_CreateExecutionTimeline(device);
 	//End of render specific code
 }
 
@@ -136,9 +136,9 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(context, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_device device = zest_GetContextDevice(context);
-	zest_queue queue = zest_BeginImmediateCommandBuffer(device, zest_queue_transfer);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
-	zest_EndImmediateCommandBuffer(queue);
+	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBuffer(staging_buffer);
 }
 

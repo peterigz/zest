@@ -1214,8 +1214,6 @@ void VadersGame::Update(float ellapsed) {
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
-		zest_execution_timeline timeline = zest_GetExecutionTimeline(tfx_rendering.timeline);
-
 		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
 		//after zest_BeginFrame every frame.
 		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);

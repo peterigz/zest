@@ -66,9 +66,9 @@ void InitComputeExample(ComputeExample *app) {
 	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
 	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->device, app->particle_buffer);
 	//Copy the staging buffer to the desciptor buffer
-	zest_queue queue = zest_BeginImmediateCommandBuffer(app->device, zest_queue_transfer);
+	zest_queue queue = zest_imm_BeginCommandBuffer(app->device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, app->particle_buffer, storage_buffer_size);
-	zest_EndImmediateCommandBuffer(queue);
+	zest_imm_EndCommandBuffer(queue);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 

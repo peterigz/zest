@@ -34,8 +34,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	tests->brd_bindless_texture_index = zest_AcquireStorageImageIndex(tests->device, brd_image, zest_storage_image_binding);
 	zest_AcquireSampledImageIndex(tests->device, brd_image, zest_texture_2d_binding);
 
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
@@ -52,7 +51,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_SignalTimeline(timeline);
 	zest_EndFrameGraphAndExecute();
 	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	
 	zest_FreeImageNow(tests->brd_texture);
 
@@ -89,8 +88,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	info.size = sizeof(TestData) * 1000;
 
 	// Create timeline for cross-graph synchronization
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	zest_buffer storage_buffer = zest_CreateBuffer(tests->context, 1024, &storage_buffer_info);
@@ -137,7 +135,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 
 	zest_FreeBuffer(storage_buffer);
 
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -149,8 +147,7 @@ Create timeline, don't signal it, wait with short timeout.
 Verify returns zest_semaphore_status_timeout.
 */
 int test__timeline_timeout(ZestTests *tests, Test *test) {
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	// Increment the timeline value so we're waiting for a signal that won't come
 	timeline->current_value++;
@@ -163,7 +160,7 @@ int test__timeline_timeout(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -192,8 +189,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 
 	// Execute the same graph 3 times
 	for (int i = 0; i < 3; i++) {
-		zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-		zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+		zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 		zest_frame_graph cached_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
 		if (cached_graph) {
@@ -220,7 +216,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 		if (status != zest_semaphore_status_success) {
 			test->result = 1;
 		}
-		zest_FreeExecutionTimeline(timeline_handle);
+		zest_FreeExecutionTimeline(timeline);
 	}
 
 	// Should have used cache at least twice (after first execution)
@@ -284,8 +280,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
 	}
 
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	// Create image resource info with mipmaps
 	zest_image_resource_info_t image_info = { zest_format_r16g16_sfloat };
@@ -315,7 +310,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -340,11 +335,9 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 	info.size = sizeof(TestData) * 1000;
 
 	// Create two timelines
-	zest_execution_timeline_handle timeline_handle_1 = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline_1 = zest_GetExecutionTimeline(timeline_handle_1);
+	zest_execution_timeline timeline_1 = zest_CreateExecutionTimeline(tests->device);
 
-	zest_execution_timeline_handle timeline_handle_2 = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline_2 = zest_GetExecutionTimeline(timeline_handle_2);
+	zest_execution_timeline timeline_2 = zest_CreateExecutionTimeline(tests->device);
 
 	// Single graph that signals both timelines
 	if (zest_BeginFrameGraph(tests->context, "Multi Signal", 0)) {
@@ -374,8 +367,8 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(timeline_handle_1);
-	zest_FreeExecutionTimeline(timeline_handle_2);
+	zest_FreeExecutionTimeline(timeline_1);
+	zest_FreeExecutionTimeline(timeline_2);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -419,8 +412,7 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;
 
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	if (zest_BeginFrameGraph(tests->context, "Read Modify Write", 0)) {
 		zest_resource_node rmw_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
@@ -451,7 +443,7 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -490,8 +482,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;
 
-	zest_execution_timeline_handle timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline timeline = zest_GetExecutionTimeline(timeline_handle);
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	// Graph with ONLY compute passes - no render passes, no swapchain
 	if (zest_BeginFrameGraph(tests->context, "Compute Only", 0)) {
@@ -542,7 +533,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(timeline_handle);
+	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;
@@ -568,8 +559,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	info.size = sizeof(TestData) * 1000;
 
 	// Create timeline for final wait only
-	zest_execution_timeline_handle final_timeline_handle = zest_CreateExecutionTimeline(tests->context);
-	zest_execution_timeline final_timeline = zest_GetExecutionTimeline(final_timeline_handle);
+	zest_execution_timeline final_timeline = zest_CreateExecutionTimeline(tests->device);
 
 	// Execute first graph without waiting
 	if (zest_BeginFrameGraph(tests->context, "Fire and Forget 1", 0)) {
@@ -630,7 +620,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 		test->result = 1;
 	}
 
-	zest_FreeExecutionTimeline(final_timeline_handle);
+	zest_FreeExecutionTimeline(final_timeline);
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
 	return test->result;

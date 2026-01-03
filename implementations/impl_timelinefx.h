@@ -40,7 +40,7 @@ typedef struct tfx_render_resources_s {
 	zest_shader_handle vertex_shader;
 	zest_camera_t camera;
 	zest_timer_t timer;
-	zest_execution_timeline_handle timeline;
+	zest_execution_timeline timeline;
 } tfx_render_resources_t;
 
 #ifdef __cplusplus

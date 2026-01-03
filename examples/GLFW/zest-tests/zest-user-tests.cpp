@@ -351,6 +351,7 @@ int test__pass_without_task(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context);
 		}
+		zest_PrintReports(tests->context);
 		phase_passed = (zest_ReportCount(tests->context) >= 3);
 		phase_total += 1;
 		passed_tests += phase_passed;

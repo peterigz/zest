@@ -895,14 +895,14 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 
 		if (upload_staging && gpu_buffer && readback_staging) {
 			// Transfer upload staging -> GPU
-			zest_queue queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_transfer);
+			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_transfer);
 			zest_imm_CopyBuffer(queue, upload_staging, gpu_buffer, 256);
-			zest_EndImmediateCommandBuffer(queue);
+			zest_imm_EndCommandBuffer(queue);
 
 			// Transfer GPU -> readback staging
-			queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_transfer);
+			queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_transfer);
 			zest_imm_CopyBuffer(queue, gpu_buffer, readback_staging, 256);
-			zest_EndImmediateCommandBuffer(queue);
+			zest_imm_EndCommandBuffer(queue);
 
 			// Verify round-trip data integrity
 			char *readback_data = (char*)zest_BufferData(readback_staging);
@@ -1654,9 +1654,9 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			}
 			phase_total++;
 
-			zest_queue queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_graphics);
+			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
 			zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 4);
-			zest_EndImmediateCommandBuffer(queue);
+			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index with array binding
 			zest_uint index = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_array_binding);
@@ -1691,9 +1691,9 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			}
 			phase_total++;
 
-			zest_queue queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_graphics);
+			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
 			zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 6);
-			zest_EndImmediateCommandBuffer(queue);
+			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index with cube binding
 			zest_uint index = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_cube_binding);
@@ -1753,9 +1753,9 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 
-			zest_queue queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_graphics);
+			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
 			zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, 1, 0, 1);
-			zest_EndImmediateCommandBuffer(queue);
+			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index
 			zest_uint sampled_index = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_2d_binding);
@@ -1794,9 +1794,9 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			if (images[i].value != 0) {
 				zest_image image = zest_GetImage(images[i]);
 
-				zest_queue queue = zest_BeginImmediateCommandBuffer(tests->device, zest_queue_graphics);
+				zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
 				zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 1);
-				zest_EndImmediateCommandBuffer(queue);
+				zest_imm_EndCommandBuffer(queue);
 
 				indexes[i] = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_2d_binding);
 				if (indexes[i] != ZEST_INVALID) {

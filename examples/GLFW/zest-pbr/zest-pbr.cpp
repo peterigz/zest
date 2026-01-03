@@ -493,8 +493,8 @@ void MainLoop(SimplePBRExample *app) {
 		//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
 		//image layout general. When they are used in the frame graph below they will be transitioned to read only
 		//so we store the current layout of the image in a custom cache info struct so that when the layout changes
-		//the cache will be invalidated and a new cache will be created. The other option is to transition them
-		//before hand but this is just to show an example of how the frame graph caching can work.
+		//the cache key will change and a new cache will be created as a result. The other option is to transition 
+		//them before hand but this is just to show an example of how the frame graph caching can work.
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 		app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
 		app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
