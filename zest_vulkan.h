@@ -3843,6 +3843,20 @@ zest_queue zest__vk_begin_single_time_commands(zest_device device, zest_device_q
 
     ZEST_CLEANUP_ON_FAIL(device, vkBeginCommandBuffer(queue->backend->command_buffer, &begin_info));
 
+	// Bind the global bindless descriptor set for graphics and compute queues
+	if (target_queue != zest_queue_transfer && device->bindless_set) {
+		VkDescriptorSet bindless_set = device->bindless_set->backend->vk_descriptor_set;
+		VkPipelineLayout pipeline_layout = device->pipeline_layout->backend->vk_pipeline_layout;
+		if (target_queue == zest_queue_graphics) {
+			// Graphics queue can do both graphics and compute
+			vkCmdBindDescriptorSets(queue->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &bindless_set, 0, 0);
+			vkCmdBindDescriptorSets(queue->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 1, &bindless_set, 0, 0);
+		} else {
+			// Compute queue is compute-only
+			vkCmdBindDescriptorSets(queue->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 1, &bindless_set, 0, 0);
+		}
+	}
+
     return queue;
 
 cleanup:
@@ -5190,6 +5204,30 @@ zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_ima
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 		dst_range);
+
+	return ZEST_TRUE;
+}
+
+void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size) {
+	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
+	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
+	ZEST_ASSERT(data);					//No data provided
+	ZEST_ASSERT(size > 0);				//Size must be greater than 0
+
+	zest_pipeline_layout layout = queue->device->pipeline_layout;
+	vkCmdPushConstants(queue->backend->command_buffer, layout->backend->vk_pipeline_layout, zest__to_vk_shader_stage(layout->push_constant_range.stage_flags), 0, size, data);
+}
+
+zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
+	ZEST_ASSERT_HANDLE(compute);		//Not a valid compute handle
+	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
+
+	// Bind compute pipeline
+	vkCmdBindPipeline(queue->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
+
+	// Dispatch
+	vkCmdDispatch(queue->backend->command_buffer, group_count_x, group_count_y, group_count_z);
 
 	return ZEST_TRUE;
 }
