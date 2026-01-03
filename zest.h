@@ -5316,6 +5316,10 @@ ZEST_API zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image 
 ZEST_API zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter);
 //Resolve a multisampled image to a single-sampled image.
 ZEST_API zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_image dst_image);
+//Send push constants to a shader. Must be called inside zest_BeginImmediateCommandBuffer.
+ZEST_API void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size);
+//Bind a compute pipeline and dispatch. Must be called inside zest_BeginImmediateCommandBuffer.
+ZEST_API zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 
 //-----------------------------------------------
 // Command_buffer_functions
@@ -13199,7 +13203,17 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
             ZEST_CLEANUP_ON_FALSE(context->device->platform->begin_command_buffer(&frame_graph->command_list));
 
-			zest_pipeline_bind_point current_bind_point = zest_bind_point_none;
+			// Bind the global bindless descriptor set for graphics and compute queues
+			if (batch->queue_type != zest_queue_transfer && frame_graph->descriptor_sets) {
+				if (batch->queue_type == zest_queue_graphics) {
+					// Graphics queue can do both graphics and compute
+					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_graphics, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_compute, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+				} else {
+					// Compute queue is compute-only
+					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_compute, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+				}
+			}
 
             zest_vec_foreach(i, batch->pass_indices) {
                 zest_uint pass_index = batch->pass_indices[i];
@@ -13238,11 +13252,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //Execute the callbacks in the pass
                 zest_vec_foreach(pass_index, grouped_pass->passes) {
                     zest_pass_node pass = grouped_pass->passes[pass_index];
-
-					if (pass->bind_point != zest_bind_point_none && frame_graph->descriptor_sets && current_bind_point != pass->bind_point) {
-						current_bind_point = pass->bind_point;
-						zest_cmd_BindDescriptorSets(&frame_graph->command_list, current_bind_point, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
-					}
 
                     if (pass->type == zest_pass_type_graphics && !frame_graph->command_list.began_rendering) {
                         ZEST_REPORT(context->device, zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
