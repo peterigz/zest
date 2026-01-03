@@ -1100,8 +1100,8 @@ typedef char* zest_file;
 #define ZEST_CREATE_HANDLE(generation, index) (((zest_u64)generation << 32ull) + index)
 
 //For allocating a new object with handle. Only used internally.
-#define ZEST__NEW(allocator, type) ZEST__ALLOCATE(allocator, sizeof(type##_t))
-#define ZEST__NEW_ALIGNED(allocator, type, alignment) ZEST__ALLOCATE_ALIGNED(allocator, sizeof(type##_t), alignment)
+#define ZEST__NEW(allocator, type) (type)ZEST__ALLOCATE(allocator, sizeof(type##_t))
+#define ZEST__NEW_ALIGNED(allocator, type, alignment) (type)ZEST__ALLOCATE_ALIGNED(allocator, sizeof(type##_t), alignment)
 
 //For global variables
 #define ZEST_GLOBAL static
@@ -1783,7 +1783,6 @@ typedef enum {
 typedef enum {
 	zest_handle_type_uniform_buffers,
 	zest_handle_type_layers,
-	zest_handle_type_execution_timelines,
 	zest_max_context_handle_type
 } zest_context_handle_type;
 
@@ -2551,7 +2550,6 @@ ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_USER_HANDLE(zest_layer)
 ZEST__MAKE_USER_HANDLE(zest_shader)
 ZEST__MAKE_USER_HANDLE(zest_compute)
-ZEST__MAKE_USER_HANDLE(zest_execution_timeline)
 
 //Threading
 
@@ -3957,7 +3955,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*begin_render_pass)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void                       (*end_render_pass)(const zest_command_list command_list);
 	void                       (*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-	zest_bool                  (*create_execution_timeline_backend)(zest_context context, zest_execution_timeline timeline);
+	zest_bool                  (*create_execution_timeline_backend)(zest_device device, zest_execution_timeline timeline);
 	void  		               (*cleanup_execution_timeline_backend)(zest_execution_timeline timeline);
 	void                       (*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers,
 		zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
@@ -4010,8 +4008,6 @@ typedef struct zest_platform_t {
 	void                       (*update_bindless_uniform_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
 	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
-	zest_queue 				   (*begin_single_time_commands)(zest_device device, zest_device_queue_type target_queue);
-	zest_bool 				   (*end_single_time_commands)(zest_queue queue);
 	//General Context
 	void                       (*set_depth_format)(zest_device device);
 	zest_bool                  (*initialise_context_backend)(zest_context context);
@@ -4198,7 +4194,6 @@ ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__free_all_device_resource_stores(zest_device device);
 ZEST_PRIVATE void zest__cleanup_device(zest_device device);
 ZEST_PRIVATE void zest__cleanup_context(zest_context context);
-ZEST_PRIVATE void zest__cleanup_execution_timeline_store(zest_context context);
 ZEST_PRIVATE void zest__cleanup_image_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_sampler_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_context context);
@@ -4731,9 +4726,8 @@ ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
 ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
 
 // --- Syncronization Helpers ---
-ZEST_API zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context);
-ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline);
-ZEST_API zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline);
+ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_device device);
+ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline timeline);
 
 // -- General pass and resource getters/setters
 ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
@@ -5293,8 +5287,9 @@ ZEST_API void zest_ResetValidationErrors(zest_device device);
 
 //Helper functions for executing commands on the GPU immediately
 //For now this just handles buffer/image copying but will expand this as we go.
-ZEST_API zest_queue zest_BeginImmediateCommandBuffer(zest_device device, zest_device_queue_type target_queue);
-ZEST_API void zest_EndImmediateCommandBuffer(zest_queue queue);
+ZEST_API zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue);
+//End the immediate command buffer, submit and wait for completion (blocking). Queue is released immediately after
+ZEST_API zest_bool zest_imm_EndCommandBuffer(zest_queue queue);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
 ZEST_API zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
@@ -5316,10 +5311,13 @@ ZEST_API zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image 
 ZEST_API zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter);
 //Resolve a multisampled image to a single-sampled image.
 ZEST_API zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_image dst_image);
-//Send push constants to a shader. Must be called inside zest_BeginImmediateCommandBuffer.
+//Send push constants to a shader. Must be called inside zest_imm_BeginCommandBuffer.
 ZEST_API void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size);
-//Bind a compute pipeline and dispatch. Must be called inside zest_BeginImmediateCommandBuffer.
-ZEST_API zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+//Bind a compute pipeline. Must be called inside zest_imm_BeginCommandBuffer and will be used for all subsequent
+//calls to zest_imm_DispatchCompute.
+ZEST_API void zest_imm_BindComputePipeline(zest_queue queue, zest_compute compute);
+//Dispatch a compute pipeline. Must be called inside zest_imm_BeginCommandBuffer and you must have called zest_imm_BindComputePipeline
+ZEST_API zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 
 //-----------------------------------------------
 // Command_buffer_functions
@@ -6014,6 +6012,7 @@ typedef struct zest_queue_t {
 	zest_uint index;
 	zest_uint family_index;
 	zest_device device;
+	zest_compute last_bound_compute;
 	volatile int in_use;
 } zest_queue_t;
 
@@ -6158,7 +6157,7 @@ typedef struct zest_context_t {
 	//The timeout for the fence that waits for gpu work to finish for the frame
 	zest_u64 fence_wait_timeout_ns;
 	zest_wait_timeout_callback frame_wait_timeout_callback;
-	zest_execution_timeline_handle frame_timeline[ZEST_MAX_FIF];
+	zest_execution_timeline frame_timeline[ZEST_MAX_FIF];
 	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
 
 	//Window data
@@ -6538,8 +6537,7 @@ typedef struct zest_layer_t {
 
 typedef struct zest_execution_timeline_t {
 	int magic;
-	zest_execution_timeline_handle handle;
-	zest_context context;
+	zest_device device;
 	zest_execution_timeline_backend backend;
 	zest_u64 current_value;
 } zest_execution_timeline_t;
@@ -8907,16 +8905,6 @@ void zest__release_queue(zest_queue queue) {
 	zest__sync_unlock(&queue_manager->sync);
 }
 
-zest_queue zest_BeginImmediateCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
-	ZEST_ASSERT_HANDLE(device);		//Not a valid queue handle
-    return device->platform->begin_single_time_commands(device, target_queue);
-}
-
-void zest_EndImmediateCommandBuffer(zest_queue queue) {
-	ZEST_ASSERT_HANDLE(queue);		//Not a valid context handle
-    queue->device->platform->end_single_time_commands(queue);
-}
-
 zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
@@ -9156,7 +9144,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		switch ((zest_context_handle_type)i) {
 			case zest_handle_type_uniform_buffers: 		zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t), zest_struct_type_uniform_buffer); break;
 			case zest_handle_type_layers: 				zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_layer_t), zest_struct_type_layer); break;
-			case zest_handle_type_execution_timelines: 	zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_execution_timeline_t), zest_struct_type_execution_timeline); break;
 		}
 	}
 
@@ -9205,7 +9192,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
         int result = zloc_InitialiseLinearAllocator(&context->frame_graph_allocator[fif], frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 		ZEST_ASSERT(result, "Unable to allocate a frame graph allocator, out of memory.");
 		zloc_SetLinearAllocatorUserData(&context->frame_graph_allocator[fif], context);
-		context->frame_timeline[fif] = zest_CreateExecutionTimeline(context);
+		context->frame_timeline[fif] = zest_CreateExecutionTimeline(context->device);
     }
 
     ZEST_APPEND_LOG(context->device->log_path.str, "Finished zest initialisation");
@@ -9637,23 +9624,9 @@ void zest__cleanup_view_array_store(zest_device device) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_execution_timeline_store(zest_context context) {
-	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
-    for (int i = 0; i != store->data.current_size; ++i) {
-		if (zest__resource_is_initialised(store, i)) {
-			zest_execution_timeline timeline = zest_bucket_array_get(&store->data, zest_execution_timeline_t, i);
-			if (ZEST_VALID_HANDLE(timeline, zest_struct_type_execution_timeline)) {
-				zest__cleanup_execution_timeline(timeline);
-			}
-		}
-    }
-	zest__free_store(store);
-}
-
 void zest__cleanup_context(zest_context context) {
     zest__cleanup_uniform_buffer_store(context);
     zest__cleanup_layer_store(context);
-    zest__cleanup_execution_timeline_store(context);
 	zest__cleanup_swapchain(context->swapchain);
     zest__cleanup_pipelines(context);
 
@@ -12080,7 +12053,7 @@ zest_frame_graph zest__compile_frame_graph() {
 	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
 	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
-		zest_execution_timeline timeline = zest_GetExecutionTimeline(context->frame_timeline[context->current_fif]);
+		zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
 		zest_SignalTimeline(timeline);
 	}
 
@@ -13061,8 +13034,7 @@ zest_frame_graph zest_EndFrameGraph() {
 }
 
 zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout) {
-	zest_context context = timeline->context;
-	return context->device->platform->wait_for_timeline(timeline, timeout);
+	return timeline->device->platform->wait_for_timeline(timeline, timeout);
 }
 
 zest_frame_graph zest_EndFrameGraphAndExecute() {
@@ -14150,7 +14122,7 @@ zest_resource_node zest_ImportSwapchainResource() {
     frame_graph->swapchain_resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 	ZEST__FLAG(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
 	if (!frame_graph->wait_on_timeline) {
-		zest_execution_timeline timeline = zest_GetExecutionTimeline(context->frame_timeline[context->current_fif]);
+		zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
 		zest_WaitOnTimeline(timeline);
 	}
     return frame_graph->swapchain_resource;
@@ -14909,36 +14881,27 @@ void zest_SignalTimeline(zest_execution_timeline timeline) {
     frame_graph->signal_timeline = timeline;
 }
 
-zest_execution_timeline_handle zest_CreateExecutionTimeline(zest_context context) {
-	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_execution_timelines];
-    zest_execution_timeline_handle handle = ZEST_STRUCT_LITERAL(zest_execution_timeline_handle, zest__add_store_resource(store), store);
-	handle.store = store;
-    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_unsafe(store, handle.value);
+zest_execution_timeline zest_CreateExecutionTimeline(zest_device device) {
+    zest_execution_timeline timeline = ZEST__NEW(device->allocator, zest_execution_timeline);
     *timeline = ZEST__ZERO_INIT(zest_execution_timeline_t);
     timeline->magic = zest_INIT_MAGIC(zest_struct_type_execution_timeline);
     timeline->current_value = 0;
-	timeline->context = context;
-	timeline->handle = handle;
-    if (!context->device->platform->create_execution_timeline_backend(context, timeline)) {
+	timeline->device = device;
+    if (!device->platform->create_execution_timeline_backend(device, timeline)) {
         if (timeline->backend) {
-            ZEST__FREE(context->allocator, timeline->backend);
+            ZEST__FREE(device->allocator, timeline->backend);
         }
-		ZEST__FREE(context->allocator, timeline);
-		return ZEST__ZERO_INIT(zest_execution_timeline_handle);
+		ZEST__FREE(device->allocator, timeline);
+		return NULL;
     }
-	zest__activate_resource(handle.store, handle.value);
-    return handle;
+    return timeline;
 }
 
-void zest_FreeExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
-    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_checked(timeline_handle.store, timeline_handle.value);
-	zest_context context = timeline->context;
-	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.resources[context->current_fif], timeline);
-}
-
-zest_execution_timeline zest_GetExecutionTimeline(zest_execution_timeline_handle timeline_handle) {
-    zest_execution_timeline timeline = (zest_execution_timeline)zest__get_store_resource_checked(timeline_handle.store, timeline_handle.value);
-	return timeline;
+void zest_FreeExecutionTimeline(zest_execution_timeline timeline) {
+	ZEST_ASSERT_HANDLE(timeline);	//Not a valid timeline handle
+	zest_device device = timeline->device;
+	zest_uint index = device->frame_counter % ZEST_MAX_FIF;
+	zest_vec_push(device->allocator, device->deferred_resource_freeing_list.resources[index], timeline);
 }
 
 // --End frame graph functions
@@ -15047,9 +15010,9 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_context context, zest_ima
     }
 	image->info.layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
-        zest_queue queue = device->platform->begin_single_time_commands(device, zest_queue_compute);
+        zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
         zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
-        device->platform->end_single_time_commands(queue);
+        zest_imm_EndCommandBuffer(queue);
     }
     zest_image_view_type view_type = zest__get_image_view_type(image);
     image->default_view = device->platform->create_image_view(context, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, 0);
@@ -15151,8 +15114,8 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
 }
 
 void zest__cleanup_execution_timeline(zest_execution_timeline timeline) {
-	timeline->context->device->platform->cleanup_execution_timeline_backend(timeline);
-	zest__remove_store_resource(timeline->handle.store, timeline->handle.value);
+	timeline->device->platform->cleanup_execution_timeline_backend(timeline);
+	ZEST__FREE(timeline->device->allocator, timeline);
 }
 
 void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel) { 
@@ -16383,10 +16346,10 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
 	layer->vertex_data = zest_CreateBuffer(context, vertex_staging_buffer->size, &vertex_info);
 	layer->index_data = zest_CreateBuffer(context, index_staging_buffer->size, &index_info);
-	zest_queue queue = zest_BeginImmediateCommandBuffer(context->device, zest_queue_transfer);
+	zest_queue queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_transfer);
     zest_imm_CopyBuffer(queue, vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
     zest_imm_CopyBuffer(queue, index_staging_buffer, layer->index_data, index_staging_buffer->size);
-	zest_EndImmediateCommandBuffer(queue);
+	zest_imm_EndCommandBuffer(queue);
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
 }

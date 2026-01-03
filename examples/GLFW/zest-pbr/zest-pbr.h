@@ -72,7 +72,7 @@ struct SimplePBRExample {
 	zest_uint imgui_draw_routine_index;
 	zest_timer_t timer;
 	zest_camera_t camera;
-	zest_execution_timeline_handle timeline;
+	zest_execution_timeline timeline;
 
 	zest_layer_handle cube_layer;
 	zest_layer_handle skybox_layer;
