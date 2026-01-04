@@ -3,6 +3,7 @@
 layout(location = 0) in vec4 in_frag_color;
 layout (location = 1) in vec3 in_world_position;
 layout (location = 2) in vec3 in_normal;
+layout (location = 3) in vec2 in_pbr;
 
 layout(location = 0) out vec4 out_color;
 
@@ -12,8 +13,6 @@ layout(push_constant) uniform quad_index
     uint index2;
     uint index3;
     uint index4;
-    float roughness;
-	float metallic;
 	vec2 padding1;
 	vec3 color;
 	float padding2;
@@ -103,7 +102,7 @@ void main()
 	vec3 N = normalize(in_normal);
 	vec3 V = normalize(material.camera.xyz - in_world_position);
 
-	float roughness = material.roughness;
+	float roughness = in_pbr.x;
 
 	// Add striped pattern to roughness based on vertex position
 #ifdef ROUGHNESS_PATTERN
@@ -114,7 +113,7 @@ void main()
 	vec3 Lo = vec3(0.0);
 	for (int i = 0; i < ubo_lights.lights.length(); i++) {
 		vec3 L = normalize(ubo_lights.lights[i].xyz - in_world_position);
-		Lo += BRDF(L, V, N, material.metallic, roughness);
+		Lo += BRDF(L, V, N, in_pbr.y, roughness);
 	};
 
 	// Combine with ambient

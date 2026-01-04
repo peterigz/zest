@@ -4,6 +4,8 @@
 #include "zest-pbr.h"
 #include "zest.h"
 #include "imgui_internal.h"
+#define CGLTF_IMPLEMENTATION
+#include "examples/libs/cgltf.h"
 
 void UpdateUniform3d(SimplePBRExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
@@ -103,6 +105,102 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_imm_EndCommandBuffer(queue);
 }
 
+zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_scale) {
+	cgltf_options options = {0};
+	cgltf_data* data = NULL;
+
+	// Parse and load buffer data
+	if (cgltf_parse_file(&options, filepath, &data) != cgltf_result_success) {
+		return NULL;
+	}
+	if (cgltf_load_buffers(&options, data, filepath) != cgltf_result_success) {
+		cgltf_free(data);
+		return NULL;
+	}
+
+	zest_mesh mesh = zest_NewMesh(context);
+	zest_color_t packed_color = zest_ColorSet(255, 255, 255, 255);
+	zest_u64 packed_tangent = 0;
+	zest_uint packed_uv = 0;
+
+	// Load all meshes and primitives
+	for (cgltf_size m = 0; m < data->meshes_count; m++) {
+		cgltf_mesh* gltf_mesh = &data->meshes[m];
+
+		for (cgltf_size p = 0; p < gltf_mesh->primitives_count; p++) {
+			cgltf_primitive* prim = &gltf_mesh->primitives[p];
+
+			// Find accessors
+			cgltf_accessor* pos_acc = NULL;
+			cgltf_accessor* norm_acc = NULL;
+			cgltf_accessor* tangent_acc = NULL;
+			cgltf_accessor* uv_acc = NULL;
+			cgltf_accessor* color_acc = NULL;
+			for (cgltf_size a = 0; a < prim->attributes_count; a++) {
+				if (prim->attributes[a].type == cgltf_attribute_type_position) {
+					pos_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_normal) {
+					norm_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_tangent) {
+					tangent_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_texcoord) {
+					uv_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_color) {
+					color_acc = prim->attributes[a].data;
+				}
+			}
+			if (!pos_acc) continue;
+
+			// Track base vertex for indexing
+			zest_uint base_vertex = zest_MeshVertexCount(mesh);
+
+			// Read vertices
+			for (cgltf_size v = 0; v < pos_acc->count; v++) {
+				float pos[3], norm[3] = { 0, 0, 1 };
+				float tangent[4] = { 0 };
+				float color[4] = { 0 };
+				float uv[2] = { 0 };
+				cgltf_accessor_read_float(pos_acc, v, pos, 3);
+				pos[0] *= adjust_scale;
+				pos[1] *= adjust_scale;
+				pos[2] *= adjust_scale;
+				if (norm_acc) {
+					cgltf_accessor_read_float(norm_acc, v, norm, 3);
+				}
+				if (tangent_acc) {
+					cgltf_accessor_read_float(tangent_acc, v, tangent, 4);
+					packed_tangent = zest_Pack16bit4SNorm(tangent[0], tangent[1], tangent[2], tangent[3]);
+				}
+				if (uv_acc) {
+					cgltf_accessor_read_float(uv_acc, v, uv, 2);
+					packed_uv = zest_Pack16bit2SNorm(uv[0], uv[1]);
+				}
+				if (color_acc) {
+					cgltf_accessor_read_float(color_acc, v, color, 4);
+					packed_color = zest_ColorSet((zest_byte)(color[0] * 255.f), (zest_byte)(color[1] * 255.f), (zest_byte)(color[2] * 255.f), (zest_byte)(color[3] * 255.f));
+				}
+
+				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
+			}
+
+			// Read indices
+			if (prim->indices) {
+				for (cgltf_size i = 0; i < prim->indices->count; i++) {
+					cgltf_size idx = cgltf_accessor_read_index(prim->indices, i);
+					zest_PushMeshIndex(mesh, (zest_uint)(base_vertex + idx));
+				}
+			}
+		}
+	}
+
+	cgltf_free(data);
+	return mesh;
+}
+
 void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
@@ -189,8 +287,6 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->lights_buffer = zest_CreateUniformBuffer(app->context, "Lights", sizeof(UniformLights));
 	app->view_buffer = zest_CreateUniformBuffer(app->context, "View", sizeof(uniform_buffer_data_t));
 	app->material_push = { 0 };
-	app->material_push.roughness = .1f;
-	app->material_push.metallic = 1.f;
 	app->material_push.color.x = 0.1f;
 	app->material_push.color.y = 0.8f;
 	app->material_push.color.z = 0.1f;
@@ -233,38 +329,62 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, zest_format_r32_uint, offsetof(zest_vertex_t, group));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 3, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 4, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 5, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, parameters));   // Location 7: Instance Parameters
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 3, zest_format_r16g16_unorm, offsetof(zest_vertex_t, uv));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, group_id));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, roughness));   // Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, metallic));   // Location 7: Instance Parameters
 
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
-	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
+	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_none);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineTopology(app->pbr_pipeline, zest_topology_triangle_list);
+	zest_SetPipelineDepthTest(app->pbr_pipeline, true, true);
 
 	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->pbr_pipeline);
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
+	app->teapot_layer = zest_CreateInstanceMeshLayer(app->context, "Teapot Layer");
+	app->torus_layer = zest_CreateInstanceMeshLayer(app->context, "Torus Layer");
+	app->venus_layer = zest_CreateInstanceMeshLayer(app->context, "Venus Layer");
 	app->cube_layer = zest_CreateInstanceMeshLayer(app->context, "Cube Layer");
+	app->sphere_layer = zest_CreateInstanceMeshLayer(app->context, "Sphere Layer");
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Sky Box Layer");
 	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh cone = zest_CreateCone(app->context, 50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh cylinder = zest_CreateCylinder(app->context, 100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
+
+	// Load teapot from glTF
+	zest_mesh teapot = LoadGLTFMesh(app->context, "examples/assets/gltf/teapot.gltf", .5f);
+	if (teapot) {
+		zest_AddMeshToLayer(zest_GetLayer(app->teapot_layer), teapot);
+		zest_FreeMesh(teapot);
+	}
+	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", .05f);
+	if (torus) {
+		zest_AddMeshToLayer(zest_GetLayer(app->torus_layer), torus);
+		zest_FreeMesh(torus);
+	}
+	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", .5f);
+	if (venus) {
+		zest_AddMeshToLayer(zest_GetLayer(app->venus_layer), venus);
+		zest_FreeMesh(venus);
+	}
+
+	// Keep sky_box for skybox layer
 	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
-	zest_AddMeshToLayer(zest_GetLayer(app->cube_layer), cube);
 	zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
+	zest_AddMeshToLayer(zest_GetLayer(app->cube_layer), cube);
+	zest_AddMeshToLayer(zest_GetLayer(app->sphere_layer), sphere);
+	zest_FreeMesh(sky_box);
 	zest_FreeMesh(cube);
 	zest_FreeMesh(sphere);
-	zest_FreeMesh(cone);
-	zest_FreeMesh(cylinder);
-	zest_FreeMesh(sky_box);
 }
 
 void UpdateLights(SimplePBRExample *app, float timer) {
@@ -303,13 +423,17 @@ void UpdateLights(SimplePBRExample *app, float timer) {
 void UploadMeshData(const zest_command_list context, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
-	zest_layer_handle layers[3]{
+	zest_layer_handle layers[7]{
+		app->teapot_layer,
+		app->torus_layer,
+		app->venus_layer,
 		app->cube_layer,
+		app->sphere_layer,
 		app->skybox_layer,
 		app->billboard_layer
 	};
 
-	for (int i = 0; i != 3; ++i) {
+	for (int i = 0; i != 7; ++i) {
 		zest_layer layer = zest_GetLayer(layers[i]);
 		zest_UploadLayerStagingData(layer, context);
 	}
@@ -348,6 +472,13 @@ void UpdateMouse(SimplePBRExample *app) {
 	app->mouse_y = mouse_y;
 	app->mouse_delta_x = last_mouse_x - app->mouse_x;
 	app->mouse_delta_y = last_mouse_y - app->mouse_y;
+}
+
+void DrawMeshes(const zest_command_list command_list, void *user_data) {
+	zest_layer *layers = (zest_layer*)user_data;
+	for (int i = 0; i != 5; i++) {
+		zest_DrawInstanceMeshLayer(command_list, layers[i]);
+	}
 }
 
 void MainLoop(SimplePBRExample *app) {
@@ -404,8 +535,8 @@ void MainLoop(SimplePBRExample *app) {
 			//Draw our imgui stuff
 			ImGui::NewFrame();
 			ImGui::Begin("Test Window");
-			ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
-			ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
+			//ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
+			//ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
 			ImGui::ColorPicker3("Color", &app->material_push.color.x);
 			ImGui::Separator();
 			if (ImGui::Button("Toggle Refresh Rate Sync")) {
@@ -447,7 +578,20 @@ void MainLoop(SimplePBRExample *app) {
 		zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
 		zest_vec3 scale = { 1.f, 1.f, 1.f };
 
+		zest_layer teapot_layer = zest_GetLayer(app->teapot_layer);
+		zest_layer torus_layer = zest_GetLayer(app->torus_layer);
+		zest_layer venus_layer = zest_GetLayer(app->venus_layer);
 		zest_layer cube_layer = zest_GetLayer(app->cube_layer);
+		zest_layer sphere_layer = zest_GetLayer(app->sphere_layer);
+
+		zest_layer instance_layers[] = {
+			teapot_layer,
+			torus_layer,
+			venus_layer,
+			cube_layer,
+			sphere_layer,
+		};
+
 		zest_layer skybox_layer = zest_GetLayer(app->skybox_layer);
 		zest_layer billboard_layer = zest_GetLayer(app->billboard_layer);
 
@@ -463,19 +607,35 @@ void MainLoop(SimplePBRExample *app) {
 		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(prefiltered_image, zest_texture_cube_binding);
 		app->material_push.sampler_index = app->sampler_2d_index;
 		app->material_push.skybox_sampler_index = app->sampler_2d_index;
-		zest_SetInstanceDrawing(cube_layer, app->pbr_pipeline);
-		zest_SetLayerPushConstants(cube_layer, &app->material_push, sizeof(pbr_consts_t));
-		zest_SetLayerColor(cube_layer, 255, 255, 255, 255);
-		zest_DrawInstancedMesh(cube_layer, &position.x, &rotation.x, &scale.x);
-
+		zest_SetMultiInstanceDrawing(instance_layers, 5, app->pbr_pipeline);
+		zest_SetMultiLayerPushConstants(instance_layers, 5, &app->material_push, sizeof(pbr_consts_t));
+		zest_SetLayerColor(teapot_layer, 255, 255, 255, 255);
+		float count = 10.f;
 		float zero[3] = { 0 };
+		float upright[3] = { 0, 0, -ZEST_PI * .5f };
+		for (float i = 0; i < count; i++) {
+			float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
+			float metallic = ZEST__CLAMP(i / count, 0.005f, 1.0f);
+			position.z = 0.f;
+			zest_DrawInstancedMesh(teapot_layer, &position.x, zero, &scale.x, roughness, metallic);
+			position.z += 3.f;
+			zest_DrawInstancedMesh(torus_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
+			position.z += 3.f;
+			zest_DrawInstancedMesh(venus_layer, &position.x, upright, &scale.x, roughness, metallic);
+			position.z += 3.f;
+			zest_DrawInstancedMesh(cube_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
+			position.z += 3.f;
+			zest_DrawInstancedMesh(sphere_layer, &position.x, zero, &scale.x, roughness, metallic);
+			position.x += 3.f;
+		}
+
 		zest_uint sky_push[] = {
 			app->material_push.view_buffer_index,
 			app->material_push.lights_buffer_index,
 		};
 		zest_SetInstanceDrawing(skybox_layer, app->skybox_pipeline);
 		zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
-		zest_DrawInstancedMesh(skybox_layer, zero, zero, zero);
+		zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
 		zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
 
 		if (app->reset) {
@@ -519,8 +679,11 @@ void MainLoop(SimplePBRExample *app) {
 				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 				zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
-					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", cube_layer, false);
-					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", billboard_layer, false);
+					zest_resource_node teapot_layer_resource = zest_AddTransientLayerResource("Teapot Layer", teapot_layer, false);
+					zest_resource_node torus_layer_resource = zest_AddTransientLayerResource("Torus Layer", torus_layer, false);
+					zest_resource_node venus_layer_resource = zest_AddTransientLayerResource("Venus Layer", venus_layer, false);
+					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("Cube Layer", cube_layer, false);
+					zest_resource_node sphere_layer_resource = zest_AddTransientLayerResource("Sphere Layer", sphere_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
 					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", brd_image, 0);
@@ -534,8 +697,11 @@ void MainLoop(SimplePBRExample *app) {
 
 					//-------------------------Transfer Pass----------------------------------------------------
 					zest_BeginTransferPass("Upload Mesh Data"); {
+						zest_ConnectOutput(teapot_layer_resource);
+						zest_ConnectOutput(torus_layer_resource);
+						zest_ConnectOutput(venus_layer_resource);
 						zest_ConnectOutput(cube_layer_resource);
-						zest_ConnectOutput(billboard_layer_resource);
+						zest_ConnectOutput(sphere_layer_resource);
 						zest_ConnectOutput(skybox_layer_resource);
 						zest_SetPassTask(UploadMeshData, app);
 						zest_EndPass();
@@ -553,13 +719,17 @@ void MainLoop(SimplePBRExample *app) {
 					//--------------------------------------------------------------------------------------------------
 
 					//------------------------ PBR Layer Pass ------------------------------------------------------------
-					zest_BeginRenderPass("Cube Pass"); {
+					zest_BeginRenderPass("Instance Mesh Pass"); {
+						zest_ConnectInput(teapot_layer_resource);
+						zest_ConnectInput(torus_layer_resource);
+						zest_ConnectInput(venus_layer_resource);
 						zest_ConnectInput(cube_layer_resource);
+						zest_ConnectInput(sphere_layer_resource);
 						zest_ConnectInput(brd_texture_resource);
 						zest_ConnectInput(irradiance_texture_resource);
 						zest_ConnectInput(prefiltered_texture_resource);
 						zest_ConnectGroupedOutput(group);
-						zest_SetPassTask(zest_DrawInstanceMeshLayer, cube_layer);
+						zest_SetPassTask(DrawMeshes, instance_layers);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -596,7 +766,7 @@ void MainLoop(SimplePBRExample *app) {
 
 		if (zest_SwapchainWasRecreated(app->context)) {
 			zest_SetLayerSizeToSwapchain(billboard_layer);
-			zest_SetLayerSizeToSwapchain(cube_layer);
+			zest_SetLayerSizeToSwapchain(teapot_layer);
 			zest_SetLayerSizeToSwapchain(skybox_layer);
 		}
 	}
@@ -619,6 +789,7 @@ int main(void) {
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderPrintMemoryInfo(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 

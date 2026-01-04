@@ -24,17 +24,21 @@ layout(push_constant) uniform quad_index
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec4 vertex_color;
-layout(location = 2) in uint group_id;
-layout(location = 3) in vec3 vertex_normal;
-layout(location = 4) in vec3 instance_position;
-layout(location = 5) in vec4 instance_color;
-layout(location = 6) in vec3 instance_rotation;
-layout(location = 7) in vec4 instance_parameters;
-layout(location = 8) in vec3 instance_scale;
+layout(location = 2) in vec3 vertex_normal;
+layout(location = 3) in vec2 in_uv;
+layout(location = 4) in vec4 tangent;
+layout(location = 5) in uint group_id;
+layout(location = 6) in vec3 instance_position;
+layout(location = 7) in vec4 instance_color;
+layout(location = 8) in vec3 instance_rotation;
+layout(location = 9) in float rougness;
+layout(location = 10) in vec3 instance_scale;
+layout(location = 11) in float metallic;
 
 layout(location = 0) out vec4 out_frag_color;
 layout (location = 1) out vec3 out_world_position;
 layout (location = 2) out vec3 out_normal;
+layout (location = 3) out vec2 out_pbr;
 
 void main() {
 	mat3 mx, my, mz;
@@ -72,4 +76,5 @@ void main() {
 	out_frag_color = color;
 	out_world_position = position;
 	out_normal = vertex_normal * rotation_matrix;
+	out_pbr = vec2(rougness, metallic);
 }

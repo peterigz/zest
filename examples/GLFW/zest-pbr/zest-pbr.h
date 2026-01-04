@@ -54,8 +54,6 @@ struct prefiltered_push_constant_t {
 struct pbr_consts_t {
 	zest_vec4 camera;
 	zest_vec3 color;
-	float roughness;
-	float metallic;
 	zest_uint irradiance_index;
 	zest_uint brd_lookup_index;
 	zest_uint pre_filtered_index;
@@ -74,7 +72,12 @@ struct SimplePBRExample {
 	zest_camera_t camera;
 	zest_execution_timeline timeline;
 
+	zest_layer_handle teapot_layer;
+	zest_layer_handle torus_layer;
+	zest_layer_handle venus_layer;
 	zest_layer_handle cube_layer;
+	zest_layer_handle cone_layer;
+	zest_layer_handle sphere_layer;
 	zest_layer_handle skybox_layer;
 	zest_layer_handle billboard_layer;
 

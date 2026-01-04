@@ -8,6 +8,7 @@ layout (set = 0, binding = 2) uniform textureCube textures_cube[];
 layout(location = 0) in vec4 in_frag_color;
 layout (location = 1) in vec3 in_world_position;
 layout (location = 2) in vec3 in_normal;
+layout (location = 3) in vec2 in_pbr;
 
 layout(location = 0) out vec4 out_color;
 
@@ -15,8 +16,6 @@ layout(push_constant) uniform quad_index
 {
 	vec4 camera;
 	vec3 color;
-	float roughness;
-	float metallic;
 	uint irradiance_index;
 	uint brd_lookup_index;
 	uint pre_filtered_index;
@@ -121,8 +120,8 @@ void main()
 	vec3 V = normalize(material.camera.xyz - in_world_position);
 	vec3 R = reflect(-V, N); 
 
-	float metallic = material.metallic;
-	float roughness = material.roughness;
+	float metallic = in_pbr.x;
+	float roughness = in_pbr.y;
 
 	vec3 F0 = vec3(0.04); 
 	F0 = mix(F0, ALBEDO, metallic);
