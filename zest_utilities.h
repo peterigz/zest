@@ -2254,8 +2254,6 @@ zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, flo
 
         mesh->vertices[i].pos = zest_Vec3Set( x, height / 2.0f, z );
         mesh->vertices[i + sides].pos = zest_Vec3Set( x, -height / 2.0f, z );
-        mesh->vertices[i].color = color;
-        mesh->vertices[i + sides].color = color;
     }
 
     int base_index = sides * 2;
@@ -2384,7 +2382,7 @@ zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float 
             vertex.x = xy * cosf(sector_angle);       /* x = r * cos(phi) * cos(theta)  */
             vertex.y = xy * sinf(sector_angle);       /* y = r * cos(phi) * sin(theta) */
             vertex.z = z;                               /* z = r * sin(phi) */
-            zest_PushMeshVertex(mesh, vertex.x, vertex.y, vertex.z, color);
+            zest_PushMeshVertexOnly(mesh, vertex.x, vertex.y, vertex.z, color);
         }
     }
 
@@ -2423,50 +2421,50 @@ zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color) 
     float half_size = size * .5f;
 
     // Front face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 0
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 1
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 2
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 3
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size, -half_size, color); // 0
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size, -half_size, color); // 1
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size, -half_size, color); // 2
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size, -half_size, color); // 3
     zest_PushMeshTriangle(mesh, 2, 1, 0);
     zest_PushMeshTriangle(mesh, 0, 3, 2);
 
     // Back face
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 4
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 5
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 6
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 7
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size,  half_size, color); // 4
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size,  half_size, color); // 5
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size,  half_size, color); // 6
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size,  half_size, color); // 7
     zest_PushMeshTriangle(mesh, 6, 5, 4);
     zest_PushMeshTriangle(mesh, 4, 7, 6);
 
     // Left face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 8
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 9
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 10
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 11
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size, -half_size, color); // 8
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size, -half_size, color); // 9
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size,  half_size, color); // 10
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size,  half_size, color); // 11
     zest_PushMeshTriangle(mesh, 10, 9, 8);
     zest_PushMeshTriangle(mesh, 8, 11, 10);
 
     // Right face
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 12
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 13
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 14
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 15
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size, -half_size, color); // 12
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size,  half_size, color); // 13
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size,  half_size, color); // 14
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size, -half_size, color); // 15
     zest_PushMeshTriangle(mesh, 14, 13, 12);
     zest_PushMeshTriangle(mesh, 12, 15, 14);
 
     // Bottom face
-    zest_PushMeshVertex(mesh, -half_size, -half_size, -half_size, color); // 16
-    zest_PushMeshVertex(mesh, -half_size, -half_size,  half_size, color); // 17
-    zest_PushMeshVertex(mesh,  half_size, -half_size,  half_size, color); // 18
-    zest_PushMeshVertex(mesh,  half_size, -half_size, -half_size, color); // 19
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size, -half_size, color); // 16
+    zest_PushMeshVertexOnly(mesh, -half_size, -half_size,  half_size, color); // 17
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size,  half_size, color); // 18
+    zest_PushMeshVertexOnly(mesh,  half_size, -half_size, -half_size, color); // 19
     zest_PushMeshTriangle(mesh, 18, 17, 16);
     zest_PushMeshTriangle(mesh, 16, 19, 18);
 
     // Top face
-    zest_PushMeshVertex(mesh, -half_size,  half_size, -half_size, color); // 20
-    zest_PushMeshVertex(mesh,  half_size,  half_size, -half_size, color); // 21
-    zest_PushMeshVertex(mesh,  half_size,  half_size,  half_size, color); // 22
-    zest_PushMeshVertex(mesh, -half_size,  half_size,  half_size, color); // 23
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size, -half_size, color); // 20
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size, -half_size, color); // 21
+    zest_PushMeshVertexOnly(mesh,  half_size,  half_size,  half_size, color); // 22
+    zest_PushMeshVertexOnly(mesh, -half_size,  half_size,  half_size, color); // 23
     zest_PushMeshTriangle(mesh, 22, 21, 20);
     zest_PushMeshTriangle(mesh, 20, 23, 22);
 
@@ -2489,14 +2487,14 @@ zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float h
     height = ZEST__MAX(radius, height - radius * 2.f);
 
     //centre vertex;
-	zest_PushMeshVertex(mesh, 0.f, 0.f, 0.0f, color);
+	zest_PushMeshVertexOnly(mesh, 0.f, 0.f, 0.0f, color);
 
     // Bottom left corner
     for (int i = 0; i <= segments; ++i) {
         float angle = angle_increment * i;
         float x = cosf(angle) * radius;
         float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, -width / 2.0f - x, -height / 2.0f - y, 0.0f, color);
+        zest_PushMeshVertexOnly(mesh, -width / 2.0f - x, -height / 2.0f - y, 0.0f, color);
     }
 
     // Bottom right corner
@@ -2504,7 +2502,7 @@ zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float h
         float angle = angle_increment * i;
         float x = cosf(angle) * radius;
         float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, width / 2.0f + x, -height / 2.0f - y, 0.0f, color);
+        zest_PushMeshVertexOnly(mesh, width / 2.0f + x, -height / 2.0f - y, 0.0f, color);
     }
 
     // Top right corner
@@ -2512,7 +2510,7 @@ zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float h
         float angle = angle_increment * i;
         float x = cosf(angle) * radius;
         float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, width / 2.0f + x, height / 2.0f + y, 0.0f, color);
+        zest_PushMeshVertexOnly(mesh, width / 2.0f + x, height / 2.0f + y, 0.0f, color);
     }
 
     // Top left corner
@@ -2520,7 +2518,7 @@ zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float h
         float angle = angle_increment * i;
         float x = cosf(angle) * radius;
         float y = sinf(angle) * radius;
-        zest_PushMeshVertex(mesh, - width / 2.0f - x, height / 2.0f + y, 0.0f, color);
+        zest_PushMeshVertexOnly(mesh, - width / 2.0f - x, height / 2.0f + y, 0.0f, color);
     }
 
     zest_uint vertex_count = zest_vec_size(mesh->vertices);
