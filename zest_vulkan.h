@@ -2632,7 +2632,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i, Buffer: %p", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
