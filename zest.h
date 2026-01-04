@@ -3871,16 +3871,20 @@ typedef struct zest_mesh_instance_t {
 	zest_vec3 pos;                                 //3d position
 	zest_color_t color;                              //packed color
 	zest_vec3 rotation;
-	zest_uint parameters;                          //packed parameters
+	float roughness;                          //pbr roughness
 	zest_vec3 scale;
+	float metallic;                          //pbr metallic
 } zest_mesh_instance_t;
 
 typedef struct zest_vertex_t {
-	zest_vec3 pos;                                 //3d position
-	zest_color_t color;
-	zest_vec3 normal;                              //3d normal
-	zest_uint group;
-} zest_vertex_t;
+	zest_vec3 pos;                              //3d position (12bytes)
+	zest_color_t color;							//Packed color rgba (4 bytes)
+	zest_vec3 normal;                           //3d normal packed vec3 (12 bytes)
+	zest_uint uv;								//uv coords packed into 16bit floats (4 bytes)
+	zest_u64 tangent;                    		//Tangent packed vec4 (4 16bit floats) (8 bytes)
+	zest_uint group_id; 		  		 		//store any bit fields other packed values (4 bytes)
+	zest_uint paramenters; 				   		//store any bit fields other packed values (4 bytes)
+} zest_vertex_t;                                //Total: 48 bytes	
 
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
@@ -5076,6 +5080,8 @@ ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_ha
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
 ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
+//Set the same pipeline to an array of layers
+ZEST_API void zest_SetMultiInstanceDrawing(zest_layer *layers, zest_uint layer_count, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5090,6 +5096,8 @@ ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 //Set the current instruction push contants in the layer
 ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size);
+//Set the current instruction push contants to an array of layers
+ZEST_API void zest_SetMultiLayerPushConstants(zest_layer *layers, zest_uint layer_count, void *push_constants, zest_size size);
 //Get the current push constants in the layer for the current instruction
 ZEST_API void *zest_GetLayerPushConstants(zest_layer layer);
 //Get the current push constants in the layer for the current instruction
@@ -5127,7 +5135,9 @@ ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, v
 //-----------------------------------------------
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
-ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
+ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], zest_uint uv, zest_u64 tangent, zest_color_t color, zest_uint group);
+//Push a zest_vertex_t to a mesh. A simpler version that doesn't take normal or group id.
+ZEST_API void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
 ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
@@ -5154,13 +5164,15 @@ ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
 ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
 ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
+//Get the vertex count in the mesh
+ZEST_API zest_size zest_MeshVertexCount(zest_mesh mesh);
 //Get the size in bytes for the vertex data in a mesh
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
-ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]);
+ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------
@@ -8654,7 +8666,8 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
 	buffer_pool->allocator = buffer_allocator;
     zest_bool result = ZEST_TRUE;
 	buffer_pool->size = buffer_allocator->pre_defined_pool_size.pool_size > minimum_size ? buffer_allocator->pre_defined_pool_size.pool_size : zest_RoundUpToNearestPower(minimum_size);
-	if (zest_vec_size(buffer_allocator->memory_pools)) {
+	zest_uint pool_count = zest_vec_size(buffer_allocator->memory_pools);
+	if (pool_count) {
 		buffer_pool->size += zest_vec_back(buffer_allocator->memory_pools)->size;
 	}
 	zest_context context = buffer_allocator->context;
@@ -8978,7 +8991,6 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
         if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
             return ZEST_FALSE;
         } else {
-            zest__add_remote_range_pool(buffer_allocator, buffer_pool);
             new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
             ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
             *buffer = new_buffer;
@@ -9004,7 +9016,6 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
         if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
             return ZEST_FALSE;
         } else {
-            zest__add_remote_range_pool(buffer_allocator, buffer_pool);
             new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
             ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
             *buffer = new_buffer;
@@ -15968,18 +15979,35 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 
 //-- Start Instance Drawing API
 void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) {
+	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
 	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
 	zest_context context = layer->context;
-    zest__end_instance_instructions(layer);
-    zest__start_instance_instructions(layer);
-    layer->current_instruction.pipeline_template = pipeline;
+	zest__end_instance_instructions(layer);
+	zest__start_instance_instructions(layer);
+	layer->current_instruction.pipeline_template = pipeline;
 
-    layer->current_instruction.draw_mode = zest_draw_mode_instance;
-    layer->last_draw_mode = zest_draw_mode_instance;
+	layer->current_instruction.draw_mode = zest_draw_mode_instance;
+	layer->last_draw_mode = zest_draw_mode_instance;
+}
+
+void zest_SetMultiInstanceDrawing(zest_layer *layers, zest_uint layer_count, zest_pipeline_template pipeline) {
+	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
+	ZEST_ASSERT(layers);					//NULL layers passed in
+	for (int i = 0; i != layer_count; i++) {
+		zest_layer layer = layers[i];
+		ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
+		zest_context context = layer->context;
+		zest__end_instance_instructions(layer);
+		zest__start_instance_instructions(layer);
+		layer->current_instruction.pipeline_template = pipeline;
+
+		layer->current_instruction.draw_mode = zest_draw_mode_instance;
+		layer->last_draw_mode = zest_draw_mode_instance;
+	}
 }
 
 void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT_HANDLE(layer); 		//ERROR: Not a valid layer pointer
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
@@ -15988,8 +16016,18 @@ void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scis
 }
 
 void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT_HANDLE(layer); 		//ERROR: Not a valid layer pointer
 	zest__set_layer_push_constants(layer, push_constants, size);
+}
+
+void zest_SetMultiLayerPushConstants(zest_layer *layers, zest_uint layer_count, void *push_constants, zest_size size) {
+	ZEST_ASSERT(layers);			//NULL layers passed in
+	ZEST_ASSERT(push_constants);	//NULL push constants passed in
+	for (int i = 0; i != layer_count; i++) {
+		zest_layer layer = layers[i];
+		ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
+		zest__set_layer_push_constants(layer, push_constants, size);
+	}
 }
 
 void *zest_GetLayerPushConstants(zest_layer layer) {
@@ -16193,8 +16231,13 @@ void zest_SetInstanceMeshDrawing(zest_layer layer, zest_pipeline_template pipeli
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
 }
 
-void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color) {
-    zest_vertex_t vertex = { {pos_x, pos_y, pos_z}, color, {0.f, 0.f, 0.f}, 0 };
+void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color) {
+	zest_vertex_t vertex = { {pos_x, pos_y, pos_z}, color, {0, 0, 0}, 0 };
+    zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
+}
+
+void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], zest_uint uv, zest_u64 tangent, zest_color_t color, zest_uint group) {
+	zest_vertex_t vertex = { {pos[0], pos[1], pos[2]}, color, {normal[0], normal[1], normal[2]}, uv, tangent, group, 0};
     zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
 }
 
@@ -16321,8 +16364,12 @@ zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh) {
 
 void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id) {
     zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].group = group_id;
+        mesh->vertices[i].group_id = group_id;
     }
+}
+
+zest_size zest_MeshVertexCount(zest_mesh mesh) {
+    return zest_vec_size(mesh->vertices);
 }
 
 zest_size zest_MeshVertexDataSize(zest_mesh mesh) {
@@ -16367,7 +16414,7 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
     zest_FreeBuffer(index_staging_buffer);
 }
 
-void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
+void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
@@ -16377,7 +16424,8 @@ void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float 
     instance->rotation = zest_Vec3Set(rot[0], rot[1], rot[2]);
     instance->scale = zest_Vec3Set(scale[0], scale[1], scale[2]);
     instance->color = layer->current_color;
-    instance->parameters = 0;
+	instance->roughness = roughness;
+	instance->metallic = metallic;
 
 }
 
