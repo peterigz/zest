@@ -72,14 +72,15 @@ struct SimplePBRExample {
 	zest_camera_t camera;
 	zest_execution_timeline timeline;
 
-	zest_layer_handle teapot_layer;
-	zest_layer_handle torus_layer;
-	zest_layer_handle venus_layer;
-	zest_layer_handle cube_layer;
-	zest_layer_handle cone_layer;
-	zest_layer_handle sphere_layer;
+	zest_layer_handle mesh_layer;
 	zest_layer_handle skybox_layer;
-	zest_layer_handle billboard_layer;
+
+	zest_uint teapot_index;
+	zest_uint torus_index;
+	zest_uint venus_index;
+	zest_uint cube_index;
+	zest_uint sphere_index;
+	zest_uint skybox_index;
 
 	zest_pipeline_template pbr_pipeline;
 	zest_pipeline_template skybox_pipeline;

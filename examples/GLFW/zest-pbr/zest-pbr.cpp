@@ -39,8 +39,6 @@ void SetupBillboards(SimplePBRExample *app) {
 	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
 	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
-
-	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t), 100);
 }
 
 void SetupBRDFLUT(SimplePBRExample *app) {
@@ -341,7 +339,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, metallic));   // Location 7: Instance Parameters
 
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
-	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_none);
+	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineTopology(app->pbr_pipeline, zest_topology_triangle_list);
 	zest_SetPipelineDepthTest(app->pbr_pipeline, true, true);
@@ -351,40 +349,41 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
-	app->teapot_layer = zest_CreateInstanceMeshLayer(app->context, "Teapot Layer");
-	app->torus_layer = zest_CreateInstanceMeshLayer(app->context, "Torus Layer");
-	app->venus_layer = zest_CreateInstanceMeshLayer(app->context, "Venus Layer");
-	app->cube_layer = zest_CreateInstanceMeshLayer(app->context, "Cube Layer");
-	app->sphere_layer = zest_CreateInstanceMeshLayer(app->context, "Sphere Layer");
-	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Sky Box Layer");
 	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
-
-	// Load teapot from glTF
 	zest_mesh teapot = LoadGLTFMesh(app->context, "examples/assets/gltf/teapot.gltf", .5f);
-	if (teapot) {
-		zest_AddMeshToLayer(zest_GetLayer(app->teapot_layer), teapot);
-		zest_FreeMesh(teapot);
-	}
 	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", .05f);
-	if (torus) {
-		zest_AddMeshToLayer(zest_GetLayer(app->torus_layer), torus);
-		zest_FreeMesh(torus);
-	}
 	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", .5f);
-	if (venus) {
-		zest_AddMeshToLayer(zest_GetLayer(app->venus_layer), venus);
-		zest_FreeMesh(venus);
-	}
-
-	// Keep sky_box for skybox layer
 	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
-	zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
-	zest_AddMeshToLayer(zest_GetLayer(app->cube_layer), cube);
-	zest_AddMeshToLayer(zest_GetLayer(app->sphere_layer), sphere);
+
+	zest_size vertex_capacity = zest_MeshVertexDataSize(cube);
+	vertex_capacity += zest_MeshVertexDataSize(sphere);
+	vertex_capacity += zest_MeshVertexDataSize(teapot);
+	vertex_capacity += zest_MeshVertexDataSize(torus);
+	vertex_capacity += zest_MeshVertexDataSize(venus);
+
+	zest_size index_capacity = zest_MeshIndexDataSize(cube);
+	index_capacity += zest_MeshIndexDataSize(sphere);
+	index_capacity += zest_MeshIndexDataSize(teapot);
+	index_capacity += zest_MeshIndexDataSize(torus);
+	index_capacity += zest_MeshIndexDataSize(venus);
+
+	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
+	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
+
+	app->teapot_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), teapot);
+	app->torus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), torus);
+	app->venus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), venus);
+	app->cube_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), cube);
+	app->sphere_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), sphere);
+	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
+
 	zest_FreeMesh(sky_box);
 	zest_FreeMesh(cube);
 	zest_FreeMesh(sphere);
+	zest_FreeMesh(venus);
+	zest_FreeMesh(torus);
+	zest_FreeMesh(teapot);
 }
 
 void UpdateLights(SimplePBRExample *app, float timer) {
@@ -424,16 +423,11 @@ void UploadMeshData(const zest_command_list context, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	zest_layer_handle layers[7]{
-		app->teapot_layer,
-		app->torus_layer,
-		app->venus_layer,
-		app->cube_layer,
-		app->sphere_layer,
-		app->skybox_layer,
-		app->billboard_layer
+		app->mesh_layer,
+		app->skybox_layer
 	};
 
-	for (int i = 0; i != 7; ++i) {
+	for (int i = 0; i != 2; ++i) {
 		zest_layer layer = zest_GetLayer(layers[i]);
 		zest_UploadLayerStagingData(layer, context);
 	}
@@ -502,175 +496,168 @@ void MainLoop(SimplePBRExample *app) {
 
 		zest_UpdateDevice(app->device);
 
-		UpdateMouse(app);
-
-		float elapsed = (float)current_frame_time;
-
-		UpdateUniform3d(app);
-
-		bool camera_free_look = false;
-		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-			camera_free_look = true;
-			if (glfwRawMouseMotionSupported()) {
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-			}
-			ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-		} else if (glfwRawMouseMotionSupported()) {
-			camera_free_look = false;
-			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		} else {
-			camera_free_look = false;
-			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		}
-
-		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-		//less frequently.
-
-		zest_StartTimerLoop(app->timer) {
-			//Must call the imgui GLFW implementation function
-			ImGui_ImplGlfw_NewFrame();
-			//Draw our imgui stuff
-			ImGui::NewFrame();
-			ImGui::Begin("Test Window");
-			//ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
-			//ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
-			ImGui::ColorPicker3("Color", &app->material_push.color.x);
-			ImGui::Separator();
-			if (ImGui::Button("Toggle Refresh Rate Sync")) {
-				if (app->sync_refresh) {
-					zest_DisableVSync(app->context);
-					app->sync_refresh = false;
-				} else {
-					zest_EnableVSync(app->context);
-					app->sync_refresh = true;
-				}
-			}
-			if (ImGui::Button("Print Render Graph")) {
-				app->request_graph_print = 1;
-				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
-			}
-			if (ImGui::Button("Reset Renderer")) {
-				app->reset = true;
-			}
-			ImGui::End();
-			ImGui::Render();
-			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			UpdateCameraPosition(app);
-
-			//Restore the mouse when right mouse isn't held down
-			if (camera_free_look) {
-				glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-			}
-			else {
-				glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			}
-		} zest_EndTimerLoop(app->timer);
-
-		app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(&app->timer));
-
-		zest_vec3 position = { 0.f, 0.f, 0.f };
-		app->ellapsed_time += elapsed;
-		float rotation_time = app->ellapsed_time * .000001f;
-		zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
-		zest_vec3 scale = { 1.f, 1.f, 1.f };
-
-		zest_layer teapot_layer = zest_GetLayer(app->teapot_layer);
-		zest_layer torus_layer = zest_GetLayer(app->torus_layer);
-		zest_layer venus_layer = zest_GetLayer(app->venus_layer);
-		zest_layer cube_layer = zest_GetLayer(app->cube_layer);
-		zest_layer sphere_layer = zest_GetLayer(app->sphere_layer);
-
-		zest_layer instance_layers[] = {
-			teapot_layer,
-			torus_layer,
-			venus_layer,
-			cube_layer,
-			sphere_layer,
-		};
-
+		zest_layer mesh_layer = zest_GetLayer(app->mesh_layer);
 		zest_layer skybox_layer = zest_GetLayer(app->skybox_layer);
-		zest_layer billboard_layer = zest_GetLayer(app->billboard_layer);
-
-		zest_image brd_image = zest_GetImage(app->brd_texture);
-		zest_image irr_image = zest_GetImage(app->irr_texture);
-		zest_image prefiltered_image = zest_GetImage(app->prefiltered_texture);
-		zest_image skybox_image = zest_GetImage(app->skybox_texture);
-
-		UpdateLights(app, rotation_time);
-		app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-		app->material_push.irradiance_index = zest_ImageDescriptorIndex(irr_image, zest_texture_cube_binding);
-		app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(brd_image, zest_texture_2d_binding);
-		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(prefiltered_image, zest_texture_cube_binding);
-		app->material_push.sampler_index = app->sampler_2d_index;
-		app->material_push.skybox_sampler_index = app->sampler_2d_index;
-		zest_SetMultiInstanceDrawing(instance_layers, 5, app->pbr_pipeline);
-		zest_SetMultiLayerPushConstants(instance_layers, 5, &app->material_push, sizeof(pbr_consts_t));
-		zest_SetLayerColor(teapot_layer, 255, 255, 255, 255);
-		float count = 10.f;
-		float zero[3] = { 0 };
-		float upright[3] = { 0, 0, -ZEST_PI * .5f };
-		for (float i = 0; i < count; i++) {
-			float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
-			float metallic = ZEST__CLAMP(i / count, 0.005f, 1.0f);
-			position.z = 0.f;
-			zest_DrawInstancedMesh(teapot_layer, &position.x, zero, &scale.x, roughness, metallic);
-			position.z += 3.f;
-			zest_DrawInstancedMesh(torus_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
-			position.z += 3.f;
-			zest_DrawInstancedMesh(venus_layer, &position.x, upright, &scale.x, roughness, metallic);
-			position.z += 3.f;
-			zest_DrawInstancedMesh(cube_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
-			position.z += 3.f;
-			zest_DrawInstancedMesh(sphere_layer, &position.x, zero, &scale.x, roughness, metallic);
-			position.x += 3.f;
-		}
-
-		zest_uint sky_push[] = {
-			app->material_push.view_buffer_index,
-			app->material_push.lights_buffer_index,
-		};
-		zest_SetInstanceDrawing(skybox_layer, app->skybox_pipeline);
-		zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
-		zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
-		zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
-
-		if (app->reset) {
-			app->reset = false;
-			ImGui_ImplGlfw_Shutdown();
-			zest_imgui_Destroy(&app->imgui);
-			zest_implglfw_DestroyWindow(app->context);
-			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-			zest_ResetContext(app->context, &window_handles);
-			InitSimplePBRExample(app);
-		}
-
-		zest_swapchain swapchain = zest_GetSwapchain(app->context);
-		zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
-		//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
-		//image layout general. When they are used in the frame graph below they will be transitioned to read only
-		//so we store the current layout of the image in a custom cache info struct so that when the layout changes
-		//the cache key will change and a new cache will be created as a result. The other option is to transition 
-		//them before hand but this is just to show an example of how the frame graph caching can work.
-		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
-		app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
-		app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
-		app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
-		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
-
-		zest_image_resource_info_t depth_info = {
-			zest_format_depth,
-			zest_resource_usage_hint_none,
-			zest_ScreenWidth(app->context),
-			zest_ScreenHeight(app->context),
-			1, 1
-		};
 
 		if (zest_BeginFrame(app->context)) {
+
+			UpdateMouse(app);
+
+			float elapsed = (float)current_frame_time;
+
+			UpdateUniform3d(app);
+
+			bool camera_free_look = false;
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+				camera_free_look = true;
+				if (glfwRawMouseMotionSupported()) {
+					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+				}
+				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
+			} else if (glfwRawMouseMotionSupported()) {
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			} else {
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+			}
+
+			//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+			//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+			//less frequently.
+
+			zest_StartTimerLoop(app->timer) {
+				//Must call the imgui GLFW implementation function
+				ImGui_ImplGlfw_NewFrame();
+				//Draw our imgui stuff
+				ImGui::NewFrame();
+				ImGui::Begin("Test Window");
+				ImGui::Text("FPS: %u", fps);
+				ImGui::ColorPicker3("Color", &app->material_push.color.x);
+				ImGui::Separator();
+				if (ImGui::Button("Toggle Refresh Rate Sync")) {
+					if (app->sync_refresh) {
+						zest_DisableVSync(app->context);
+						app->sync_refresh = false;
+					} else {
+						zest_EnableVSync(app->context);
+						app->sync_refresh = true;
+					}
+				}
+				if (ImGui::Button("Print Render Graph")) {
+					app->request_graph_print = 1;
+					zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
+				}
+				if (ImGui::Button("Reset Renderer")) {
+					app->reset = true;
+				}
+				ImGui::End();
+				ImGui::Render();
+				//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+				//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+				UpdateCameraPosition(app);
+
+				//Restore the mouse when right mouse isn't held down
+				if (camera_free_look) {
+					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+				}
+				else {
+					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+				}
+			} zest_EndTimerLoop(app->timer);
+
+			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(&app->timer));
+
+			zest_vec3 position = { 0.f, 0.f, 0.f };
+			app->ellapsed_time += elapsed;
+			float rotation_time = app->ellapsed_time * .000001f;
+			zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
+			zest_vec3 scale = { 1.f, 1.f, 1.f };
+
+			zest_image brd_image = zest_GetImage(app->brd_texture);
+			zest_image irr_image = zest_GetImage(app->irr_texture);
+			zest_image prefiltered_image = zest_GetImage(app->prefiltered_texture);
+			zest_image skybox_image = zest_GetImage(app->skybox_texture);
+
+			UpdateLights(app, rotation_time);
+			app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
+			app->material_push.irradiance_index = zest_ImageDescriptorIndex(irr_image, zest_texture_cube_binding);
+			app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(brd_image, zest_texture_2d_binding);
+			app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(prefiltered_image, zest_texture_cube_binding);
+			app->material_push.sampler_index = app->sampler_2d_index;
+			app->material_push.skybox_sampler_index = app->sampler_2d_index;
+			zest_SetLayerPushConstants(mesh_layer, &app->material_push, sizeof(pbr_consts_t));
+			zest_SetLayerColor(mesh_layer, 255, 255, 255, 255);
+			float count = 10.f;
+			float zero[3] = { 0 };
+			float upright[3] = { 0, 0, -ZEST_PI * .5f };
+			for (int m = 0; m != 5; m++) {
+				zest_SetMeshInstanceDrawing(mesh_layer, m, app->pbr_pipeline);
+				for (float i = 0; i < count; i++) {
+					float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
+					float metallic = ZEST__CLAMP(i / count, 0.005f, 1.0f);
+					switch (m) {
+						case 0:
+						case 1:
+						case 3: {
+							zest_DrawInstancedMesh(mesh_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
+							break;
+						}
+						case 2:
+						case 4: {
+							zest_DrawInstancedMesh(mesh_layer, &position.x, upright, &scale.x, roughness, metallic);
+							break;
+						}
+					}
+					position.x += 3.f;
+				}
+				position.x = 0.f;
+				position.z += 3.f;
+			}
+
+			zest_uint sky_push[] = {
+				app->material_push.view_buffer_index,
+				app->material_push.lights_buffer_index,
+			};
+			zest_SetInstanceDrawing(skybox_layer, app->skybox_pipeline);
+			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
+			zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
+			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
+
+			if (app->reset) {
+				app->reset = false;
+				ImGui_ImplGlfw_Shutdown();
+				zest_imgui_Destroy(&app->imgui);
+				zest_implglfw_DestroyWindow(app->context);
+				zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+				zest_ResetContext(app->context, &window_handles);
+				InitSimplePBRExample(app);
+			}
+
+			zest_swapchain swapchain = zest_GetSwapchain(app->context);
+			zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
+			//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
+			//image layout general. When they are used in the frame graph below they will be transitioned to read only
+			//so we store the current layout of the image in a custom cache info struct so that when the layout changes
+			//the cache key will change and a new cache will be created as a result. The other option is to transition 
+			//them before hand but this is just to show an example of how the frame graph caching can work.
+			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
+			app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
+			app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
+			app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
+			zest_frame_graph_cache_key_t cache_key = {};
+			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
+
+			zest_image_resource_info_t depth_info = {
+				zest_format_depth,
+				zest_resource_usage_hint_none,
+				zest_ScreenWidth(app->context),
+				zest_ScreenHeight(app->context),
+				1, 1
+			};
+
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -679,11 +666,7 @@ void MainLoop(SimplePBRExample *app) {
 				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 				zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
-					zest_resource_node teapot_layer_resource = zest_AddTransientLayerResource("Teapot Layer", teapot_layer, false);
-					zest_resource_node torus_layer_resource = zest_AddTransientLayerResource("Torus Layer", torus_layer, false);
-					zest_resource_node venus_layer_resource = zest_AddTransientLayerResource("Venus Layer", venus_layer, false);
-					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("Cube Layer", cube_layer, false);
-					zest_resource_node sphere_layer_resource = zest_AddTransientLayerResource("Sphere Layer", sphere_layer, false);
+					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
 					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", brd_image, 0);
@@ -697,11 +680,7 @@ void MainLoop(SimplePBRExample *app) {
 
 					//-------------------------Transfer Pass----------------------------------------------------
 					zest_BeginTransferPass("Upload Mesh Data"); {
-						zest_ConnectOutput(teapot_layer_resource);
-						zest_ConnectOutput(torus_layer_resource);
-						zest_ConnectOutput(venus_layer_resource);
-						zest_ConnectOutput(cube_layer_resource);
-						zest_ConnectOutput(sphere_layer_resource);
+						zest_ConnectOutput(mesh_layer_resource);
 						zest_ConnectOutput(skybox_layer_resource);
 						zest_SetPassTask(UploadMeshData, app);
 						zest_EndPass();
@@ -720,16 +699,12 @@ void MainLoop(SimplePBRExample *app) {
 
 					//------------------------ PBR Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Instance Mesh Pass"); {
-						zest_ConnectInput(teapot_layer_resource);
-						zest_ConnectInput(torus_layer_resource);
-						zest_ConnectInput(venus_layer_resource);
-						zest_ConnectInput(cube_layer_resource);
-						zest_ConnectInput(sphere_layer_resource);
+						zest_ConnectInput(mesh_layer_resource);
 						zest_ConnectInput(brd_texture_resource);
 						zest_ConnectInput(irradiance_texture_resource);
 						zest_ConnectInput(prefiltered_texture_resource);
 						zest_ConnectGroupedOutput(group);
-						zest_SetPassTask(DrawMeshes, instance_layers);
+						zest_SetPassTask(zest_DrawInstanceMeshLayer, mesh_layer);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -765,8 +740,7 @@ void MainLoop(SimplePBRExample *app) {
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {
-			zest_SetLayerSizeToSwapchain(billboard_layer);
-			zest_SetLayerSizeToSwapchain(teapot_layer);
+			zest_SetLayerSizeToSwapchain(mesh_layer);
 			zest_SetLayerSizeToSwapchain(skybox_layer);
 		}
 	}

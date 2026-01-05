@@ -126,7 +126,7 @@ ZEST_PRIVATE zest_bool zest__vk_create_device_memory(zest_device device, zest_si
 ZEST_PRIVATE zest_bool zest__vk_map_memory(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 ZEST_PRIVATE void zest__vk_unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__vk_flush_used_buffers(zest_context context, zest_uint fif);
-ZEST_PRIVATE void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+ZEST_PRIVATE void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
 ZEST_PRIVATE zest_pipeline_stage_flags zest__vk_get_buffer_last_pipeline_stage(zest_buffer buffer);
 ZEST_PRIVATE zest_uint zest__vk_get_buffer_queue_family_index(zest_buffer buffer);
 
@@ -2731,10 +2731,10 @@ void zest__vk_flush_used_buffers(zest_context context, zest_uint fif) {
 	zest_vec_clear(context->backend->used_buffers_ready_for_freeing[fif]);
 }
 
-void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset) {
     VkBufferCopy copyInfo = ZEST__ZERO_INIT(VkBufferCopy);
-    copyInfo.srcOffset = src_buffer->memory_offset;
-    copyInfo.dstOffset = dst_buffer->memory_offset;
+    copyInfo.srcOffset = src_buffer->memory_offset + src_offset;
+    copyInfo.dstOffset = dst_buffer->memory_offset + dst_offset;
     copyInfo.size = size;
     vkCmdCopyBuffer(queue->backend->command_buffer, src_buffer->memory_pool->backend->vk_buffer, dst_buffer->memory_pool->backend->vk_buffer, 1, &copyInfo);
 }

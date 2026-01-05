@@ -2777,7 +2777,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_trim(T, amount) zest__vec_header(T)->current_size -= amount;
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) ((T) ? zest__vec_header(T)->current_size : 0)
-#define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
+#define zest_vec_last_index(T) ((T) ? zest__vec_header(T)->current_size - 1 : 0)
 #define zest_vec_capacity(T) ((T) ? zest__vec_header(T)->capacity : 0)
 #define zest_vec_size_in_bytes(T) (zest_vec_size(T) * sizeof(*T))
 #define zest_vec_front(T) (T[0])
@@ -3920,17 +3920,18 @@ typedef struct zest_layer_buffers_t {
 } zest_layer_buffers_t;
 
 typedef struct zest_layer_instruction_t {
-	char push_constant[128];                      //Each draw instruction can have different values in the push constants push_constants
-	zest_scissor_rect_t scissor;                  //The drawinstruction can also clip whats drawn
-	zest_viewport_t viewport;                     //The viewport size of the draw call
-	zest_uint start_index;                       //The starting index
+	char push_constant[128];                    //Each draw instruction can have different values in the push constants push_constants
+	zest_scissor_rect_t scissor;                //The drawinstruction can also clip whats drawn
+	zest_viewport_t viewport;                   //The viewport size of the draw call
+	zest_uint start_index;                      //The starting index
 	union {
-		zest_uint total_instances;                //The total number of instances to be drawn in the draw instruction
-		zest_uint total_indexes;                  //The total number of indexes to be drawn in the draw instruction
+		zest_uint total_instances;              //The total number of instances to be drawn in the draw instruction
+		zest_uint total_indexes;                //The total number of indexes to be drawn in the draw instruction
 	};
-	zest_uint last_instance;                     //The last instance that was drawn in the previous instance instruction
-	zest_pipeline_template pipeline_template;     //The pipeline template to draw the instances.
-	void *asset;                                  //Optional pointer to either texture, font etc
+	zest_uint last_instance;                    //The last instance that was drawn in the previous instance instruction
+	zest_uint mesh_index;						//The index of the mesh being drawn in the layer if it has mesh data
+	zest_pipeline_template pipeline_template;   //The pipeline template to draw the instances.
+	void *asset;                                //Optional pointer to either texture, font etc
 	zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
 
@@ -3982,7 +3983,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
-	void					   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+	void					   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
 	//Images
 	zest_bool 				   (*is_image_format_supported)(zest_device device, zest_format format, zest_image_flags flags);
 	zest_bool 				   (*create_image)(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
@@ -4640,7 +4641,7 @@ ZEST_API void zest_SetSmallHostBufferPoolSize(zest_device device, zest_size mini
 // --- Frame_graph_api
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer_handle zest_CreateMeshLayer(zest_context context, const char *name, zest_size vertex_type_size);
-ZEST_API zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char *name);
+ZEST_API zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char *name, zest_size instance_struct_size, zest_size vertex_capacity, zest_size index_capacity);
 //-- End Command queue setup and creation
 
 // --- Dynamic resource callbacks ---
@@ -5080,8 +5081,7 @@ ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_ha
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
 ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
-//Set the same pipeline to an array of layers
-ZEST_API void zest_SetMultiInstanceDrawing(zest_layer *layers, zest_uint layer_count, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshInstanceDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5096,8 +5096,6 @@ ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 //Set the current instruction push contants in the layer
 ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size);
-//Set the current instruction push contants to an array of layers
-ZEST_API void zest_SetMultiLayerPushConstants(zest_layer *layers, zest_uint layer_count, void *push_constants, zest_size size);
 //Get the current push constants in the layer for the current instruction
 ZEST_API void *zest_GetLayerPushConstants(zest_layer layer);
 //Get the current push constants in the layer for the current instruction
@@ -5163,9 +5161,11 @@ ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
 //Set the group id for every vertex in the mesh. This can be used in the shader to identify different parts of the mesh and do different shader stuff with them.
 ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
-ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
+ZEST_API zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
 //Get the vertex count in the mesh
-ZEST_API zest_size zest_MeshVertexCount(zest_mesh mesh);
+ZEST_API zest_uint zest_MeshVertexCount(zest_mesh mesh);
+//Get the index count in the mesh
+ZEST_API zest_uint zest_MeshIndexCount(zest_mesh mesh);
 //Get the size in bytes for the vertex data in a mesh
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
@@ -5307,6 +5307,7 @@ ZEST_API zest_bool zest_imm_EndCommandBuffer(zest_queue queue);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
 ZEST_API zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+ZEST_API zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, zest_size src_offset, zest_buffer dst_buffer, zest_size dst_offset, zest_size size);
 ZEST_API zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size);
 //Fill a buffer with a value
 ZEST_API void zest_imm_FillBuffer (zest_queue queue, zest_buffer buffer, zest_uint value);
@@ -6508,6 +6509,13 @@ typedef struct zest_uniform_buffer_t {
 	zest_uint descriptor_index[ZEST_MAX_FIF];
 } zest_uniform_buffer_t;
 
+typedef struct zest_mesh_offset_data_t {
+	zest_uint vertex_offset;
+	zest_uint index_offset;
+	zest_uint vertex_count;
+	zest_uint index_count;
+} zest_mesh_offset_data_t;
+
 typedef struct zest_layer_t {
 	int magic;
 	zest_layer_handle handle;
@@ -6527,6 +6535,9 @@ typedef struct zest_layer_t {
 
 	zest_buffer vertex_data;
 	zest_buffer index_data;
+	zest_size used_vertex_data;
+	zest_size used_index_data;
+	zest_mesh_offset_data_t *mesh_offsets;
 
 	zest_layer_instruction_t current_instruction;
 
@@ -8946,9 +8957,17 @@ zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
 
 zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
 	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
-    ZEST_ASSERT(size <= src_buffer->size);      //size must be less than or equal to the staging buffer size and the device buffer size
-    ZEST_ASSERT(size <= dst_buffer->size);
-	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size);
+    ZEST_ASSERT(size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");      
+    ZEST_ASSERT(size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");
+	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, 0, 0);
+    return ZEST_TRUE;
+}
+
+zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, zest_size src_offset, zest_buffer dst_buffer, zest_size dst_offset, zest_size size) {
+	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
+    ZEST_ASSERT(src_offset + size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
+    ZEST_ASSERT(dst_offset + size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
+	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, src_offset, dst_offset);
     return ZEST_TRUE;
 }
 
@@ -14962,11 +14981,15 @@ zest_layer_handle zest_CreateMeshLayer(zest_context context, const char* name, z
     return handle;
 }
 
-zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char* name) {
+zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char *name, zest_size instance_struct_size, zest_size vertex_capacity, zest_size index_capacity) {
     zest_layer layer;
     zest_layer_handle handle = zest__new_layer(context, &layer);
     layer->name = name;
-    zest__initialise_instance_layer(context, layer, sizeof(zest_mesh_instance_t), 1000);
+    zest__initialise_instance_layer(context, layer, instance_struct_size, 1000);
+	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
+	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
+	layer->vertex_data = zest_CreateBuffer(context, vertex_capacity, &vertex_info);
+	layer->index_data = zest_CreateBuffer(context, index_capacity, &index_info);
 	zest__activate_resource(handle.store, handle.value);
     return handle;
 }
@@ -15525,6 +15548,9 @@ void zest__cleanup_layer(zest_layer layer) {
 		zest_FreeBuffer(layer->memory_refs[fif].staging_index_data);
 		zest_vec_free(context->device->allocator, layer->draw_instructions[fif]);
 	}
+	zest_FreeBuffer(layer->vertex_data);
+	zest_FreeBuffer(layer->index_data);
+	zest_vec_free(context->allocator, layer->mesh_offsets);
     zest__remove_store_resource(layer->handle.store, layer->handle.value);
 }
 
@@ -15990,20 +16016,18 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) 
 	layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_SetMultiInstanceDrawing(zest_layer *layers, zest_uint layer_count, zest_pipeline_template pipeline) {
+void zest_SetMeshInstanceDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
-	ZEST_ASSERT(layers);					//NULL layers passed in
-	for (int i = 0; i != layer_count; i++) {
-		zest_layer layer = layers[i];
-		ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
-		zest_context context = layer->context;
-		zest__end_instance_instructions(layer);
-		zest__start_instance_instructions(layer);
-		layer->current_instruction.pipeline_template = pipeline;
+	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
+	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index is out of bounds. Make sure you add all your meshes to the layer with zest_AddMeshToLayer");
+	zest_context context = layer->context;
+	zest__end_instance_instructions(layer);
+	zest__start_instance_instructions(layer);
+	layer->current_instruction.pipeline_template = pipeline;
+	layer->current_instruction.mesh_index = mesh_index;
 
-		layer->current_instruction.draw_mode = zest_draw_mode_instance;
-		layer->last_draw_mode = zest_draw_mode_instance;
-	}
+	layer->current_instruction.draw_mode = zest_draw_mode_instance;
+	layer->last_draw_mode = zest_draw_mode_instance;
 }
 
 void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
@@ -16018,16 +16042,6 @@ void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scis
 void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size) {
 	ZEST_ASSERT_HANDLE(layer); 		//ERROR: Not a valid layer pointer
 	zest__set_layer_push_constants(layer, push_constants, size);
-}
-
-void zest_SetMultiLayerPushConstants(zest_layer *layers, zest_uint layer_count, void *push_constants, zest_size size) {
-	ZEST_ASSERT(layers);			//NULL layers passed in
-	ZEST_ASSERT(push_constants);	//NULL push constants passed in
-	for (int i = 0; i != layer_count; i++) {
-		zest_layer layer = layers[i];
-		ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
-		zest__set_layer_push_constants(layer, push_constants, size);
-	}
 }
 
 void *zest_GetLayerPushConstants(zest_layer layer) {
@@ -16187,9 +16201,12 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 
 	zest_pipeline current_pipeline = 0;
 
+
     zest_bool has_instruction_view_port = ZEST_FALSE;
     zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
+
+		zest_mesh_offset_data_t *mesh_offsets = &layer->mesh_offsets[current->mesh_index];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
 			zest_cmd_Scissor(command_list, &current->scissor);
@@ -16210,7 +16227,7 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 
 		zest_cmd_SendPushConstants(command_list, (void*)current->push_constant, ZEST_MAX_PUSH_SIZE);
 
-		zest_cmd_DrawIndexed(command_list, layer->index_count, current->total_instances, 0, 0, current->start_index);
+		zest_cmd_DrawIndexed(command_list, mesh_offsets->index_count, current->total_instances, mesh_offsets->index_offset, mesh_offsets->vertex_offset, current->start_index);
     }
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
 		zest__reset_instance_layer_drawing(layer);
@@ -16368,8 +16385,12 @@ void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id) {
     }
 }
 
-zest_size zest_MeshVertexCount(zest_mesh mesh) {
+zest_uint zest_MeshVertexCount(zest_mesh mesh) {
     return zest_vec_size(mesh->vertices);
+}
+
+zest_uint zest_MeshIndexCount(zest_mesh mesh) {
+    return zest_vec_size(mesh->indexes);
 }
 
 zest_size zest_MeshVertexDataSize(zest_mesh mesh) {
@@ -16394,24 +16415,38 @@ void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
     }
 }
 
-void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
+zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT(layer->vertex_data);	//ERROR: No vertex buffer found. Make sure you call zest_CreateInstanceMeshLayer with appropriate capacity
+	ZEST_ASSERT(layer->index_data); 	//ERROR: No index buffer found. Make sure you call zest_CreateInstanceMeshLayer with appropriate capacity
 	zest_context context = layer->context;
-    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(context, zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
-    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(context, zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
-    layer->index_count = zest_vec_size(src_mesh->indexes);
-	zest_FreeBuffer(layer->vertex_data);
-	zest_FreeBuffer(layer->index_data);
-	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
-	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
-	layer->vertex_data = zest_CreateBuffer(context, vertex_staging_buffer->size, &vertex_info);
-	layer->index_data = zest_CreateBuffer(context, index_staging_buffer->size, &index_info);
+	zest_size src_mesh_vertex_size = zest_MeshVertexDataSize(src_mesh);
+	zest_size src_mesh_index_size = zest_MeshIndexDataSize(src_mesh);
+	ZEST_ASSERT(layer->vertex_data->size - layer->used_vertex_data >= src_mesh_vertex_size, "Not enough space left in the layer vertex buffer to add this mesh data.");
+	ZEST_ASSERT(layer->index_data->size - layer->used_index_data >= src_mesh_index_size, "Not enough space left in the layer index buffer to add this mesh data.");
+    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(context, src_mesh_vertex_size, src_mesh->vertices);
+    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(context, src_mesh_index_size, src_mesh->indexes);
 	zest_queue queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_transfer);
-    zest_imm_CopyBuffer(queue, vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
-    zest_imm_CopyBuffer(queue, index_staging_buffer, layer->index_data, index_staging_buffer->size);
+    zest_imm_CopyBufferRegion(queue, vertex_staging_buffer, 0, layer->vertex_data, layer->used_vertex_data, src_mesh_vertex_size);
+    zest_imm_CopyBufferRegion(queue, index_staging_buffer, 0, layer->index_data, layer->used_index_data, src_mesh_index_size);
 	zest_imm_EndCommandBuffer(queue);
+	zest_mesh_offset_data_t last_mesh_offsets = ZEST__ZERO_INIT(zest_mesh_offset_data_t);
+	if (zest_vec_size(layer->mesh_offsets)) {
+		last_mesh_offsets = zest_vec_back(layer->mesh_offsets);
+	}
+	zest_mesh_offset_data_t offset_data = {
+		last_mesh_offsets.vertex_offset + last_mesh_offsets.vertex_count,
+		last_mesh_offsets.index_offset + last_mesh_offsets.index_count,
+		zest_MeshVertexCount(src_mesh),
+		zest_MeshIndexCount(src_mesh),
+	};
+	zest_uint index = zest_vec_size(layer->mesh_offsets);
+	zest_vec_push(layer->context->allocator, layer->mesh_offsets, offset_data);
+	layer->used_vertex_data += src_mesh_vertex_size;
+	layer->used_index_data += src_mesh_index_size;
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
+	return index;
 }
 
 void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
@@ -16973,8 +17008,8 @@ zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image i
 }
 
 void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer layer) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
+    ZEST_ASSERT_HANDLE(command_list);       //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->bind_mesh_vertex_buffer(command_list, layer);
 }
 
