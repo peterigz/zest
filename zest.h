@@ -2180,6 +2180,7 @@ typedef enum zest_resource_node_flag_bits {
 	zest_resource_node_flag_requires_storage = 1 << 6,
 	zest_resource_node_flag_aliased = 1 << 7,
 	zest_resource_node_flag_has_producer = 1 << 8,
+	zest_resource_node_flag_preserve = 1 << 9,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -4256,6 +4257,7 @@ ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
 ZEST_PRIVATE zest_bool zest__create_transient_image(zest_context context, zest_resource_node node);
 ZEST_PRIVATE void zest__create_transient_buffer(zest_context context, zest_resource_node node);
 ZEST_PRIVATE zest_uint zest__next_fif(zest_context context);
+ZEST_PRIVATE zloc_linear_allocator_t *zest__get_scratch_arena(zest_device device);
 // --End Misc_Helper_Functions
 
 // --Pipeline_Helper_Functions
@@ -10177,7 +10179,7 @@ void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bo
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->depth_stencil.depth_test_enable = enable_test;
 	pipeline_template->depth_stencil.depth_write_enable = write_enable;
-	pipeline_template->depth_stencil.depth_compare_op = zest_compare_op_less;
+	pipeline_template->depth_stencil.depth_compare_op = zest_compare_op_less_or_equal;
 	pipeline_template->depth_stencil.depth_bounds_test_enable = ZEST_FALSE;
 	pipeline_template->depth_stencil.stencil_test_enable = ZEST_FALSE;
 }
@@ -11530,6 +11532,11 @@ zest_uint zest__next_fif(zest_context context) {
     return (context->current_fif + 1) % ZEST_MAX_FIF;
 }
 
+zloc_linear_allocator_t *zest__get_scratch_arena(zest_device device) {
+	ZEST_ASSERT(device->scratch_arena.current_offset == 0, "Bug in Zest. The scratch arena should be reset to 0 each time it's requested indicating that it wasn't reset the last time it was used in a function.");
+	return &device->scratch_arena;
+}
+
 zest_create_context_info_t zest_CreateContextInfo() {
 	zest_create_context_info_t create_info;
 	create_info.title = "Zest Window";
@@ -12191,7 +12198,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 pass_group.queue_info = pass_node->queue_info;
                 zest_map_foreach(output_index, pass_node->outputs) {
                     zest_hash_pair pair = pass_node->outputs.map[output_index];
-                    zest_resource_usage_t *usage = &pass_node->outputs.data[pair.index];
+                    zest_resource_usage_t *usage = &pass_node->outputs.data[output_index];
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
 						frame_graph->error_status |= zest_fgs_critical_error;
@@ -12201,18 +12208,18 @@ zest_frame_graph zest__compile_frame_graph() {
 						ZEST__FLAG(pass_group.flags, zest_pass_flag_outputs_to_swapchain);
 					}
                     if (usage->resource_node->reference_count > 0 || ZEST__FLAGGED(usage->resource_node->flags, zest_resource_node_flag_essential_output)) {
-                        zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, *usage);
+                        zest_map_linear_insert(allocator, pass_group.outputs, usage->resource_node->name, *usage);
                     }
                 }
                 zest_map_foreach(input_index, pass_node->inputs) {
                     zest_hash_pair pair = pass_node->inputs.map[input_index];
-                    zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
+					zest_resource_usage_t *usage = &pass_node->inputs.data[input_index];
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
 						frame_graph->error_status |= zest_fgs_critical_error;
 						return frame_graph;
                     }
-                    zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
+                    zest_map_linear_insert(allocator, pass_group.inputs, usage->resource_node->name, *usage);
                 }
                 if (pass_node->execution_callback.callback) {
                     has_execution_callback = ZEST_TRUE;
@@ -12241,7 +12248,7 @@ zest_frame_graph zest__compile_frame_graph() {
 						frame_graph->error_status |= zest_fgs_critical_error;
 						return frame_graph;
                     }
-                    zest_map_insert_linear_key(allocator, pass_group->inputs, pair.key, *usage);
+                    zest_map_linear_insert(allocator, pass_group->inputs, usage->resource_node->name, *usage);
                 }
             }
         } else {
@@ -12272,7 +12279,7 @@ zest_frame_graph zest__compile_frame_graph() {
         zest_pass_adjacency_list_t adj_list = ZEST__ZERO_INIT(zest_pass_adjacency_list_t);
         adjacency_list[i] = adj_list;
 
-		//Confirm the actual queue that will be used. Even thought the pass was intended for a specific queue
+		//Confirm the actual queue that will be used. Even though the pass was intended for a specific queue
 		//that queue might not be available on the gpu so set the type here to whatever will actually be used.
 		zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
 		pass_node->queue_info.queue_type = context->queues[queue_index]->queue_manager->type;
@@ -12316,11 +12323,13 @@ zest_frame_graph zest__compile_frame_graph() {
             zest_resource_versions_t *versions = zest__maybe_add_resource_version(resource);
             zest_resource_node latest_version = zest_vec_back(versions->resources);
             if (latest_version->id != resource->id) {
+				/*
                 if (resource->type == zest_resource_type_swap_chain_image) {
                     ZEST_REPORT(context->device, zest_report_multiple_swapchains, zest_message_multiple_swapchain_usage, frame_graph->name);
                     frame_graph->error_status |= zest_fgs_critical_error;
 					return frame_graph;
                 }
+				*/
 			    //Add the versioned alias to the outputs instead
                 output_usage->resource_node = latest_version;
                 zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, latest_version->name, *output_usage);
@@ -12329,9 +12338,14 @@ zest_frame_graph zest__compile_frame_graph() {
                     //If not then add the resource as input for correct dependency chain with default usages
                     zest_resource_usage_t input_usage = ZEST__ZERO_INIT(zest_resource_usage_t);
                     switch (pass_node->queue_info.queue_type) {
-						case zest_queue_graphics:
-							input_usage = zest__configure_image_usage(resource, zest_purpose_color_attachment_read, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+						case zest_queue_graphics: {
+							if (resource->image.info.flags & zest_image_flag_depth_stencil_attachment) {
+								input_usage = zest__configure_image_usage(resource, zest_purpose_depth_stencil_attachment_read_write, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+							} else {
+								input_usage = zest__configure_image_usage(resource, zest_purpose_color_attachment_read, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+							}
 							break;
+						}
 						case zest_queue_compute:
 						case zest_queue_transfer:
 							input_usage = zest__configure_image_usage(resource, zest_purpose_storage_image_read, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
@@ -12960,7 +12974,6 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest_execution_details_t *exe_details = &pass->execution_details;
 
 				zest__prepare_render_pass(pass, exe_details, current_pass_index);
-
             }   //Passes within batch loop
         }
         
@@ -13004,7 +13017,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				if (output_usage->purpose == zest_purpose_color_attachment_write) {
 					zest_rendering_attachment_info_t color = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
 					//ZEST_ASSERT(resource->view);
-					color.image_view = &resource->view;
+					color.image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
 					color.layout = output_usage->image_layout;
 					color.load_op = output_usage->load_op;
 					color.store_op = output_usage->store_op;
@@ -13037,7 +13050,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
 					zest_rendering_attachment_info_t *depth = &exe_details->depth_attachment;
 					*depth = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
-					depth->image_view = &resource->view;
+					depth->image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
 					depth->layout = output_usage->image_layout;
 					depth->load_op = output_usage->load_op;
 					depth->store_op = output_usage->store_op;
@@ -13243,6 +13256,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                         frame_graph->error_status |= zest_fgs_transient_resource_failure;
                         return ZEST_FALSE;
                     }
+					int d = 0;
                 }
 
                 //Batch execute acquire barriers for images and buffers
@@ -13962,7 +13976,7 @@ void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_nod
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
-    ZEST_ASSERT(image->type & zest_resource_type_is_image_or_depth);  //Must be a depth buffer resource type
+    ZEST_ASSERT(image->type & zest_resource_type_is_image_or_depth);  //Must be a depth or image resource type
 	zest_FlagResourceAsEssential(image);
 	zest_context context = zest__frame_graph_builder->context;
     zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], group->resources, image);
@@ -14248,6 +14262,8 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 		zest_resource_node_t new_resource = ZEST__ZERO_INIT(zest_resource_node_t);
 		new_resource.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
 		new_resource.name = last_version->name;
+		new_resource.frame_graph = frame_graph;
+		new_resource.type = last_version->type;
 		new_resource.aliased_resource = versions->resources[0];
 		new_resource.image.info = resource->image.info;
 		new_resource.buffer_desc = resource->buffer_desc;
@@ -14722,6 +14738,7 @@ void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node ima
 		usage.resource_node = image_resource;
 		zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, image_resource->name, usage);
 		pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
+		ZEST_PRINT("Output key for %s: %llu", pass_node->name, pass_node->output_key);
     } else {
         usage.resource_node = image_resource;
         ZEST_ASSERT(usage.resource_node);
@@ -14819,6 +14836,8 @@ void zest_ConnectOutput(zest_resource_node resource) {
     }
     if (resource->type & zest_resource_type_is_image) {
         zest_clear_value_t cv = ZEST__ZERO_INIT(zest_clear_value_t);
+		// If the resource was already used as output in a render pass then preserve the contents
+		zest_bool preserve_contents = ZEST__FLAGGED(resource->flags, zest_resource_node_flag_preserve);
         switch (pass->type) {
 			case zest_pass_type_graphics: {
 				ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
@@ -14827,14 +14846,14 @@ void zest_ConnectOutput(zest_resource_node resource) {
 					cv.depth_stencil.stencil = 0;
 					zest__add_pass_image_usage(pass, resource, zest_purpose_depth_stencil_attachment_write,
 											   0, ZEST_TRUE,
-											   zest_load_op_clear, zest_store_op_dont_care,
+											   preserve_contents ? zest_load_op_load : zest_load_op_clear, zest_store_op_store,
 											   zest_load_op_dont_care, zest_store_op_dont_care,
 											   cv);
 				} else {
 					cv.color = resource->clear_color;
 					zest__add_pass_image_usage(pass, resource, zest_purpose_color_attachment_write,
 											   zest_pipeline_stage_color_attachment_output_bit, ZEST_TRUE,
-											   zest_load_op_clear, zest_store_op_store,
+											   preserve_contents ? zest_load_op_load : zest_load_op_clear, zest_store_op_store,
 											   zest_load_op_dont_care, zest_store_op_dont_care,
 											   cv);
 				}
@@ -14853,6 +14872,8 @@ void zest_ConnectOutput(zest_resource_node resource) {
 				break;
 			}
         }
+		//Preserve the contents of the buffer from this point on
+		ZEST__FLAG(resource->flags, zest_resource_node_flag_preserve);
     } else {
         //Buffer output
         switch (pass->type) {
@@ -15837,6 +15858,9 @@ void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list comma
 
         zest_buffer staging_buffer = layer->memory_refs[layer->fif].staging_instance_data;
         zest_buffer device_buffer = ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) ? layer->memory_refs[layer->fif].device_vertex_data : layer->vertex_buffer_node->storage_buffer;
+
+		if (!device_buffer) return;
+		if (!staging_buffer) return;
 
         zest_buffer_uploader_t instance_upload = { 0, staging_buffer, device_buffer, 0 };
 

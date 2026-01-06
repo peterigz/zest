@@ -133,6 +133,7 @@ struct SimplePBRExample {
 
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
+	zest_uint fps;
 
 	zest_atlas_region_t light;
 	float ellapsed_time;
@@ -142,9 +143,14 @@ struct SimplePBRExample {
 };
 
 void InitSimplePBRExample(SimplePBRExample *app);
+void UpdateUniform3d(SimplePBRExample *app);
 void UpdateLights(SimplePBRExample *app, float timer);
-void SetupBillboards(SimplePBRExample *app);
+void UpdateMouse(SimplePBRExample *app);
+void UpdateCameraPosition(SimplePBRExample *app);
+void UpdateImGui(SimplePBRExample *app);
+void UploadMeshData(const zest_command_list context, void *user_data);
 void SetupBRDFLUT(SimplePBRExample *app);
 void SetupIrradianceCube(SimplePBRExample *app);
 void SetupPrefilteredCube(SimplePBRExample *app);
+void MainLoop(SimplePBRExample *app);
 

@@ -94,7 +94,8 @@ function(buildExample EXAMPLE_NAME)
 		${EXAMPLE_NAME} STREQUAL "zest-imgui-template" OR
 		${EXAMPLE_NAME} STREQUAL "zest-ribbons" OR
 		${EXAMPLE_NAME} STREQUAL "zest-implot" OR
-		${EXAMPLE_NAME} STREQUAL "zest-pbr")
+		${EXAMPLE_NAME} STREQUAL "zest-pbr-forward" OR
+		${EXAMPLE_NAME} STREQUAL "zest-pbr-deferred")
 		SET(TIMELINEFX_SOURCE "")
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
@@ -166,7 +167,8 @@ set(EXAMPLES
 	zest-timelinefx
 	zest-ribbons
 	zest-implot
-	zest-pbr
+	zest-pbr-deferred
+	zest-pbr-forward
 	zest-fonts
 	zest-render-targets
 )

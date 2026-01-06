@@ -1317,7 +1317,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	submit_info2.commandBufferInfoCount = 1;
 	submit_info2.pCommandBufferInfos = &command_buffer_info;
 
-	zloc_linear_allocator_t *allocator = &context->device->scratch_arena;
+	zloc_linear_allocator_t *allocator = zest__get_scratch_arena(context->device);
 
 	VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	wait_info.semaphore = context->swapchain->backend->vk_image_available_semaphore[context->current_fif];
@@ -1349,6 +1349,8 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 
     VkFence fence = VK_NULL_HANDLE;
 	context->device->backend->pfn_vkQueueSubmit2(context->device->graphics_queues.queues[0].backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
+
+	zloc_ResetLinearAllocator(&context->device->scratch_arena);
 
     return ZEST_TRUE;
 }
@@ -1451,7 +1453,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == 559874765) {
 		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
-    if (pCallbackData->messageIdNumber == 448332540) {
+    if (pCallbackData->messageIdNumber == -807523433) {
         int d = 0;
     }
     if (pCallbackData->messageIdNumber == -1575303641) {
@@ -1873,11 +1875,13 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     float queue_priority = 0.0f;
     VkDeviceQueueCreateInfo queue_create_infos[3];
 
+	zloc_linear_allocator_t *scratch_arena = zest__get_scratch_arena(device);
+
     int queue_create_count = 0;
     // Graphics queue
     {
         indices.graphics_family_index = graphics_candidate;
-		zest_vec_linear_resize(&device->scratch_arena, indices.graphics_priorities, graphics_queue_count);
+		zest_vec_linear_resize(scratch_arena, indices.graphics_priorities, graphics_queue_count);
 		for (int i = 0; i != graphics_queue_count; i++) {
 			indices.graphics_priorities[i] = 1.f;
 		}
@@ -1897,7 +1901,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         indices.compute_family_index = compute_candidate;
         if (indices.compute_family_index != indices.graphics_family_index)
         {
-			zest_vec_linear_resize(&device->scratch_arena, indices.compute_priorities, compute_queue_count);
+			zest_vec_linear_resize(scratch_arena, indices.compute_priorities, compute_queue_count);
 			for (int i = 0; i != compute_queue_count; i++) {
 				indices.compute_priorities[i] = 1.f;
 			}
@@ -1919,7 +1923,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         indices.transfer_family_index = transfer_candidate;
         if (indices.transfer_family_index != indices.graphics_family_index && indices.transfer_family_index != indices.compute_family_index)
         {
-			zest_vec_linear_resize(&device->scratch_arena, indices.transfer_priorities, transfer_queue_count);
+			zest_vec_linear_resize(scratch_arena, indices.transfer_priorities, transfer_queue_count);
 			for (int i = 0; i != transfer_queue_count; i++) {
 				indices.transfer_priorities[i] = 1.f;
 			}
@@ -2086,7 +2090,7 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
 		device->transfer_queues.type = zest_queue_transfer;
     }
 
-	zloc_ResetLinearAllocator(&device->scratch_arena);
+	zloc_ResetLinearAllocator(scratch_arena);
 
     return ZEST_TRUE;
 }
@@ -2998,7 +3002,7 @@ void *zest__vk_new_pipeline_layout_backend(zest_device device) {
 }
 
 zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layout pipeline_layout, zest_pipeline_layout_info_t *info) {
-    zloc_linear_allocator_t *scratch = &device->scratch_arena;
+    zloc_linear_allocator_t *scratch = zest__get_scratch_arena(device);
 
     VkDescriptorSetLayout *layouts = 0;
 
@@ -3034,7 +3038,7 @@ zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layou
 zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
 	zest_context context = command_list->context;
 
-    zloc_linear_allocator_t *scratch = &context->device->scratch_arena;
+    zloc_linear_allocator_t *scratch = zest__get_scratch_arena(context->device);
 
     zest_pipeline_template pipeline_template = pipeline->pipeline_template;
 
@@ -3045,7 +3049,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     VkPipelineMultisampleStateCreateInfo multisampling = ZEST__ZERO_INIT(VkPipelineMultisampleStateCreateInfo);
     VkPipelineRasterizationStateCreateInfo rasterizer = ZEST__ZERO_INIT(VkPipelineRasterizationStateCreateInfo);
     VkPipelineDepthStencilStateCreateInfo depth_stencil = ZEST__ZERO_INIT(VkPipelineDepthStencilStateCreateInfo);
-    VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
     VkPipelineColorBlendStateCreateInfo color_blending = ZEST__ZERO_INIT(VkPipelineColorBlendStateCreateInfo);
 	VkPipelineRenderingCreateInfo vk_rendering_info = ZEST__ZERO_INIT(VkPipelineRenderingCreateInfo);
     VkGraphicsPipelineCreateInfo pipeline_info = ZEST__ZERO_INIT(VkGraphicsPipelineCreateInfo);
@@ -3164,20 +3167,26 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     depth_stencil.stencilTestEnable = pipeline_template->depth_stencil.stencil_test_enable;
     depth_stencil.depthCompareOp = (VkCompareOp)pipeline_template->depth_stencil.depth_compare_op;
 
-    color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
-    color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
-    color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
-    color_attachment.colorBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.color_blend_op;
-    color_attachment.srcAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_alpha_blend_factor;
-    color_attachment.dstAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_alpha_blend_factor;
-    color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
-    color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
+	//Todo: The pipeline should allow for a Number of color blend attachments
+	VkPipelineColorBlendAttachmentState *color_blend_attachments = 0;
+	for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
+		VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
+		color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
+		color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
+		color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
+		color_attachment.colorBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.color_blend_op;
+		color_attachment.srcAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_alpha_blend_factor;
+		color_attachment.dstAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_alpha_blend_factor;
+		color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
+		color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
+		zest_vec_linear_push(scratch, color_blend_attachments, color_attachment);
+	}
 
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blending.logicOpEnable = VK_FALSE;
     color_blending.logicOp = VK_LOGIC_OP_COPY;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &color_attachment;
+	color_blending.attachmentCount = zest_vec_size(color_blend_attachments);
+    color_blending.pAttachments = color_blend_attachments;
     color_blending.blendConstants[0] = 0.0f;
     color_blending.blendConstants[1] = 0.0f;
     color_blending.blendConstants[2] = 0.0f;

@@ -23,6 +23,8 @@ msdf.h				Create msdf bitmaps for font rendering - From https://github.com/exezi
 	- [msdf_fonts]
 Bitmap and image collection functions
 	-[Image_collection]
+Loader function for GLTF files using cglft.h - https://github.com/jkuhlmann/cgltf
+	-[gltf_loader]
 Helpers for creating simple mesh primitives with draw batch objects
 	-[Mesh_helpers]
 */    
@@ -33,6 +35,7 @@ Helpers for creating simple mesh primitives with draw batch objects
 #define ZEST_IMAGES_IMPLEMENTATION
 #define ZEST_IMAGE_WRITE_IMPLEMENTATION
 #define ZEST_MESH_HELPERS_IMPLEMENTATION
+#define ZEST_GLTF_LOADER
 #endif
 
 #if !defined(ZEST_UTILITIES_MALLOC) && !defined(ZEST_UTILITIES_REALLOC) && !defined(ZEST_UTILITIES_FREE)
@@ -281,6 +284,10 @@ ZEST_API zest_mesh zest_CreateSphere(zest_context context, int rings, int sector
 ZEST_API zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color);
 //Create a flat rounded rectangle of a give width and height. Pass in the radius to use for the corners and number of segments to use for the corners.
 ZEST_API zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color_t color);
+
+//gltf_loader
+zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_scale);
+
 
 /*
 
@@ -2235,6 +2242,111 @@ zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_t *image_c
 // End Image_collections
 
 #endif
+
+//-- gltf_loader
+#ifdef ZEST_GLTF_LOADER
+
+#define CGLTF_IMPLEMENTATION
+#include "examples/libs/cgltf.h"
+
+zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_scale) {
+	cgltf_options options = {0};
+	cgltf_data* data = NULL;
+
+	// Parse and load buffer data
+	if (cgltf_parse_file(&options, filepath, &data) != cgltf_result_success) {
+		return NULL;
+	}
+	if (cgltf_load_buffers(&options, data, filepath) != cgltf_result_success) {
+		cgltf_free(data);
+		return NULL;
+	}
+
+	zest_mesh mesh = zest_NewMesh(context);
+	zest_color_t packed_color = zest_ColorSet(255, 255, 255, 255);
+	zest_u64 packed_tangent = 0;
+	zest_uint packed_uv = 0;
+
+	// Load all meshes and primitives
+	for (cgltf_size m = 0; m < data->meshes_count; m++) {
+		cgltf_mesh* gltf_mesh = &data->meshes[m];
+
+		for (cgltf_size p = 0; p < gltf_mesh->primitives_count; p++) {
+			cgltf_primitive* prim = &gltf_mesh->primitives[p];
+
+			// Find accessors
+			cgltf_accessor* pos_acc = NULL;
+			cgltf_accessor* norm_acc = NULL;
+			cgltf_accessor* tangent_acc = NULL;
+			cgltf_accessor* uv_acc = NULL;
+			cgltf_accessor* color_acc = NULL;
+			for (cgltf_size a = 0; a < prim->attributes_count; a++) {
+				if (prim->attributes[a].type == cgltf_attribute_type_position) {
+					pos_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_normal) {
+					norm_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_tangent) {
+					tangent_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_texcoord) {
+					uv_acc = prim->attributes[a].data;
+				}
+				if (prim->attributes[a].type == cgltf_attribute_type_color) {
+					color_acc = prim->attributes[a].data;
+				}
+			}
+			if (!pos_acc) continue;
+
+			// Track base vertex for indexing
+			zest_uint base_vertex = zest_MeshVertexCount(mesh);
+
+			// Read vertices
+			for (cgltf_size v = 0; v < pos_acc->count; v++) {
+				float pos[3], norm[3] = { 0, 0, 1 };
+				float tangent[4] = { 0 };
+				float color[4] = { 0 };
+				float uv[2] = { 0 };
+				cgltf_accessor_read_float(pos_acc, v, pos, 3);
+				pos[0] *= adjust_scale;
+				pos[1] *= adjust_scale;
+				pos[2] *= adjust_scale;
+				if (norm_acc) {
+					cgltf_accessor_read_float(norm_acc, v, norm, 3);
+				}
+				if (tangent_acc) {
+					cgltf_accessor_read_float(tangent_acc, v, tangent, 4);
+					packed_tangent = zest_Pack16bit4SNorm(tangent[0], tangent[1], tangent[2], tangent[3]);
+				}
+				if (uv_acc) {
+					cgltf_accessor_read_float(uv_acc, v, uv, 2);
+					packed_uv = zest_Pack16bit2SNorm(uv[0], uv[1]);
+				}
+				if (color_acc) {
+					cgltf_accessor_read_float(color_acc, v, color, 4);
+					packed_color = zest_ColorSet((zest_byte)(color[0] * 255.f), (zest_byte)(color[1] * 255.f), (zest_byte)(color[2] * 255.f), (zest_byte)(color[3] * 255.f));
+				}
+
+				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
+			}
+
+			// Read indices
+			if (prim->indices) {
+				for (cgltf_size i = 0; i < prim->indices->count; i++) {
+					cgltf_size idx = cgltf_accessor_read_index(prim->indices, i);
+					zest_PushMeshIndex(mesh, (zest_uint)(base_vertex + idx));
+				}
+			}
+		}
+	}
+
+	cgltf_free(data);
+	return mesh;
+}
+
+#endif
+//End gltf_loader
 
 // Mesh_helpers
 #ifdef ZEST_MESH_HELPERS_IMPLEMENTATION

@@ -1,45 +1,10 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
-#include "zest-pbr.h"
+#define ZEST_TEST_MODE
+#include "zest-pbr-forward.h"
 #include "zest.h"
 #include "imgui_internal.h"
-#define CGLTF_IMPLEMENTATION
-#include "examples/libs/cgltf.h"
-
-void UpdateUniform3d(SimplePBRExample *app) {
-	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
-	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(view_buffer));
-	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
-	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
-	ubo_ptr->proj.v[1].y *= -1.f;
-	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
-	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
-	app->material_push.view_buffer_index = zest_GetUniformBufferDescriptorIndex(view_buffer);
-}
-
-void SetupBillboards(SimplePBRExample *app) {
-	//Create and compile the shaders for our custom sprite pipeline
-	zest_shader_handle billboard_vert = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle billboard_frag = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, true);
-
-	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
-	//Create a pipeline that we can use to draw billboards
-	app->billboard_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_billboard");
-	zest_AddVertexInputBindingDescription(app->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
-
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
-
-	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
-	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
-	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
-}
 
 void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
@@ -101,102 +66,6 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_imm_BindComputePipeline(queue, compute);
 	zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
 	zest_imm_EndCommandBuffer(queue);
-}
-
-zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_scale) {
-	cgltf_options options = {0};
-	cgltf_data* data = NULL;
-
-	// Parse and load buffer data
-	if (cgltf_parse_file(&options, filepath, &data) != cgltf_result_success) {
-		return NULL;
-	}
-	if (cgltf_load_buffers(&options, data, filepath) != cgltf_result_success) {
-		cgltf_free(data);
-		return NULL;
-	}
-
-	zest_mesh mesh = zest_NewMesh(context);
-	zest_color_t packed_color = zest_ColorSet(255, 255, 255, 255);
-	zest_u64 packed_tangent = 0;
-	zest_uint packed_uv = 0;
-
-	// Load all meshes and primitives
-	for (cgltf_size m = 0; m < data->meshes_count; m++) {
-		cgltf_mesh* gltf_mesh = &data->meshes[m];
-
-		for (cgltf_size p = 0; p < gltf_mesh->primitives_count; p++) {
-			cgltf_primitive* prim = &gltf_mesh->primitives[p];
-
-			// Find accessors
-			cgltf_accessor* pos_acc = NULL;
-			cgltf_accessor* norm_acc = NULL;
-			cgltf_accessor* tangent_acc = NULL;
-			cgltf_accessor* uv_acc = NULL;
-			cgltf_accessor* color_acc = NULL;
-			for (cgltf_size a = 0; a < prim->attributes_count; a++) {
-				if (prim->attributes[a].type == cgltf_attribute_type_position) {
-					pos_acc = prim->attributes[a].data;
-				}
-				if (prim->attributes[a].type == cgltf_attribute_type_normal) {
-					norm_acc = prim->attributes[a].data;
-				}
-				if (prim->attributes[a].type == cgltf_attribute_type_tangent) {
-					tangent_acc = prim->attributes[a].data;
-				}
-				if (prim->attributes[a].type == cgltf_attribute_type_texcoord) {
-					uv_acc = prim->attributes[a].data;
-				}
-				if (prim->attributes[a].type == cgltf_attribute_type_color) {
-					color_acc = prim->attributes[a].data;
-				}
-			}
-			if (!pos_acc) continue;
-
-			// Track base vertex for indexing
-			zest_uint base_vertex = zest_MeshVertexCount(mesh);
-
-			// Read vertices
-			for (cgltf_size v = 0; v < pos_acc->count; v++) {
-				float pos[3], norm[3] = { 0, 0, 1 };
-				float tangent[4] = { 0 };
-				float color[4] = { 0 };
-				float uv[2] = { 0 };
-				cgltf_accessor_read_float(pos_acc, v, pos, 3);
-				pos[0] *= adjust_scale;
-				pos[1] *= adjust_scale;
-				pos[2] *= adjust_scale;
-				if (norm_acc) {
-					cgltf_accessor_read_float(norm_acc, v, norm, 3);
-				}
-				if (tangent_acc) {
-					cgltf_accessor_read_float(tangent_acc, v, tangent, 4);
-					packed_tangent = zest_Pack16bit4SNorm(tangent[0], tangent[1], tangent[2], tangent[3]);
-				}
-				if (uv_acc) {
-					cgltf_accessor_read_float(uv_acc, v, uv, 2);
-					packed_uv = zest_Pack16bit2SNorm(uv[0], uv[1]);
-				}
-				if (color_acc) {
-					cgltf_accessor_read_float(color_acc, v, color, 4);
-					packed_color = zest_ColorSet((zest_byte)(color[0] * 255.f), (zest_byte)(color[1] * 255.f), (zest_byte)(color[2] * 255.f), (zest_byte)(color[3] * 255.f));
-				}
-
-				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
-			}
-
-			// Read indices
-			if (prim->indices) {
-				for (cgltf_size i = 0; i < prim->indices->count; i++) {
-					cgltf_size idx = cgltf_accessor_read_index(prim->indices, i);
-					zest_PushMeshIndex(mesh, (zest_uint)(base_vertex + idx));
-				}
-			}
-		}
-	}
-
-	cgltf_free(data);
-	return mesh;
 }
 
 void SetupPrefilteredCube(SimplePBRExample *app) {
@@ -289,16 +158,14 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.y = 0.8f;
 	app->material_push.color.z = 0.1f;
 
-	SetupBillboards(app);
-
 	//Compile the shaders we will use to render the particles
-	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
-	app->brd_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
-	app->irr_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/irradiancecube.comp", "irradiancecube_comp.spv", zest_compute_shader, true);
-	app->prefiltered_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", zest_compute_shader, true);
+	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
+	app->brd_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+	app->irr_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/irradiancecube.comp", "irradiancecube_comp.spv", zest_compute_shader, true);
+	app->prefiltered_shader = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-forward/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", zest_compute_shader, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->cube_sampler = zest_CreateSampler(app->context, &sampler_info);
@@ -386,6 +253,17 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_FreeMesh(teapot);
 }
 
+void UpdateUniform3d(SimplePBRExample *app) {
+	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
+	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(view_buffer));
+	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
+	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
+	ubo_ptr->proj.v[1].y *= -1.f;
+	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
+	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
+	app->material_push.view_buffer_index = zest_GetUniformBufferDescriptorIndex(view_buffer);
+}
+
 void UpdateLights(SimplePBRExample *app, float timer) {
 	const float p = 15.0f;
 
@@ -409,20 +287,12 @@ void UpdateLights(SimplePBRExample *app, float timer) {
 	buffer_data->gamma = 2.2f;
 
 	app->material_push.lights_buffer_index = zest_GetUniformBufferDescriptorIndex(lights_buffer);
-	/*
-	zest_SetInstanceDrawing(app->billboard_layer, app->sprite_resources, app->billboard_pipeline);
-	zest_SetLayerColor(app->billboard_layer, 255, 255, 255, 255);
-	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[0].x, 0.f, 1.f, 1.f);
-	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[1].x, 0.f, 1.f, 1.f);
-	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[2].x, 0.f, 1.f, 1.f);
-	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[3].x, 0.f, 1.f, 1.f);
-	*/
 }
 
 void UploadMeshData(const zest_command_list context, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
-	zest_layer_handle layers[7]{
+	zest_layer_handle layers[2]{
 		app->mesh_layer,
 		app->skybox_layer
 	};
@@ -466,20 +336,74 @@ void UpdateMouse(SimplePBRExample *app) {
 	app->mouse_y = mouse_y;
 	app->mouse_delta_x = last_mouse_x - app->mouse_x;
 	app->mouse_delta_y = last_mouse_y - app->mouse_y;
+
+	bool camera_free_look = false;
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		camera_free_look = true;
+		if (glfwRawMouseMotionSupported()) {
+			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+		}
+		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+		zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
+	} else if (glfwRawMouseMotionSupported()) {
+		camera_free_look = false;
+		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	} else {
+		camera_free_look = false;
+		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+	}
+
+	//Restore the mouse when right mouse isn't held down
+	if (camera_free_look) {
+		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	}
+	else {
+		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	}
 }
 
-void DrawMeshes(const zest_command_list command_list, void *user_data) {
-	zest_layer *layers = (zest_layer*)user_data;
-	for (int i = 0; i != 5; i++) {
-		zest_DrawInstanceMeshLayer(command_list, layers[i]);
-	}
+void UpdateImGui(SimplePBRExample *app) {
+	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+	//less frequently.
+	zest_StartTimerLoop(app->timer) {
+		//Must call the imgui GLFW implementation function
+		ImGui_ImplGlfw_NewFrame();
+		//Draw our imgui stuff
+		ImGui::NewFrame();
+		ImGui::Begin("Test Window");
+		ImGui::Text("FPS: %u", app->fps);
+		ImGui::ColorPicker3("Color", &app->material_push.color.x);
+		ImGui::Separator();
+		if (ImGui::Button("Toggle Refresh Rate Sync")) {
+			if (app->sync_refresh) {
+				zest_DisableVSync(app->context);
+				app->sync_refresh = false;
+			} else {
+				zest_EnableVSync(app->context);
+				app->sync_refresh = true;
+			}
+		}
+		if (ImGui::Button("Print Render Graph")) {
+			app->request_graph_print = 1;
+			zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
+		}
+		if (ImGui::Button("Reset Renderer")) {
+			app->reset = true;
+		}
+		ImGui::End();
+		ImGui::Render();
+		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+		UpdateCameraPosition(app);
+	} zest_EndTimerLoop(app->timer);
 }
 
 void MainLoop(SimplePBRExample *app) {
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
-	zest_uint fps = 0;
 
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
@@ -488,7 +412,7 @@ void MainLoop(SimplePBRExample *app) {
 		frame_count += 1;
 		if (frame_time >= ZEST_MICROSECS_SECOND) {
 			frame_time -= ZEST_MICROSECS_SECOND;
-			fps = frame_count;
+			app->fps = frame_count;
 			frame_count = 0;
 		}
 
@@ -507,66 +431,7 @@ void MainLoop(SimplePBRExample *app) {
 
 			UpdateUniform3d(app);
 
-			bool camera_free_look = false;
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-				camera_free_look = true;
-				if (glfwRawMouseMotionSupported()) {
-					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-				}
-				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-			} else if (glfwRawMouseMotionSupported()) {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			} else {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			}
-
-			//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-			//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-			//less frequently.
-
-			zest_StartTimerLoop(app->timer) {
-				//Must call the imgui GLFW implementation function
-				ImGui_ImplGlfw_NewFrame();
-				//Draw our imgui stuff
-				ImGui::NewFrame();
-				ImGui::Begin("Test Window");
-				ImGui::Text("FPS: %u", fps);
-				ImGui::ColorPicker3("Color", &app->material_push.color.x);
-				ImGui::Separator();
-				if (ImGui::Button("Toggle Refresh Rate Sync")) {
-					if (app->sync_refresh) {
-						zest_DisableVSync(app->context);
-						app->sync_refresh = false;
-					} else {
-						zest_EnableVSync(app->context);
-						app->sync_refresh = true;
-					}
-				}
-				if (ImGui::Button("Print Render Graph")) {
-					app->request_graph_print = 1;
-					zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
-				}
-				if (ImGui::Button("Reset Renderer")) {
-					app->reset = true;
-				}
-				ImGui::End();
-				ImGui::Render();
-				//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-				//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-				UpdateCameraPosition(app);
-
-				//Restore the mouse when right mouse isn't held down
-				if (camera_free_look) {
-					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-				}
-				else {
-					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-				}
-			} zest_EndTimerLoop(app->timer);
+			UpdateImGui(app);
 
 			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(&app->timer));
 
@@ -637,7 +502,7 @@ void MainLoop(SimplePBRExample *app) {
 			}
 
 			zest_swapchain swapchain = zest_GetSwapchain(app->context);
-			zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
+
 			//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
 			//image layout general. When they are used in the frame graph below they will be transitioned to read only
 			//so we store the current layout of the image in a custom cache info struct so that when the layout changes
@@ -727,6 +592,7 @@ void MainLoop(SimplePBRExample *app) {
 
 					//End the render graph and execute it. This will submit it to the GPU.
 					frame_graph = zest_EndFrameGraph();
+					zest_PrintCompiledFrameGraph(frame_graph);
 				}
 			}
 
@@ -763,7 +629,6 @@ int main(void) {
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderPrintMemoryInfo(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
