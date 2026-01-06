@@ -14738,7 +14738,6 @@ void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node ima
 		usage.resource_node = image_resource;
 		zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, image_resource->name, usage);
 		pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
-		ZEST_PRINT("Output key for %s: %llu", pass_node->name, pass_node->output_key);
     } else {
         usage.resource_node = image_resource;
         ZEST_ASSERT(usage.resource_node);
@@ -14873,7 +14872,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
 			}
         }
 		//Preserve the contents of the buffer from this point on
-		ZEST__FLAG(resource->flags, zest_resource_node_flag_preserve);
+		//ZEST__FLAG(resource->flags, zest_resource_node_flag_preserve);
     } else {
         //Buffer output
         switch (pass->type) {

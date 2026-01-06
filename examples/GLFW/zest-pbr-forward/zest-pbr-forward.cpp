@@ -592,7 +592,6 @@ void MainLoop(SimplePBRExample *app) {
 
 					//End the render graph and execute it. This will submit it to the GPU.
 					frame_graph = zest_EndFrameGraph();
-					zest_PrintCompiledFrameGraph(frame_graph);
 				}
 			}
 
