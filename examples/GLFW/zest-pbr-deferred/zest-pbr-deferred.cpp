@@ -697,7 +697,7 @@ void MainLoop(SimplePBRExample *app) {
 					}
 					//--------------------------------------------------------------------------------------------------
 
-					//------------------------ Skybox Layer Pass (after lighting) ---------------------------------------
+					//------------------------ Composite Layer Pass (after lighting) ---------------------------------------
 					zest_BeginRenderPass("Composite Pass"); {
 						zest_ConnectInput(gTarget);
 						zest_ConnectInput(skybox_texture_resource);
