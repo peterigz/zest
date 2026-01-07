@@ -99,6 +99,7 @@ void computeMain(uint3 GlobalInvocationID : SV_DispatchThreadID)
     // Read position and velocity
     float2 vVel = particles[ubo[pc.uniform_index].read_particle_buffer_index][index].vel.xy;
     float2 vPos = particles[ubo[pc.uniform_index].read_particle_buffer_index][index].pos.xy;
+	float4 gPos = particles[ubo[pc.uniform_index].read_particle_buffer_index][index].gradientPos;
 
     float2 destPos = float2(ubo[pc.uniform_index].destX, ubo[pc.uniform_index].destY);
 
@@ -118,7 +119,7 @@ void computeMain(uint3 GlobalInvocationID : SV_DispatchThreadID)
 
     // Write back
     particles[ubo[pc.uniform_index].write_particle_buffer_index][index].vel.xy = vVel;
-    particles[ubo[pc.uniform_index].write_particle_buffer_index][index].gradientPos.x += 0.02 * ubo[pc.uniform_index].deltaT;
+	particles[ubo[pc.uniform_index].write_particle_buffer_index][index].gradientPos.x = gPos.x + 0.02 * ubo[pc.uniform_index].deltaT;
     if (particles[ubo[pc.uniform_index].read_particle_buffer_index][index].gradientPos.x > 1.0) {
         particles[ubo[pc.uniform_index].write_particle_buffer_index][index].gradientPos.x -= 1.0;
     }

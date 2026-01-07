@@ -58,6 +58,8 @@ struct ComputeExample {
 	zest_timer_t loop_timer;
 	RenderCacheInfo cache_info;
 
+	double mouse_x, mouse_y;
+
 	float frame_timer;
 	float anim_start;
 	float timer;

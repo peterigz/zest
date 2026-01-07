@@ -41,6 +41,9 @@ void InitComputeExample(ComputeExample *app) {
 	app->gradient_image_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->gradient_image), zest_texture_2d_binding);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	sampler_info.address_mode_u = zest_sampler_address_mode_repeat;
+	sampler_info.address_mode_v = zest_sampler_address_mode_repeat;
+	sampler_info.address_mode_w = zest_sampler_address_mode_repeat;
 	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, zest_GetSampler(app->particle_sampler));
 
@@ -81,9 +84,9 @@ void InitComputeExample(ComputeExample *app) {
 	*/
 	zest_slang_InitialiseSession(app->device);
 	const char *path = "examples/GLFW/zest-compute-example/shaders/particle.slang";
-	zest_shader_handle frag_shader = zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, false);
-	zest_shader_handle vert_shader = zest_slang_CreateShader(app->device, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, false);
-	zest_shader_handle comp_shader = zest_slang_CreateShader(app->device, path, "particle_comp.spv", "computeMain", zest_compute_shader, false);
+	zest_shader_handle frag_shader = zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, true);
+	zest_shader_handle vert_shader = zest_slang_CreateShader(app->device, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, true);
+	zest_shader_handle comp_shader = zest_slang_CreateShader(app->device, path, "particle_comp.spv", "computeMain", zest_compute_shader, true);
 
 	assert(frag_shader.value && vert_shader.value && comp_shader.value);
 
@@ -162,19 +165,25 @@ void UpdateComputeUniformBuffers(ComputeExample *app) {
 	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(uniform_buffer);
 	uniform->deltaT = app->frame_timer * 2.5f;
 	uniform->particleCount = PARTICLE_COUNT;
-	zest_uint fif = zest_CurrentFIF(app->context);
-	zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
 	uniform->read_particle_buffer_index = app->particle_buffer_index;
 	uniform->write_particle_buffer_index = app->particle_buffer_index;
 	if (!app->attach_to_cursor) {
 		uniform->dest_x = sinf(Radians(app->timer * 360.0f)) * 0.75f;
 		uniform->dest_y = 0.0f;
 	} else {
-		float normalizedMx = (ImGui::GetMousePos().x - static_cast<float>(zest_ScreenWidthf(app->context) / 2)) / static_cast<float>(zest_ScreenWidthf(app->context) / 2);
-		float normalizedMy = (ImGui::GetMousePos().y - static_cast<float>(zest_ScreenHeightf(app->context) / 2)) / static_cast<float>(zest_ScreenHeightf(app->context) / 2);
+		float normalizedMx = (app->mouse_x - static_cast<float>(zest_ScreenWidthf(app->context) / 2)) / static_cast<float>(zest_ScreenWidthf(app->context) / 2);
+		float normalizedMy = (app->mouse_y - static_cast<float>(zest_ScreenHeightf(app->context) / 2)) / static_cast<float>(zest_ScreenHeightf(app->context) / 2);
 		uniform->dest_x = normalizedMx;
 		uniform->dest_y = normalizedMy;
 	}
+}
+
+void UpdateMouse(ComputeExample *app) {
+	double mouse_x, mouse_y;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
+	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
+	app->mouse_x = mouse_x;
+	app->mouse_y = mouse_y;
 }
 
 void MainLoop(ComputeExample *app) {
@@ -240,8 +249,7 @@ void MainLoop(ComputeExample *app) {
 		if (zest_BeginFrame(app->context)) {
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 
-			zest_uint fif = zest_CurrentFIF(app->context);
-			zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
+			UpdateMouse(app);
 
 			//Don't forget to update the uniform buffer! And also update it after BeginFrame so you have the
 			//correct frame in flight index if relying on that.
@@ -308,7 +316,7 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	compute_example.device = zest_implglfw_CreateDevice(true);
+	compute_example.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
