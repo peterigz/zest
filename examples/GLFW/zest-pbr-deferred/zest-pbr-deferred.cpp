@@ -172,6 +172,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, true);
 	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, true);
 	app->lighting_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/deferred_lighting.frag", "deferred_lighting_frag.spv", zest_fragment_shader, true);
+	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/composite.frag", "deferred_lighting_frag.spv", zest_fragment_shader, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->cube_sampler = zest_CreateSampler(app->context, &sampler_info);
@@ -233,8 +234,14 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_SetPipelineDisableVertexInput(app->lighting_pipeline);
 	zest_SetPipelineDepthTest(app->lighting_pipeline, false, false);
 
-	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
+	// Deferred lighting pipeline (fullscreen, no vertex input)
+	app->composite_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_composite");
+	zest_SetPipelineShaders(app->composite_pipeline, app->lighting_vert, app->composite_frag);
+	zest_SetPipelineDisableVertexInput(app->composite_pipeline);
+	zest_SetPipelineDepthTest(app->composite_pipeline, false, false);
+
+	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
+	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(255, 255, 255, 255));
 	zest_mesh teapot = LoadGLTFMesh(app->context, "examples/assets/gltf/teapot.gltf", .5f);
 	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", .05f);
 	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", .5f);
@@ -276,6 +283,9 @@ void UpdateUniform3d(SimplePBRExample *app) {
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
 	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
+	// Calculate inverse view-projection matrix for position reconstruction from depth
+	zest_matrix4 view_proj = zest_MatrixTransform(&ubo_ptr->view, &ubo_ptr->proj);
+	ubo_ptr->inv_view_proj = zest_Inverse(&view_proj);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
 	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
 	app->material_push.view_buffer_index = zest_GetUniformBufferDescriptorIndex(view_buffer);
@@ -329,13 +339,13 @@ void DrawGBufferPass(const zest_command_list command_list, void *user_data) {
 void DrawLightingPass(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
-	// Get G-buffer bindless indices
-	zest_resource_node gPosition = zest_GetPassInputResource(command_list, "GBuffer_Position");
+	// Get G-buffer and depth buffer bindless indices
+	zest_resource_node gDepth = zest_GetPassInputResource(command_list, "Depth Buffer");
 	zest_resource_node gNormal = zest_GetPassInputResource(command_list, "GBuffer_Normal");
 	zest_resource_node gAlbedo = zest_GetPassInputResource(command_list, "GBuffer_Albedo");
 	zest_resource_node gPBR = zest_GetPassInputResource(command_list, "GBuffer_PBR");
 
-	app->lighting_push.gPosition_index = zest_GetTransientSampledImageBindlessIndex(command_list, gPosition, zest_texture_2d_binding);
+	app->lighting_push.gDepth_index = zest_GetTransientSampledImageBindlessIndex(command_list, gDepth, zest_texture_2d_binding);
 	app->lighting_push.gNormal_index = zest_GetTransientSampledImageBindlessIndex(command_list, gNormal, zest_texture_2d_binding);
 	app->lighting_push.gAlbedo_index = zest_GetTransientSampledImageBindlessIndex(command_list, gAlbedo, zest_texture_2d_binding);
 	app->lighting_push.gPBR_index = zest_GetTransientSampledImageBindlessIndex(command_list, gPBR, zest_texture_2d_binding);
@@ -344,6 +354,22 @@ void DrawLightingPass(const zest_command_list command_list, void *user_data) {
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->lighting_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &app->lighting_push, sizeof(deferred_lighting_push_t));
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle
+}
+
+void DrawComposite(const zest_command_list command_list, void *user_data) {
+	SimplePBRExample *app = (SimplePBRExample*)user_data;
+	//Draw the skybox mesh
+	zest_DrawInstanceMeshLayer(command_list, zest_GetLayer(app->skybox_layer));
+
+	//Draw the GBuffer render target
+	zest_resource_node gTarget = zest_GetPassInputResource(command_list, "GBuffer_Target");
+	app->composite_push.gTarget_index = zest_GetTransientSampledImageBindlessIndex(command_list, gTarget, zest_texture_2d_binding);
+
+	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+	zest_pipeline pipeline = zest_PipelineWithTemplate(app->composite_pipeline, command_list);
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, &app->composite_push, sizeof(composite_push_constant_t));
 	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle
 }
 
@@ -568,49 +594,44 @@ void MainLoop(SimplePBRExample *app) {
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
-			zest_image_resource_info_t depth_info = {
-				zest_format_depth,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-
-			// G-buffer resource definitions for deferred rendering
-			zest_image_resource_info_t gbuffer_position_info = {
-				zest_format_r16g16b16a16_sfloat,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-			zest_image_resource_info_t gbuffer_normal_info = {
-				zest_format_r16g16b16a16_sfloat,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-			zest_image_resource_info_t gbuffer_albedo_info = {
-				zest_format_r8g8b8a8_unorm,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-			zest_image_resource_info_t gbuffer_pbr_info = {
-				zest_format_r8g8b8a8_unorm,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
+
+				zest_image_resource_info_t depth_info = {
+					zest_format_depth,
+					zest_resource_usage_hint_none,
+					zest_ScreenWidth(app->context),
+					zest_ScreenHeight(app->context),
+					1, 1
+				};
+
+				// G-buffer resource definitions for deferred rendering
+				// Note: Position is reconstructed from depth buffer using inverse view-projection matrix
+				zest_image_resource_info_t gbuffer_normal_hdr_info = {
+					zest_format_r16g16b16a16_sfloat,
+					zest_resource_usage_hint_none,
+					zest_ScreenWidth(app->context),
+					zest_ScreenHeight(app->context),
+					1, 1
+				};
+				zest_image_resource_info_t gbuffer_albedo_info = {
+					zest_format_r8g8b8a8_unorm,
+					zest_resource_usage_hint_none,
+					zest_ScreenWidth(app->context),
+					zest_ScreenHeight(app->context),
+					1, 1
+				};
+				zest_image_resource_info_t gbuffer_pbr_info = {
+					zest_format_r8g8b8a8_unorm,
+					zest_resource_usage_hint_none,
+					zest_ScreenWidth(app->context),
+					zest_ScreenHeight(app->context),
+					1, 1
+				};
+
 				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 				zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 				if (zest_BeginFrameGraph(app->context, "Deferred PBR", &cache_key)) {
@@ -618,12 +639,13 @@ void MainLoop(SimplePBRExample *app) {
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 
-					// G-buffer transient resources
-					zest_resource_node gPosition = zest_AddTransientImageResource("GBuffer_Position", &gbuffer_position_info);
-					zest_resource_node gNormal = zest_AddTransientImageResource("GBuffer_Normal", &gbuffer_normal_info);
+					// G-buffer transient resources (position reconstructed from depth)
+					zest_resource_node gNormal = zest_AddTransientImageResource("GBuffer_Normal", &gbuffer_normal_hdr_info);
 					zest_resource_node gAlbedo = zest_AddTransientImageResource("GBuffer_Albedo", &gbuffer_albedo_info);
 					zest_resource_node gPBR = zest_AddTransientImageResource("GBuffer_PBR", &gbuffer_pbr_info);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+
+					zest_resource_node gTarget = zest_AddTransientImageResource("GBuffer_Target",  &gbuffer_normal_hdr_info);
 
 					// IBL and skybox texture imports
 					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
@@ -632,18 +654,18 @@ void MainLoop(SimplePBRExample *app) {
 					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 
-					// G-buffer output group (MRT)
-					zest_output_group gbuffer_group = zest_CreateOutputGroup();
-					zest_AddImageToRenderTargetGroup(gbuffer_group, gPosition);
-					zest_AddImageToRenderTargetGroup(gbuffer_group, gNormal);
-					zest_AddImageToRenderTargetGroup(gbuffer_group, gAlbedo);
-					zest_AddImageToRenderTargetGroup(gbuffer_group, gPBR);
-					zest_AddImageToRenderTargetGroup(gbuffer_group, depth_buffer);
+					// G-buffer output group (MRT) - 3 color attachments + depth
+					// Position is reconstructed from depth buffer in lighting pass
+					zest_resource_group gbuffer_group = zest_CreateResourceGroup();
+					zest_AddResourceToGroup(gbuffer_group, gNormal);
+					zest_AddResourceToGroup(gbuffer_group, gAlbedo);
+					zest_AddResourceToGroup(gbuffer_group, gPBR);
+					zest_AddResourceToGroup(gbuffer_group, depth_buffer);
 
 					// Final output group - ALL passes writing to swapchain must use the same group
-					zest_output_group final_group = zest_CreateOutputGroup();
-					zest_AddSwapchainToRenderTargetGroup(final_group);
-					zest_AddImageToRenderTargetGroup(final_group, depth_buffer);
+					zest_resource_group final_group = zest_CreateResourceGroup();
+					zest_AddSwapchainToGroup(final_group);
+					zest_AddResourceToGroup(final_group, depth_buffer);
 
 					//-------------------------Transfer Pass----------------------------------------------------
 					zest_BeginTransferPass("Upload Mesh Data"); {
@@ -657,7 +679,7 @@ void MainLoop(SimplePBRExample *app) {
 					//------------------------ G-Buffer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("G-Buffer Pass"); {
 						zest_ConnectInput(mesh_layer_resource);
-						zest_ConnectGroupedOutput(gbuffer_group);
+						zest_ConnectOutputGroup(gbuffer_group);
 						zest_SetPassTask(DrawGBufferPass, app);
 						zest_EndPass();
 					}
@@ -665,25 +687,23 @@ void MainLoop(SimplePBRExample *app) {
 
 					//------------------------ Deferred Lighting Pass ---------------------------------------------------
 					zest_BeginRenderPass("Lighting Pass"); {
-						zest_ConnectInput(gPosition);
-						zest_ConnectInput(gNormal);
-						zest_ConnectInput(gAlbedo);
-						zest_ConnectInput(gPBR);
+						zest_ConnectInputGroup(gbuffer_group);  
 						zest_ConnectInput(brd_texture_resource);
 						zest_ConnectInput(irradiance_texture_resource);
 						zest_ConnectInput(prefiltered_texture_resource);
-						zest_ConnectGroupedOutput(final_group);
+						zest_ConnectOutput(gTarget);
 						zest_SetPassTask(DrawLightingPass, app);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
 
 					//------------------------ Skybox Layer Pass (after lighting) ---------------------------------------
-					zest_BeginRenderPass("Skybox Pass"); {
+					zest_BeginRenderPass("Composite Pass"); {
+						zest_ConnectInput(gTarget);
 						zest_ConnectInput(skybox_texture_resource);
 						zest_ConnectInput(skybox_layer_resource);
-						zest_ConnectGroupedOutput(final_group);
-						zest_SetPassTask(zest_DrawInstanceMeshLayer, skybox_layer);
+						zest_ConnectOutputGroup(final_group);
+						zest_SetPassTask(DrawComposite, app);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
@@ -692,12 +712,12 @@ void MainLoop(SimplePBRExample *app) {
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport); {
 						if (imgui_pass) {
-							zest_ConnectGroupedOutput(final_group);
+							zest_ConnectOutputGroup(final_group);
 						} else {
 							//If there's no ImGui to render then just render a blank screen
 							zest_BeginRenderPass("Draw Nothing");
 							//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-							zest_ConnectGroupedOutput(final_group);
+							zest_ConnectOutputGroup(final_group);
 							zest_SetPassTask(zest_EmptyRenderPass, 0);
 						}
 						zest_EndPass();
@@ -706,7 +726,6 @@ void MainLoop(SimplePBRExample *app) {
 
 					//End the render graph and execute it. This will submit it to the GPU.
 					frame_graph = zest_EndFrameGraph();
-					int d = 0;
 				}
 			}
 

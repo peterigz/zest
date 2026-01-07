@@ -25,13 +25,15 @@ struct UniformLights {
 typedef struct uniform_buffer_data_t {
     zest_matrix4 view;
     zest_matrix4 proj;
+    zest_matrix4 inv_view_proj;  // For reconstructing world position from depth
     zest_vec2 screen_size;
     float timer_lerp;
     float update_time;
 } uniform_buffer_data_t;
 
-struct billboard_push_constant_t {
-	zest_uint texture_index;
+struct  composite_push_constant_t{
+	zest_uint sampler_index;
+	zest_uint gTarget_index;
 };
 
 struct irr_push_constant_t {
@@ -70,10 +72,10 @@ struct gbuffer_push_t {
 	zest_uint view_buffer_index;
 };
 
-// Deferred lighting pass push constants (vec3 aligned to 16 bytes in GLSL)
+// Deferred lighting pass push constants
 struct deferred_lighting_push_t {
 	zest_vec4 camera;
-	zest_uint gPosition_index;
+	zest_uint gDepth_index;      // Depth buffer for position reconstruction
 	zest_uint gNormal_index;
 	zest_uint gAlbedo_index;
 	zest_uint gPBR_index;
@@ -112,6 +114,7 @@ struct SimplePBRExample {
 	// Deferred rendering pipelines
 	zest_pipeline_template gbuffer_pipeline;
 	zest_pipeline_template lighting_pipeline;
+	zest_pipeline_template composite_pipeline;
 
 	zest_uniform_buffer_handle view_buffer;
 	zest_uniform_buffer_handle lights_buffer;
@@ -119,9 +122,9 @@ struct SimplePBRExample {
 	RenderCacheInfo cache_info;
 
 	pbr_consts_t material_push;
-	billboard_push_constant_t billboard_push;
 	irr_push_constant_t irr_push_constant;
 	prefiltered_push_constant_t prefiltered_push_constant;
+	composite_push_constant_t composite_push;
 
 	// Deferred rendering push constants
 	gbuffer_push_t gbuffer_push;
@@ -136,6 +139,7 @@ struct SimplePBRExample {
 	zest_shader_handle gbuffer_frag;
 	zest_shader_handle lighting_vert;
 	zest_shader_handle lighting_frag;
+	zest_shader_handle composite_frag;
 
 	zest_image_handle imgui_font_texture;
 	zest_image_handle skybox_texture;
@@ -194,4 +198,5 @@ void MainLoop(SimplePBRExample *app);
 // Deferred rendering callbacks
 void DrawGBufferPass(const zest_command_list command_list, void *user_data);
 void DrawLightingPass(const zest_command_list command_list, void *user_data);
+void DrawComposite(const zest_command_list command_list, void *user_data);
 

@@ -31,10 +31,9 @@ layout(location = 9) in float roughness;
 layout(location = 10) in vec3 instance_scale;
 layout(location = 11) in float metallic;
 
-layout(location = 0) out vec3 out_world_position;
-layout(location = 1) out vec3 out_normal;
-layout(location = 2) out vec4 out_color;
-layout(location = 3) out vec2 out_pbr;
+layout(location = 0) out vec3 out_normal;
+layout(location = 1) out vec4 out_color;
+layout(location = 2) out vec2 out_pbr;
 
 void main() {
 	mat3 mx, my, mz;
@@ -69,7 +68,6 @@ void main() {
 
 	vec4 color = vertex_color * instance_color;
 
-	out_world_position = position;
 	out_normal = vertex_normal * rotation_matrix;
 	out_color = vec4(pc.color * color.rgb, 1.0);
 	out_pbr = vec2(roughness, metallic);

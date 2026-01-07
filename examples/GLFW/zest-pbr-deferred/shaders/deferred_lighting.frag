@@ -12,7 +12,7 @@ layout(location = 0) out vec4 out_color;
 layout(push_constant) uniform deferred_lighting_pc
 {
 	vec4 camera;
-	uint gPosition_index;
+	uint gDepth_index;       // Depth buffer for position reconstruction
 	uint gNormal_index;
 	uint gAlbedo_index;
 	uint gPBR_index;
@@ -25,6 +25,16 @@ layout(push_constant) uniform deferred_lighting_pc
 	vec3 color;
 } material;
 
+layout (binding = 7) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    mat4 inv_view_proj;  // For reconstructing world position from depth
+    vec2 screen_size;
+    float timer_lerp;
+    float update_time;
+} uboView[];
+
 layout (binding = 7) uniform UBOLights {
 	vec4 lights[4];
 	float exposure;
@@ -32,6 +42,19 @@ layout (binding = 7) uniform UBOLights {
 } ubo_lights[];
 
 #define PI 3.1415926535897932384626433832795
+
+// Reconstruct world position from depth buffer
+vec3 reconstructWorldPosition(vec2 uv, float depth) {
+	// Convert UV [0,1] to NDC [-1,1]
+	// Note: Vulkan NDC has Y pointing down and depth in [0,1]
+	vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
+
+	// Transform from NDC to world space
+	vec4 worldPos = uboView[material.view_index].inv_view_proj * ndc;
+
+	// Perspective divide
+	return worldPos.xyz / worldPos.w;
+}
 
 // From http://filmicgames.com/archives/75
 vec3 Uncharted2Tonemap(vec3 x)
@@ -116,22 +139,29 @@ vec3 specularContribution(vec3 L, vec3 V, vec3 N, vec3 F0, vec3 albedo, float me
 
 void main()
 {
-	// Flip Y for Vulkan coordinate system (framebuffer Y=0 is top, UV Y=0 should be top)
-	vec2 uv = vec2(inUV.x, 1.0 - inUV.y);
+	// Sample depth buffer
+	float depth = texture(sampler2D(textures_2d[material.gDepth_index], samplers[material.sampler_index]), inUV).r;
 
-	// Sample G-buffers
-	vec4 positionData = texture(sampler2D(textures_2d[material.gPosition_index], samplers[material.sampler_index]), inUV);
-	vec3 worldPos = positionData.rgb;
+	// Discard pixels with no geometry (depth = 1.0 means far plane / no geometry)
+	if (depth >= 1.0) {
+		discard;
+	}
+
+	// Reconstruct world position from depth
+	vec3 worldPos = reconstructWorldPosition(inUV, depth);
+
+	// Sample other G-buffers
 	vec3 normal = texture(sampler2D(textures_2d[material.gNormal_index], samplers[material.sampler_index]), inUV).rgb;
 	vec3 albedo = texture(sampler2D(textures_2d[material.gAlbedo_index], samplers[material.sampler_index]), inUV).rgb;
 	vec4 pbrData = texture(sampler2D(textures_2d[material.gPBR_index], samplers[material.sampler_index]), inUV);
 
 	// DEBUG modes - uncomment one to visualize:
-	// out_color = vec4(worldPos, 1.0); return;           // World position (scaled)
-	// out_color = vec4(normal, 1.0); return;                      // RAW sampled normal (should match G-buffer)
+	// out_color = vec4(worldPos * 0.1, 1.0); return;           // World position (scaled)
+	// out_color = vec4(normal, 1.0); return;                   // RAW sampled normal
 	// out_color = vec4(normalize(normal * 2.0 - 1.0) * 0.5 + 0.5, 1.0); return;  // Unpacked normal
 	// out_color = vec4(albedo, 1.0); return;                   // Albedo
 	// out_color = vec4(pbrData.r, pbrData.g, 0.0, 1.0); return; // PBR (metallic=R, roughness=G)
+	// out_color = vec4(depth, depth, depth, 1.0); return;      // Depth
 
 	// Unpack normal from [0,1] to [-1,1]
 	vec3 N = normalize(normal * 2.0 - 1.0);
@@ -139,11 +169,6 @@ void main()
 	// Extract PBR properties (swapped to match forward shader's reading order)
 	float metallic = pbrData.r;
 	float roughness = pbrData.g;
-
-	// Discard pixels with no geometry (alpha = 0 in position buffer indicates empty)
-	if (positionData.a < 0.5) {
-		discard;
-	}
 
 	// Calculate view direction and reflection
 	vec3 V = normalize(material.camera.xyz - worldPos);
