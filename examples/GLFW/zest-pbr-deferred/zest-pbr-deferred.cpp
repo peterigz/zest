@@ -188,7 +188,6 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->sampler_2d_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 	app->cube_sampler_index = zest_AcquireSamplerIndex(app->device, cube_sampler);
 
-	app->timeline = zest_CreateExecutionTimeline(app->device);
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
@@ -234,7 +233,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_SetPipelineDisableVertexInput(app->lighting_pipeline);
 	zest_SetPipelineDepthTest(app->lighting_pipeline, false, false);
 
-	// Deferred lighting pipeline (fullscreen, no vertex input)
+	// Composite pipeline (fullscreen, no vertex input) Draws the skybox and the GBuffer render target
 	app->composite_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_composite");
 	zest_SetPipelineShaders(app->composite_pipeline, app->lighting_vert, app->composite_frag);
 	zest_SetPipelineDisableVertexInput(app->composite_pipeline);
@@ -761,7 +760,7 @@ int main(void) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
+	//zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 

@@ -181,7 +181,6 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->sampler_2d_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 	app->cube_sampler_index = zest_AcquireSamplerIndex(app->device, cube_sampler);
 
-	app->timeline = zest_CreateExecutionTimeline(app->device);
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
