@@ -36,7 +36,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
-	tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+	tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr-forward/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
 
 	zest_BeginFrameGraph(tests->context, "BRDFLUT", 0);
@@ -172,7 +172,7 @@ Verify cache is used and each execution completes properly.
 */
 int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->brd_shader)) {
-		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr-forward/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
 		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
@@ -274,7 +274,7 @@ use zest_cmd_InsertComputeImageBarrier between levels.
 */
 int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->brd_shader)) {
-		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-pbr-forward/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
 		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
