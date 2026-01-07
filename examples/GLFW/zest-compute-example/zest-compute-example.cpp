@@ -31,6 +31,7 @@ void InitComputeExample(ComputeExample *app) {
 	stbi_uc *gradient_pixels = stbi_load("examples/assets/gradient.png", &width, &height, &channels, 0);
 	size = width * height * channels;
 	image_info = zest_CreateImageInfo(width, height);
+	image_info.format = zest_format_r8g8b8a8_srgb;
 	image_info.flags = zest_image_preset_texture;
 	app->gradient_image = zest_CreateImageWithPixels(app->context, gradient_pixels, size, &image_info);
 
@@ -44,6 +45,8 @@ void InitComputeExample(ComputeExample *app) {
 	sampler_info.address_mode_u = zest_sampler_address_mode_repeat;
 	sampler_info.address_mode_v = zest_sampler_address_mode_repeat;
 	sampler_info.address_mode_w = zest_sampler_address_mode_repeat;
+    sampler_info.compare_op = zest_compare_op_never;
+	sampler_info.border_color = zest_border_color_float_opaque_white;
 	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, zest_GetSampler(app->particle_sampler));
 
@@ -217,11 +220,11 @@ void MainLoop(ComputeExample *app) {
 		{
 			if (app->anim_start > 0.0f)
 			{
-				app->anim_start -= app->frame_timer * 10.0f;
+				app->anim_start -= app->frame_timer * 5.0f;
 			}
 			else if (app->anim_start <= 0.0f)
 			{
-				app->timer += app->frame_timer * 0.01f;
+				app->timer += app->frame_timer * 0.04f;
 				if (app->timer > 1.f)
 					app->timer = 0.f;
 			}
@@ -254,6 +257,8 @@ void MainLoop(ComputeExample *app) {
 			//Don't forget to update the uniform buffer! And also update it after BeginFrame so you have the
 			//correct frame in flight index if relying on that.
 			UpdateComputeUniformBuffers(app);
+
+			zest_SetSwapchainClearColor(app->context, 0, 0, 0, 0);
 
 			if (!frame_graph) {
 				zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->compute_uniform_buffer);
