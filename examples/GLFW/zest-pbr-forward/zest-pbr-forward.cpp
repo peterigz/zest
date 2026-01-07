@@ -539,9 +539,9 @@ void MainLoop(SimplePBRExample *app) {
 					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
-					zest_output_group group = zest_CreateOutputGroup();
-					zest_AddSwapchainToRenderTargetGroup(group);
-					zest_AddImageToRenderTargetGroup(group, depth_buffer);
+					zest_resource_group group = zest_CreateResourceGroup();
+					zest_AddSwapchainToGroup(group);
+					zest_AddResourceToGroup(group, depth_buffer);
 
 					//-------------------------Transfer Pass----------------------------------------------------
 					zest_BeginTransferPass("Upload Mesh Data"); {
@@ -556,7 +556,7 @@ void MainLoop(SimplePBRExample *app) {
 					zest_BeginRenderPass("Skybox Pass"); {
 						zest_ConnectInput(skybox_texture_resource);
 						zest_ConnectInput(skybox_layer_resource);
-						zest_ConnectGroupedOutput(group);
+						zest_ConnectOutputGroup(group);
 						zest_SetPassTask(zest_DrawInstanceMeshLayer, skybox_layer);
 						zest_EndPass();
 					}
@@ -568,7 +568,7 @@ void MainLoop(SimplePBRExample *app) {
 						zest_ConnectInput(brd_texture_resource);
 						zest_ConnectInput(irradiance_texture_resource);
 						zest_ConnectInput(prefiltered_texture_resource);
-						zest_ConnectGroupedOutput(group);
+						zest_ConnectOutputGroup(group);
 						zest_SetPassTask(zest_DrawInstanceMeshLayer, mesh_layer);
 						zest_EndPass();
 					}
@@ -578,12 +578,12 @@ void MainLoop(SimplePBRExample *app) {
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport); {
 						if (imgui_pass) {
-							zest_ConnectGroupedOutput(group);
+							zest_ConnectOutputGroup(group);
 						} else {
 							//If there's no ImGui to render then just render a blank screen
 							zest_BeginRenderPass("Draw Nothing");
 							//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-							zest_ConnectGroupedOutput(group);
+							zest_ConnectOutputGroup(group);
 							zest_SetPassTask(zest_EmptyRenderPass, 0);
 						}
 						zest_EndPass();
@@ -627,7 +627,7 @@ int main(void) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
+	//zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
