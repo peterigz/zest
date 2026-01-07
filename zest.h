@@ -3700,6 +3700,7 @@ typedef struct zest_frame_graph_auto_state_t {
 	zest_uint render_width;
 	zest_uint render_height;
 	zest_format render_format;
+	zest_bool vsync;
 } zest_frame_graph_auto_state_t;
 
 typedef struct zest_frame_graph_cache_key_t {
@@ -4674,6 +4675,7 @@ ZEST_API void zest_SetResourceBufferProvider(zest_resource_node resource_node, z
 ZEST_API void zest_SetResourceImageProvider(zest_resource_node resource_node, zest_resource_image_provider image_provider);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
 ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API void zest_FlushCachedFrameGraphs(zest_context context);
 ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
 
 // -- Creating and Executing the render graph
@@ -7984,11 +7986,11 @@ void zest_EndFrame(zest_context context) {
         ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph. Also make sure that if you are calling that function the the frame graph you're passing in is not NULL");
     }
 	
-
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
 		zest_bool presented = context->device->platform->present_frame(context);
 		if(!presented) {
 			zest__recreate_swapchain(context);
+			zest_FlushCachedFrameGraphs(context);
 		}
 	}
 
@@ -8000,6 +8002,7 @@ void zest_EndFrame(zest_context context) {
 				zest_bool presented = context->device->platform->present_frame(context);
 				if (!presented) {
 					zest__recreate_swapchain(context);
+					zest_FlushCachedFrameGraphs(context);
 				}
 			}
 		}
@@ -10816,12 +10819,10 @@ void zest_FreeCompute(zest_compute_handle compute_handle) {
 }
 
 void zest_EnableVSync(zest_context context) {
-    ZEST__FLAG(context->flags, zest_context_flag_vsync_enabled);
     ZEST__FLAG(context->flags, zest_context_flag_schedule_change_vsync);
 }
 
 void zest_DisableVSync(zest_context context) {
-    ZEST__UNFLAG(context->flags, zest_context_flag_vsync_enabled);
     ZEST__FLAG(context->flags, zest_context_flag_schedule_change_vsync);
 }
 
@@ -11645,13 +11646,16 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	of the allocation space will be filled with a frame graph that is unused and therefore shouldn't be included
 	in the cached memory. Care also needs to be taken to preserve the memory of the old frame graphs so that 
 	any deferred resources for destruction can be taken care of. So the likely solution will be to create a new 
-	block starting from the caching frame graph offset for it's capacitiy, trimming the free space at the end 
+	block starting from the caching frame graph offset for it's capacity, trimming the free space at the end 
 	then setting the capacity of the linear allocator to the offset of the frame graph that was cached. Then 
 	when the allocator is reset n frames in the future it should check the capacity of the allocator, if it's 
 	lower then what it should be then free it and re-allocate. 
 	If frame graphs are then continued to be created after that the linear allocator will be at capacity so therefore
 	caching will not be possible at that point until the allocator is consolidated and remade. I don't know if
 	this is a problem or not, need tests to experiment.
+
+	Aside from that caching is very fast as all we do is promote the linear memory space that the frame graph
+	used and promote it to persistent memory, then allocate a new linear allocator for other graphs to use.
 	*/
 	zest_size offset = context->frame_graph_allocator[context->current_fif].current_offset;
 	frame_graph->cached_size = offset;
@@ -11714,11 +11718,20 @@ zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph
     return NULL;
 }
 
+void zest_FlushCachedFrameGraphs(zest_context context) {
+	zest_map_foreach(i, context->cached_frame_graphs) {
+		zest_cached_frame_graph_t cached_graph = context->cached_frame_graphs.data[i];
+		ZEST__FREE(context->allocator, cached_graph.memory);
+	}
+	zest_map_clear(context->cached_frame_graphs);
+}
+
 zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size) {
     zest_frame_graph_cache_key_t key = ZEST__ZERO_INIT(zest_frame_graph_cache_key_t);
     key.auto_state.render_format = context->swapchain->format;
     key.auto_state.render_width = (zest_uint)context->swapchain->size.width;
     key.auto_state.render_height = (zest_uint)context->swapchain->size.height;
+	key.auto_state.vsync = ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled);
     key.user_state = user_state;
     key.user_state_size = user_state_size;
     return key;

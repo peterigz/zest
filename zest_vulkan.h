@@ -1377,9 +1377,16 @@ zest_bool zest__vk_present_frame(zest_context context) {
 
 	zest_bool status = ZEST_TRUE;
 
-    if ((context->flags & zest_context_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || swapchain->framebuffer_resized) {
+    if (ZEST__FLAGGED(context->flags, zest_context_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || swapchain->framebuffer_resized) {
         swapchain->framebuffer_resized = ZEST_FALSE;
-        ZEST__UNFLAG(context->flags, zest_context_flag_schedule_change_vsync);
+		if (ZEST__FLAGGED(context->flags, zest_context_flag_schedule_change_vsync)) {
+			if (ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled)) {
+				ZEST__UNFLAG(context->flags, zest_context_flag_vsync_enabled);
+			} else {
+				ZEST__FLAG(context->flags, zest_context_flag_vsync_enabled);
+			}
+			ZEST__UNFLAG(context->flags, zest_context_flag_schedule_change_vsync);
+		}
 
 		status = ZEST_FALSE;
     }
