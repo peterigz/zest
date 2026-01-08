@@ -2136,6 +2136,7 @@ typedef enum zest_layer_flag_bits {
 	zest_layer_flag_device_local_direct = 1 << 1,    // Upload directly to device buffer (has issues so is disabled by default for now)
 	zest_layer_flag_manual_fif = 1 << 2,    // Manually set the frame in flight for the layer
 	zest_layer_flag_using_global_bindless_layout = 1 << 3,    // Flagged if the layer is automatically setting the descriptor array index for the device buffers
+	zest_layer_flag_dont_reset_instructions = 1 << 4,    // Flagged if the layer is automatically setting the descriptor array index for the device buffers
 } zest_layer_flag_bits;
 
 typedef enum zest_draw_buffer_result {
@@ -4100,6 +4101,7 @@ typedef struct zest_platform_t {
 	void                       (*draw)(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 	void                       (*draw_layer_instruction)(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction);
 	void                       (*draw_indexed)(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+	void                       (*set_depth_bias)(const zest_command_list command_list, float factor, float clamp, float slope);
 } zest_platform_t;
 
 extern zest_platform_t ZestPlatform;
@@ -4250,6 +4252,7 @@ ZEST_PRIVATE zest_image zest__get_image_unsafe(zest_image_handle handle);
 
 // --General_layer_internal_functions
 ZEST_PRIVATE zest_layer_handle zest__create_instance_layer(zest_context context, const char *name, zest_size instance_type_size, zest_uint initial_instance_count);
+ZEST_PRIVATE void zest__draw_instance_mesh_layer(zest_command_list command_list, zest_layer layer, zest_pipeline_template pipeline_template);
 
 // --Mesh_layer_internal_functions
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_context context, zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
@@ -4515,6 +4518,7 @@ ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, 
 ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
 ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bool enable_test, zest_bool write_enable);
+ZEST_API void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled);
 ZEST_API void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template);
 ZEST_API void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
@@ -5087,7 +5091,6 @@ ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_ha
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
 ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
-ZEST_API void zest_SetMeshInstanceDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5129,6 +5132,9 @@ ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float 
 ZEST_API void zest_PushIndex(zest_layer layer, zest_uint offset);
 //Callback for the frame graph
 ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user_data);
+//Draw an instance mesh layer with a specific pipeline. So every instruction in the layer will be draw with the 
+//pipeline that you pass in to the layer.
+ZEST_API void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list command_list, zest_layer layer, zest_pipeline_template pipeline);
 
 //-----------------------------------------------
 //        Draw_instance_mesh_layers
@@ -5137,7 +5143,7 @@ ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, v
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], zest_uint uv, zest_u64 tangent, zest_color_t color, zest_uint group);
 //Push a zest_vertex_t to a mesh. A simpler version that doesn't take normal or group id.
@@ -5387,6 +5393,8 @@ ZEST_API void zest_cmd_DrawLayerInstruction(const zest_command_list command_list
 //Helper function to record the command to draw indexed vertex data. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+//Set the depth bias for when depth bias is enabled in the pipeline
+ZEST_API void zest_cmd_SetDepthBias(const zest_command_list command_list, float factor, float clamp, float slope);
 
 #ifdef __cplusplus
 }
@@ -10184,9 +10192,12 @@ void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bo
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->depth_stencil.depth_test_enable = enable_test;
 	pipeline_template->depth_stencil.depth_write_enable = write_enable;
-	pipeline_template->depth_stencil.depth_compare_op = zest_compare_op_less_or_equal;
 	pipeline_template->depth_stencil.depth_bounds_test_enable = ZEST_FALSE;
 	pipeline_template->depth_stencil.stencil_test_enable = ZEST_FALSE;
+}
+
+void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled) {
+	pipeline_template->rasterization.depth_bias_enable = enabled;
 }
 
 void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template) {
@@ -10463,7 +10474,7 @@ zest_bool zest_CompileShader(zest_shader_handle shader_handle) {
 
 zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching) {
     char *shader_code = zest_ReadEntireFile(device, file, ZEST_TRUE);
-    ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
+    ZEST_ASSERT(shader_code, "Unable to load the shader code, check the path is valid."); 
     zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, disable_caching);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->file_path, file);
@@ -10660,6 +10671,7 @@ zest_pipeline_template zest_BeginPipelineTemplate(zest_device device, const char
     pipeline_template->rasterization.cull_mode = zest_cull_mode_none;
     pipeline_template->rasterization.front_face = zest_front_face_clockwise;
     pipeline_template->rasterization.depth_bias_enable = ZEST_FALSE;
+	pipeline_template->depth_stencil.depth_compare_op = zest_compare_op_less_or_equal;
 
 	pipeline_template->device = device;
 	pipeline_template->layout = device->pipeline_layout;
@@ -13071,6 +13083,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					depth->load_op = output_usage->load_op;
 					depth->store_op = output_usage->store_op;
 					depth->clear_value = output_usage->clear_value;
+					if (color_attachment_index == 0) {
+						exe_details->render_area.offset.x = 0;
+						exe_details->render_area.offset.y = 0;
+						exe_details->render_area.extent.width = resource->image.info.extent.width;
+						exe_details->render_area.extent.height = resource->image.info.extent.height;
+					}
 					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
 				}
@@ -14862,7 +14880,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
         switch (pass->type) {
 			case zest_pass_type_graphics: {
 				ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
-				if (resource->image.info.format == context->device->depth_format) {
+				if (zest__is_depth_stencil_format(resource->image.info.format)) {
 					cv.depth_stencil.depth = 1.f;
 					cv.depth_stencil.stencil = 0;
 					if (!preserve_contents) {
@@ -15039,6 +15057,61 @@ zest_layer_handle zest__create_instance_layer(zest_context context, const char *
     zest__initialise_instance_layer(context, layer, instance_type_size, initial_instance_count);
 	zest__activate_resource(handle.store, handle.value);
     return handle;
+}
+
+void zest__draw_instance_mesh_layer(zest_command_list command_list, zest_layer layer, zest_pipeline_template pipeline_template) {
+    if (layer->vertex_data && layer->index_data) {
+        zest_cmd_BindMeshVertexBuffer(command_list, layer);
+        zest_cmd_BindMeshIndexBuffer(command_list, layer);
+    } else {
+        ZEST_REPORT(command_list->context->device, zest_report_layers, "No Vertex/Index data found in mesh layer [%s]!", layer->name);
+        return;
+    }
+
+	zest_buffer device_buffer = zest_GetLayerResourceBuffer(layer);
+	ZEST_ASSERT(device_buffer, "Transient buffer not found in the layer. Make sure you're passing in the correct layer in the user data and you connected the layer resource as input.");
+	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
+
+	zest_device device = command_list->context->device;
+
+	zest_pipeline current_pipeline = 0;
+	zest_pipeline pipeline = 0;
+	if (ZEST_VALID_HANDLE(pipeline_template, zest_struct_type_pipeline_template)) {
+		pipeline = zest_PipelineWithTemplate(pipeline_template, command_list);
+		if (pipeline) {
+			zest_cmd_BindPipeline(command_list, pipeline);
+			current_pipeline = pipeline;
+		}
+	}
+
+    zest_bool has_instruction_view_port = ZEST_FALSE;
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
+        zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
+
+		zest_mesh_offset_data_t *mesh_offsets = &layer->mesh_offsets[current->mesh_index];
+
+        if (current->draw_mode == zest_draw_mode_viewport) {
+			zest_cmd_Scissor(command_list, &current->scissor);
+            zest_cmd_ViewPort(command_list, &current->viewport);
+            has_instruction_view_port = ZEST_TRUE;
+            continue;
+        } else if(!has_instruction_view_port) {
+			zest_cmd_Scissor(command_list, &layer->scissor);
+            zest_cmd_ViewPort(command_list, &layer->viewport);
+        }
+
+        pipeline = !pipeline ? zest_PipelineWithTemplate(current->pipeline_template, command_list) : pipeline;
+        if (pipeline && pipeline != current_pipeline) {
+			zest_cmd_BindPipeline(command_list, pipeline);
+			current_pipeline = pipeline;
+        } else if(!pipeline) {
+            continue;
+        }
+
+		zest_cmd_SendPushConstants(command_list, (void*)current->push_constant, ZEST_MAX_PUSH_SIZE);
+
+		zest_cmd_DrawIndexed(command_list, mesh_offsets->index_count, current->total_instances, mesh_offsets->index_offset, mesh_offsets->vertex_offset, current->start_index);
+    }
 }
 
 zest_layer_handle zest_CreateMeshLayer(zest_context context, const char* name, zest_size vertex_type_size) {
@@ -15670,6 +15743,9 @@ void zest__start_mesh_instructions(zest_layer layer) {
 void zest__end_instance_instructions(zest_layer layer) {
 	zest_context context = (zest_context)layer->handle.store->origin;
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		if (layer->fif != context->current_fif) {
+			zest__reset_instance_layer_drawing(layer);
+		}
         layer->fif = context->current_fif;
     }
     if (layer->current_instruction.total_instances) {
@@ -16005,9 +16081,6 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 
 		zest_cmd_Draw(command_list, 6, current->total_instances, 0, current->start_index);
     }
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest__reset_instance_layer_drawing(layer);
-    }
 }
 //-- End Draw Layers
 
@@ -16083,20 +16156,6 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) 
 	zest__end_instance_instructions(layer);
 	zest__start_instance_instructions(layer);
 	layer->current_instruction.pipeline_template = pipeline;
-
-	layer->current_instruction.draw_mode = zest_draw_mode_instance;
-	layer->last_draw_mode = zest_draw_mode_instance;
-}
-
-void zest_SetMeshInstanceDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
-	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
-	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
-	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index is out of bounds. Make sure you add all your meshes to the layer with zest_AddMeshToLayer");
-	zest_context context = layer->context;
-	zest__end_instance_instructions(layer);
-	zest__start_instance_instructions(layer);
-	layer->current_instruction.pipeline_template = pipeline;
-	layer->current_instruction.mesh_index = mesh_index;
 
 	layer->current_instruction.draw_mode = zest_draw_mode_instance;
 	layer->last_draw_mode = zest_draw_mode_instance;
@@ -16257,67 +16316,26 @@ void zest_SetMeshDrawing(zest_layer layer, zest_pipeline_template pipeline) {
 
 void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user_data) {
     zest_layer layer = (zest_layer)user_data;
+	zest__draw_instance_mesh_layer(command_list, layer, 0);
+}
 
-    if (layer->vertex_data && layer->index_data) {
-        zest_cmd_BindMeshVertexBuffer(command_list, layer);
-        zest_cmd_BindMeshIndexBuffer(command_list, layer);
-    } else {
-        ZEST_REPORT(command_list->context->device, zest_report_layers, "No Vertex/Index data found in mesh layer [%s]!", layer->name);
-        return;
-    }
-
-	zest_buffer device_buffer = zest_GetLayerResourceBuffer(layer);
-	ZEST_ASSERT(device_buffer, "Transient buffer not found in the layer. Make sure you're passing in the correct layer in the user data.");
-	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
-
-	zest_device device = command_list->context->device;
-
-	zest_pipeline current_pipeline = 0;
-
-
-    zest_bool has_instruction_view_port = ZEST_FALSE;
-    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
-        zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
-
-		zest_mesh_offset_data_t *mesh_offsets = &layer->mesh_offsets[current->mesh_index];
-
-        if (current->draw_mode == zest_draw_mode_viewport) {
-			zest_cmd_Scissor(command_list, &current->scissor);
-            zest_cmd_ViewPort(command_list, &current->viewport);
-            has_instruction_view_port = ZEST_TRUE;
-            continue;
-        } else if(!has_instruction_view_port) {
-			zest_cmd_Scissor(command_list, &layer->scissor);
-            zest_cmd_ViewPort(command_list, &layer->viewport);
-        }
-
-        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
-        if (pipeline && pipeline != current_pipeline) {
-			zest_cmd_BindPipeline(command_list, pipeline);
-        } else if(!pipeline) {
-            continue;
-        }
-
-		zest_cmd_SendPushConstants(command_list, (void*)current->push_constant, ZEST_MAX_PUSH_SIZE);
-
-		zest_cmd_DrawIndexed(command_list, mesh_offsets->index_count, current->total_instances, mesh_offsets->index_offset, mesh_offsets->vertex_offset, current->start_index);
-    }
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest__reset_instance_layer_drawing(layer);
-    }
+void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list command_list, zest_layer layer, zest_pipeline_template pipeline) {
+	zest__draw_instance_mesh_layer(command_list, layer, pipeline);
 }
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_SetInstanceMeshDrawing(zest_layer layer, zest_pipeline_template pipeline) {
+void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
+	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index is out of bounds. Make sure you add all your meshes to the layer with zest_AddMeshToLayer");
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh_instance;
     layer->current_instruction.scissor = layer->scissor;
     layer->current_instruction.viewport = layer->viewport;
+	layer->current_instruction.mesh_index = mesh_index;
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
 }
 
@@ -16524,7 +16542,7 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 
 void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance);       
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)zest_NextInstance(layer);
 
@@ -16959,6 +16977,11 @@ zest_bool zest_cmd_UploadBuffer(const zest_command_list command_list, zest_buffe
 void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->draw_indexed(command_list, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest_cmd_SetDepthBias(const zest_command_list command_list, float factor, float clamp, float slope) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->set_depth_bias(command_list, factor, clamp, slope);
 }
 
 void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {

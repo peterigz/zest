@@ -257,6 +257,7 @@ ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapch
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+void zest__vk_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope);
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
 void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline);
@@ -567,6 +568,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	//Command buffer recording
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
 	platform->draw_indexed                                  = zest__vk_draw_indexed;
+	platform->set_depth_bias                                = zest__vk_set_depth_bias;
 	platform->copy_buffer                                   = zest__vk_copy_buffer;
 	platform->bind_descriptor_sets                          = zest__vk_bind_descriptor_sets;
 	platform->bind_pipeline                                 = zest__vk_bind_pipeline;
@@ -1460,7 +1462,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == 559874765) {
 		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
-    if (pCallbackData->messageIdNumber == -807523433) {
+    if (pCallbackData->messageIdNumber == 1069809988) {
         int d = 0;
     }
     if (pCallbackData->messageIdNumber == -1575303641) {
@@ -3063,10 +3065,9 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 
     VkShaderModule vert_shader_module = ZEST__ZERO_INIT(VkShaderModule);
     VkShaderModule frag_shader_module = ZEST__ZERO_INIT(VkShaderModule);
+	zest_uint stage_count = 0;
     zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->vertex_shader.store, pipeline_template->vertex_shader.value);
-    zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
     VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
-    VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	VkResult result = VK_SUCCESS;
     if (ZEST_VALID_HANDLE(vert_shader, zest_struct_type_shader)) {
         if (!vert_shader->spv) {
@@ -3076,8 +3077,14 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
         }
         result = zest__vk_create_shader_module(context->device, vert_shader->spv, &vert_shader_module);
         vert_shader_stage_info.module = vert_shader_module;
+		stage_count++;
     }
 
+	zest_shader frag_shader = 0; 
+	if (pipeline_template->fragment_shader.value) {
+		frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
+	}
+    VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
     if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
         if (!frag_shader->spv) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
@@ -3086,6 +3093,8 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
         }
         result = zest__vk_create_shader_module(context->device, frag_shader->spv, &frag_shader_module);
         frag_shader_stage_info.module = frag_shader_module;
+		frag_shader_stage_info.pName = pipeline_template->fragShaderFunctionName;
+		stage_count++;
     }
 
     if (result != VK_SUCCESS) {
@@ -3099,7 +3108,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 
     frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    frag_shader_stage_info.pName = pipeline_template->fragShaderFunctionName;
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = { vert_shader_stage_info, frag_shader_stage_info };
 
@@ -3146,6 +3154,9 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 
     zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_VIEWPORT);
     zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_SCISSOR);
+	if (pipeline_template->rasterization.depth_bias_enable) {
+		zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_DEPTH_BIAS);
+	}
 
     dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_state.dynamicStateCount = (zest_uint)(zest_vec_size(dynamic_states));
@@ -3176,17 +3187,19 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 
 	//Todo: The pipeline should allow for a Number of color blend attachments
 	VkPipelineColorBlendAttachmentState *color_blend_attachments = 0;
-	for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
-		VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
-		color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
-		color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
-		color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
-		color_attachment.colorBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.color_blend_op;
-		color_attachment.srcAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_alpha_blend_factor;
-		color_attachment.dstAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_alpha_blend_factor;
-		color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
-		color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
-		zest_vec_linear_push(scratch, color_blend_attachments, color_attachment);
+	if (stage_count == 2) {
+		for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
+			VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
+			color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
+			color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
+			color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
+			color_attachment.colorBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.color_blend_op;
+			color_attachment.srcAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_alpha_blend_factor;
+			color_attachment.dstAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_alpha_blend_factor;
+			color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
+			color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
+			zest_vec_linear_push(scratch, color_blend_attachments, color_attachment);
+		}
 	}
 
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -3210,7 +3223,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 	vk_rendering_info.pColorAttachmentFormats = color_formats;
     
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.stageCount = 2;
+    pipeline_info.stageCount = stage_count;
     pipeline_info.pStages = shaderStages;
     pipeline_info.pVertexInputState = &vertex_input_info;
     pipeline_info.pInputAssemblyState = &input_assembly;
@@ -4408,6 +4421,10 @@ zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buff
 
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     vkCmdDrawIndexed(command_list->backend->command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest__vk_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) {
+    vkCmdSetDepthBias(command_list->backend->command_buffer, factor, clamp, slope);
 }
 
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
