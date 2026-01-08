@@ -218,8 +218,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh teapot = LoadGLTFMesh(app->context, "examples/assets/gltf/teapot.gltf", .5f);
-	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", .05f);
-	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", .5f);
+	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", 1.f);
+	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", 2.f);
 	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
 
 	zest_size vertex_capacity = zest_MeshVertexDataSize(cube);
@@ -456,9 +456,8 @@ void MainLoop(SimplePBRExample *app) {
 			zest_SetLayerColor(mesh_layer, 255, 255, 255, 255);
 			float count = 10.f;
 			float zero[3] = { 0 };
-			float upright[3] = { 0, 0, -ZEST_PI * .5f };
 			for (int m = 0; m != 5; m++) {
-				zest_SetMeshInstanceDrawing(mesh_layer, m, app->pbr_pipeline);
+				zest_SetInstanceMeshDrawing(mesh_layer, m, app->pbr_pipeline);
 				for (float i = 0; i < count; i++) {
 					float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
 					float metallic = ZEST__CLAMP(i / count, 0.005f, 1.0f);
@@ -471,7 +470,7 @@ void MainLoop(SimplePBRExample *app) {
 						}
 						case 2:
 						case 4: {
-							zest_DrawInstancedMesh(mesh_layer, &position.x, upright, &scale.x, roughness, metallic);
+							zest_DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x, roughness, metallic);
 							break;
 						}
 					}
@@ -485,7 +484,7 @@ void MainLoop(SimplePBRExample *app) {
 				app->material_push.view_buffer_index,
 				app->material_push.lights_buffer_index,
 			};
-			zest_SetInstanceDrawing(skybox_layer, app->skybox_pipeline);
+			zest_SetInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
 			zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);

@@ -85,6 +85,7 @@ void InitialiseTests(ZestTests *tests) {
 	// Need a test for calling multiple resources the same name
 	// Can we test for adding the same resource twice?
 	// Test for memory leak when a layer is not reset each frame
+	// Can we test for push constant values being suspicially out of range?
 	// Test for functions not being ecapsulated within a begin/end frame.
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };
