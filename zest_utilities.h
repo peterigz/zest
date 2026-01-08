@@ -2249,6 +2249,33 @@ zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_t *image_c
 #define CGLTF_IMPLEMENTATION
 #include "examples/libs/cgltf.h"
 
+// Transform point by column-major 4x4 matrix (cgltf format)
+static inline void zest__transform_point_cgltf(const float m[16], float p[3]) {
+	float x = p[0], y = p[1], z = p[2];
+	p[0] = m[0]*x + m[4]*y + m[8]*z  + m[12];
+	p[1] = m[1]*x + m[5]*y + m[9]*z  + m[13];
+	p[2] = m[2]*x + m[6]*y + m[10]*z + m[14];
+}
+
+// Transform direction by column-major 4x4 matrix (rotation/scale only)
+static inline void zest__transform_direction_cgltf(const float m[16], float d[3]) {
+	float x = d[0], y = d[1], z = d[2];
+	d[0] = m[0]*x + m[4]*y + m[8]*z;
+	d[1] = m[1]*x + m[5]*y + m[9]*z;
+	d[2] = m[2]*x + m[6]*y + m[10]*z;
+}
+
+// Normalize vec3 in-place
+static inline void zest__normalize_vec3_cgltf(float v[3]) {
+	float len = sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+	if (len > 1e-8f) {
+		float inv_len = 1.0f / len;
+		v[0] *= inv_len;
+		v[1] *= inv_len;
+		v[2] *= inv_len;
+	}
+}
+
 zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_scale) {
 	cgltf_options options = {0};
 	cgltf_data* data = NULL;
@@ -2267,9 +2294,16 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 	zest_u64 packed_tangent = 0;
 	zest_uint packed_uv = 0;
 
-	// Load all meshes and primitives
-	for (cgltf_size m = 0; m < data->meshes_count; m++) {
-		cgltf_mesh* gltf_mesh = &data->meshes[m];
+	// Load all meshes from scene nodes (applies world transforms)
+	for (cgltf_size n = 0; n < data->nodes_count; n++) {
+		cgltf_node* node = &data->nodes[n];
+		if (!node->mesh) continue;
+
+		cgltf_mesh* gltf_mesh = node->mesh;
+
+		// Compute world transform for this node
+		float world_matrix[16];
+		cgltf_node_transform_world(node, world_matrix);
 
 		for (cgltf_size p = 0; p < gltf_mesh->primitives_count; p++) {
 			cgltf_primitive* prim = &gltf_mesh->primitives[p];
@@ -2309,14 +2343,21 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 				float color[4] = { 0 };
 				float uv[2] = { 0 };
 				cgltf_accessor_read_float(pos_acc, v, pos, 3);
+				zest__transform_point_cgltf(world_matrix, pos);
 				pos[0] *= adjust_scale;
 				pos[1] *= adjust_scale;
 				pos[2] *= adjust_scale;
 				if (norm_acc) {
 					cgltf_accessor_read_float(norm_acc, v, norm, 3);
+					zest__transform_direction_cgltf(world_matrix, norm);
+					zest__normalize_vec3_cgltf(norm);
 				}
 				if (tangent_acc) {
 					cgltf_accessor_read_float(tangent_acc, v, tangent, 4);
+					float handedness = tangent[3];
+					zest__transform_direction_cgltf(world_matrix, tangent);
+					zest__normalize_vec3_cgltf(tangent);
+					tangent[3] = handedness;
 					packed_tangent = zest_Pack16bit4SNorm(tangent[0], tangent[1], tangent[2], tangent[3]);
 				}
 				if (uv_acc) {
@@ -2326,6 +2367,9 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 				if (color_acc) {
 					cgltf_accessor_read_float(color_acc, v, color, 4);
 					packed_color = zest_ColorSet((zest_byte)(color[0] * 255.f), (zest_byte)(color[1] * 255.f), (zest_byte)(color[2] * 255.f), (zest_byte)(color[3] * 255.f));
+				} else {
+					cgltf_float *base = prim->material->pbr_metallic_roughness.base_color_factor;
+					packed_color = zest_ColorSet((zest_byte)(base[0] * 255.f), (zest_byte)(base[1] * 255.f), (zest_byte)(base[2] * 255.f), (zest_byte)(base[3] * 255.f));
 				}
 
 				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
