@@ -70,7 +70,7 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 
 void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
-	image_info.format = zest_format_r16g16_sfloat;
+	image_info.format = zest_format_r16g16b16a16_sfloat;
 	image_info.flags = zest_image_preset_storage_mipped_cubemap;
 	image_info.layer_count = 6;
 	app->prefiltered_texture = zest_CreateImage(app->context, &image_info);
@@ -174,7 +174,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_sampler cube_sampler = zest_GetSampler(app->cube_sampler);
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 
-	app->skybox_texture = zest_LoadCubemap(app->context, "Pisa Cube", "examples/assets/pisa_cube.ktx");
+	app->skybox_texture = zest_LoadKTX(app->context, "Pisa Cube", "examples/assets/pisa_cube.ktx");
 	zest_image skybox_image = zest_GetImage(app->skybox_texture);
 	app->skybox_bindless_texture_index = zest_AcquireSampledImageIndex(app->device, skybox_image, zest_texture_cube_binding);
 
