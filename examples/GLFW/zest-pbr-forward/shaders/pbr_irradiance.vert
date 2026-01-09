@@ -19,7 +19,6 @@ layout(push_constant) uniform quad_index
 	uint brd_lookup_index;
 	uint pre_filtered_index;
 	uint sampler_index;
-	uint skybox_sampler_index;
 	uint view_index;
 	uint lights_index;
 } pc;

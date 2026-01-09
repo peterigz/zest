@@ -20,7 +20,6 @@ layout(push_constant) uniform quad_index
 	uint brd_lookup_index;
 	uint pre_filtered_index;
 	uint sampler_index;
-	uint skybox_sampler_index;
 	uint view_index;
 	uint lights_index;
 } material;
@@ -81,8 +80,8 @@ vec3 prefilteredReflection(vec3 R, float roughness)
 	float lod = roughness * MAX_REFLECTION_LOD;
 	float lodf = floor(lod);
 	float lodc = ceil(lod);
-	vec3 a = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.skybox_sampler_index]), R, lodf).rgb;
-	vec3 b = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.skybox_sampler_index]), R, lodc).rgb;
+	vec3 a = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodf).rgb;
+	vec3 b = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodc).rgb;
 	return mix(a, b, lod - lodf);
 }
 

@@ -13,11 +13,11 @@ layout(binding = 7) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
+	vec4 camera;
 	uint irradiance_index;
 	uint brd_lookup_index;
 	uint pre_filtered_index;
 	uint sampler_index;
-	uint skybox_sampler_index;
 	uint view_buffer_index;
 	uint lights_buffer_index;
 	uint albedo_index;

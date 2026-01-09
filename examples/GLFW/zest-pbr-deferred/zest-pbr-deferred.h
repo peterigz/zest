@@ -48,7 +48,6 @@ struct prefiltered_push_constant_t {
 	zest_uint source_env_index;
 	zest_uint prefiltered_index;
 	zest_uint sampler_index;
-	zest_uint skybox_sampler_index;
 	float roughness;
 	zest_uint num_samples;
 };
@@ -60,7 +59,6 @@ struct pbr_consts_t {
 	zest_uint brd_lookup_index;
 	zest_uint pre_filtered_index;
 	zest_uint sampler_index;
-	zest_uint skybox_sampler_index;
 	zest_uint view_buffer_index;
 	zest_uint lights_buffer_index;
 };
@@ -106,9 +104,7 @@ struct SimplePBRExample {
 	zest_uint sphere_index;
 	zest_uint skybox_index;
 
-	zest_pipeline_template pbr_pipeline;
 	zest_pipeline_template skybox_pipeline;
-	zest_pipeline_template billboard_pipeline;
 
 	// Deferred rendering pipelines
 	zest_pipeline_template gbuffer_pipeline;
@@ -129,10 +125,6 @@ struct SimplePBRExample {
 	gbuffer_push_t gbuffer_push;
 	deferred_lighting_push_t lighting_push;
 
-	zest_shader_handle brd_shader;
-	zest_shader_handle irr_shader;
-	zest_shader_handle prefiltered_shader;
-
 	// Deferred rendering shaders
 	zest_shader_handle gbuffer_vert;
 	zest_shader_handle gbuffer_frag;
@@ -149,11 +141,7 @@ struct SimplePBRExample {
 	zest_image_view_array_handle prefiltered_view_array;
 
 	zest_sampler_handle sampler_2d;
-	zest_sampler_handle cube_sampler;
-	zest_sampler_handle skybox_sampler;
-
 	zest_uint sampler_2d_index;
-	zest_uint cube_sampler_index;
 
 	zest_image_view_t *brd_view;
 

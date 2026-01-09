@@ -25,7 +25,6 @@ layout(push_constant) uniform push
 	uint brd_lookup_index;
 	uint pre_filtered_index;
 	uint sampler_index;
-	uint skybox_sampler_index;
 	uint view_buffer_index;
 	uint lights_buffer_index;
 	uint albedo_index;
@@ -85,8 +84,8 @@ vec3 prefilteredReflection(vec3 R, float roughness)
 	float lod = roughness * MAX_REFLECTION_LOD;
 	float lodf = floor(lod);
 	float lodc = ceil(lod);
-	vec3 a = textureLod(samplerCube(textures_cube[pc.pre_filtered_index], samplers[pc.skybox_sampler_index]), R, lodf).rgb;
-	vec3 b = textureLod(samplerCube(textures_cube[pc.pre_filtered_index], samplers[pc.skybox_sampler_index]), R, lodc).rgb;
+	vec3 a = textureLod(samplerCube(textures_cube[pc.pre_filtered_index], samplers[pc.sampler_index]), R, lodf).rgb;
+	vec3 b = textureLod(samplerCube(textures_cube[pc.pre_filtered_index], samplers[pc.sampler_index]), R, lodc).rgb;
 	return mix(a, b, lod - lodf);
 }
 
@@ -150,7 +149,7 @@ void main()
 	
 	vec2 brdf = texture(sampler2D(textures_2d[pc.brd_lookup_index], samplers[pc.sampler_index]), vec2(max(dot(N, V), 0.0), roughness)).rg;
 	vec3 reflection = prefilteredReflection(R, roughness).rgb;	
-	vec3 irradiance = texture(samplerCube(textures_cube[pc.irradiance_index], samplers[pc.skybox_sampler_index]), N).rgb;
+	vec3 irradiance = texture(samplerCube(textures_cube[pc.irradiance_index], samplers[pc.sampler_index]), N).rgb;
 
 	// Diffuse based on irradiance
 	vec3 diffuse = irradiance * ALBEDO;	

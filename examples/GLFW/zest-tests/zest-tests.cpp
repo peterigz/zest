@@ -87,6 +87,7 @@ void InitialiseTests(ZestTests *tests) {
 	// Test for memory leak when a layer is not reset each frame
 	// Can we test for push constant values being suspicially out of range?
 	// Test for functions not being ecapsulated within a begin/end frame.
+	// Try to release descriptor indexes that are already release or don't exist for a certain binding
 	// tests->tests[44] = { "Resource Test Memory Pool Configuration", test__memory_pool_configuration, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[45] = { "Resource Test Memory Pool Exhaustion", test__memory_pool_exhaustion, 0, 0, 0, tests->simple_create_info };
 	// tests->tests[46] = { "Resource Test Memory Pool Queries", test__memory_pool_queries, 0, 0, 0, tests->simple_create_info };
