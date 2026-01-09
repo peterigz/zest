@@ -3884,11 +3884,10 @@ typedef struct zest_vertex_t {
 	zest_vec3 pos;                              //3d position (12bytes)
 	zest_color_t color;							//Packed color rgba (4 bytes)
 	zest_vec3 normal;                           //3d normal packed vec3 (12 bytes)
-	zest_uint uv;								//uv coords packed into 16bit floats (4 bytes)
+	zest_vec2 uv;								//uv coords
 	zest_u64 tangent;                    		//Tangent packed vec4 (4 16bit floats) (8 bytes)
-	zest_uint group_id; 		  		 		//store any bit fields other packed values (4 bytes)
-	zest_uint paramenters; 				   		//store any bit fields other packed values (4 bytes)
-} zest_vertex_t;                                //Total: 48 bytes	
+	zest_uint parameters;						//Additional parameters
+} zest_vertex_t;                                //Total: 44 bytes	
 
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
@@ -5147,7 +5146,7 @@ ZEST_API void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list com
 //-----------------------------------------------
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
-ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], zest_uint uv, zest_u64 tangent, zest_color_t color, zest_uint group);
+ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], float uv[2], zest_u64 tangent, zest_color_t color, zest_uint group);
 //Push a zest_vertex_t to a mesh. A simpler version that doesn't take normal or group id.
 ZEST_API void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
@@ -7786,7 +7785,7 @@ void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path
 
 void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
-	ZEST_ASSERT(size > zloc__MEGABYTE(8));	//Size for the memory pool must be greater than 8 megabytes
+	ZEST_ASSERT(size > zloc__MEGABYTE(2));	//Size for the memory pool must be greater than 2 megabytes
 	builder->memory_pool_size = size;
 }
 
@@ -16361,8 +16360,8 @@ void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos
     zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
 }
 
-void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], zest_uint uv, zest_u64 tangent, zest_color_t color, zest_uint group) {
-	zest_vertex_t vertex = { {pos[0], pos[1], pos[2]}, color, {normal[0], normal[1], normal[2]}, uv, tangent, group, 0};
+void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], float uv[2], zest_u64 tangent, zest_color_t color, zest_uint group) {
+	zest_vertex_t vertex = { { pos[0], pos[1], pos[2] }, color, { normal[0], normal[1], normal[2] }, { uv[0], uv[1] }, tangent, group };
     zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
 }
 
@@ -16489,7 +16488,7 @@ zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh) {
 
 void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id) {
     zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].group_id = group_id;
+        mesh->vertices[i].parameters = group_id;
     }
 }
 

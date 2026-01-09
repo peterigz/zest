@@ -82,6 +82,7 @@ typedef enum zest_image_collection_flag_bits {
 	zest_image_collection_flag_is_cube_map = 1 << 1,
 	zest_image_collection_flag_ktx_data = 1 << 2,
 	zest_image_collection_flag_atlas = 1 << 3,
+	zest_image_collection_flag_is_array = 1 << 4,
 } zest_image_collection_flag_bits;
 typedef zest_uint zest_image_collection_flags;
 
@@ -118,6 +119,7 @@ typedef struct zest_image_collection_t {
 	zest_uint packed_border_size;
 	zest_uint max_images;
 	zest_uint image_count;
+	zest_uint array_layers;
 	zest_image_collection_flags flags;
 } zest_image_collection_t;
 
@@ -375,6 +377,7 @@ zest_device zest_implglfw_CreateDevice(zest_bool enable_validation) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_SetDeviceBuilderMemoryPoolSize(device_builder, zloc__MEGABYTE(32));
 	if (enable_validation) {
 		zest_AddDeviceBuilderValidation(device_builder);
 		zest_DeviceBuilderLogToConsole(device_builder);
@@ -786,8 +789,21 @@ zest_image_collection_t zest__load_ktx(zest_context context, const char *file_pa
 	zest_uint depth = TinyKtx_Depth(ctx);
 
 	zest_uint mip_count = TinyKtx_NumberOfMipmaps(ctx);
-	zest_image_collection_flags flags = TinyKtx_IsCubemap(ctx) ? zest_image_collection_flag_is_cube_map : 0;
+	zest_bool is_cubemap = TinyKtx_IsCubemap(ctx);
+	zest_bool is_array = TinyKtx_IsArray(ctx);
+	zest_uint array_slices = is_array ? TinyKtx_ArraySlices(ctx) : 1;
+
+	zest_image_collection_flags flags = 0;
+	if (is_cubemap) flags |= zest_image_collection_flag_is_cube_map;
+	if (is_array) flags |= zest_image_collection_flag_is_array;
+
 	zest_image_collection_t image_collection = zest_CreateImageCollection(context, format, 0, mip_count, flags);
+
+	if (is_cubemap) {
+		image_collection.array_layers = is_array ? 6 * array_slices : 6;
+	} else {
+		image_collection.array_layers = is_array ? array_slices : 1;
+	}
 
 	//First pass to set the bitmap array
 	size_t offset = 0;
@@ -826,7 +842,7 @@ zest_image_handle zest_LoadKTX(zest_context context, const char *name, const cha
 	zest_bitmap_array_t *bitmap_array = &image_collection.bitmap_array;
 	zest_AllocateImageCollectionCopyRegions(&image_collection);
 
-	zest_uint layer_count = is_cubemap ? 6 : 1;
+	zest_uint layer_count = image_collection.array_layers;
 
     for(zest_uint i = 0; i != bitmap_array->size_of_array; ++i) {
         zest_buffer_image_copy_t buffer_copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
@@ -2300,7 +2316,6 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 	zest_mesh mesh = zest_NewMesh(context);
 	zest_color_t packed_color = zest_ColorSet(255, 255, 255, 255);
 	zest_u64 packed_tangent = 0;
-	zest_uint packed_uv = 0;
 
 	// Load all meshes from scene nodes (applies world transforms)
 	for (cgltf_size n = 0; n < data->nodes_count; n++) {
@@ -2370,7 +2385,6 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 				}
 				if (uv_acc) {
 					cgltf_accessor_read_float(uv_acc, v, uv, 2);
-					packed_uv = zest_Pack16bit2SNorm(uv[0], uv[1]);
 				}
 				if (color_acc) {
 					cgltf_accessor_read_float(color_acc, v, color, 4);
@@ -2382,7 +2396,7 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 					packed_color = zest_ColorSet(255, 255, 255, 255);
 				}
 
-				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
+				zest_PushMeshVertex(mesh, pos, norm, uv, packed_tangent, packed_color, 0);
 			}
 
 			// Read indices

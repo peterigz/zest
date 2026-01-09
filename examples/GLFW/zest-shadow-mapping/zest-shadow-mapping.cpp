@@ -404,7 +404,7 @@ int main(void) {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implglfw_CreateDevice(true);
+	imgui_app.device = zest_implglfw_CreateDevice(false);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 

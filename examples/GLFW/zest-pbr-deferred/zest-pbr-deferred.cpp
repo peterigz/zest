@@ -89,9 +89,9 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 3, zest_format_r16g16_unorm, offsetof(zest_vertex_t, uv));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 3, zest_format_r32g32_sfloat, offsetof(zest_vertex_t, uv));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, group_id));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, parameters));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
