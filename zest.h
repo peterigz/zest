@@ -5103,7 +5103,8 @@ ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 //Set the viewport and scissors of the next draw instructions for a layer. Otherwise by default it will use either the screen size
 //of or the viewport size you set with zest_SetLayerViewPort
 ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
-//Set the current instruction push contants in the layer
+//Set the current instruction push contants in the layer. Ensure that this is called *after* a call to
+//zest_SetInstanceLayer or zest_SetInstanceMeshLayer
 ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size);
 //Get the current push constants in the layer for the current instruction
 ZEST_API void *zest_GetLayerPushConstants(zest_layer layer);
@@ -16542,7 +16543,7 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 
 void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance);       
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance, "Make sure you call zest_SetInstanceMeshDrawing before calling this function.");
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)zest_NextInstance(layer);
 
