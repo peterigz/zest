@@ -11,7 +11,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout (binding = 0) uniform sampler samplers[];
 layout (binding = 2) uniform textureCube textures[];
 // Bindless array for the destination pre-filtered maps (we bind one mip level at a time)
-layout (binding = 6, rg16f) uniform writeonly imageCube destPrefilteredMaps[];
+layout (binding = 6) uniform writeonly imageCube destPrefilteredMaps[];
 
 layout(push_constant) uniform PushConsts {
 	uint sourceIndex;

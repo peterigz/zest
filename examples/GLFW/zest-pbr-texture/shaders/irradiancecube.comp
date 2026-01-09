@@ -10,7 +10,7 @@ layout (binding = 0) uniform sampler samplers[];
 // Source environment maps (as separate textures)
 layout (binding = 2) uniform textureCube textureEnv[];
 // Bindless array for the destination irradiance maps (as storage images)
-layout (binding = 6, rg16f) uniform writeonly imageCube imageIrradiance[];
+layout (binding = 6) uniform writeonly imageCube imageIrradiance[];
 
 layout(push_constant) uniform PushConsts {
 	uint sourceEnvIndex;
