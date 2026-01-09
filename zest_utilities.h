@@ -144,7 +144,7 @@ ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t siz
 ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection_t zest__load_ktx(zest_context context, const char *file_path);
-ZEST_API zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
+ZEST_API zest_image_handle zest_LoadKTX(zest_context context, const char *name, const char *file_name);
 
 //MSDF header
 typedef enum zest_character_flag_bits {
@@ -814,21 +814,26 @@ zest_image_collection_t zest__load_ktx(zest_context context, const char *file_pa
 	return image_collection;
 }
 
-zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name) {
+zest_image_handle zest_LoadKTX(zest_context context, const char *name, const char *file_name) {
     zest_image_collection_t image_collection = zest__load_ktx(context, file_name);
 
     if (!(image_collection.flags & zest_image_collection_flag_initialised)) {
         return ZEST__ZERO_INIT(zest_image_handle);
     }
 
+    zest_bool is_cubemap = (image_collection.flags & zest_image_collection_flag_is_cube_map) != 0;
+
 	zest_bitmap_array_t *bitmap_array = &image_collection.bitmap_array;
 	zest_AllocateImageCollectionCopyRegions(&image_collection);
+
+	zest_uint layer_count = is_cubemap ? 6 : 1;
+
     for(zest_uint i = 0; i != bitmap_array->size_of_array; ++i) {
         zest_buffer_image_copy_t buffer_copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
         buffer_copy_region.image_aspect = zest_image_aspect_color_bit;
         buffer_copy_region.mip_level = i;
         buffer_copy_region.base_array_layer = 0;
-        buffer_copy_region.layer_count = 6;
+        buffer_copy_region.layer_count = layer_count;
         buffer_copy_region.image_extent.width = bitmap_array->meta[i].width;
         buffer_copy_region.image_extent.height = bitmap_array->meta[i].height;
         buffer_copy_region.image_extent.depth = 1;
@@ -854,15 +859,18 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
     zest_image_info_t create_info = zest_CreateImageInfo(width, height);
     create_info.mip_levels = mip_levels;
     create_info.format = image_collection.format;
-    create_info.layer_count = 6;
-    create_info.flags = zest_image_preset_texture | zest_image_flag_cubemap | zest_image_flag_transfer_src;
+    create_info.layer_count = layer_count;
+    create_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	if (is_cubemap) {
+		create_info.flags |= zest_image_flag_cubemap;
+	}
     image_handle = zest_CreateImage(context, &create_info);
 	zest_image image = zest_GetImage(image_handle);
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_graphics);
-	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6);
+	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
-    zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, 6);
+    zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
 	zest_imm_EndCommandBuffer(queue);
 
     zest_FreeBitmapArray(bitmap_array);
@@ -873,7 +881,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 
     cleanup:
     zest_FreeBitmapArray(bitmap_array);
-	zest_FreeImage(image_handle);
+	zest_FreeImageNow(image_handle);
 	zest_FreeBuffer(staging_buffer);
 	zest_FreeImageCollection(&image_collection);
     return ZEST__ZERO_INIT(zest_image_handle);
