@@ -4442,6 +4442,7 @@ ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_device device, zest_image i
 ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer);
 ZEST_API void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index);
 ZEST_API void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
+ZEST_API void zest_ReleaseImageMipIndexes(zest_device device, zest_image image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseAllImageIndexes(zest_device device, zest_image image);
 ZEST_API void zest_ReleaseBindlessIndex(zest_device device, zest_uint index, zest_binding_number_type binding_number);
 ZEST_API zest_descriptor_set zest_GetBindlessSet(zest_device device);
@@ -13932,11 +13933,26 @@ void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index) {
 }
 
 void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
 	ZEST_ASSERT_HANDLE(image);		//Not a valid image handle
     ZEST_ASSERT(binding_number < zest_max_global_binding_number);
     if (image->bindless_index[binding_number] != ZEST_INVALID) {
         zest__release_bindless_index(device->bindless_set_layout, binding_number, image->bindless_index[binding_number]);
     }
+}
+
+void zest_ReleaseImageMipIndexes(zest_device device, zest_image image, zest_binding_number_type binding_number) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
+	zest_key image_key = zest_Hash(&image->handle, sizeof(zest_image_handle), ZEST_HASH_SEED);
+    if (zest_map_valid_key(device->mip_indexes, image_key)) {
+        zest_mip_index_collection *mip_collection = zest_map_at_key(device->mip_indexes, image_key);
+		if (mip_collection->binding_numbers & (1 << binding_number)) {
+			zest_vec_foreach(i, mip_collection->mip_indexes[binding_number]) {
+				zest_uint index = mip_collection->mip_indexes[binding_number][i];
+				zest__release_bindless_index(device->bindless_set_layout, binding_number, index);
+			}
+		}
+	}
 }
 
 void zest_ReleaseAllImageIndexes(zest_device device, zest_image image) {
