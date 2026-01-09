@@ -78,13 +78,6 @@ void InitComputeExample(ComputeExample *app) {
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
-	/*
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader frag_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.frag", "particle_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
-	zest_shader vert_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.vert", "particle_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
-	zest_shader comp_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.comp", "particle_comp.spv", shaderc_compute_shader, 1, compiler, 0);
-	shaderc_compiler_release(compiler);
-	*/
 	zest_slang_InitialiseSession(app->device);
 	const char *path = "examples/GLFW/zest-compute-example/shaders/particle.slang";
 	zest_shader_handle frag_shader = zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, true);
@@ -311,20 +304,15 @@ void MainLoop(ComputeExample *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	//Disable vsync so we can see how fast it runs
-	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	ComputeExample compute_example = { 0 };
 
 	compute_example.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
-	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Compute Particles Example");
 
 	//Initialise Zest
 	compute_example.context = zest_CreateContext(compute_example.device, &window_handles, &create_info);
@@ -341,21 +329,3 @@ int main(void) {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	zest_implglfw_SetCallbacks(&create_info);
-
-	ComputeExample imgui_app;
-
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif
