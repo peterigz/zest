@@ -452,12 +452,12 @@ void MainLoop(SimplePBRExample *app) {
 			app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(prefiltered_image, zest_texture_cube_binding);
 			app->material_push.sampler_index = app->sampler_2d_index;
 			app->material_push.skybox_sampler_index = app->sampler_2d_index;
-			zest_SetLayerPushConstants(mesh_layer, &app->material_push, sizeof(pbr_consts_t));
 			zest_SetLayerColor(mesh_layer, 255, 255, 255, 255);
 			float count = 10.f;
 			float zero[3] = { 0 };
 			for (int m = 0; m != 5; m++) {
 				zest_SetInstanceMeshDrawing(mesh_layer, m, app->pbr_pipeline);
+				zest_SetLayerPushConstants(mesh_layer, &app->material_push, sizeof(pbr_consts_t));
 				for (float i = 0; i < count; i++) {
 					float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
 					float metallic = ZEST__CLAMP(i / count, 0.005f, 1.0f);
