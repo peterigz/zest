@@ -2367,9 +2367,11 @@ zest_mesh LoadGLTFMesh(zest_context context, const char* filepath, float adjust_
 				if (color_acc) {
 					cgltf_accessor_read_float(color_acc, v, color, 4);
 					packed_color = zest_ColorSet((zest_byte)(color[0] * 255.f), (zest_byte)(color[1] * 255.f), (zest_byte)(color[2] * 255.f), (zest_byte)(color[3] * 255.f));
-				} else {
+				} else if(prim->material && prim->material->has_pbr_metallic_roughness) {
 					cgltf_float *base = prim->material->pbr_metallic_roughness.base_color_factor;
 					packed_color = zest_ColorSet((zest_byte)(base[0] * 255.f), (zest_byte)(base[1] * 255.f), (zest_byte)(base[2] * 255.f), (zest_byte)(base[3] * 255.f));
+				} else {
+					packed_color = zest_ColorSet(255, 255, 255, 255);
 				}
 
 				zest_PushMeshVertex(mesh, pos, norm, packed_uv, packed_tangent, packed_color, 0);
