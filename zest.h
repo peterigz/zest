@@ -2450,6 +2450,7 @@ typedef struct zest_swapchain_t zest_swapchain_t;
 typedef struct zest_resource_group_t zest_resource_group_t;
 typedef struct zest_rendering_info_t zest_rendering_info_t;
 typedef struct zest_mesh_t zest_mesh_t;
+typedef struct zest_mesh_offset_data_t zest_mesh_offset_data_t;
 typedef struct zest_command_list_t zest_command_list_t;
 typedef struct zest_resource_store_t zest_resource_store_t; 
 
@@ -5073,6 +5074,7 @@ ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
 ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer layer);
 ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer layer);
 ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
+ZEST_API const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index);
 ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
 ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_handle);
@@ -5183,6 +5185,10 @@ ZEST_API zest_uint zest_MeshIndexCount(zest_mesh mesh);
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
+//Get a pointer to the index mesh data. You can use this as a source data for copying to a staging buffer
+ZEST_API zest_uint *zest_MeshIndexData(zest_mesh mesh);
+//Get a pointer to the vertex mesh data. You can use this as a source data for copying to a staging buffer
+ZEST_API zest_vertex_t *zest_MeshVertexData(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
@@ -10426,6 +10432,7 @@ zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
 	copy->color_blend_attachment = pipeline_to_copy->color_blend_attachment;
+	copy->depth_stencil = pipeline_to_copy->depth_stencil;
 	copy->layout = pipeline_to_copy->layout;
     if (pipeline_to_copy->binding_descriptions) {
         zest_vec_resize(device->allocator, copy->binding_descriptions, zest_vec_size(pipeline_to_copy->binding_descriptions));
@@ -15130,11 +15137,11 @@ void zest__draw_instance_mesh_layer(zest_command_list command_list, zest_layer l
     }
 }
 
-zest_layer_handle zest_CreateMeshLayer(zest_context context, const char* name, zest_size vertex_type_size) {
+zest_layer_handle zest_CreateMeshLayer(zest_context context, const char* name, zest_size vertex_struct_size, zest_size vertex_capacity, zest_size index_capacity) {
     zest_layer layer;
     zest_layer_handle handle = zest__new_layer(context, &layer);
     layer->name = name;
-    zest__initialise_mesh_layer(context, layer, sizeof(zest_textured_vertex_t), 1000);
+    zest__initialise_mesh_layer(context, layer, vertex_struct_size, 1000);
 	zest__activate_resource(handle.store, handle.value);
     return handle;
 }
@@ -16043,6 +16050,12 @@ zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer) {
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
+const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "The mesh index is out of bounds when trying to fetch mesh offsets from the layer.");
+	return &layer->mesh_offsets[mesh_index];
+}
+
 zest_buffer zest_GetLayerVertexBuffer(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].device_vertex_data;
@@ -16474,6 +16487,7 @@ zest_bounding_box_t zest_NewBoundingBox() {
 }
 
 zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     zest_bounding_box_t bb = zest_NewBoundingBox();
     zest_vec_foreach(i, mesh->vertices) {
         bb.max_bounds.x = ZEST__MAX(mesh->vertices[i].pos.x, bb.max_bounds.x);
@@ -16487,25 +16501,40 @@ zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh) {
 }
 
 void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     zest_vec_foreach(i, mesh->vertices) {
         mesh->vertices[i].parameters = group_id;
     }
 }
 
 zest_uint zest_MeshVertexCount(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     return zest_vec_size(mesh->vertices);
 }
 
 zest_uint zest_MeshIndexCount(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     return zest_vec_size(mesh->indexes);
 }
 
 zest_size zest_MeshVertexDataSize(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     return zest_vec_size(mesh->vertices) * sizeof(zest_vertex_t);
 }
 
 zest_size zest_MeshIndexDataSize(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     return zest_vec_size(mesh->indexes) * sizeof(zest_uint);
+}
+
+zest_uint *zest_MeshIndexData(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+	return mesh->indexes;
+}
+
+zest_vertex_t *zest_MeshVertexData(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+	return mesh->vertices;
 }
 
 void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
