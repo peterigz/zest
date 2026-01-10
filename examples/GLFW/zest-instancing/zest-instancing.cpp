@@ -119,18 +119,18 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
 	app->planet_mesh.index_count = zest_MeshIndexCount(planet);
 	app->planet_mesh.vertex_count = zest_MeshVertexCount(planet);
-	app->planet_mesh.index_buffer = zest_CreateBuffer(app->context, planet_index_capacity, &index_info);
-	app->planet_mesh.vertex_buffer = zest_CreateBuffer(app->context, planet_vertex_capacity, &vertex_info);
-	zest_buffer index_staging = zest_CreateStagingBuffer(app->context, planet_index_capacity, zest_MeshIndexData(planet));
-	zest_buffer vertex_staging = zest_CreateStagingBuffer(app->context, planet_vertex_capacity, zest_MeshVertexData(planet));
+	app->planet_mesh.index_buffer = zest_CreateBuffer(app->device, planet_index_capacity, &index_info);
+	app->planet_mesh.vertex_buffer = zest_CreateBuffer(app->device, planet_vertex_capacity, &vertex_info);
+	zest_buffer index_staging = zest_CreateStagingBuffer(app->device, planet_index_capacity, zest_MeshIndexData(planet));
+	zest_buffer vertex_staging = zest_CreateStagingBuffer(app->device, planet_vertex_capacity, zest_MeshVertexData(planet));
 	zest_queue queue = zest_imm_BeginCommandBuffer(app->device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, index_staging, app->planet_mesh.index_buffer, planet_index_capacity);
 	zest_imm_CopyBuffer(queue, vertex_staging, app->planet_mesh.vertex_buffer, planet_vertex_capacity);
 	zest_imm_EndCommandBuffer(queue);
 
-	app->lavaplanet_texture = zest_LoadKTX(app->context, "Lavaplanet Texture", "examples/assets/lavaplanet_rgba.ktx");
-	app->rock_textures = zest_LoadKTX(app->context, "Rock Textures", "examples/assets/texturearray_rocks_rgba.ktx");
-	app->skybox_texture = zest_LoadKTX(app->context, "Space Background Texture", "examples/assets/cubemap_space.ktx");
+	app->lavaplanet_texture = zest_LoadKTX(app->device, "Lavaplanet Texture", "examples/assets/lavaplanet_rgba.ktx");
+	app->rock_textures = zest_LoadKTX(app->device, "Rock Textures", "examples/assets/texturearray_rocks_rgba.ktx");
+	app->skybox_texture = zest_LoadKTX(app->device, "Space Background Texture", "examples/assets/cubemap_space.ktx");
 
 	app->push.planet_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->lavaplanet_texture), zest_texture_2d_binding);
 	app->push.rock_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->rock_textures), zest_texture_array_binding);
@@ -181,8 +181,8 @@ void PrepareInstanceData(InstancingExample *app) {
 	}
 
 	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
-	app->rock_instances_buffer = zest_CreateBuffer(app->context, instance_data_size, &buffer_info);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(app->context, instance_data_size, instance_data);
+	app->rock_instances_buffer = zest_CreateBuffer(app->device, instance_data_size, &buffer_info);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(app->device, instance_data_size, instance_data);
 	zest_queue queue = zest_imm_BeginCommandBuffer(app->device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, app->rock_instances_buffer, instance_data_size);
 	zest_imm_EndCommandBuffer(queue);
@@ -412,24 +412,17 @@ void MainLoop(InstancingExample *app) {
 
 				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
-					zest_resource_node rock_layer_resource = zest_AddTransientLayerResource("Mesh Layer", rock_layer, false);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 					zest_resource_group group = zest_CreateResourceGroup();
 					zest_AddSwapchainToGroup(group);
 					zest_AddResourceToGroup(group, depth_buffer);
 
-					//-------------------------Transfer Pass----------------------------------------------------
-					zest_BeginTransferPass("Upload Mesh Data"); {
-						zest_ConnectOutput(rock_layer_resource);
-						zest_SetPassTask(UploadMeshData, app);
-						zest_EndPass();
-					}
-					//--------------------------------------------------------------------------------------------------
+					//Note: There's no need for a transfer pass here because all the instancing/geometry data
+					//is uploaded at the start in initialisation.
 
 					//------------------------ Instancing Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Instancing Pass"); {
-						zest_ConnectInput(rock_layer_resource);
 						zest_ConnectOutputGroup(group);
 						zest_SetPassTask(RenderGeometry, app);
 						zest_EndPass();
@@ -475,7 +468,7 @@ int main(void) {
 	InstancingExample imgui_app = {};
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implglfw_CreateDevice(false);
+	imgui_app.device = zest_implglfw_CreateDevice(true);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 

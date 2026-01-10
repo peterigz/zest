@@ -27,6 +27,7 @@ typedef struct zest_imgui_callback_data_t {
 typedef struct zest_imgui_t {
     int magic;
 	zest_context context;
+	zest_device device;
 	ImGuiContext *imgui_context;
     zest_image_handle font_texture;
     zest_pipeline_template pipeline;

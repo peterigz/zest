@@ -4,6 +4,7 @@
 void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback) {
 	*imgui = {};
 	imgui->context = context;
+	imgui->device = zest_GetContextDevice(context);
     imgui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
     imgui->imgui_context = ImGui::CreateContext();
 	imgui->destroy_window_callback = destroy_window_callback;
@@ -23,10 +24,10 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
-    imgui->font_texture = zest_CreateImage(context, &image_info);
+    imgui->font_texture = zest_CreateImage(device, &image_info);
 	imgui->font_region = {};
 	zest_image font_image = zest_GetImage(imgui->font_texture);
-    zest_CopyBitmapToImage(context, pixels, upload_size, font_image, width, height);
+    zest_CopyBitmapToImage(device, pixels, upload_size, font_image, width, height);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     imgui->font_sampler = zest_CreateSampler(context, &sampler_info);
@@ -84,12 +85,11 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
     zest_FreeImage(imgui->font_texture);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
-    imgui->font_texture = zest_CreateImage(imgui->context, &image_info);
+    imgui->font_texture = zest_CreateImage(imgui->device, &image_info);
 	zest_image font_image = zest_GetImage(imgui->font_texture);
 	imgui->font_region = {};
-    zest_CopyBitmapToImage(imgui->context, pixels, upload_size, font_image, width, height);
-	zest_device device = zest_GetContextDevice(imgui->context);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_2d_binding);
+    zest_CopyBitmapToImage(imgui->device, pixels, upload_size, font_image, width, height);
+    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->device, font_image, zest_texture_2d_binding);
 	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
     
     ImGuiIO &io = ImGui::GetIO();
@@ -165,8 +165,8 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
     if (imgui_draw_data) {
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		zest_buffer staging_index_buffer = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
-		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
+		zest_buffer staging_index_buffer = zest_CreateStagingBuffer(imgui->device, index_memory_in_use, 0);
+		zest_buffer staging_vertex_buffer = zest_CreateStagingBuffer(imgui->device, vertex_memory_in_use, 0);
 		viewport->index_staging_buffer[fif] = staging_index_buffer;
 		viewport->vertex_staging_buffer[fif] = staging_vertex_buffer;
 		zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Viewport Index Buffer");
