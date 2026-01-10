@@ -177,7 +177,7 @@ ZEST_PRIVATE void *zest__vk_new_context_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_device device);
-ZEST_PRIVATE void *zest__vk_new_image_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_image_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_swapchain_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
 ZEST_PRIVATE void *zest__vk_new_set_layout_backend(zloc_allocator *allocator);
@@ -226,10 +226,10 @@ ZEST_PRIVATE void zest__vk_set_limit_data(zest_device device);
 ZEST_PRIVATE void zest__vk_setup_validation(zest_device device);
 ZEST_PRIVATE void zest__vk_pick_physical_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags);
-ZEST_PRIVATE zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
-ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image);
-ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__vk_create_sampler(zest_sampler sampler);
@@ -2180,8 +2180,8 @@ void *zest__vk_new_swapchain_backend(zest_context context) {
     return swapchain_backend;
 }
 
-void *zest__vk_new_image_backend(zest_context context) {
-    zest_image_backend image_backend = (zest_image_backend)ZEST__NEW(context->device->allocator, zest_image_backend);
+void *zest__vk_new_image_backend(zest_device device) {
+    zest_image_backend image_backend = (zest_image_backend)ZEST__NEW(device->allocator, zest_image_backend);
     *image_backend = ZEST__ZERO_INIT(zest_image_backend_t);
     return image_backend;
 }
@@ -3292,7 +3292,7 @@ zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format for
 	return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
+zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
 
     VkImageUsageFlags usage = ZEST__FLAGGED(flags, zest_image_flag_sampled) ? VK_IMAGE_USAGE_SAMPLED_BIT : 0;
     usage |= ZEST__FLAGGED(flags, zest_image_flag_storage) ? VK_IMAGE_USAGE_STORAGE_BIT : 0;
@@ -3334,8 +3334,7 @@ zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uin
     image->backend->vk_current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     image->backend->vk_extent = image_info.extent;
 
-	zest_device device = context->device;
-    ZEST_SET_MEMORY_CONTEXT(device, zest_platform_context, zest_command_image);
+    ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_image);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkCreateImage(device->backend->logical_device, &image_info, &device->backend->allocation_callbacks, &image->backend->vk_image));
 
     VkMemoryRequirements memory_requirements;
@@ -3351,7 +3350,7 @@ zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uin
 	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
 		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
 		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
-		zest_buffer buffer = zest_CreateBuffer(context, memory_requirements.size, &buffer_info);
+		zest_buffer buffer = zest_CreateBuffer(device, memory_requirements.size, &buffer_info);
 		image->buffer = (void*)buffer;
 		vk_memory = zest__vk_get_buffer_device_memory(buffer);
 		offset = buffer->memory_offset;
@@ -3572,7 +3571,7 @@ zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, ze
     return image_view;
 }
 
-zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator) {
+zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator) {
     VkImageViewCreateInfo viewInfo = ZEST__ZERO_INIT(VkImageViewCreateInfo);
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image->backend->vk_image;
@@ -3591,7 +3590,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image i
     void *memory = 0;
     zest_size marker = 0;
     if (!linear_allocator) {
-        memory = zest__allocate(context->device->allocator, total_size);
+        memory = zest__allocate(device->allocator, total_size);
     } else {
         marker = zloc_GetMarker(linear_allocator);
         memory = zloc_LinearAllocation(linear_allocator, total_size);
@@ -3604,11 +3603,11 @@ zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image i
     image_view->image = image;
     image_view->backend = &backend_array[0];
 
-	ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_image_view);
-	context->device->backend->last_result = vkCreateImageView(context->device->backend->logical_device, &viewInfo, &context->device->backend->allocation_callbacks, &image_view->backend->vk_view);
-	if (context->device->backend->last_result != VK_SUCCESS) {
+	ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_image_view);
+	device->backend->last_result = vkCreateImageView(device->backend->logical_device, &viewInfo, &device->backend->allocation_callbacks, &image_view->backend->vk_view);
+	if (device->backend->last_result != VK_SUCCESS) {
         if(!linear_allocator) {
-            ZEST__FREE(context->device->allocator, memory);
+            ZEST__FREE(device->allocator, memory);
         } else {
             zloc_ResetToMarker(linear_allocator, marker);
         }
@@ -3618,7 +3617,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image i
     return image_view;
 }
 
-zest_image_view_array zest__vk_create_image_views_per_mip(zest_context context, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator) {
+zest_image_view_array zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator) {
     VkImageViewCreateInfo viewInfo = ZEST__ZERO_INIT(VkImageViewCreateInfo);
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image->backend->vk_image;
@@ -3636,8 +3635,8 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_context context, 
     void *memory = 0;
     zest_image_view_array view_array = 0;
     if (!linear_allocator) {
-        memory = zest__allocate(context->device->allocator, total_size);
-        view_array = (zest_image_view_array)ZEST__NEW(context->device->allocator, zest_image_view_array);
+        memory = zest__allocate(device->allocator, total_size);
+        view_array = (zest_image_view_array)ZEST__NEW(device->allocator, zest_image_view_array);
         *view_array = ZEST__ZERO_INIT(zest_image_view_array_t);
     } else {
         memory = zloc_LinearAllocation(linear_allocator, total_size);
@@ -3651,17 +3650,17 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_context context, 
     view_array->count = image->info.mip_levels;
     zest_image_view_backend_t *backend_array = (zest_image_view_backend_t *)((char *)memory + public_array_size);
 
-    ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_image_view);
+    ZEST_SET_MEMORY_CONTEXT(device, zest_platform_context, zest_command_image_view);
     for (int mip_index = 0; mip_index != image->info.mip_levels; ++mip_index) {
 		view_array->views[mip_index].image = image;
 		view_array->views[mip_index].backend = &backend_array[mip_index];
 		viewInfo.subresourceRange.baseMipLevel = mip_index;
-        context->device->backend->last_result = vkCreateImageView(context->device->backend->logical_device, &viewInfo, &context->device->backend->allocation_callbacks, &view_array->views[mip_index].backend->vk_view);
-        if (context->device->backend->last_result != VK_SUCCESS) {
+        device->backend->last_result = vkCreateImageView(device->backend->logical_device, &viewInfo, &device->backend->allocation_callbacks, &view_array->views[mip_index].backend->vk_view);
+        if (device->backend->last_result != VK_SUCCESS) {
             for (int i = 0; i < mip_index; ++i) {
-                vkDestroyImageView(context->device->backend->logical_device, view_array->views[i].backend->vk_view, &context->device->backend->allocation_callbacks);
+                vkDestroyImageView(device->backend->logical_device, view_array->views[i].backend->vk_view, &device->backend->allocation_callbacks);
             }
-            ZEST__FREE(context->device->allocator, memory);
+            ZEST__FREE(device->allocator, memory);
             return NULL;
         }
     }
@@ -5261,16 +5260,15 @@ zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_count_x, ze
 	return ZEST_TRUE;
 }
 
-zest_bool zest_CopyBitmapToImage(zest_context context, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height) {
+zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height) {
     zest_buffer staging_buffer = 0;
 	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
-	staging_buffer = zest_CreateBuffer(context, image_size, &buffer_info);
+	staging_buffer = zest_CreateBuffer(device, image_size, &buffer_info);
 	if (!staging_buffer) {
 		return ZEST_FALSE;
 	}
 	memcpy(zest_BufferData(staging_buffer), bitmap, (zest_size)image_size);
 
-	zest_device device = context->device;
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	if (!queue) {
 		return ZEST_FALSE;

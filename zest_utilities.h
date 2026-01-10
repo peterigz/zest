@@ -135,7 +135,7 @@ typedef struct zest_imgui_image_t {
 #include <stdbool.h>
 
 typedef struct zest_ktx_user_context_t {
-	zest_context context;
+	zest_device device;
 	FILE *file;
 } zest_ktx_user_context_t;
 
@@ -145,8 +145,8 @@ ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
 ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size);
 ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
-ZEST_API zest_image_collection_t zest__load_ktx(zest_context context, const char *file_path);
-ZEST_API zest_image_handle zest_LoadKTX(zest_context context, const char *name, const char *file_name);
+ZEST_API zest_image_collection_t zest__load_ktx(zest_device device, const char *file_path);
+ZEST_API zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char *file_name);
 
 //MSDF header
 typedef enum zest_character_flag_bits {
@@ -257,7 +257,7 @@ ZEST_API void zest_AllocateBitmapMemory(zest_bitmap_t *bitmap, zest_size size_in
 ZEST_API void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int width, int height, zest_bitmap_t *dst, int to_x, int to_y);
 
 // Image_collection_header
-ZEST_API zest_image_collection_t zest_CreateImageCollection(zest_context context, zest_format format, zest_uint max_images, zest_uint array_count, zest_image_collection_flags flags);
+ZEST_API zest_image_collection_t zest_CreateImageCollection(zest_format format, zest_uint max_images, zest_uint array_count, zest_image_collection_flags flags);
 ZEST_API zest_image_collection_t zest_CreateImageAtlasCollection(zest_format format, int max_images);
 ZEST_API zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collection_t *atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags);
 ZEST_API void zest_FreeImageCollection(zest_image_collection_t *image_collection);
@@ -751,7 +751,7 @@ zest_format zest__convert_tktx_format(TinyKtx_Format ktx_format) {
 	return zest_format_undefined;
 }
 
-zest_image_collection_t zest__load_ktx(zest_context context, const char *file_path) {
+zest_image_collection_t zest__load_ktx(zest_device device, const char *file_path) {
 
 	TinyKtx_Callbacks callbacks = {
 		&zest__tinyktxCallbackError,
@@ -769,7 +769,7 @@ zest_image_collection_t zest__load_ktx(zest_context context, const char *file_pa
 	}
 
 	zest_ktx_user_context_t user_context;
-	user_context.context = context;
+	user_context.device = device;
 	user_context.file = file;
 
 	TinyKtx_ContextHandle ctx = TinyKtx_CreateContext(&callbacks, &user_context);
@@ -797,7 +797,7 @@ zest_image_collection_t zest__load_ktx(zest_context context, const char *file_pa
 	if (is_cubemap) flags |= zest_image_collection_flag_is_cube_map;
 	if (is_array) flags |= zest_image_collection_flag_is_array;
 
-	zest_image_collection_t image_collection = zest_CreateImageCollection(context, format, 0, mip_count, flags);
+	zest_image_collection_t image_collection = zest_CreateImageCollection(format, 0, mip_count, flags);
 
 	if (is_cubemap) {
 		image_collection.array_layers = is_array ? 6 * array_slices : 6;
@@ -830,8 +830,8 @@ zest_image_collection_t zest__load_ktx(zest_context context, const char *file_pa
 	return image_collection;
 }
 
-zest_image_handle zest_LoadKTX(zest_context context, const char *name, const char *file_name) {
-    zest_image_collection_t image_collection = zest__load_ktx(context, file_name);
+zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char *file_name) {
+    zest_image_collection_t image_collection = zest__load_ktx(device, file_name);
 
     if (!(image_collection.flags & zest_image_collection_flag_initialised)) {
         return ZEST__ZERO_INIT(zest_image_handle);
@@ -859,14 +859,12 @@ zest_image_handle zest_LoadKTX(zest_context context, const char *name, const cha
     }
     zest_size image_size = bitmap_array->total_mem_size;
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, 0);
+    zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, image_collection.bitmap_array.data);
     zest_image_handle image_handle = ZEST__ZERO_INIT(zest_image_handle);
 
     if (!staging_buffer) {
         goto cleanup;
     }
-
-	zest_StageData(image_collection.bitmap_array.data, staging_buffer, bitmap_array->total_mem_size);
 
     zest_uint width = bitmap_array->meta[0].width;
     zest_uint height = bitmap_array->meta[0].height;
@@ -880,10 +878,10 @@ zest_image_handle zest_LoadKTX(zest_context context, const char *name, const cha
 	if (is_cubemap) {
 		create_info.flags |= zest_image_flag_cubemap;
 	}
-    image_handle = zest_CreateImage(context, &create_info);
+    image_handle = zest_CreateImage(device, &create_info);
 	zest_image image = zest_GetImage(image_handle);
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_graphics);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
     zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
@@ -979,16 +977,14 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	zest_msdf_font_t font = ZEST__ZERO_INIT(zest_msdf_font_t);
 	font.sdf_range = sdf_range;
 
-	zest_device device = zest_GetContextDevice(context);
-
     // --- MSDF Font Atlas Generation ---
-    unsigned char* font_buffer = (unsigned char*)zest_ReadEntireFile(device, filename, ZEST_FALSE);
+    unsigned char* font_buffer = (unsigned char*)zest_ReadEntireFile(context->device, filename, ZEST_FALSE);
 	ZEST_ASSERT(font_buffer, "Error loading font file\n");
 
     stbtt_fontinfo font_info;
     if (!stbtt_InitFont(&font_info, font_buffer, 0)) {
         ZEST_PRINT("Error initializing font\n");
-		zest_FreeFile(context, (zest_file)font_buffer);
+		zest_FreeFile(context->device, (zest_file)font_buffer);
         return font;
     }
 
@@ -1041,7 +1037,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		}
     }
 
-    zest_FreeFile(context, (zest_file)font_buffer);
+    zest_FreeFile(context->device, (zest_file)font_buffer);
 	zest_uint atlas_width = (zest_uint)zest_GetNextPower((zest_uint)sqrtf((float)total_area_size));
 	zest_uint atlas_height = atlas_width;
 	font.font_atlas.packed_border_size = 2;
@@ -1052,7 +1048,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	}
 	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(context, &font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
 	zest_image image_atlas = zest_GetImage(image_atlas_handle);
-	font.font_binding_index = zest_AcquireSampledImageIndex(device, image_atlas, zest_texture_array_binding);
+	font.font_binding_index = zest_AcquireSampledImageIndex(context->device, image_atlas, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
 	zest_uint bitmap_index = 0;
 	for (int i = 32; i < 127; ++i) {
@@ -1132,6 +1128,8 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 		return ZEST__ZERO_INIT(zest_msdf_font_t);
 	}
 
+	zest_device device = zest_GetContextDevice(context);
+
 	int width, height, channels;
 	stbi_uc *bitmap_buffer = stbi_load_from_memory(png_buffer, file.png_size, &width, &height, &channels, 0);
 	int size = width * height * channels;
@@ -1142,12 +1140,10 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 
 	zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap.meta.width, font_bitmap.meta.height);
 	image_info.flags = zest_image_preset_texture;
-	font.font_image = zest_CreateImage(context, &image_info);
+	font.font_image = zest_CreateImage(device, &image_info);
 	zest_image font_image = zest_GetImage(font.font_image);
-	zest_CopyBitmapToImage(context, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
+	zest_CopyBitmapToImage(device, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
 	STBI_FREE(bitmap_buffer);
-
-	zest_device device = zest_GetContextDevice(context);
 
 	font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
 	font.settings.sampler_index = font_sampler_index;
@@ -1754,7 +1750,7 @@ void zest_AllocateBitmapMemory(zest_bitmap_t *bitmap, zest_size size_in_bytes) {
 	bitmap->data = (zest_byte*)ZEST_UTILITIES_MALLOC(size_in_bytes);
 }
 
-zest_image_collection_t zest_CreateImageCollection(zest_context context, zest_format format, zest_uint max_images, zest_uint bitmap_array_count, zest_image_collection_flags flags) {
+zest_image_collection_t zest_CreateImageCollection(zest_format format, zest_uint max_images, zest_uint bitmap_array_count, zest_image_collection_flags flags) {
 	zest_image_collection_t image_collection = ZEST__ZERO_INIT(zest_image_collection_t);
     image_collection.format = format;
 	image_collection.flags = flags;
@@ -2201,12 +2197,14 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
         image_info.flags = flags;
 	}
 
-	zest_image_handle image_handle = zest_CreateImage(context, &image_info);
+	zest_device device = zest_GetContextDevice(context);
+
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
 	zest_image image = zest_GetImage(image_handle);
 
     zest_size image_size = atlas->bitmap_array.total_mem_size;
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, atlas->bitmap_array.data);
+    zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, atlas->bitmap_array.data);
 
     if (!staging_buffer) {
         goto cleanup;
