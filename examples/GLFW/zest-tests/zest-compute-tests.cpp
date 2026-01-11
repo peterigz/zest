@@ -28,7 +28,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
-	tests->brd_texture = zest_CreateImage(tests->context, &image_info);
+	tests->brd_texture = zest_CreateImage(tests->device, &image_info);
 	zest_image brd_image = zest_GetImage(tests->brd_texture);
 
 	tests->brd_bindless_texture_index = zest_AcquireStorageImageIndex(tests->device, brd_image, zest_storage_image_binding);
@@ -80,7 +80,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	}
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
-		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
+		tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
 		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
 	}
 
@@ -91,7 +91,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-	zest_buffer storage_buffer = zest_CreateBuffer(tests->context, 1024, &storage_buffer_info);
+	zest_buffer storage_buffer = zest_CreateBuffer(tests->device, 1024, &storage_buffer_info);
 
 	// Graph A: Write to buffer and signal timeline
 	if (zest_BeginFrameGraph(tests->context, "Graph A - Write", 0)) {
@@ -181,7 +181,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
-	tests->brd_texture = zest_CreateImage(tests->context, &image_info);
+	tests->brd_texture = zest_CreateImage(tests->device, &image_info);
 	zest_image brd_image = zest_GetImage(tests->brd_texture);
 	tests->brd_bindless_texture_index = zest_AcquireStorageImageIndex(tests->device, brd_image, zest_storage_image_binding);
 
@@ -475,7 +475,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	}
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
-		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
+		tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
 		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
 	}
 

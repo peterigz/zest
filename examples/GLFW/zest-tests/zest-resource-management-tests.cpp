@@ -25,7 +25,7 @@ int test__image_format_support(ZestTests *tests, Test *test) {
 
 	for(int i = 0; i < 12; i++) {
 		image_info.format = formats[i];
-		zest_image_handle image = zest_CreateImage(tests->context, &image_info);
+		zest_image_handle image = zest_CreateImage(tests->device, &image_info);
 		if(image.value == 0) {
 			failed_count++;
 		}
@@ -47,7 +47,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	immediate_image_info.format = zest_format_r8_unorm;
 	immediate_image_info.flags = zest_image_preset_texture;
 	
-	zest_image_handle immediate_image = zest_CreateImage(tests->context, &immediate_image_info);
+	zest_image_handle immediate_image = zest_CreateImage(tests->device, &immediate_image_info);
 	if(immediate_image.value == 0) {
 		return 1;
 	}
@@ -58,7 +58,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	persistent_image_info.format = zest_format_r8_unorm;
 	persistent_image_info.flags = zest_image_preset_texture;
 	
-	zest_image_handle persistent_image = zest_CreateImage(tests->context, &persistent_image_info);
+	zest_image_handle persistent_image = zest_CreateImage(tests->device, &persistent_image_info);
 	if(persistent_image.value == 0) {
 		return 1;
 	}
@@ -80,7 +80,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 		zest_image_info_t info = zest_CreateImageInfo(128, 128);
 		info.format = zest_format_r8_unorm;
 		info.flags = zest_image_preset_texture;
-		test_images[i] = zest_CreateImage(tests->context, &info);
+		test_images[i] = zest_CreateImage(tests->device, &info);
 		if(test_images[i].value == 0) {
 			// Cleanup created images before failing
 			for (int j = 0; j < i; j++) {
@@ -122,7 +122,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	// Final validation
 	test->result = zest_GetValidationErrorCount(tests->context);
 	test->result |= resources_freed == 9 ? 0 : 1;
-	test->result |= image_count == 0 ? 0 : 1;
+	test->result |= image_count == 2 ? 0 : 1;	//Is is just the default images in the device
 	test->frame_count++; 
 	return test->result;
 }
@@ -148,7 +148,7 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 		image_info.format = invalid_formats[i].format;
 		image_info.flags = zest_image_preset_texture;
 		
-		zest_image_handle image = zest_CreateImage(tests->context, &image_info);
+		zest_image_handle image = zest_CreateImage(tests->device, &image_info);
 		
 		// Expected to fail gracefully (no crash, no assert)
 		if (image.value != 0) {
@@ -182,7 +182,7 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 		image_info.format = conflict_tests[i].format;
 		image_info.flags = conflict_tests[i].usage;
 		
-		zest_image_handle image = zest_CreateImage(tests->context, &image_info);
+		zest_image_handle image = zest_CreateImage(tests->device, &image_info);
 		
 		// Expected to fail gracefully
 		if (image.value != 0) {
@@ -209,7 +209,7 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 		image_info.format = zest_format_r8g8b8a8_unorm; // Valid format
 		image_info.flags = usage_edge_cases[i].usage;
 		
-		zest_image_handle image = zest_CreateImage(tests->context, &image_info);
+		zest_image_handle image = zest_CreateImage(tests->device, &image_info);
 		
 		if (image.value != 0) {
 			// This might succeed or fail depending on implementation
@@ -238,7 +238,7 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 		image_info.format = additional_edge_formats[i].format;
 		image_info.flags = zest_image_preset_texture;
 		
-		zest_image_handle image = zest_CreateImage(tests->context, &image_info);
+		zest_image_handle image = zest_CreateImage(tests->device, &image_info);
 		
 		// Should handle gracefully regardless of support
 		if (image.value != 0) {
@@ -265,7 +265,7 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 	simple_info.format = zest_format_r8g8b8a8_unorm;
 	simple_info.flags = zest_image_preset_texture;
 
-	zest_image_handle simple_image_handle = zest_CreateImage(tests->context, &simple_info);
+	zest_image_handle simple_image_handle = zest_CreateImage(tests->device, &simple_info);
 	if (simple_image_handle.value == 0) {
 		return 1; // Failed to create base image
 	}
@@ -280,7 +280,7 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 	mipped_info.format = zest_format_r8g8b8a8_unorm;
 	mipped_info.flags = zest_image_preset_texture_mipmaps;
 
-	zest_image_handle mipped_image_handle = zest_CreateImage(tests->context, &mipped_info);
+	zest_image_handle mipped_image_handle = zest_CreateImage(tests->device, &mipped_info);
 	if (mipped_image_handle.value == 0) {
 		zest_FreeImageNow(simple_image_handle);
 		return 1;
@@ -293,7 +293,7 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 
 	// Phase 3: Create custom image view with default settings
 	zest_image_view_create_info_t view_info = zest_CreateViewImageInfo(mipped_image);
-	zest_image_view_handle custom_view = zest_CreateImageView(tests->context, mipped_image, &view_info);
+	zest_image_view_handle custom_view = zest_CreateImageView(tests->device, mipped_image, &view_info);
 	if (custom_view.value == 0) {
 		failed_count++;
 	}
@@ -302,13 +302,13 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 	zest_image_view_create_info_t mip_view_info = zest_CreateViewImageInfo(mipped_image);
 	mip_view_info.base_mip_level = 1;
 	mip_view_info.level_count = 2; // Just 2 mip levels starting from level 1
-	zest_image_view_handle mip_range_view = zest_CreateImageView(tests->context, mipped_image, &mip_view_info);
+	zest_image_view_handle mip_range_view = zest_CreateImageView(tests->device, mipped_image, &mip_view_info);
 	if (mip_range_view.value == 0) {
 		failed_count++;
 	}
 
 	// Phase 5: Create per-mip image view array
-	zest_image_view_array_handle view_array = zest_CreateImageViewsPerMip(tests->context, mipped_image);
+	zest_image_view_array_handle view_array = zest_CreateImageViewsPerMip(tests->device, mipped_image);
 	if (view_array.value == 0) {
 		failed_count++;
 	}
@@ -329,13 +329,13 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 	r16_info.format = zest_format_r16_sfloat;
 	r16_info.flags = zest_image_preset_texture;
 
-	zest_image_handle r16_image_handle = zest_CreateImage(tests->context, &r16_info);
+	zest_image_handle r16_image_handle = zest_CreateImage(tests->device, &r16_info);
 	if (r16_image_handle.value == 0) {
 		failed_count++;
 	} else {
 		zest_image r16_image = zest_GetImage(r16_image_handle);
 		zest_image_view_create_info_t r16_view_info = zest_CreateViewImageInfo(r16_image);
-		zest_image_view_handle r16_view = zest_CreateImageView(tests->context, r16_image, &r16_view_info);
+		zest_image_view_handle r16_view = zest_CreateImageView(tests->device, r16_image, &r16_view_info);
 		if (r16_view.value == 0) {
 			failed_count++;
 		} else {
@@ -381,7 +381,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 
 	for (int i = 0; i < 7; i++) {
 		zest_buffer_info_t info = zest_CreateBufferInfo(buffer_types[i], zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1024, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &info);
 		if (!buffer) {
 			failed_count++;
 		}
@@ -398,7 +398,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 
 	for (int i = 0; i < 4; i++) {
 		zest_buffer_info_t info = zest_CreateBufferInfo(combos[i].type, combos[i].usage);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1024, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &info);
 		if (!buffer) {
 			failed_count++;
 		}
@@ -406,12 +406,12 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 	}
 
 	// Phase 3: Staging buffer creation
-	zest_buffer staging_null = zest_CreateStagingBuffer(tests->context, 512, NULL);
+	zest_buffer staging_null = zest_CreateStagingBuffer(tests->device, 512, NULL);
 	if (!staging_null) failed_count++;
 	zest_FreeBuffer(staging_null);
 
 	char test_data[64] = {0};
-	zest_buffer staging_with_data = zest_CreateStagingBuffer(tests->context, 64, test_data);
+	zest_buffer staging_with_data = zest_CreateStagingBuffer(tests->device, 64, test_data);
 	if (!staging_with_data) failed_count++;
 	zest_FreeBuffer(staging_with_data);
 
@@ -422,7 +422,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 
 	for (int i = 0; i < multi_count; i++) {
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		multi_buffers[i] = zest_CreateBuffer(tests->context, 256, &info);
+		multi_buffers[i] = zest_CreateBuffer(tests->device, 256, &info);
 		if (multi_buffers[i]) created++;
 	}
 
@@ -434,7 +434,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 
 	// Phase 5: Buffer resize/grow operations
 	zest_buffer_info_t grow_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-	zest_buffer grow_buffer = zest_CreateBuffer(tests->context, 1024, &grow_info);
+	zest_buffer grow_buffer = zest_CreateBuffer(tests->device, 1024, &grow_info);
 	if (!grow_buffer) {
 		failed_count++;
 	} else {
@@ -448,7 +448,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 	zest_size sizes[] = {64, 4096, 1024 * 1024};
 	for (int i = 0; i < 3; i++) {
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, sizes[i], &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, sizes[i], &info);
 		if (!buffer) {
 			failed_count++;
 		} else {
@@ -472,7 +472,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	// Size = 0 (may round up to minimum or fail)
 	{
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 0, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 0, &info);
 		if (buffer) {
 			// Size=0 was accepted and rounded up - this is valid behavior
 			zest_FreeBuffer(buffer);
@@ -487,7 +487,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	// Size = 1 (minimum valid)
 	{
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1, &info);
 		if (buffer) {
 			passed_tests++;
 			zest_FreeBuffer(buffer);
@@ -505,7 +505,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 
 	for (int i = 0; i < 4; i++) {
 		zest_buffer_info_t info = zest_CreateBufferInfo(invalid_combos[i].type, invalid_combos[i].usage);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1024, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &info);
 		// Should handle gracefully regardless of success or failure
 		if (buffer) {
 			zest_FreeBuffer(buffer);
@@ -523,7 +523,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	// Phase 4: Double-free protection
 	{
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 512, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 512, &info);
 		if (buffer) {
 			zest_FreeBuffer(buffer);
 			zest_FreeBuffer(buffer); // Second free should be safe
@@ -537,7 +537,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	// Phase 5: Resize/Grow edge cases
 	{
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1024, &info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &info);
 		if (buffer) {
 			// Try to shrink (should return FALSE)
 			zest_bool shrink_result = zest_ResizeBuffer(&buffer, 512);
@@ -569,7 +569,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	// Phase 6: Very large allocation (may fail gracefully)
 	{
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, (zest_size)1024 * 1024 * 1024, &info); // 1GB
+		zest_buffer buffer = zest_CreateBuffer(tests->device, (zest_size)1024 * 1024 * 1024, &info); // 1GB
 		if (buffer) {
 			// Large allocation succeeded
 			zest_FreeBuffer(buffer);
@@ -806,7 +806,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 	// Phase 1: Basic Creation
 	// Create staging buffer with NULL data
 	{
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 1024, NULL);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 1024, NULL);
 		if (staging) {
 			zest_size size = zest_GetBufferSize(staging);
 			if (size >= 1024) passed_tests++;
@@ -827,7 +827,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 		char test_data[256];
 		memset(test_data, 0xAB, 256);
 
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 256, test_data);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 256, test_data);
 		if (staging) {
 			char *buffer_data = (char*)zest_BufferData(staging);
 			if (buffer_data) {
@@ -850,7 +850,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 
 	// Phase 2: Data Staging Operations
 	{
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 512, NULL);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 512, NULL);
 		if (staging) {
 			// Stage data using zest_StageData
 			char stage_data[128];
@@ -883,15 +883,15 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 		for (int i = 0; i < 256; i++) {
 			test_pattern[i] = (char)(i & 0xFF);
 		}
-		zest_buffer upload_staging = zest_CreateStagingBuffer(tests->context, 256, test_pattern);
+		zest_buffer upload_staging = zest_CreateStagingBuffer(tests->device, 256, test_pattern);
 
 		// Create device buffer (GPU-only storage)
 		zest_buffer_info_t gpu_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer gpu_buffer = zest_CreateBuffer(tests->context, 256, &gpu_info);
+		zest_buffer gpu_buffer = zest_CreateBuffer(tests->device, 256, &gpu_info);
 
 		// Create readback staging buffer (GPU-to-CPU)
 		zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
-		zest_buffer readback_staging = zest_CreateBuffer(tests->context, 256, &readback_info);
+		zest_buffer readback_staging = zest_CreateBuffer(tests->device, 256, &readback_info);
 
 		if (upload_staging && gpu_buffer && readback_staging) {
 			// Transfer upload staging -> GPU
@@ -933,7 +933,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 		int created = 0;
 
 		for (int i = 0; i < multi_count; i++) {
-			multi_staging[i] = zest_CreateStagingBuffer(tests->context, 128 * (i + 1), NULL);
+			multi_staging[i] = zest_CreateStagingBuffer(tests->device, 128 * (i + 1), NULL);
 			if (multi_staging[i]) {
 				created++;
 				// Write unique data to each
@@ -963,7 +963,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 
 	// Phase 5: Buffer Resize Operations
 	{
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 256, NULL);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 256, NULL);
 		if (staging) {
 			zest_size original_size = zest_GetBufferSize(staging);
 
@@ -995,7 +995,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 	// Phase 6: Edge Cases
 	// Size = 0
 	{
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 0, NULL);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 0, NULL);
 		if (staging) {
 			zest_FreeBuffer(staging);
 		}
@@ -1006,7 +1006,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 	// Size = 1
 	{
 		char one_byte = 0x42;
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 1, &one_byte);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 1, &one_byte);
 		if (staging) {
 			char *data = (char*)zest_BufferData(staging);
 			if (data && *data == 0x42) passed_tests++;
@@ -1019,7 +1019,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 
 	// Large staging buffer (1MB)
 	{
-		zest_buffer staging = zest_CreateStagingBuffer(tests->context, 1024 * 1024, NULL);
+		zest_buffer staging = zest_CreateStagingBuffer(tests->device, 1024 * 1024, NULL);
 		if (staging) {
 			zest_size size = zest_GetBufferSize(staging);
 			if (size >= 1024 * 1024) passed_tests++;
@@ -1035,7 +1035,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 		const int cycle_count = 10;
 		int successful_cycles = 0;
 		for (int i = 0; i < cycle_count; i++) {
-			zest_buffer staging = zest_CreateStagingBuffer(tests->context, 4096, NULL);
+			zest_buffer staging = zest_CreateStagingBuffer(tests->device, 4096, NULL);
 			if (staging) {
 				memset(zest_BufferData(staging), (char)i, 4096);
 				zest_FreeBuffer(staging);
@@ -1088,7 +1088,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info.format = format_tests[i].format;
 			info.flags = zest_image_preset_texture;
 
-			zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+			zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 			if (image.value != 0) {
 				passed_tests++;
 				zest_FreeImageNow(image);
@@ -1135,7 +1135,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info.format = zest_format_r8g8b8a8_unorm;
 			info.flags = zest_image_preset_texture;
 
-			zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+			zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 			if (image.value != 0) {
 				passed_tests++;
 				zest_FreeImageNow(image);
@@ -1163,7 +1163,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info_no_mip.format = zest_format_r8g8b8a8_unorm;
 			info_no_mip.flags = zest_image_preset_texture;
 
-			zest_image_handle image_no_mip = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info_no_mip);
+			zest_image_handle image_no_mip = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info_no_mip);
 			if (image_no_mip.value != 0) {
 				zest_image img = zest_GetImage(image_no_mip);
 				if (img && img->info.mip_levels == 1) {
@@ -1180,7 +1180,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info_mip.format = zest_format_r8g8b8a8_unorm;
 			info_mip.flags = zest_image_preset_texture_mipmaps;
 
-			zest_image_handle image_mip = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info_mip);
+			zest_image_handle image_mip = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info_mip);
 			if (image_mip.value != 0) {
 				zest_image img = zest_GetImage(image_mip);
 				if (img && img->info.mip_levels > 1) {
@@ -1222,7 +1222,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info.format = zest_format_r8g8b8a8_unorm;
 			info.flags = zest_image_preset_texture;
 
-			zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+			zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 			if (image.value != 0) {
 				passed_tests++;
 				zest_FreeImageNow(image);
@@ -1253,7 +1253,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 				info.format = zest_format_r8g8b8a8_unorm;
 				info.flags = zest_image_preset_texture;
 
-				multi_images[i] = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+				multi_images[i] = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 				if (multi_images[i].value != 0) {
 					created++;
 				}
@@ -1281,7 +1281,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 		info.format = zest_format_r8g8b8a8_unorm;
 		info.flags = zest_image_preset_texture;
 
-		zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixel, 4, &info);
+		zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixel, 4, &info);
 		if (image.value != 0) {
 			passed_tests++;
 			zest_FreeImageNow(image);
@@ -1303,7 +1303,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info.format = zest_format_r8g8b8a8_unorm;
 			info.flags = zest_image_preset_texture;
 
-			zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+			zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 			if (image.value != 0) {
 				zest_image img = zest_GetImage(image);
 				if (img && img->info.extent.width == width && img->info.extent.height == height) {
@@ -1336,7 +1336,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 			info.format = zest_format_r8g8b8a8_unorm;
 			info.flags = zest_image_preset_texture;
 
-			zest_image_handle image = zest_CreateImageWithPixels(tests->context, pixels, pixel_size, &info);
+			zest_image_handle image = zest_CreateImageWithPixels(tests->device, pixels, pixel_size, &info);
 			if (image.value != 0) {
 				passed_tests++;
 				zest_FreeImageNow(image);
@@ -1646,7 +1646,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		info.flags = zest_image_preset_texture;
 		info.layer_count = 4; // 4-layer array texture
 
-		zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+		zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 			if (image && image->info.layer_count == 4) {
@@ -1683,7 +1683,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		info.flags = zest_image_preset_storage_cubemap; // Includes cubemap flag
 		info.layer_count = 6; // Cubemaps always have 6 faces
 
-		zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+		zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 			if (image && image->info.layer_count == 6) {
@@ -1719,7 +1719,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		info.format = zest_format_r8g8b8a8_unorm;
 		info.flags = zest_image_preset_storage;
 
-		zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+		zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 
@@ -1749,7 +1749,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		info.flags = zest_image_flag_sampled | zest_image_flag_storage |
 		             zest_image_flag_transfer_dst | zest_image_flag_device_local;
 
-		zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+		zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 
@@ -1790,7 +1790,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			info.format = zest_format_r8g8b8a8_unorm;
 			info.flags = zest_image_preset_texture;
 
-			images[i] = zest_CreateImage(tests->context, &info);
+			images[i] = zest_CreateImage(tests->device, &info);
 			if (images[i].value != 0) {
 				zest_image image = zest_GetImage(images[i]);
 
@@ -1842,12 +1842,12 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		info.flags = zest_image_preset_storage; // Storage allows mip writes
 		info.flags |= zest_image_flag_generate_mipmaps | zest_image_flag_transfer_src;
 
-		zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+		zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 		if (image_handle.value != 0) {
 			zest_image image = zest_GetImage(image_handle);
 
 			// Create per-mip views
-			zest_image_view_array_handle view_array_handle = zest_CreateImageViewsPerMip(tests->context, image);
+			zest_image_view_array_handle view_array_handle = zest_CreateImageViewsPerMip(tests->device, image);
 			if (view_array_handle.value != 0) {
 				zest_image_view_array view_array = zest_GetImageViewArray(view_array_handle);
 				if (view_array && view_array->count > 1) {
@@ -1897,7 +1897,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			info.flags = zest_image_preset_texture;
 			info.layer_count = layer_counts[i];
 
-			zest_image_handle image_handle = zest_CreateImage(tests->context, &info);
+			zest_image_handle image_handle = zest_CreateImage(tests->device, &info);
 			if (image_handle.value != 0) {
 				zest_image image = zest_GetImage(image_handle);
 				if (image && image->info.layer_count == (zest_uint)layer_counts[i]) {
@@ -1921,7 +1921,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 		int phase_total = 0;
 		int phase_passed = 0;
 		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer buffer = zest_CreateBuffer(tests->context, 1024, &buffer_info);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &buffer_info);
 		if (buffer) {
 			zest_uint index = zest_AcquireStorageBufferIndex(tests->device, buffer);
 			if (index != ZEST_INVALID) {
@@ -2028,7 +2028,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 
 		// Create GPU-only storage buffer
 		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-		zest_buffer storage_buffer = zest_CreateBuffer(tests->context, 1024, &buffer_info);
+		zest_buffer storage_buffer = zest_CreateBuffer(tests->device, 1024, &buffer_info);
 
 		if (storage_buffer) {
 			phase_passed++;
@@ -2054,7 +2054,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 
 		for (int i = 0; i < multi_count; i++) {
 			zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-			multi_buffers[i] = zest_CreateBuffer(tests->context, 256 * (i + 1), &info);
+			multi_buffers[i] = zest_CreateBuffer(tests->device, 256 * (i + 1), &info);
 			if (multi_buffers[i]) {
 				multi_indexes[i] = zest_AcquireStorageBufferIndex(tests->device, multi_buffers[i]);
 				if (multi_indexes[i] != ZEST_INVALID) {
@@ -2212,7 +2212,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 
 		for (int i = 0; i < 4; i++) {
 			zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-			zest_buffer buffer = zest_CreateBuffer(tests->context, sizes[i], &info);
+			zest_buffer buffer = zest_CreateBuffer(tests->device, sizes[i], &info);
 
 			if (buffer) {
 				zest_uint index = zest_AcquireStorageBufferIndex(tests->device, buffer);
@@ -2239,7 +2239,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		int phase_passed = 0;
 
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
-		zest_buffer combined_buffer = zest_CreateBuffer(tests->context, 4096, &info);
+		zest_buffer combined_buffer = zest_CreateBuffer(tests->device, 4096, &info);
 
 		if (combined_buffer) {
 			phase_passed++;
@@ -2268,7 +2268,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		int phase_passed = 0;
 
 		zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_index_storage, zest_memory_usage_gpu_only);
-		zest_buffer index_storage_buffer = zest_CreateBuffer(tests->context, 4096, &info);
+		zest_buffer index_storage_buffer = zest_CreateBuffer(tests->device, 4096, &info);
 
 		if (index_storage_buffer) {
 			phase_passed++;

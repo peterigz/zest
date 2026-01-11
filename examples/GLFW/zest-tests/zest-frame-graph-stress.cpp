@@ -5,7 +5,7 @@ void zest_CreateImageResources(ZestTests *tests) {
 	image_info.flags = zest_image_preset_color_attachment;
 	StressResources *resources = &tests->stress_resources;
 	for (int i = resources->image_count; i != MAX_TEST_RESOURCES; i++) {
-		resources->images[i] = zest_CreateImage(tests->context, &image_info);
+		resources->images[i] = zest_CreateImage(tests->device, &image_info);
 		zest_image image = zest_GetImage(resources->images[i]);
 		ZEST_ASSERT_HANDLE(image);
 		resources->image_count++;
@@ -16,7 +16,7 @@ void zest_CreateBufferResources(ZestTests *tests) {
 	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
 	StressResources *resources = &tests->stress_resources;
 	for (int i = resources->buffer_count; i != MAX_TEST_RESOURCES; i++) {
-		resources->buffers[i] = zest_CreateBuffer(tests->context, 1024 * 1024, &vertex_info);
+		resources->buffers[i] = zest_CreateBuffer(tests->device, 1024 * 1024, &vertex_info);
 		resources->buffer_count++;
 	}
 }
@@ -432,7 +432,7 @@ void zest_StressTransferBuffer(const zest_command_list command_list, void *user_
 	for (int i = 0; i != 1024; i++) {
 		dummy_data[i] = (float)i;
 	}
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->context, sizeof(float) * 1024, dummy_data);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->device, sizeof(float) * 1024, dummy_data);
 	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, staging_buffer->size);
 	zest_FreeBuffer(staging_buffer);
 }

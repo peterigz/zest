@@ -201,47 +201,48 @@ void Mainloop(render_target_app_t *example) {
 		glfwPollEvents();
 
 		UpdateMouse(example);
-
-		//We can adjust the alpha and blend type based on the mouse position
-		float threshold = (float)example->mouse_x / zest_ScreenWidthf(example->context);
-		float knee = (float)example->mouse_y / zest_ScreenHeightf(example->context);
-		knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
-		threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
-
-		example->bloom_constants.settings.x = threshold;
-		example->bloom_constants.settings.y = knee;
-		//example->downsampler->recorder->outdated[context->current_fif] = 1;
-
+		
 		zest_layer font_layer = zest_GetLayer(example->font_layer);
 
-		//Set the font to use for the font layer
-		zest_SetMSDFFontDrawing(font_layer, &example->font, &example->font_resources);
-		zest_SetLayerColor(font_layer, 255, 100, 255, 255);
-		//Draw the text
-		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f, "Basic Bloom Effect ...");
-		zest_SetLayerColor(font_layer, 50, 255, 50, 255);
-		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f, "Using down/up sampling");
-		zest_SetLayerColor(font_layer, 50, 50, 255, 255);
-		zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
-		zest_SetLayerColor(font_layer, 255, 50, 50, 255);
-		zest_DrawMSDFText(font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
-
-		zest_image_resource_info_t image_info = {
-			zest_format_r16g16b16a16_sfloat,
-			zest_resource_usage_hint_copyable,
-			zest_ScreenWidth(example->context),
-			zest_ScreenHeight(example->context),
-			7
-		};
-
-		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(example->context, &example->cache_info, sizeof(RenderCacheInfo));
-
-		//Create the render graph
-		zest_SetSwapchainClearColor(example->context, 0.f, .1f, .2f, 1.f);
 		if (zest_BeginFrame(example->context)) {
+
+			//We can adjust the alpha and blend type based on the mouse position
+			float threshold = (float)example->mouse_x / zest_ScreenWidthf(example->context);
+			float knee = (float)example->mouse_y / zest_ScreenHeightf(example->context);
+			knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
+			threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
+
+			example->bloom_constants.settings.x = threshold;
+			example->bloom_constants.settings.y = knee;
+			//example->downsampler->recorder->outdated[context->current_fif] = 1;
+
+			//Set the font to use for the font layer
+			zest_SetMSDFFontDrawing(font_layer, &example->font, &example->font_resources);
+			zest_SetLayerColor(font_layer, 255, 100, 255, 255);
+			//Draw the text
+			zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f, "Basic Bloom Effect ...");
+			zest_SetLayerColor(font_layer, 50, 255, 50, 255);
+			zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f, "Using down/up sampling");
+			zest_SetLayerColor(font_layer, 50, 50, 255, 255);
+			zest_DrawMSDFText(font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
+			zest_SetLayerColor(font_layer, 255, 50, 50, 255);
+			zest_DrawMSDFText(font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
+
+			zest_image_resource_info_t image_info = {
+				zest_format_r16g16b16a16_sfloat,
+				zest_resource_usage_hint_copyable,
+				zest_ScreenWidth(example->context),
+				zest_ScreenHeight(example->context),
+				7
+			};
+
+			zest_frame_graph_cache_key_t cache_key = {};
+			cache_key = zest_InitialiseCacheKey(example->context, &example->cache_info, sizeof(RenderCacheInfo));
+
+			//Create the render graph
+			zest_SetSwapchainClearColor(example->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(example->context, &cache_key);
-			if(!frame_graph) {
+			if (!frame_graph) {
 				if (zest_BeginFrameGraph(example->context, "Bloom Example Render Graph", &cache_key)) {
 
 					//Add resources
@@ -314,11 +315,6 @@ void Mainloop(render_target_app_t *example) {
 			}
 			zest_QueueFrameGraphForExecution(example->context, frame_graph);
 			zest_EndFrame(example->context);
-			static bool printed = false;
-			if (!printed) {
-				zest_PrintCompiledFrameGraph(frame_graph);
-				printed = true;
-			}
 		}
 		if (zest_SwapchainWasRecreated(example->context)) {
 			zest_SetLayerSizeToSwapchain(font_layer);

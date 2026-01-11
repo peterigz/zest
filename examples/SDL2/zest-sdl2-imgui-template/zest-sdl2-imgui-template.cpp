@@ -21,7 +21,7 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
 	image_info.format = zest_format_r8g8b8a8_unorm;
 	image_info.flags = zest_image_preset_texture;
-	zest_image_handle image_handle = zest_CreateImageWithPixels(app->context, pixels, size, &image_info);
+	zest_image_handle image_handle = zest_CreateImageWithPixels(app->device, pixels, size, &image_info);
 	STBI_FREE(pixels);
 	zest_image image = zest_GetImage(image_handle);
 	if (image) {

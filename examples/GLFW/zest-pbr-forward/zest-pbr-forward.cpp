@@ -61,7 +61,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 
-	app->skybox_texture = zest_LoadKTX(app->context, "Pisa Cube", "examples/assets/pisa_cube.ktx");
+	app->skybox_texture = zest_LoadKTX(app->device, "Pisa Cube", "examples/assets/pisa_cube.ktx");
 	zest_image skybox_image = zest_GetImage(app->skybox_texture);
 	app->skybox_bindless_texture_index = zest_AcquireSampledImageIndex(app->device, skybox_image, zest_texture_cube_binding);
 

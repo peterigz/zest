@@ -83,6 +83,7 @@ int main(void)
 	//Initialise Zest
 	app.context = zest_CreateContext(app.device, &window_handles, &create_info);
 
+	/* I was testing a new sparse hash map
 	zest_map_t test_map;
 	zest_uint capacity = 262144;
 	zest_uint insert_count = 131072;
@@ -158,6 +159,8 @@ int main(void)
 	ZEST_PRINT("Storage Total Time: %llu", lookup_time + index_time + insert_time);
 
 	return 0;
+	*/
+
 	//Start the Zest main loop
 	MainLoop(&app);
 	zest_DestroyDevice(app.device);

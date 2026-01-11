@@ -199,7 +199,7 @@ int test__import_image(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->texture)) {
 		zest_image_info_t image_info = zest_CreateImageInfo(256, 256);
 		image_info.flags = zest_image_preset_storage;
-		tests->texture = zest_CreateImage(tests->context, &image_info);
+		tests->texture = zest_CreateImage(tests->device, &image_info);
 	}
 	zest_UpdateDevice(tests->device);
 	if (zest_BeginFrame(tests->context)) {
@@ -380,7 +380,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
-		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
+		tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
 		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
 	}
 	zest_buffer_resource_info_t info = {};
@@ -540,7 +540,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
-		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
+		tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
 		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
 			
 	}
@@ -635,7 +635,7 @@ void zest_TransferBuffer(const zest_command_list command_list, void *user_data) 
 	for (int i = 0; i != 1024; i++) {
 		dummy_data[i] = (float)i;
 	}
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->context, sizeof(float) * 1024, dummy_data);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->device, sizeof(float) * 1024, dummy_data);
 	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, staging_buffer->size);
 }
 

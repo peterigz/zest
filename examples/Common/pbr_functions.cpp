@@ -5,7 +5,7 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
-	zest_image_handle brd_texture = zest_CreateImage(context, &image_info);
+	zest_image_handle brd_texture = zest_CreateImage(device, &image_info);
 	zest_image brd_image = zest_GetImage(brd_texture);
 
 	zest_uint brd_bindless_texture_index = zest_AcquireStorageImageIndex(device, brd_image, zest_storage_image_binding);
@@ -43,7 +43,7 @@ zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle s
 	image_info.format = zest_format_r32g32b32a32_sfloat;
 	image_info.flags = zest_image_preset_storage_cubemap;
 	image_info.layer_count = 6;
-	zest_image_handle irr_texture = zest_CreateImage(context, &image_info);
+	zest_image_handle irr_texture = zest_CreateImage(device, &image_info);
 	zest_image irr_image = zest_GetImage(irr_texture);
 	zest_image skybox_image = zest_GetImage(skybox_texture);
 	zest_uint irr_bindless_texture_index = zest_AcquireStorageImageIndex(device, irr_image, zest_storage_image_binding);
@@ -84,11 +84,11 @@ zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle 
 	image_info.format = zest_format_r16g16b16a16_sfloat;
 	image_info.flags = zest_image_preset_storage_mipped_cubemap;
 	image_info.layer_count = 6;
-	zest_image_handle prefiltered_texture = zest_CreateImage(context, &image_info);
+	zest_image_handle prefiltered_texture = zest_CreateImage(device, &image_info);
 	zest_image prefiltered_image = zest_GetImage(prefiltered_texture);
 	zest_image skybox_image = zest_GetImage(skybox_texture);
 
-	zest_image_view_array_handle prefiltered_view_array_handle = zest_CreateImageViewsPerMip(context, prefiltered_image);
+	zest_image_view_array_handle prefiltered_view_array_handle = zest_CreateImageViewsPerMip(device, prefiltered_image);
 	zest_image_view_array prefiltered_view_array = zest_GetImageViewArray(prefiltered_view_array_handle);
 	zest_uint prefiltered_bindless_texture_index = zest_AcquireStorageImageIndex(device, prefiltered_image, zest_storage_image_binding);
 	*prefiltered_mip_indexes = zest_AcquireImageMipIndexes(device, prefiltered_image, prefiltered_view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);

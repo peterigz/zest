@@ -26,14 +26,14 @@ void InitComputeExample(ComputeExample *app) {
 	int size = width * height * channels;
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
 	image_info.flags = zest_image_preset_texture_mipmaps;
-	app->particle_image = zest_CreateImageWithPixels(app->context, particle_pixels, size, &image_info);
+	app->particle_image = zest_CreateImageWithPixels(app->device, particle_pixels, size, &image_info);
 	//A gradient texture to sample the colour from
 	stbi_uc *gradient_pixels = stbi_load("examples/assets/gradient.png", &width, &height, &channels, 0);
 	size = width * height * channels;
 	image_info = zest_CreateImageInfo(width, height);
 	image_info.format = zest_format_r8g8b8a8_srgb;
 	image_info.flags = zest_image_preset_texture;
-	app->gradient_image = zest_CreateImageWithPixels(app->context, gradient_pixels, size, &image_info);
+	app->gradient_image = zest_CreateImageWithPixels(app->device, gradient_pixels, size, &image_info);
 
 	STBI_FREE(particle_pixels);
 	STBI_FREE(gradient_pixels);
@@ -64,12 +64,12 @@ void InitComputeExample(ComputeExample *app) {
 	VkDeviceSize storage_buffer_size = particle_buffer.size() * sizeof(Particle);
 
 	//Create a temporary staging buffer to load the particle data into
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(app->context, storage_buffer_size,  particle_buffer.data());
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(app->device, storage_buffer_size,  particle_buffer.data());
 	//Create a "Descriptor buffer". This is a buffer that will have info necessary for a shader - in this case a compute shader.
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
-	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
+	app->particle_buffer = zest_CreateBuffer(app->device, storage_buffer_size, &particle_vertex_buffer_info);
 	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->device, app->particle_buffer);
 	//Copy the staging buffer to the desciptor buffer
 	zest_queue queue = zest_imm_BeginCommandBuffer(app->device, zest_queue_transfer);

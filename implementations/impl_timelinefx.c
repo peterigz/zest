@@ -123,7 +123,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 
 	//Create a buffer to store the image data on the gpu.
 	zest_buffer_info_t image_data_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-	resources->image_data = zest_CreateBuffer(context, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
+	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
 	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
 
 	resources->timeline = zest_CreateExecutionTimeline(device);
@@ -134,8 +134,8 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resourc
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(context, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_device device = zest_GetContextDevice(context);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_imm_EndCommandBuffer(queue);

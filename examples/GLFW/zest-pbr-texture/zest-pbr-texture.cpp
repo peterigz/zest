@@ -60,7 +60,7 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 	app->sampler_2d_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 
-	app->skybox_texture = zest_LoadKTX(app->context, "Canyon Cube", "examples/assets/gcanyon_cube.ktx");
+	app->skybox_texture = zest_LoadKTX(app->device, "Canyon Cube", "examples/assets/gcanyon_cube.ktx");
 	zest_image skybox_image = zest_GetImage(app->skybox_texture);
 	app->skybox_bindless_texture_index = zest_AcquireSampledImageIndex(app->device, skybox_image, zest_texture_cube_binding);
 
@@ -103,12 +103,12 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
-	zest_mesh gun = LoadGLTFMesh(app->context, "examples/assets/gltf/cerberus/cerberus.gltf", 1.f);
-	app->albedo_texture = zest_LoadKTX(app->context, "Gun Albedo", "examples/assets/gltf/cerberus/albedo.ktx");
-	app->normal_texture = zest_LoadKTX(app->context, "Gun Normal", "examples/assets/gltf/cerberus/normal.ktx");
-	app->ao_texture = zest_LoadKTX(app->context, "Gun AO", "examples/assets/gltf/cerberus/ao.ktx");
-	app->metallic_texture = zest_LoadKTX(app->context, "Gun Metallic", "examples/assets/gltf/cerberus/metallic.ktx");
-	app->roughness_texture = zest_LoadKTX(app->context, "Gun Rougness", "examples/assets/gltf/cerberus/roughness.ktx");
+	zest_mesh gun = LoadGLTFMesh(app->context, "examples/assets/gltf/cerberus/cerberus.gltf", &material);
+	app->albedo_texture = zest_LoadKTX(app->device, "Gun Albedo", "examples/assets/gltf/cerberus/albedo.ktx");
+	app->normal_texture = zest_LoadKTX(app->device, "Gun Normal", "examples/assets/gltf/cerberus/normal.ktx");
+	app->ao_texture = zest_LoadKTX(app->device, "Gun AO", "examples/assets/gltf/cerberus/ao.ktx");
+	app->metallic_texture = zest_LoadKTX(app->device, "Gun Metallic", "examples/assets/gltf/cerberus/metallic.ktx");
+	app->roughness_texture = zest_LoadKTX(app->device, "Gun Rougness", "examples/assets/gltf/cerberus/roughness.ktx");
 
 	app->material_push.albedo_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->albedo_texture), zest_texture_2d_binding);
 	app->material_push.normal_index = zest_AcquireSampledImageIndex(app->device, zest_GetImage(app->normal_texture), zest_texture_2d_binding);

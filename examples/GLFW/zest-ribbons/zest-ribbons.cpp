@@ -35,8 +35,8 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_count = RIBBON_COUNT;
 
 	zest_ForEachFrameInFlight(fif) {
-		app->ribbon_segment_staging_buffer[fif] = zest_CreateStagingBuffer(app->context, SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
-		app->ribbon_instance_staging_buffer[fif] = zest_CreateStagingBuffer(app->context, SEGMENT_COUNT * sizeof(ribbon_instance) * 10, 0);
+		app->ribbon_segment_staging_buffer[fif] = zest_CreateStagingBuffer(app->device, SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
+		app->ribbon_instance_staging_buffer[fif] = zest_CreateStagingBuffer(app->device, SEGMENT_COUNT * sizeof(ribbon_instance) * 10, 0);
 	}
 
 	//Create a uniform buffer for the ribbon shader
@@ -76,7 +76,7 @@ void InitImGuiApp(Ribbons *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
 	image_info.format = zest_format_r8g8b8a8_unorm;
 	image_info.flags = zest_image_preset_texture;
-	app->ribbon_texture = zest_CreateImageWithPixels(app->context, pixels, size, &image_info);
+	app->ribbon_texture = zest_CreateImageWithPixels(app->device, pixels, size, &image_info);
 	STBI_FREE(pixels);
 	zest_image image = zest_GetImage(app->ribbon_texture);
 	app->ribbon_image = zest_NewAtlasRegion();
