@@ -802,7 +802,7 @@ ZEST_PRIVATE inline VkBufferMemoryBarrier2 zest__vk_create_buffer_memory_barrier
     return barrier;
 }
 
-ZEST_PRIVATE inline VkImageMemoryBarrier2 zest__vk_create_image_memory_barrier(VkImage image, VkAccessFlags2 from_access, VkPipelineStageFlags2 from_stage, VkAccessFlags2 to_access, VkPipelineStageFlags2 to_stage, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count) {
+ZEST_PRIVATE inline VkImageMemoryBarrier2 zest__vk_create_image_memory_barrier(VkImage image, VkAccessFlags2 from_access, VkPipelineStageFlags2 from_stage, VkAccessFlags2 to_access, VkPipelineStageFlags2 to_stage, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count, zest_uint layer_count) {
     VkImageMemoryBarrier2 barrier = ZEST__ZERO_INIT(VkImageMemoryBarrier2);
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier.oldLayout = from_layout;
@@ -814,7 +814,7 @@ ZEST_PRIVATE inline VkImageMemoryBarrier2 zest__vk_create_image_memory_barrier(V
     barrier.subresourceRange.baseMipLevel = target_mip_level;
     barrier.subresourceRange.levelCount = mip_count;
     barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.layerCount = layer_count;
     barrier.srcAccessMask = from_access;
     barrier.dstAccessMask = to_access;
 	barrier.srcStageMask = from_stage;
@@ -1573,9 +1573,17 @@ VkSampleCountFlagBits zest__vk_get_max_useable_sample_count(zest_device device) 
 }
 
 void zest__vk_set_limit_data(zest_device device) {
-    VkPhysicalDeviceProperties physicalDeviceProperties;
-    vkGetPhysicalDeviceProperties(device->backend->physical_device, &physicalDeviceProperties);
-    device->max_image_size = physicalDeviceProperties.limits.maxImageDimension2D;
+    VkPhysicalDeviceVulkan11Properties vulkan11_properties = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Properties);
+    vulkan11_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
+    vulkan11_properties.pNext = NULL;
+
+    VkPhysicalDeviceProperties2 physical_device_properties2 = ZEST__ZERO_INIT(VkPhysicalDeviceProperties2);
+    physical_device_properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    physical_device_properties2.pNext = &vulkan11_properties;
+
+    vkGetPhysicalDeviceProperties2(device->backend->physical_device, &physical_device_properties2);
+    device->max_image_size = physical_device_properties2.properties.limits.maxImageDimension2D;
+    device->max_multiview_view_count = vulkan11_properties.maxMultiviewViewCount;
 }
 
 void zest__vk_setup_validation(zest_device device) {
@@ -1966,7 +1974,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         return 0;
     }
 
-VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures);
+	VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures);
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.multiDrawIndirect = VK_TRUE;
     device_features.shaderInt64 = VK_TRUE;
@@ -1996,10 +2004,15 @@ VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatu
     device_features_12.timelineSemaphore = VK_TRUE;
     device_features_12.samplerMirrorClampToEdge = VK_TRUE;
 
+	VkPhysicalDeviceVulkan11Features device_features_11 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Features);
+	device_features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+	device_features_11.pNext = NULL;
+	device_features_11.multiview = VK_TRUE;
+
 	VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features = ZEST__ZERO_INIT(VkPhysicalDeviceSynchronization2FeaturesKHR);
 	sync2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
-	sync2_features.pNext = NULL;  
-	sync2_features.synchronization2 = VK_TRUE;  
+	sync2_features.pNext = &device_features_11;
+	sync2_features.synchronization2 = VK_TRUE;
 
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = ZEST__ZERO_INIT(VkPhysicalDeviceDynamicRenderingFeaturesKHR);
 	dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
@@ -3221,6 +3234,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 		color_formats[i] = zest__to_vk_format(command_list->rendering_info.color_attachment_formats[i]);
 	}
 	vk_rendering_info.pColorAttachmentFormats = color_formats;
+	vk_rendering_info.viewMask = pipeline_template->view_mask;
     
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.stageCount = stage_count;
@@ -4162,6 +4176,7 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 	rendering_info.colorAttachmentCount = color_attachment_count;
 	rendering_info.pColorAttachments = color_attachments;
 	rendering_info.pDepthAttachment = has_depth ? &depth_attachment : VK_NULL_HANDLE;
+	rendering_info.viewMask = exe_details->rendering_info.view_mask;
 	rendering_info.layerCount = 1;
 	rendering_info.renderArea.offset.x = exe_details->render_area.offset.x;
 	rendering_info.renderArea.offset.y = exe_details->render_area.offset.y;
@@ -4359,7 +4374,7 @@ void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barr
         zest__to_vk_image_layout(old_layout),
         zest__to_vk_image_layout(new_layout),
         zest__to_vk_image_aspect(resource->image.info.aspect_flags),
-        0, resource->image.info.mip_levels);
+        0, resource->image.info.mip_levels, resource->image.info.layer_count);
     image_barrier.srcQueueFamilyIndex = src_family;
     image_barrier.dstQueueFamilyIndex = dst_family;
     if (acquire) {
@@ -4533,7 +4548,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         src_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src->image.info.aspect_flags,
-        mip_to_blit, 1);
+        mip_to_blit, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
 
     VkImageMemoryBarrier2 blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
@@ -4544,7 +4559,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         dst_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst->image.info.aspect_flags,
-        mip_to_blit, 1);
+        mip_to_blit, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
 
     VkOffset3D base_offset = ZEST__ZERO_INIT(VkOffset3D);
@@ -4581,7 +4596,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
         src->image.info.aspect_flags,
-        mip_to_blit, 1);
+        mip_to_blit, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
 
     blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
@@ -4592,7 +4607,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
         dst->image.info.aspect_flags,
-        mip_to_blit, 1);
+        mip_to_blit, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
 }
 
@@ -4624,7 +4639,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         src_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src->image.info.aspect_flags,
-        mip_to_copy, 1);
+        mip_to_copy, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
 
     VkImageMemoryBarrier2 blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
@@ -4635,7 +4650,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         dst_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst->image.info.aspect_flags,
-        mip_to_copy, 1);
+        mip_to_copy, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
 
     VkOffset3D base_offset = ZEST__ZERO_INIT(VkOffset3D);
@@ -4669,7 +4684,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
         src->image.info.aspect_flags,
-        mip_to_copy, 1);
+        mip_to_copy, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
 
     blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
@@ -4680,7 +4695,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
         dst->image.info.aspect_flags,
-        mip_to_copy, 1);
+        mip_to_copy, 1, 1);
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
 }
 

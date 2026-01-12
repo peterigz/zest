@@ -2392,7 +2392,7 @@ typedef zest_uint zest_frame_graph_result;                   //zest_frame_graph_
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
-static const int ZEST_STRUCT_IDENTIFIER = 0xEEEE;
+static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define zest_INIT_MAGIC(struct_type) (struct_type | ZEST_STRUCT_IDENTIFIER);
 
 #define ZEST_ASSERT_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
@@ -3684,6 +3684,7 @@ typedef struct zest_rendering_info_t {
 	zest_format depth_attachment_format;
 	zest_format stencil_attachment_format;
 	zest_sample_count_flags sample_count;
+	zest_uint view_mask;
 } zest_rendering_info_t;
 
 typedef zest_buffer(*zest_resource_buffer_provider)(zest_context context, zest_resource_node resource);
@@ -3812,6 +3813,7 @@ typedef struct zest_pipeline_template_t {
 	zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
 	void *push_constants;                                                        //Pointer to user push constant data
     
+	zest_uint view_mask;
 	zest_vertex_attribute_desc_t *attribute_descriptions;
 	zest_vertex_binding_desc_t *binding_descriptions;
 	zest_bool no_vertex_input;
@@ -4523,6 +4525,9 @@ ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template
 ZEST_API void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled);
 ZEST_API void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template);
 ZEST_API void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template);
+//When using multiview to render to multiple views in a single render pass then you must set the pipeline to the
+//same number of layers/views as the render that it will use
+ZEST_API void zest_SetPipelineViewCount(zest_pipeline_template pipeline_template, zest_uint view_count);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
 ZEST_API void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout pipeline_layout);
 //The following are helper functions to set color blend attachment states for various blending setups
@@ -4797,6 +4802,9 @@ ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 vec4, float v);
 //Multiply 2 vectors and return the result
 ZEST_API zest_vec3 zest_MulVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 right);
+//Divide 2 vectors and return the result
+ZEST_API zest_vec3 zest_DivVec3(zest_vec3 left, zest_vec3 right);
+ZEST_API zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right);
 //Get the length of a vec without square rooting
 ZEST_API float zest_LengthVec3(zest_vec3 const v);
 ZEST_API float zest_LengthVec4(zest_vec4 const v);
@@ -4986,6 +4994,7 @@ ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint
 //then a new one will be created.
 ZEST_API zest_sampler_handle zest_CreateSampler(zest_context context, zest_sampler_info_t *info);
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfo();
+ZEST_API zest_sampler_info_t zest_CreateSamplerInfoRepeat();
 ZEST_API zest_sampler zest_GetSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSamplerNow(zest_sampler_handle handle);
@@ -5177,7 +5186,7 @@ ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
 //Set the group id for every vertex in the mesh. This can be used in the shader to identify different parts of the mesh and do different shader stuff with them.
 ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
-ZEST_API zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
+ZEST_API zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint texture_index);
 //Get the vertex count in the mesh
 ZEST_API zest_uint zest_MeshVertexCount(zest_mesh mesh);
 //Get the index count in the mesh
@@ -5186,6 +5195,9 @@ ZEST_API zest_uint zest_MeshIndexCount(zest_mesh mesh);
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
+//Pass in an array of meshes and have it calculate the total vertex and index capacity of all the meshes in
+//the array.
+ZEST_API void zest_MeshDataSizes(zest_mesh *meshes, zest_uint mesh_count, zest_size *vertex_capacity, zest_size *index_capacity);
 //Get a pointer to the index mesh data. You can use this as a source data for copying to a staging buffer
 ZEST_API zest_uint *zest_MeshIndexData(zest_mesh mesh);
 //Get a pointer to the vertex mesh data. You can use this as a source data for copying to a staging buffer
@@ -5193,6 +5205,7 @@ ZEST_API zest_vertex_t *zest_MeshVertexData(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
+ZEST_API zest_uint zest_GetLayerMeshTextureIndex(zest_layer layer, zest_uint mesh_index);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------
@@ -6013,6 +6026,7 @@ typedef struct zest_mesh_t {
 	zest_context context;
     zest_vertex_t* vertices;
     zest_uint* indexes;
+	zest_uint material;
 } zest_mesh_t;
 
 typedef struct zest_resource_group_t {
@@ -6103,6 +6117,7 @@ typedef struct zest_device_t {
 	//Device maximums and other settings/formats
 	zest_format depth_format;
 	zest_uint max_image_size;
+	zest_uint max_multiview_view_count;
 	zest_size min_uniform_buffer_offset_alignment;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
@@ -6540,6 +6555,7 @@ typedef struct zest_mesh_offset_data_t {
 	zest_uint index_offset;
 	zest_uint vertex_count;
 	zest_uint index_count;
+	zest_uint texture_index;
 } zest_mesh_offset_data_t;
 
 typedef struct zest_layer_t {
@@ -6946,6 +6962,23 @@ zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 right) {
     return result;
 }
 
+zest_vec3 zest_DivVec3(zest_vec3 left, zest_vec3 right) {
+	zest_vec3 result;
+	result.x = left.x / right.x;
+	result.y = left.y / right.y;
+	result.z = left.z / right.z;
+    return result;
+}
+
+zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right) {
+	zest_vec4 result;
+	result.x = left.x / right.x;
+	result.y = left.y / right.y;
+	result.z = left.z / right.z;
+	result.w = left.w / right.w;
+    return result;
+}
+
 float zest_Vec2Length(zest_vec2 const v) {
     return sqrtf(zest_Vec2Length2(v));
 }
@@ -7133,19 +7166,19 @@ zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
     return v;
 }
 
-zest_matrix4 zest_MatrixTransform(zest_matrix4* in, zest_matrix4* m) {
+zest_matrix4 zest_MatrixTransform(zest_matrix4* left, zest_matrix4* right) {
     zest_matrix4 res = ZEST__ZERO_INIT(zest_matrix4);
 
     __m128 in_row[4];
-    in_row[0] = _mm_load_ps(&in->v[0].x);
-    in_row[1] = _mm_load_ps(&in->v[1].x);
-    in_row[2] = _mm_load_ps(&in->v[2].x);
-    in_row[3] = _mm_load_ps(&in->v[3].x);
+    in_row[0] = _mm_load_ps(&right->v[0].x);
+    in_row[1] = _mm_load_ps(&right->v[1].x);
+    in_row[2] = _mm_load_ps(&right->v[2].x);
+    in_row[3] = _mm_load_ps(&right->v[3].x);
 
-    __m128 m_row1 = _mm_set_ps(m->v[3].x, m->v[2].x, m->v[1].x, m->v[0].x);
-    __m128 m_row2 = _mm_set_ps(m->v[3].y, m->v[2].y, m->v[1].y, m->v[0].y);
-    __m128 m_row3 = _mm_set_ps(m->v[3].z, m->v[2].z, m->v[1].z, m->v[0].z);
-    __m128 m_row4 = _mm_set_ps(m->v[3].w, m->v[2].w, m->v[1].w, m->v[0].w);
+    __m128 m_row1 = _mm_set_ps(left->v[3].x, left->v[2].x, left->v[1].x, left->v[0].x);
+    __m128 m_row2 = _mm_set_ps(left->v[3].y, left->v[2].y, left->v[1].y, left->v[0].y);
+    __m128 m_row3 = _mm_set_ps(left->v[3].z, left->v[2].z, left->v[1].z, left->v[0].z);
+    __m128 m_row4 = _mm_set_ps(left->v[3].w, left->v[2].w, left->v[1].w, left->v[0].w);
 
     for (int r = 0; r <= 3; ++r)
     {
@@ -7198,30 +7231,30 @@ zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
     return v;
 }
 
-zest_matrix4 zest_MatrixTransform(zest_matrix4* in, zest_matrix4* m) {
+zest_matrix4 zest_MatrixTransform(zest_matrix4* left, zest_matrix4* right) {
     zest_matrix4 res = ZEST__ZERO_INIT(zest_matrix4);
 
     float32x4_t in_row[4];
-    in_row[0] = vld1q_f32(&in->v[0].x);
-    in_row[1] = vld1q_f32(&in->v[1].x);
-    in_row[2] = vld1q_f32(&in->v[2].x);
-    in_row[3] = vld1q_f32(&in->v[3].x);
+    in_row[0] = vld1q_f32(&right->v[0].x);
+    in_row[1] = vld1q_f32(&right->v[1].x);
+    in_row[2] = vld1q_f32(&right->v[2].x);
+    in_row[3] = vld1q_f32(&right->v[3].x);
 
-    float32x4_t m_row1 = vsetq_lane_f32(m->v[0].x, vdupq_n_f32(m->v[1].x), 0);
-    m_row1 = vsetq_lane_f32(m->v[2].x, m_row1, 1);
-    m_row1 = vsetq_lane_f32(m->v[3].x, m_row1, 2);
+    float32x4_t m_row1 = vsetq_lane_f32(left->v[0].x, vdupq_n_f32(left->v[1].x), 0);
+    m_row1 = vsetq_lane_f32(left->v[2].x, m_row1, 1);
+    m_row1 = vsetq_lane_f32(left->v[3].x, m_row1, 2);
 
-    float32x4_t m_row2 = vsetq_lane_f32(m->v[0].y, vdupq_n_f32(m->v[1].y), 0);
-    m_row2 = vsetq_lane_f32(m->v[2].y, m_row2, 1);
-    m_row2 = vsetq_lane_f32(m->v[3].y, m_row2, 2);
+    float32x4_t m_row2 = vsetq_lane_f32(left->v[0].y, vdupq_n_f32(left->v[1].y), 0);
+    m_row2 = vsetq_lane_f32(left->v[2].y, m_row2, 1);
+    m_row2 = vsetq_lane_f32(left->v[3].y, m_row2, 2);
 
-    float32x4_t m_row3 = vsetq_lane_f32(m->v[0].z, vdupq_n_f32(m->v[1].z), 0);
-    m_row3 = vsetq_lane_f32(m->v[2].z, m_row3, 1);
-    m_row3 = vsetq_lane_f32(m->v[3].z, m_row3, 2);
+    float32x4_t m_row3 = vsetq_lane_f32(left->v[0].z, vdupq_n_f32(left->v[1].z), 0);
+    m_row3 = vsetq_lane_f32(left->v[2].z, m_row3, 1);
+    m_row3 = vsetq_lane_f32(left->v[3].z, m_row3, 2);
 
-    float32x4_t m_row4 = vsetq_lane_f32(m->v[0].w, vdupq_n_f32(m->v[1].w), 0);
-    m_row4 = vsetq_lane_f32(m->v[2].w, m_row4, 1);
-    m_row4 = vsetq_lane_f32(m->v[3].w, m_row4, 2);
+    float32x4_t m_row4 = vsetq_lane_f32(left->v[0].w, vdupq_n_f32(left->v[1].w), 0);
+    m_row4 = vsetq_lane_f32(left->v[2].w, m_row4, 1);
+    m_row4 = vsetq_lane_f32(left->v[3].w, m_row4, 2);
 
     for (int r = 0; r <= 3; ++r)
     {
@@ -7446,7 +7479,7 @@ zest_matrix4 zest_TransposeMatrix4(zest_matrix4* mat) {
 }
 
 void zest_CalculateFrustumPlanes(zest_matrix4* view_matrix, zest_matrix4* proj_matrix, zest_vec4 planes[6]) {
-    zest_matrix4 matrix = zest_MatrixTransform(view_matrix, proj_matrix);
+    zest_matrix4 matrix = zest_MatrixTransform(proj_matrix, view_matrix);
     // Extracting frustum planes from view-projection matrix
 
     planes[zest_LEFT].x = matrix.v[0].w + matrix.v[0].x;
@@ -8132,6 +8165,8 @@ void zest_ResetDevice(zest_device device) {
 	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
 	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
 	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
+
+	zest__create_default_images(device, &device->setup_info);
 }
 
 void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
@@ -10336,15 +10371,25 @@ void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bo
 }
 
 void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled) {
+    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->rasterization.depth_bias_enable = enabled;
 }
 
 void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template) {
+    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->no_vertex_input = ZEST_FALSE;
 }
 
 void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template) {
+    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->no_vertex_input = ZEST_TRUE;
+}
+
+void zest_SetPipelineViewCount(zest_pipeline_template pipeline_template, zest_uint view_count) {
+    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
+	view_count = ZEST__MIN(view_count, pipeline_template->device->max_multiview_view_count);
+	view_count = ZEST__MAX(1, view_count);
+	pipeline_template->view_mask = (1u << view_count) - 1;
 }
 
 void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout layout) {
@@ -11579,6 +11624,14 @@ zest_sampler_info_t zest_CreateSamplerInfo() {
     sampler_info.min_lod = 0.0f;
     sampler_info.max_lod = 14.0f;
     return sampler_info;
+}
+
+zest_sampler_info_t zest_CreateSamplerInfoRepeat() {
+    zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+    sampler_info.address_mode_u = zest_sampler_address_mode_repeat;
+    sampler_info.address_mode_v = zest_sampler_address_mode_repeat;
+    sampler_info.address_mode_w = zest_sampler_address_mode_repeat;
+	return sampler_info;
 }
 
 zest_sampler zest_GetSampler(zest_sampler_handle handle) {
@@ -13196,6 +13249,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					}
 					color_attachment_index++;
 					exe_details->rendering_info.color_attachment_count++;
+					if (resource->image.info.layer_count > 1) {
+						zest_uint view_mask = (1u << resource->image.info.layer_count) - 1;
+						zest_uint current_mask = exe_details->rendering_info.view_mask;
+						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
+						exe_details->rendering_info.view_mask = view_mask;
+					}
 					//zest_image_layout final_layout = zest__determine_final_layout(zest__determine_final_layout(current_pass_index, resource, output_usage));
 					if (resource->type == zest_resource_type_swap_chain_image) {
 						context->device->platform->add_frame_graph_image_barrier(
@@ -13226,6 +13285,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						exe_details->render_area.extent.height = resource->image.info.extent.height;
 					}
 					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
+					if (resource->image.info.layer_count > 1) {
+						zest_uint view_mask = (1u << resource->image.info.layer_count) - 1;
+						zest_uint current_mask = exe_details->rendering_info.view_mask;
+						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
+						exe_details->rendering_info.view_mask = (1u << resource->image.info.layer_count) - 1;
+					}
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
 				}
 			}
@@ -16543,8 +16608,8 @@ zest_matrix4 zest_RotateMesh(zest_mesh mesh, float pitch, float yaw, float roll)
     zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
     zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
     zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
-    zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
-    rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
+    zest_matrix4 rotate_mat = zest_MatrixTransform(&pitch_mat, &yaw_mat);
+    rotate_mat = zest_MatrixTransform(&roll_mat, &rotate_mat);
     zest_vec_foreach(i, mesh->vertices) {
         zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
         pos = zest_MatrixTransformVector(&rotate_mat, pos);
@@ -16557,8 +16622,8 @@ zest_matrix4 zest_TransformMesh(zest_mesh mesh, float pitch, float yaw, float ro
     zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
     zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
     zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
-    zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
-    rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
+    zest_matrix4 rotate_mat = zest_MatrixTransform(&pitch_mat, &yaw_mat);
+    rotate_mat = zest_MatrixTransform(&roll_mat, &rotate_mat);
     rotate_mat.v[0].w = x;
     rotate_mat.v[1].w = y;
     rotate_mat.v[2].w = z;
@@ -16652,6 +16717,17 @@ zest_size zest_MeshIndexDataSize(zest_mesh mesh) {
     return zest_vec_size(mesh->indexes) * sizeof(zest_uint);
 }
 
+void zest_MeshDataSizes(zest_mesh *meshes, zest_uint mesh_count, zest_size *vertex_capacity, zest_size *index_capacity) {
+	ZEST_ASSERT(meshes, "Null mesh array passed in to zest_MeshDataSizes.");
+	*vertex_capacity = 0;
+	*index_capacity = 0;
+	for (int i = 0; i != mesh_count; i++) {
+		zest_mesh mesh = meshes[i];
+		*vertex_capacity += zest_MeshVertexDataSize(mesh);
+		*index_capacity += zest_MeshIndexDataSize(mesh);
+	}
+}
+
 zest_uint *zest_MeshIndexData(zest_mesh mesh) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
 	return mesh->indexes;
@@ -16676,8 +16752,8 @@ void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
     }
 }
 
-zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint texture_index) {
+	ZEST_ASSERT_HANDLE(layer); 			//ERROR: Not a valid layer pointer
 	ZEST_ASSERT(layer->vertex_data);	//ERROR: No vertex buffer found. Make sure you call zest_CreateInstanceMeshLayer with appropriate capacity
 	ZEST_ASSERT(layer->index_data); 	//ERROR: No index buffer found. Make sure you call zest_CreateInstanceMeshLayer with appropriate capacity
 	zest_device device = layer->context->device;
@@ -16700,6 +16776,7 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
 		last_mesh_offsets.index_offset + last_mesh_offsets.index_count,
 		zest_MeshVertexCount(src_mesh),
 		zest_MeshIndexCount(src_mesh),
+		texture_index
 	};
 	zest_uint index = zest_vec_size(layer->mesh_offsets);
 	zest_vec_push(layer->context->allocator, layer->mesh_offsets, offset_data);
@@ -16722,7 +16799,11 @@ void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float 
     instance->color = layer->current_color;
 	instance->roughness = roughness;
 	instance->metallic = metallic;
+}
 
+zest_uint zest_GetLayerMeshTextureIndex(zest_layer layer, zest_uint mesh_index) {
+	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index outside of bounds.");
+	return layer->mesh_offsets[mesh_index].texture_index;
 }
 
 //--End Instance Draw mesh layers
