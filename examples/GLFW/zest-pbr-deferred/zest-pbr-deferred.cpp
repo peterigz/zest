@@ -171,7 +171,7 @@ void UpdateUniform3d(SimplePBRExample *app) {
 	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
 	// Calculate inverse view-projection matrix for position reconstruction from depth
-	zest_matrix4 view_proj = zest_MatrixTransform(&ubo_ptr->view, &ubo_ptr->proj);
+	zest_matrix4 view_proj = zest_MatrixTransform(&ubo_ptr->proj, &ubo_ptr->view);
 	ubo_ptr->inv_view_proj = zest_Inverse(&view_proj);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
 	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
