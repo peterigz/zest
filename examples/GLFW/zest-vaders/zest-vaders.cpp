@@ -1222,9 +1222,6 @@ void VadersGame::Update(float ellapsed) {
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 		if (!frame_graph) {
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
-				zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
-				zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
-				zest_image sprites_image = zest_GetImage(sprite_texture);
 				//---------------------------------Resources-------------------------------------------------------
 				zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_layer, false);
 				zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_layer, true);
