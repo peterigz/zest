@@ -1,7 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
-#define ZEST_TEST_MODE
 #include "zest-cascading-shadows.h"
 #include "zest.h"
 #include "imgui_internal.h"
@@ -641,8 +640,6 @@ int main(void) {
 
 	//Create the device that serves all vulkan based contexts
 	imgui_app.device = zest_implglfw_CreateDevice(false);
-
-	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
