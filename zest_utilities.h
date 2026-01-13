@@ -2611,10 +2611,6 @@ zest_gltf_t LoadGLTF(zest_context context, const char* filepath) {
 							zest_image material_image = zest_GetImage(model.materials[i].image);
 							model.materials[i].base_color = zest_AcquireSampledImageIndex(context->device, material_image, zest_texture_array_binding);
 							STBI_FREE(bitmap_buffer);
-
-							const char *mime_type = image->mime_type;
-
-								   image->name, pixel_data, data_size, mime_type);
 						} else if (image->uri) {
 							ZEST_PRINT("Image is external: %s\n", image->uri);
 						}
