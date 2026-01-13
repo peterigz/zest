@@ -1356,11 +1356,7 @@ int main() {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	//zest_AddDeviceBuilderValidation(device_builder);
-	//zest_DeviceBuilderLogToConsole(device_builder);
-	game.device = zest_EndDeviceBuilder(device_builder);
+	game.device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

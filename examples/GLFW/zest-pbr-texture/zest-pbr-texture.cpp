@@ -103,7 +103,7 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
-	zest_mesh gun = LoadGLTFMesh(app->context, "examples/assets/gltf/cerberus/cerberus.gltf", &material);
+	zest_mesh gun = LoadGLTFScene(app->context, "examples/assets/gltf/cerberus/cerberus.gltf", 1.f);
 	app->albedo_texture = zest_LoadKTX(app->device, "Gun Albedo", "examples/assets/gltf/cerberus/albedo.ktx");
 	app->normal_texture = zest_LoadKTX(app->device, "Gun Normal", "examples/assets/gltf/cerberus/normal.ktx");
 	app->ao_texture = zest_LoadKTX(app->device, "Gun AO", "examples/assets/gltf/cerberus/ao.ktx");
@@ -124,8 +124,8 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
 
-	app->gun_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), gun);
-	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
+	app->gun_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), gun, 0);
+	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box, 0);
 
 	zest_FreeMesh(gun);
 	zest_FreeMesh(sky_box);

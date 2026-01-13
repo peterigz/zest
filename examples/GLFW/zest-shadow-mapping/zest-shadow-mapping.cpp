@@ -86,7 +86,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_SetPipelineDepthBias(app->shadow_pipeline, ZEST_TRUE);
 	zest_SetPipelineDepthTest(app->shadow_pipeline, true, true);
 
-	zest_mesh vulkan_scene = LoadGLTFScene(app->context, "examples/assets/gltf/vulkanscene_shadow.gltf");
+	zest_mesh vulkan_scene = LoadGLTFScene(app->context, "examples/assets/gltf/vulkanscene_shadow.gltf", 1.f);
 	zest_size vertex_capacity = zest_MeshVertexDataSize(vulkan_scene);
 	zest_size index_capacity = zest_MeshIndexDataSize(vulkan_scene);
 

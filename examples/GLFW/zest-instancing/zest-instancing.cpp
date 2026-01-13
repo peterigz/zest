@@ -100,8 +100,8 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 
-	zest_mesh planet = LoadGLTFMesh(app->context, "examples/assets/gltf/lavaplanet.gltf", 1.f);
-	zest_mesh rock = LoadGLTFMesh(app->context, "examples/assets/gltf/rock01.gltf", 1.f);
+	zest_mesh planet = LoadGLTFScene(app->context, "examples/assets/gltf/lavaplanet.gltf", 1.f);
+	zest_mesh rock = LoadGLTFScene(app->context, "examples/assets/gltf/rock01.gltf", 1.f);
 	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
 
 	zest_size planet_vertex_capacity = zest_MeshVertexDataSize(planet);
@@ -110,10 +110,10 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_size rock_index_capacity = zest_MeshIndexDataSize(rock);
 
 	app->rock_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), rock_vertex_capacity, rock_index_capacity);
-	app->rock_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->rock_layer), rock);
+	app->rock_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->rock_layer), rock, 0);
 
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(cube), zest_MeshIndexDataSize(cube));
-	app->skybox_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), cube);
+	app->skybox_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), cube, 0);
 
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
 	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);

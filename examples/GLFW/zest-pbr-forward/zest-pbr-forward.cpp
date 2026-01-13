@@ -107,9 +107,9 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 
 	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh teapot = LoadGLTFMesh(app->context, "examples/assets/gltf/teapot.gltf", .5f);
-	zest_mesh torus = LoadGLTFMesh(app->context, "examples/assets/gltf/torusknot.gltf", 1.f);
-	zest_mesh venus = LoadGLTFMesh(app->context, "examples/assets/gltf/venus.gltf", 2.f);
+	zest_mesh teapot = LoadGLTFScene(app->context, "examples/assets/gltf/teapot.gltf", .5f);
+	zest_mesh torus = LoadGLTFScene(app->context, "examples/assets/gltf/torusknot.gltf", 1.f);
+	zest_mesh venus = LoadGLTFScene(app->context, "examples/assets/gltf/venus.gltf", 2.f);
 	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
 
 	zest_size vertex_capacity = zest_MeshVertexDataSize(cube);
@@ -127,12 +127,12 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
 
-	app->teapot_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), teapot);
-	app->torus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), torus);
-	app->venus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), venus);
-	app->cube_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), cube);
-	app->sphere_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), sphere);
-	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box);
+	app->teapot_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), teapot, 0);
+	app->torus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), torus, 0);
+	app->venus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), venus, 0);
+	app->cube_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), cube, 0);
+	app->sphere_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), sphere, 0);
+	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box, 0);
 
 	zest_FreeMesh(sky_box);
 	zest_FreeMesh(cube);
