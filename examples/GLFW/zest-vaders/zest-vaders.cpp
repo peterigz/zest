@@ -1225,14 +1225,9 @@ void VadersGame::Update(float ellapsed) {
 				zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
 				zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
 				zest_image sprites_image = zest_GetImage(sprite_texture);
-				//zest_WaitOnTimeline(timeline);
 				//---------------------------------Resources-------------------------------------------------------
-				zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", particle_image, 0);
-				zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", color_ramps_image, 0);
-				zest_resource_node game_sprites_texture = zest_ImportImageResource("Sprites Texture", sprites_image, 0);
 				zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_layer, false);
 				zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_layer, true);
-				zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", tfx_rendering.image_data, 0);
 				zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboards", billboard_layer, false);
 				zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Fonts", font_layer, false);
 				zest_ImportSwapchainResource();
@@ -1250,9 +1245,6 @@ void VadersGame::Update(float ellapsed) {
 
 				//------------------------ Particles Pass -----------------------------------------------------------
 				zest_BeginRenderPass("Particles Pass"); {
-					zest_ConnectInput(particle_texture);
-					zest_ConnectInput(tfx_image_data);
-					zest_ConnectInput(color_ramps_texture);
 					zest_ConnectInput(tfx_write_layer);
 					zest_ConnectInput(tfx_read_layer);
 					zest_ConnectSwapChainOutput();
@@ -1262,7 +1254,6 @@ void VadersGame::Update(float ellapsed) {
 
 				//------------------------ Billboards Pass -----------------------------------------------------------
 				zest_BeginRenderPass("Billboards Pass"); {
-					zest_ConnectInput(game_sprites_texture);
 					zest_ConnectInput(billboard_layer_resource);
 					zest_ConnectSwapChainOutput();
 					zest_SetPassTask(zest_DrawInstanceLayer, billboard_layer);
@@ -1288,7 +1279,6 @@ void VadersGame::Update(float ellapsed) {
 				}
 				//----------------------------------------------------------------------------------------------------
 
-				//zest_SignalTimeline(timeline);
 				//Compile frame graph. 
 				frame_graph = zest_EndFrameGraph();
 			}
