@@ -3875,15 +3875,6 @@ typedef struct zest_textured_vertex_t {
 	zest_uint parameters;                          //packed parameters such as texture layer
 } zest_textured_vertex_t;
 
-typedef struct zest_mesh_instance_t {
-	zest_vec3 pos;                                 //3d position
-	zest_color_t color;                              //packed color
-	zest_vec3 rotation;
-	float roughness;                          //pbr roughness
-	zest_vec3 scale;
-	float metallic;                          //pbr metallic
-} zest_mesh_instance_t;
-
 typedef struct zest_vertex_t {
 	zest_vec3 pos;                              //3d position (12bytes)
 	zest_color_t color;							//Packed color rgba (4 bytes)
@@ -5225,9 +5216,6 @@ ZEST_API void zest_MeshDataSizes(zest_mesh *meshes, zest_uint mesh_count, zest_s
 ZEST_API zest_uint *zest_MeshIndexData(zest_mesh mesh);
 //Get a pointer to the vertex mesh data. You can use this as a source data for copying to a staging buffer
 ZEST_API zest_vertex_t *zest_MeshVertexData(zest_mesh mesh);
-//Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
-//You must call zest_SetInstanceDrawing before calling this function as many times as you need.
-ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
 ZEST_API zest_uint zest_GetLayerMeshTextureIndex(zest_layer layer, zest_uint mesh_index);
 //--End Instance Draw mesh layers
 
@@ -16855,20 +16843,6 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint te
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
 	return index;
-}
-
-void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance, "Make sure you call zest_SetInstanceMeshDrawing before calling this function.");
-
-    zest_mesh_instance_t* instance = (zest_mesh_instance_t*)zest_NextInstance(layer);
-
-    instance->pos = zest_Vec3Set(pos[0], pos[1], pos[2]);
-    instance->rotation = zest_Vec3Set(rot[0], rot[1], rot[2]);
-    instance->scale = zest_Vec3Set(scale[0], scale[1], scale[2]);
-    instance->color = layer->current_color;
-	instance->roughness = roughness;
-	instance->metallic = metallic;
 }
 
 zest_uint zest_GetLayerMeshTextureIndex(zest_layer layer, zest_uint mesh_index) {
