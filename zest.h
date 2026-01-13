@@ -4336,6 +4336,7 @@ ZEST_PRIVATE zest_text_t zest__pipeline_stage_flags_to_string(zest_context conte
 ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
 ZEST_API_TMP zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
+ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag_for_view(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_depth_stencil_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_compressed_format(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
@@ -4806,11 +4807,11 @@ ZEST_API zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 right);
 ZEST_API zest_vec3 zest_DivVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right);
 //Get the length of a vec without square rooting
-ZEST_API float zest_LengthVec3(zest_vec3 const v);
-ZEST_API float zest_LengthVec4(zest_vec4 const v);
-ZEST_API float zest_Vec2Length2(zest_vec2 const v);
+ZEST_API float zest_LengthVec3NS(zest_vec3 const v);
+ZEST_API float zest_LengthVec4NS(zest_vec4 const v);
+ZEST_API float zest_Vec2LengthNS(zest_vec2 const v);
 //Get the length of a vec
-ZEST_API float zest_LengthVec(zest_vec3 const v);
+ZEST_API float zest_LengthVec3(zest_vec3 const v);
 ZEST_API float zest_Vec2Length(zest_vec2 const v);
 //Normalise vectors
 ZEST_API zest_vec2 zest_NormalizeVec2(zest_vec2 const v);
@@ -4995,6 +4996,7 @@ ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint
 ZEST_API zest_sampler_handle zest_CreateSampler(zest_context context, zest_sampler_info_t *info);
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfo();
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfoRepeat();
+ZEST_API zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat();
 ZEST_API zest_sampler zest_GetSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSamplerNow(zest_sampler_handle handle);
@@ -5087,7 +5089,11 @@ ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
 ZEST_API const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index);
 ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
-ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_handle);
+ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
+ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index);
+ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
+ZEST_API zest_scissor_rect_t zest_GetLayerScissor(zest_layer layer);
+ZEST_API zest_viewport_t zest_GetLayerViewport(zest_layer layer);
 //-- End Draw Layers
 
 
@@ -5378,6 +5384,7 @@ ZEST_API void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_r
 ZEST_API void zest_cmd_InsertComputeImageBarrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 //Set a screen sized viewport and scissor command in the render pass
 ZEST_API void zest_cmd_SetScreenSizedViewport(const zest_command_list command_list, float min_depth, float max_depth);
+ZEST_API void zest_cmd_LayerViewport(const zest_command_list command_list, zest_layer layer);
 ZEST_API void zest_cmd_Scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor);
 ZEST_API void zest_cmd_ViewPort(const zest_command_list command_list, zest_viewport_t *viewport);
 //Create a scissor and view port command. Must be called within a command buffer
@@ -6980,23 +6987,23 @@ zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right) {
 }
 
 float zest_Vec2Length(zest_vec2 const v) {
-    return sqrtf(zest_Vec2Length2(v));
+    return sqrtf(v.x * v.x + v.y * v.y);
 }
 
-float zest_Vec2Length2(zest_vec2 const v) {
+float zest_Vec2LengthNS(zest_vec2 const v) {
     return v.x * v.x + v.y * v.y;
 }
 
-float zest_LengthVec3(zest_vec3 const v) {
+float zest_LengthVec3NS(zest_vec3 const v) {
     return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-float zest_LengthVec4(zest_vec4 const v) {
+float zest_LengthVec4NS(zest_vec4 const v) {
     return v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
 }
 
-float zest_LengthVec(zest_vec3 const v) {
-    return sqrtf(zest_LengthVec3(v));
+float zest_LengthVec3(zest_vec3 const v) {
+    return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
 }
 
 zest_vec2 zest_NormalizeVec2(zest_vec2 const v) {
@@ -7008,7 +7015,7 @@ zest_vec2 zest_NormalizeVec2(zest_vec2 const v) {
 }
 
 zest_vec3 zest_NormalizeVec3(zest_vec3 const v) {
-    float length = zest_LengthVec(v);
+    float length = zest_LengthVec3(v);
 	zest_vec3 result;
 	result.x = v.x / length;
 	result.y = v.y / length;
@@ -7017,7 +7024,7 @@ zest_vec3 zest_NormalizeVec3(zest_vec3 const v) {
 }
 
 zest_vec4 zest_NormalizeVec4(zest_vec4 const v) {
-    float length = sqrtf(zest_LengthVec4(v));
+    float length = sqrtf(zest_LengthVec4NS(v));
 	zest_vec4 result;
 	result.x = v.x / length;
 	result.y = v.y / length;
@@ -7141,28 +7148,25 @@ zest_matrix4 zest_CreateMatrix4(float pitch, float yaw, float roll, float x, flo
 zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
     zest_vec4 v;
 
-    __m128 v4 = _mm_set_ps(vec.w, vec.z, vec.y, vec.x);
+    // Load matrix columns (column-major storage)
+    __m128 col0 = _mm_load_ps(&mat->v[0].x);
+    __m128 col1 = _mm_load_ps(&mat->v[1].x);
+    __m128 col2 = _mm_load_ps(&mat->v[2].x);
+    __m128 col3 = _mm_load_ps(&mat->v[3].x);
 
-    __m128 mrow1 = _mm_load_ps(&mat->v[0].x);
-    __m128 mrow2 = _mm_load_ps(&mat->v[1].x);
-    __m128 mrow3 = _mm_load_ps(&mat->v[2].x);
-    __m128 mrow4 = _mm_load_ps(&mat->v[3].x);
+    // Broadcast each vector component
+    __m128 vx = _mm_set1_ps(vec.x);
+    __m128 vy = _mm_set1_ps(vec.y);
+    __m128 vz = _mm_set1_ps(vec.z);
+    __m128 vw = _mm_set1_ps(vec.w);
 
-    __m128 row1result = _mm_mul_ps(v4, mrow1);
-    __m128 row2result = _mm_mul_ps(v4, mrow2);
-    __m128 row3result = _mm_mul_ps(v4, mrow3);
-    __m128 row4result = _mm_mul_ps(v4, mrow4);
+    // result = col0 * vec.x + col1 * vec.y + col2 * vec.z + col3 * vec.w
+    __m128 result = _mm_add_ps(
+        _mm_add_ps(_mm_mul_ps(col0, vx), _mm_mul_ps(col1, vy)),
+        _mm_add_ps(_mm_mul_ps(col2, vz), _mm_mul_ps(col3, vw))
+    );
 
-    float tmp[4];
-    _mm_store_ps(tmp, row1result);
-    v.x = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    _mm_store_ps(tmp, row2result);
-    v.y = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    _mm_store_ps(tmp, row3result);
-    v.z = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    _mm_store_ps(tmp, row4result);
-    v.w = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-
+    _mm_store_ps(&v.x, result);
     return v;
 }
 
@@ -7206,28 +7210,25 @@ zest_matrix4 zest_MatrixTransform(zest_matrix4* left, zest_matrix4* right) {
 zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
     zest_vec4 v;
 
-    float32x4_t v4 = vld1q_f32(&vec.x);
+    // Load matrix columns (column-major storage)
+    float32x4_t col0 = vld1q_f32(&mat->v[0].x);
+    float32x4_t col1 = vld1q_f32(&mat->v[1].x);
+    float32x4_t col2 = vld1q_f32(&mat->v[2].x);
+    float32x4_t col3 = vld1q_f32(&mat->v[3].x);
 
-    float32x4_t mrow1 = vld1q_f32(&mat->v[0].x);
-    float32x4_t mrow2 = vld1q_f32(&mat->v[1].x);
-    float32x4_t mrow3 = vld1q_f32(&mat->v[2].x);
-    float32x4_t mrow4 = vld1q_f32(&mat->v[3].x);
+    // Broadcast each vector component
+    float32x4_t vx = vdupq_n_f32(vec.x);
+    float32x4_t vy = vdupq_n_f32(vec.y);
+    float32x4_t vz = vdupq_n_f32(vec.z);
+    float32x4_t vw = vdupq_n_f32(vec.w);
 
-    float32x4_t row1result = vmulq_f32(v4, mrow1);
-    float32x4_t row2result = vmulq_f32(v4, mrow2);
-    float32x4_t row3result = vmulq_f32(v4, mrow3);
-    float32x4_t row4result = vmulq_f32(v4, mrow4);
+    // result = col0 * vec.x + col1 * vec.y + col2 * vec.z + col3 * vec.w
+    float32x4_t result = vaddq_f32(
+        vaddq_f32(vmulq_f32(col0, vx), vmulq_f32(col1, vy)),
+        vaddq_f32(vmulq_f32(col2, vz), vmulq_f32(col3, vw))
+    );
 
-    float tmp[4];
-    vst1q_f32(tmp, row1result);
-    v.x = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    vst1q_f32(tmp, row2result);
-    v.y = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    vst1q_f32(tmp, row3result);
-    v.z = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-    vst1q_f32(tmp, row4result);
-    v.w = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-
+    vst1q_f32(&v.x, result);
     return v;
 }
 
@@ -11634,6 +11635,14 @@ zest_sampler_info_t zest_CreateSamplerInfoRepeat() {
 	return sampler_info;
 }
 
+zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat() {
+    zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+    sampler_info.address_mode_u = zest_sampler_address_mode_mirrored_repeat;
+    sampler_info.address_mode_v = zest_sampler_address_mode_mirrored_repeat;
+    sampler_info.address_mode_w = zest_sampler_address_mode_mirrored_repeat;
+	return sampler_info;
+}
+
 zest_sampler zest_GetSampler(zest_sampler_handle handle) {
 	zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(handle.store, handle.value);
 	return sampler;
@@ -11708,7 +11717,7 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
     }
     image->info.flags |= zest_image_flag_transient;
     image->info.flags |= zest_image_flag_device_local;
-    image->info.aspect_flags = zest__determine_aspect_flag(resource->image.info.format);
+    image->info.aspect_flags = zest__determine_aspect_flag_for_view(resource->image.info.format);
     image->info.mip_levels = resource->image.info.mip_levels > 0 ? resource->image.info.mip_levels : 1;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_cubemap)) {
         ZEST_ASSERT(image->info.layer_count > 0 && image->info.layer_count % 6 == 0); // Cubemap must have layers in multiples of 6!
@@ -13354,6 +13363,29 @@ zest_image_aspect_flags zest__determine_aspect_flag(zest_format format) {
 		case zest_format_d24_unorm_s8_uint:
 		case zest_format_d32_sfloat_s8_uint:
 			return zest_image_aspect_depth_bit | zest_image_aspect_stencil_bit;
+		default:
+			return zest_image_aspect_color_bit;
+    }
+}
+
+zest_image_aspect_flags zest__determine_aspect_flag_for_view(zest_format format) {
+	/*	Views must be either depth or stencil they can't be both hence the separate function. At some point
+		this needs updating to take a usage hint or something, for now though depth is returned by default.	
+*/
+    switch (format) {
+        // Depth-Only Formats
+		case zest_format_d16_unorm:
+		case zest_format_x8_d24_unorm_pack32: // D24_UNORM component, X8 is undefined
+		case zest_format_d32_sfloat:
+			return zest_image_aspect_depth_bit;
+			// Stencil-Only Formats
+		case zest_format_s8_uint:
+			return zest_image_aspect_stencil_bit;
+			// Combined Depth/Stencil Formats
+		case zest_format_d16_unorm_s8_uint:
+		case zest_format_d24_unorm_s8_uint:
+		case zest_format_d32_sfloat_s8_uint:
+			return zest_image_aspect_depth_bit;
 		default:
 			return zest_image_aspect_color_bit;
     }
@@ -15401,7 +15433,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
 	zest_image_handle handle = zest__new_image(device);
     zest_image image = (zest_image)zest__get_store_resource_unsafe(handle.store, handle.value);
     image->info = *create_info;
-    image->info.aspect_flags = zest__determine_aspect_flag(create_info->format);
+    image->info.aspect_flags = zest__determine_aspect_flag_for_view(create_info->format);
     image->info.mip_levels = create_info->mip_levels > 0 ? create_info->mip_levels : 1;
     if (ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
         image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(create_info->extent.width, create_info->extent.height))) + 1;
@@ -16251,15 +16283,24 @@ zest_buffer zest_GetLayerVertexBuffer(zest_layer layer) {
     return layer->memory_refs[layer->fif].device_vertex_data;
 }
 
-zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
+zest_uint zest_GetLayerInstructionCount(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	if (layer->instruction_index < zest_vec_size(layer->draw_instructions[layer->fif])) {
-		zest_layer_instruction_t *instruction = &layer->draw_instructions[layer->fif][layer->instruction_index];
-		layer->instruction_index++;
-		return instruction;
-	}
-	layer->instruction_index = 0;
-	return NULL;
+	return zest_vec_size(layer->draw_instructions[layer->fif]);
+}
+
+zest_scissor_rect_t zest_GetLayerScissor(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	return layer->scissor;
+}
+zest_viewport_t zest_GetLayerViewport(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	return layer->viewport;
+}
+
+const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
+	return &layer->draw_instructions[layer->fif][index];
 }
 
 void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data) {
@@ -17295,6 +17336,11 @@ void zest_cmd_SetScreenSizedViewport(const zest_command_list command_list, float
     ZEST_ASSERT_HANDLE(command_list->frame_graph);
     ZEST_ASSERT_HANDLE(command_list->frame_graph->swapchain);    //frame graph must be set up with a swapchain to use this function
 	command_list->context->device->platform->set_screensized_viewport(command_list, min_depth, max_depth);
+}
+
+void zest_cmd_LayerViewport(const zest_command_list command_list, zest_layer layer) {
+	command_list->context->device->platform->scissor(command_list, &layer->scissor);
+	command_list->context->device->platform->viewport(command_list, &layer->viewport);
 }
 
 void zest_cmd_Scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor) {
