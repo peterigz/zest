@@ -424,6 +424,7 @@ typedef struct zest_image_backend_t {
 	VkImage vk_image;
 	VkImageLayout vk_current_layout; // The actual, current layout of the image on the GPU
     VkImageAspectFlags vk_aspect;
+    VkImageAspectFlags vk_view_aspect;
 	VkFormat vk_format;
 	VkExtent3D vk_extent;
 } zest_image_backend_t;
@@ -3345,6 +3346,7 @@ zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint 
 
     image->backend->vk_format = image_info.format;
     image->backend->vk_aspect = (VkImageAspectFlags)zest__determine_aspect_flag(image->info.format);
+    image->backend->vk_view_aspect = (VkImageAspectFlags)zest__determine_aspect_flag_for_view(image->info.format);
     image->backend->vk_current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     image->backend->vk_extent = image_info.extent;
 
@@ -3591,7 +3593,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image ima
     viewInfo.image = image->backend->vk_image;
     viewInfo.viewType = (VkImageViewType)view_type;
     viewInfo.format = image->backend->vk_format;
-    viewInfo.subresourceRange.aspectMask = image->backend->vk_aspect;
+    viewInfo.subresourceRange.aspectMask = image->backend->vk_view_aspect;
     viewInfo.subresourceRange.baseMipLevel = base_mip;
     viewInfo.subresourceRange.levelCount = mip_levels_this_view;
     viewInfo.subresourceRange.baseArrayLayer = base_array_index;
@@ -3637,7 +3639,7 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_device device, ze
     viewInfo.image = image->backend->vk_image;
     viewInfo.viewType = (VkImageViewType)view_type;
     viewInfo.format = image->backend->vk_format;
-    viewInfo.subresourceRange.aspectMask = image->backend->vk_aspect;
+    viewInfo.subresourceRange.aspectMask = image->backend->vk_view_aspect;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = base_array_index;
     viewInfo.subresourceRange.layerCount = layer_count;
