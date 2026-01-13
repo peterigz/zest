@@ -86,12 +86,12 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_SetPipelineDepthBias(app->shadow_pipeline, ZEST_TRUE);
 	zest_SetPipelineDepthTest(app->shadow_pipeline, true, true);
 
-	zest_mesh vulkan_scene = LoadGLTFMesh(app->context, "examples/assets/gltf/vulkanscene_shadow.gltf", 1.f);
+	zest_mesh vulkan_scene = LoadGLTFScene(app->context, "examples/assets/gltf/vulkanscene_shadow.gltf");
 	zest_size vertex_capacity = zest_MeshVertexDataSize(vulkan_scene);
 	zest_size index_capacity = zest_MeshIndexDataSize(vulkan_scene);
 
 	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
-	app->vulkanscene_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), vulkan_scene);
+	app->vulkanscene_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), vulkan_scene, 0);
 	app->light_fov = 45;
 	app->light_position = {30.f, 50.f, 25.f};
 	app->scene_push.enable_pcf = 1;
@@ -113,8 +113,8 @@ void UpdateUniform3d(ShadowMappingExample *app) {
 	zest_matrix4 depthProjectionMatrix = zest_Perspective(zest_Radians(app->light_fov), 1.0f, app->z_near, app->z_far);
 	zest_matrix4 depthViewMatrix = zest_LookAt(app->light_position, { 0.f }, {0, 1, 0});
 	zest_matrix4 depthModelMatrix = zest_M4(1.f);
-	offscreen_ptr->depth_mvp = zest_MatrixTransform(&depthViewMatrix, &depthProjectionMatrix); 
-	offscreen_ptr->depth_mvp = zest_MatrixTransform(&offscreen_ptr->depth_mvp, &depthModelMatrix);
+	offscreen_ptr->depth_mvp = zest_MatrixTransform(&depthProjectionMatrix, &depthViewMatrix); 
+	offscreen_ptr->depth_mvp = zest_MatrixTransform(&depthModelMatrix, &offscreen_ptr->depth_mvp);
 
 	// Uniform data for drawing the scene
 	uniform_buffer_data_t *view_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(view_buffer));
