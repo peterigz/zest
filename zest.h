@@ -5089,6 +5089,7 @@ ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
 ZEST_API const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index);
 ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
+ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
 ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
@@ -7435,7 +7436,8 @@ zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_he
     ray_eye = zest_Vec4Set(ray_eye.x, ray_eye.y, -1.f, 1.0f);
     // world space to eye space is usually multiply by view so
     // eye space to world space is inverse view
-    zest_vec4 inv_ray_wor = zest_MatrixTransformVector(view, ray_eye);
+    zest_matrix4 inverse_view = zest_Inverse(view);
+    zest_vec4 inv_ray_wor = zest_MatrixTransformVector(&inverse_view, ray_eye);
     zest_vec3 ray_wor = zest_Vec3Set(inv_ray_wor.x, inv_ray_wor.y, inv_ray_wor.z);
     return ray_wor;
 }
@@ -16301,6 +16303,17 @@ const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
 	return &layer->draw_instructions[layer->fif][index];
+}
+
+zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	if (layer->instruction_index < zest_vec_size(layer->draw_instructions[layer->fif])) {
+		zest_layer_instruction_t *instruction = &layer->draw_instructions[layer->fif][layer->instruction_index];
+		layer->instruction_index++;
+		return instruction;
+	}
+	layer->instruction_index = 0;
+	return NULL;
 }
 
 void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data) {
