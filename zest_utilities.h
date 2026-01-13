@@ -311,7 +311,7 @@ typedef struct zest_gltf_t {
 	zest_uint material_count;
 } zest_gltf_t;
 
-zest_mesh LoadGLTFScene(zest_context context, const char* filepath);
+zest_mesh LoadGLTFScene(zest_context context, const char* filepath, float adjust_scale);
 zest_gltf_t LoadGLTF(zest_context context, const char* filepath);
 void zest_FreeGLTF(zest_gltf_t *model);
 
@@ -2323,7 +2323,7 @@ static inline void zest__normalize_vec3_cgltf(float v[3]) {
 	}
 }
 
-zest_mesh LoadGLTFScene(zest_context context, const char* filepath) {
+zest_mesh LoadGLTFScene(zest_context context, const char* filepath, float adjust_scale) {
 	cgltf_options options = {0};
 	cgltf_data* data = NULL;
 
@@ -2391,6 +2391,9 @@ zest_mesh LoadGLTFScene(zest_context context, const char* filepath) {
 				float uv[2] = { 0 };
 				cgltf_accessor_read_float(pos_acc, v, pos, 3);
 				zest__transform_point_cgltf(world_matrix, pos);
+				pos[0] *= adjust_scale;
+				pos[1] *= adjust_scale;
+				pos[2] *= adjust_scale;
 				if (norm_acc) {
 					cgltf_accessor_read_float(norm_acc, v, norm, 3);
 					zest__transform_direction_cgltf(world_matrix, norm);
