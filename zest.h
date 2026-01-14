@@ -141,7 +141,7 @@ typedef unsigned int zloc_thread_access;
 typedef int zloc_bool;
 typedef void* zloc_pool;
 
-#include <stdio.h>		//For printf mainly
+#include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
@@ -3665,6 +3665,7 @@ typedef struct zest_rendering_attachment_info_t {
 	zest_load_op load_op;
 	zest_store_op store_op;
 	zest_clear_value_t clear_value;
+	zest_bool is_swapchain_image;
 } zest_rendering_attachment_info_t;
 
 typedef struct zest_rendering_info_t {
@@ -8037,7 +8038,7 @@ void zest_EndFrame(zest_context context) {
             zest__frame_graph_builder = NULL;
         }
     } else {
-        ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph. Also make sure that if you are calling that function the the frame graph you're passing in is not NULL");
+        ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph. Also make sure that if you are calling that function the the frame graph you're passing in is not NULL. \n\nIt could just be that you have a condition (like if imgui doesn't return a pass because it has nothing to render yet), in which case this can be ignored.");
     }
 	
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
@@ -13190,14 +13191,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				}
 				if (output_usage->purpose == zest_purpose_color_attachment_write) {
 					zest_rendering_attachment_info_t color = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
-					//ZEST_ASSERT(resource->view);
 					color.image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
 					color.layout = output_usage->image_layout;
 					color.load_op = output_usage->load_op;
 					color.store_op = output_usage->store_op;
 					color.clear_value = output_usage->clear_value;
 					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
-					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
 					if (color_attachment_index == 0) {
 						exe_details->render_area.offset.x = 0;
 						exe_details->render_area.offset.y = 0;
@@ -13214,6 +13213,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					}
 					//zest_image_layout final_layout = zest__determine_final_layout(zest__determine_final_layout(current_pass_index, resource, output_usage));
 					if (resource->type == zest_resource_type_swap_chain_image) {
+						color.is_swapchain_image = ZEST_TRUE;
 						context->device->platform->add_frame_graph_image_barrier(
 							resource, &exe_details->barriers, ZEST_FALSE,
 							output_usage->access_mask, zest_access_none,
@@ -13223,6 +13223,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						);
 						ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_present_after_execute);
 					}
+					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
 				} else if (output_usage->purpose == zest_purpose_color_attachment_resolve) {
 					exe_details->color_attachments[color_attachment_index].resolve_layout = output_usage->image_layout;
 					exe_details->color_attachments[color_attachment_index].resolve_image_view = &resource->view;
