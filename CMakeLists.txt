@@ -11,9 +11,13 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-# Add the zest interface library target
+# Add the zest interface library target (for header-only usage)
 add_library(zest-interface INTERFACE)
 target_include_directories(zest-interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Add the zest static library target (compiles to .lib)
+add_library(zest STATIC zest.cpp)
+target_include_directories(zest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # --- [NEW] Optional Slang Integration ---
 option(ZEST_ENABLE_SLANG "Enable Slang shader compiler support" OFF)
@@ -121,14 +125,22 @@ ELSE(WIN32)
 #   link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF(WIN32)
 
-# Link zest-interface with Vulkan
-        # Link Slang to zest-interface
+# Link zest-interface with Vulkan (for header-only usage)
 if(ZEST_ENABLE_SLANG)
 	target_link_libraries(zest-interface INTERFACE Vulkan::Vulkan Vulkan::shaderc_combined ${SLANG_LIBRARY})
 else ()
 	target_link_libraries(zest-interface INTERFACE Vulkan::Vulkan Vulkan::shaderc_combined)
 endif ()
 target_link_options(zest-interface INTERFACE "/ignore:4099")
+
+# Link zest static library with Vulkan
+if(ZEST_ENABLE_SLANG)
+	target_compile_definitions(zest PRIVATE ZEST_ENABLE_SLANG)
+	target_link_libraries(zest PUBLIC Vulkan::Vulkan Vulkan::shaderc_combined ${SLANG_LIBRARY})
+else ()
+	target_link_libraries(zest PUBLIC Vulkan::Vulkan Vulkan::shaderc_combined)
+endif ()
+target_link_options(zest PUBLIC "/ignore:4099")
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 if (GLFW3_FOUND)
