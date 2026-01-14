@@ -4148,10 +4148,18 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 		}
 		color_attachments[i].loadOp = zest__to_vk_load_op(info->load_op);
 		color_attachments[i].storeOp = zest__to_vk_store_op(info->store_op);
-		color_attachments[i].clearValue.color.float32[0] =  info->clear_value.color.r;
-		color_attachments[i].clearValue.color.float32[1] =  info->clear_value.color.g;
-		color_attachments[i].clearValue.color.float32[2] =  info->clear_value.color.b;
-		color_attachments[i].clearValue.color.float32[3] =  info->clear_value.color.a;
+		if (info->is_swapchain_image) {
+			//Get the color directly from the swap chain
+			color_attachments[i].clearValue.color.float32[0] = context->swapchain->clear_color.color.r;
+			color_attachments[i].clearValue.color.float32[1] = context->swapchain->clear_color.color.g;
+			color_attachments[i].clearValue.color.float32[2] = context->swapchain->clear_color.color.b;
+			color_attachments[i].clearValue.color.float32[3] = context->swapchain->clear_color.color.a;
+		} else {
+			color_attachments[i].clearValue.color.float32[0] = info->clear_value.color.r;
+			color_attachments[i].clearValue.color.float32[1] = info->clear_value.color.g;
+			color_attachments[i].clearValue.color.float32[2] = info->clear_value.color.b;
+			color_attachments[i].clearValue.color.float32[3] = info->clear_value.color.a;
+		}
 	}
 
 	zest_bool has_depth = 0;
