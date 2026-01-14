@@ -1,6 +1,6 @@
 # Zest
 
-**A lightweight single-header Vulkan rendering library**
+**A lightweight single-header rendering library**
 
 Zest is a C11-compatible rendering library that wraps Vulkan with a clean, modern API. It provides a frame graph execution model, bindless descriptors, and automatic resource management - all in a single header file.
 
