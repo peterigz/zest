@@ -19,6 +19,7 @@ void BlankScreen(const zest_command_list command_list, void *user_data) {
 }
 
 void MainLoop(minimal_app_t *app) {
+	// In loop:
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		zest_UpdateDevice(app->device);
 		glfwPollEvents();

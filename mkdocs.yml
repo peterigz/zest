@@ -1,0 +1,109 @@
+site_name: Zest Documentation
+site_description: A lightweight single-header Vulkan rendering library
+site_url: https://zest-docs.example.com
+repo_url: https://github.com/peterigz/zest
+repo_name: peterigz/zest
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ['.', 'examples/GLFW']
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+  - def_list
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - Installation: getting-started/installation.md
+    - First Application: getting-started/first-application.md
+    - Architecture Overview: getting-started/architecture.md
+  - Concepts:
+    - concepts/index.md
+    - Device & Context: concepts/device-and-context.md
+    - Frame Graph: concepts/frame-graph.md
+    - Pipelines: concepts/pipelines.md
+    - Buffers: concepts/buffers.md
+    - Images: concepts/images.md
+    - Layers: concepts/layers.md
+    - Bindless Descriptors: concepts/bindless.md
+    - Memory Management: concepts/memory.md
+  - Tutorials:
+    - tutorials/index.md
+    - Minimal Template: tutorials/01-minimal-template.md
+    - Adding ImGui: tutorials/02-imgui.md
+    - GPU Instancing: tutorials/03-instancing.md
+    - Loading Textures: tutorials/04-textures.md
+    - Compute Shaders: tutorials/05-compute.md
+    - Multi-Pass Rendering: tutorials/06-multipass.md
+    - Shadow Mapping: tutorials/07-shadows.md
+  - API Reference:
+    - api-reference/index.md
+    - Device API: api-reference/device.md
+    - Context API: api-reference/context.md
+    - Frame Graph API: api-reference/frame-graph.md
+    - Pipeline API: api-reference/pipeline.md
+    - Buffer API: api-reference/buffer.md
+    - Image API: api-reference/image.md
+    - Layer API: api-reference/layer.md
+    - Compute API: api-reference/compute.md
+    - Command API: api-reference/commands.md
+    - Immediate API: api-reference/immediate.md
+    - Math API: api-reference/math.md
+    - Camera API: api-reference/camera.md
+    - Timer API: api-reference/timer.md
+  - Examples:
+    - examples/index.md
