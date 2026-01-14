@@ -5,6 +5,11 @@
 #include "zest.h"
 #include "imgui_internal.h"
 
+/*
+Example recreated from Sascha Willems "Cascaded shadow mapping for directional light sources" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/shadowmappingcascade
+*/
+
 void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
