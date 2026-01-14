@@ -84,7 +84,7 @@ You don't have to use this file but it can help with just getting started with t
 
 This is a more forward looking library in that Vulkan 1.2 is the minimum requirement and the GPU must be able to 
 handle bindless descriptor sets and dynamic rendering and so it's more for desktop rendering, this is not a renderer
-for mobiles for now.
+for mobiles for now although it will more going in to the future.
 
 Core Architecture & Features
 * 	Separate platform layer so that the API can be compiled with Vulkan/DX12/Metal. Currently only Vulkan exists 
@@ -141,11 +141,10 @@ typedef unsigned int zloc_thread_access;
 typedef int zloc_bool;
 typedef void* zloc_pool;
 
-#include <stdlib.h>
-#include <stddef.h>
-#include <assert.h>
-#include <stdint.h>
+#include <stdio.h>		//For printf mainly
+#include <stdint.h>		//For uint32_t etc.
 #if !defined (ZLOC_ASSERT)
+#include <assert.h>
 #define ZLOC_ASSERT assert
 #endif
 
@@ -184,7 +183,6 @@ typedef size_t zloc_fl_bitmap;
 
 //Redo this and output to a user defined log file instead
 #ifdef ZLOC_OUTPUT_ERROR_MESSAGES
-#include <stdio.h>
 #define ZLOC_PRINT_ERROR(message_f, ...) printf(message_f"\033[0m", __VA_ARGS__)
 #else
 #define ZLOC_PRINT_ERROR(message_f, ...)
@@ -868,11 +866,6 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 
 //--End of header declarations
 
-#include <math.h>
-#include <float.h>
-#include <string.h>
-#include <errno.h>
-
 //Macro_Defines
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
 #define ZEST_INTEL
@@ -890,9 +883,6 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #ifndef ZEST_ASSERT
 
 #ifndef NDEBUG
-
-#include <stdio.h>
-#include <stdlib.h>
 
 #define ZEST_INTERNAL_ASSERT_IMPL(condition, format, ...) \
     do { \
@@ -1045,7 +1035,6 @@ Other color possibilities
 #define ZEST_ALERT(message_f, ...) printf(ZEST_ALERT_COLOR##message_f"\n\033[0m", ##__VA_ARGS__)
 
 #ifdef ZEST_OUTPUT_NOTICE_MESSAGES
-#include <stdio.h>
 #define ZEST_PRINT_NOTICE(message_f, ...) printf(ZEST_NOTICE_COLOR##message_f"\n\033[0m", __VA_ARGS__)
 #else
 #define ZEST_PRINT_NOTICE(message_f, ...)
@@ -1064,6 +1053,7 @@ Other color possibilities
 #define ZEST_PI 3.14159265359f
 #define ZEST_FIXED_LOOP_BUFFER 0xF18
 #define ZEST_MAX_ATTACHMENTS 8
+#define ZEST_MAX_FLOAT     3.402823466e+38F
 
 #ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
 #define ZEST_MAX_DEVICE_MEMORY_POOLS 64
@@ -1074,7 +1064,7 @@ Other color possibilities
 #define zest_ForEachFrameInFlight(index) for (unsigned int index = 0; index != ZEST_MAX_FIF; ++index)
 
 //Typedefs_for_numbers
-typedef unsigned int zest_uint;
+typedef uint32_t zest_uint;
 typedef unsigned long zest_long;
 typedef unsigned long long zest_ull;
 typedef uint16_t zest_u16;
@@ -1177,7 +1167,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 
 #if defined (_WIN32)
 #include <windows.h>
-#include <direct.h>
+#include <direct.h>	//For creating a directory when caching shaders
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat_s(left, size, right)
 #define zest_strcpy(left, size, right) strcpy_s(left, size, right)
@@ -1201,8 +1191,6 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 
 #elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && (defined(__i386__) || defined(__x86_64__)) || defined(__clang__)
 #include <time.h>
-//We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
-#include <GLFW/glfw3.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #define ZEST_ALIGN_PREFIX(v)
@@ -3846,36 +3834,7 @@ typedef struct zest_buffer_image_copy_t {
 	zest_extent3d_t image_extent;
 } zest_buffer_image_copy_t;
 
-typedef struct zest_sprite_instance_t {            //52 bytes
-	zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-	zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
-	zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-	zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
-	zest_color_t color;                            //The color tint of the sprite
-	zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-	zest_uint padding[3];
-} zest_sprite_instance_t;
-
-typedef struct zest_billboard_instance_t {         //56 bytes
-	zest_vec3 position;                            //The position of the sprite
-	zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
-	zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch 
-	zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-	zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-	zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-	zest_color_t color;                              //The color tint of the sprite
-	zest_u64 padding;
-} zest_billboard_instance_t;
-
-typedef struct zest_textured_vertex_t {
-	zest_vec3 pos;                                 //3d position
-	float intensity;                               //Alpha level (can go over 1 to increase intensity of colors)
-	zest_vec2 uv;                                  //Texture coordinates
-	zest_color_t color;                              //packed color
-	zest_uint parameters;                          //packed parameters such as texture layer
-} zest_textured_vertex_t;
-
-//We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
+//We just have a copy of the ImGui Draw vert here so that we can setup things for imgui
 //should anyone choose to use it
 typedef struct zest_ImDrawVert_t {
 	zest_vec2 pos;
@@ -5144,8 +5103,6 @@ ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
 ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_pipeline_template pipeline);
-//Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
-ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushIndex(zest_layer layer, zest_uint offset);
 //Callback for the frame graph
@@ -5428,11 +5385,6 @@ goto cleanup; \
 
 // [Zloc_implementation]
 #if defined(ZEST_IMPLEMENTATION)
-
-#include <math.h>
-#include <limits.h>
-#include <stddef.h>
-#include <string.h>
 
 //Definitions
 ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block) {
@@ -16512,37 +16464,6 @@ void zest_GrowMeshIndexBuffers(zest_layer layer) {
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
-void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    zest_textured_vertex_t vertex = ZEST__ZERO_INIT(zest_textured_vertex_t);
-    vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
-    vertex.intensity = intensity;
-    vertex.uv = zest_Vec2Set(uv_x, uv_y);
-    vertex.color = color;
-    vertex.parameters = parameters;
-    zest_textured_vertex_t* vertex_ptr = (zest_textured_vertex_t*)layer->memory_refs[layer->fif].vertex_ptr;
-    *vertex_ptr = vertex;
-    vertex_ptr = vertex_ptr + 1;
-    ZEST_ASSERT(vertex_ptr >= (zest_textured_vertex_t*)zest_BufferData(layer->memory_refs[layer->fif].staging_vertex_data) && vertex_ptr <= (zest_textured_vertex_t*)zest_BufferData(layer->memory_refs[layer->fif].staging_vertex_data));
-    if (vertex_ptr == zest_BufferData(layer->memory_refs[layer->fif].staging_vertex_data)) {
-        zest_bool grown = 0;
-		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, sizeof(zest_textured_vertex_t), 0);
-		layer->memory_refs[layer->fif].staging_vertex_data = layer->memory_refs[layer->fif].staging_vertex_data;
-        if (grown) {
-            layer->memory_refs[layer->fif].vertex_count++;
-            vertex_ptr = (zest_textured_vertex_t*)zest_BufferData(layer->memory_refs[layer->fif].staging_vertex_data);
-            vertex_ptr += layer->memory_refs[layer->fif].vertex_count;
-        }
-        else {
-            vertex_ptr = vertex_ptr - 1;
-        }
-    }
-    else {
-        layer->memory_refs[layer->fif].vertex_count++;
-    }
-    layer->memory_refs[layer->fif].vertex_ptr = vertex_ptr;
-}
-
 void zest_PushIndex(zest_layer layer, zest_uint offset) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_uint index = layer->memory_refs[layer->fif].vertex_count + offset;
@@ -16711,7 +16632,7 @@ void zest_ClearMeshVertices(zest_mesh mesh) {
 zest_bounding_box_t zest_NewBoundingBox() {
     zest_bounding_box_t bb = ZEST__ZERO_INIT(zest_bounding_box_t);
     bb.max_bounds = zest_Vec3Set( -9999999.f, -9999999.f, -9999999.f );
-    bb.min_bounds = zest_Vec3Set( FLT_MAX, FLT_MAX, FLT_MAX );
+    bb.min_bounds = zest_Vec3Set( ZEST_MAX_FLOAT, ZEST_MAX_FLOAT, ZEST_MAX_FLOAT );
     return bb;
 }
 
