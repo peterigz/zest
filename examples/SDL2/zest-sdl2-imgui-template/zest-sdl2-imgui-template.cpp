@@ -5,6 +5,11 @@
 #include <zest.h>
 #include "imgui_internal.h"
 
+/*
+	Use SDL2 to create a window and also demonstrates how to load images and render in a separate thread
+	without causing race conditions.
+*/
+
 void LoadSprite(ImGuiApp *app, const char *filename) {
 	/*
 	Don't call this function if the last image that was loaded hasn't been made active yet. We have to make active
@@ -235,9 +240,6 @@ void MainLoop(ImGuiApp *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(int argc, char *argv[]) {
 
 	 if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -286,22 +288,3 @@ int main(int argc, char *argv[]) {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_implglfw_SetCallbacks(&create_info);
-    ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
-
-	ImGuiApp imgui_app;
-
-    create_info.log_path = ".";
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

@@ -4,10 +4,14 @@
 #include <zest.h>
 #include <string>
 
-typedef struct minimal_app_t {
+/**
+	Minimal app with a frame graph that renders a blank screen to the swapchain
+ */
+
+struct minimal_app_t {
 	zest_device device;
 	zest_context context;
-} minimal_app_t;
+};
 
 void BlankScreen(const zest_command_list command_list, void *user_data) {
 	//Usually you'd have zest_cmd_ commands like zest_cmd_Draw or zest_cmd_DrawIndexed
@@ -52,13 +56,8 @@ void MainLoop(minimal_app_t *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main(void) 
 {
-
-
 	//Make a config struct where you can configure zest with some options
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
@@ -69,97 +68,12 @@ int main(void)
 
 	minimal_app_t app = {};
 
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	app.device = zest_EndDeviceBuilder(device_builder);
+	app.device = zest_implglfw_CreateDevice(false);
 
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
 	app.context = zest_CreateContext(app.device, &window_handles, &create_info);
-
-	/* I was testing a new sparse hash map
-	zest_map_t test_map;
-	zest_uint capacity = 262144;
-	zest_uint insert_count = 131072;
-	zest__initialise_map(app.context, &test_map, sizeof(zest_uint), capacity);
-
-	zest_hash_map(zest_uint) test_storage_map;
-	test_storage_map test_storage = {};
-
-	zest_vec_reserve(app.context->allocator, test_storage.map, capacity);
-	zest_vec_reserve(app.context->allocator, test_storage.data, capacity);
-
-	zest_uint value = 0;
-
-	char name[16];
-
-	zest_microsecs time = zest_Microsecs();
-
-	for (int i = 0; i != insert_count; i++) {
-		zest_key key = rand();
-		zest_snprintf(name, 16, "Test %i", i);
-		zest__insert(&test_map, name, &value); value++;
-	}
-	zest_microsecs insert_time = zest_Microsecs() - time;
-	time = zest_Microsecs();
-
-	for(int i = 0; i != test_map.current_size; i++) {
-		zest_uint index = test_map.filled_slots[i];
-		zest_uint *value = (zest_uint*)zest__at_index(&test_map, index);
-		ZEST_ASSERT(*value == (zest_uint)i);
-	}
-	zest_microsecs index_time = zest_Microsecs() - time;
-	time = zest_Microsecs();
-
-	for (int i = 0; i != insert_count; i++) {
-		zest_snprintf(name, 16, "Test %i", i);
-		zest_uint *value = (zest_uint*)zest__at(&test_map, name);
-		ZEST_ASSERT(*value == (zest_uint)i);
-	}
-	zest_microsecs lookup_time = zest_Microsecs() - time;
-
-	ZEST_PRINT("Collisions: %u", test_map.collisions);
-	ZEST_PRINT("Map Insert time: %llu", insert_time);
-	ZEST_PRINT("Map Index time : %llu", index_time);
-	ZEST_PRINT("Map Lookup time: %llu", lookup_time);
-	ZEST_PRINT("Map Total Time: %llu", lookup_time + index_time + insert_time);
-
-	time = zest_Microsecs();
-	for (int i = 0; i != insert_count; i++) {
-		zest_key key = rand();
-		zest_snprintf(name, 16, "Test %i", i);
-		zest_map_insert(app.context->allocator, test_storage, name, value); value++;
-	}
-	insert_time = zest_Microsecs() - time;
-	time = zest_Microsecs();
-
-	for(int i = 0; i != zest_map_size(test_storage); i++) {
-		zest_uint index = test_map.filled_slots[i];
-		zest_uint *value = zest_map_at_index(test_storage, i);
-		//ZEST_ASSERT(*value == (zest_uint)i);
-	}
-	index_time = zest_Microsecs() - time;
-	time = zest_Microsecs();
-
-	for (int i = 0; i != zest_map_size(test_storage); i++) {
-		zest_snprintf(name, 16, "Test %i", i);
-		zest_uint *value = zest_map_at(test_storage, name);
-		//ZEST_ASSERT(*value == (zest_uint)i);
-	}
-	lookup_time = zest_Microsecs() - time;
-	ZEST_PRINT("Storage Insert time: %llu", insert_time);
-	ZEST_PRINT("Storage Index time : %llu", index_time);
-	ZEST_PRINT("Storage Lookup time: %llu", lookup_time);
-	ZEST_PRINT("Storage Total Time: %llu", lookup_time + index_time + insert_time);
-
-	return 0;
-	*/
 
 	//Start the Zest main loop
 	MainLoop(&app);
@@ -167,17 +81,3 @@ int main(void)
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-
-	zest_CreateContext(&create_info);
-    zest_LogFPSToConsole(1);
-	zest_SetUserUpdateCallback(UpdateCallback);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

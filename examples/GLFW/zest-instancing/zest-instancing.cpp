@@ -7,6 +7,11 @@
 #include "imgui_internal.h"
 #include <random>
 
+/*
+Example recreated from Sascha Willems "Instanced mesh rendering" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/instancing
+*/
+
 #define INSTANCE_COUNT 8192
 
 void InitInstancingExample(InstancingExample *app) {

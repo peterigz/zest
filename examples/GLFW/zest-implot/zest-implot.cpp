@@ -4,6 +4,10 @@
 #include <zest.h>
 #include "imgui_internal.h"
 
+/*
+Example showing how to implement imgui and the implot library for imgui into zest
+*/
+
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
@@ -78,14 +82,9 @@ void MainLoop(ImGuiApp *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	//Don't enable vsync so we can see the FPS go higher then the refresh rate
-	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	if (!glfwInit()) {
 		return 0;
@@ -93,15 +92,8 @@ int main(void) {
 
 	ImGuiApp imgui_app = {};
 
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	imgui_app.device = zest_EndDeviceBuilder(device_builder);
+	imgui_app.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Dear ImGui Example");
@@ -124,22 +116,3 @@ int main(void) {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_implglfw_SetCallbacks(&create_info);
-    ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
-
-	ImGuiApp imgui_app;
-
-    create_info.log_path = ".";
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

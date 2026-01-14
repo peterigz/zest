@@ -6,6 +6,11 @@
 #include "zest.h"
 #include "imgui_internal.h"
 
+/*
+Example recreated from Sascha Willems "Shadow mapping for directional light sources" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/shadowmapping
+*/
+
 void InitShadowMappingExample(ShadowMappingExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
@@ -398,9 +403,6 @@ void MainLoop(ShadowMappingExample *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 
 	if (!glfwInit()) {
@@ -408,8 +410,6 @@ int main(void) {
 	}
 
 	ShadowMappingExample imgui_app = {};
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
 	imgui_app.device = zest_implglfw_CreateDevice(false);
@@ -438,22 +438,3 @@ int main(void) {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_implglfw_SetCallbacks(&create_info);
-    ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
-
-	ShadowMappingExample imgui_app;
-
-    create_info.log_path = ".";
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	ShadowMappingExample(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

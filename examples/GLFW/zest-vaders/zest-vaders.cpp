@@ -10,6 +10,10 @@
 #include "impl_timelinefx.h"
 #include "timelinefx.h"
 
+/*
+	Simple Space Invaders clone showing how to use Zest to render billboards and particle effects (using timelinefx)
+*/
+
 #define x_distance 0.078f
 #define y_distance 0.158f
 #define x_spacing 0.040f
@@ -1331,9 +1335,6 @@ void MainLoop(VadersGame *game) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
@@ -1344,9 +1345,6 @@ int main() {
 	if (!glfwInit()) {
 		return 0;
 	}
-
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
 	game.device = zest_implglfw_CreateDevice(true);
@@ -1374,25 +1372,3 @@ int main() {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
-	zest_uint packed = zest_Pack8bitx3(&v);
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	create_info.log_path = ".";
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	zest_implglfw_SetCallbacks(&create_info);
-
-	VadersGame game;
-	InitialiseTimelineFX(12);
-
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&game);
-	zest_SetUserUpdateCallback(UpdateTfxExample);
-	game.Init();
-
-	zest_Start();
-
-	return 0;
-}
-#endif

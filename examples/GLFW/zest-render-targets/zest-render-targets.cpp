@@ -5,6 +5,11 @@
 #include "zest-render-targets.h"
 #include <zest.h>
 
+/*
+Example show how to do bloom/blur with down/up sampling in a compute shader rendering and reading from 
+multiple render targets before outputting to the swapchain.
+*/
+
 void InitExample(render_target_app_t *example) {
 
 	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
@@ -324,14 +329,10 @@ void Mainloop(render_target_app_t *example) {
 
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
 	//Make a config struct where you can configure zest with some options
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	render_target_app_t app = {};
 	zest_device device = zest_implglfw_CreateDevice(false);
@@ -349,21 +350,3 @@ int main()
 
 	return 0;
 }
-#else
-int main(void) {
-
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	zest_CreateContext(&create_info);
-	zest_LogFPSToConsole(1);
-
-	render_target_app_t example;
-	InitExample(&example);
-	zest_SetUserData(&example);
-	zest_SetUserUpdateCallback(UpdateCallback);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

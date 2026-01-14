@@ -7,6 +7,11 @@
 #include "impl_slang.hpp"
 #include <random>
 
+/*
+Example recreated from Sascha Willems "Attraction based compute shader particle system" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/computeparticles
+*/
+
 void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture

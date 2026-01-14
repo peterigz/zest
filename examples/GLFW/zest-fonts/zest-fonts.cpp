@@ -10,6 +10,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/*
+Shows a simple method for rendering MSDF fonts. Also generates the fonts from a ttf file using msdf.h single head library.
+*/
+
 struct RenderCacheInfo {
 	bool draw_imgui;
 	zest_image_handle test_texture;
@@ -165,9 +169,6 @@ void MainLoop(zest_fonts_example *app) {
 
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -179,15 +180,8 @@ int main(void) {
 
 	zest_fonts_example fonts_app = {};
 
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	//zest_AddDeviceBuilderValidation(device_builder);
-	//zest_DeviceBuilderLogToConsole(device_builder);
-	fonts_app.device = zest_EndDeviceBuilder(device_builder);
+	fonts_app.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
@@ -208,21 +202,3 @@ int main(void) {
 
 	return 0;
 }
-#else
-int main(void) {
-
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-
-	zest_fonts_example example;
-    
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&example);
-	zest_SetUserUpdateCallback(UpdateCallback);
-
-	InitExample(&example);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

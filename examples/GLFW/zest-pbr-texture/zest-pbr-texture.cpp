@@ -7,6 +7,11 @@
 #include "imgui_internal.h"
 #include "examples/Common/pbr_functions.cpp"
 
+/*
+Example recreated from Sascha Willems "Physical based rendering a textured object (metal/roughness workflow) with image based lighting" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/pbrtexture
+*/
+
 void InitPBRTextureExample(PBRTextureExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
@@ -438,9 +443,6 @@ void MainLoop(PBRTextureExample *app) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 
 	if (!glfwInit()) {
@@ -448,15 +450,9 @@ int main(void) {
 	}
 
 	PBRTextureExample imgui_app = {};
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	//zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	imgui_app.device = zest_EndDeviceBuilder(device_builder);
+	imgui_app.device = zest_implglfw_CreateDevice(false);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 
@@ -482,22 +478,3 @@ int main(void) {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_implglfw_SetCallbacks(&create_info);
-    ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
-
-	PBRTextureExample imgui_app;
-
-    create_info.log_path = ".";
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitPBRTextureExample(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif

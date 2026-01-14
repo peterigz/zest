@@ -7,6 +7,11 @@
 #include "imgui_internal.h"
 #include "examples/Common/pbr_functions.cpp"
 
+/*
+Example recreated from Sascha Willems "Physical based rendering with image based lighting" 
+https://github.com/SaschaWillems/Vulkan/tree/master/examples/pbribl
+*/
+
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
@@ -516,15 +521,9 @@ int main(void) {
 	}
 
 	SimplePBRExample imgui_app = {};
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	//zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	imgui_app.device = zest_EndDeviceBuilder(device_builder);
+	imgui_app.device = zest_implglfw_CreateDevice(false);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 

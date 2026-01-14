@@ -8,6 +8,10 @@
 #include "impl_timelinefx.h"
 #include <imgui/backends/imgui_impl_glfw.h>
 
+/**
+	Example showing how to use the timelinefx library and implementation to render particle effects
+ */
+
 typedef unsigned int u32;
 
 #define FrameLength 16.66666666667f
@@ -300,9 +304,6 @@ void MainLoop(TimelineFXExample *game) {
 	}
 }
 
-#if defined(_WIN32)
-// Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
@@ -314,9 +315,6 @@ int main() {
 	if (!glfwInit()) {
 		return 0;
 	}
-
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
 	game.device = zest_implglfw_CreateDevice(true);
@@ -337,20 +335,3 @@ int main() {
 
 	return 0;
 }
-#else
-int main(void) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_implglfw_SetCallbacks(&create_info);
-
-	ImGuiApp imgui_app;
-
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
-
-	zest_Start();
-
-	return 0;
-}
-#endif
