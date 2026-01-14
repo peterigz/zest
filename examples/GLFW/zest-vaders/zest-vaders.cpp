@@ -23,6 +23,17 @@
 
 typedef unsigned int u32;
 
+struct billboard_instance_t {         //56 bytes
+	zest_vec3 position;                            //The position of the sprite
+	zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
+	zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch 
+	zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+	zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
+	zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
+	zest_color_t color;                            //The color tint of the sprite
+	zest_u64 padding;
+};
+
 struct RenderCacheInfo {
 	bool draw_imgui;
 	bool draw_timeline_fx;
@@ -237,11 +248,11 @@ zest_atlas_region_t *AddGameSprite(zest_image_collection_t *collection, const ch
 	return region;
 }
 
-void zest_DrawBillboard(zest_layer layer, zest_atlas_region_t *image, float position[3], float angle, float sx, float sy) {
+void DrawBillboard(zest_layer layer, zest_atlas_region_t *image, float position[3], float angle, float sx, float sy) {
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
-    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)zest_NextInstance(layer);
+    billboard_instance_t* billboard = (billboard_instance_t*)zest_NextInstance(layer);
 
     billboard->scale_handle = zest_Pack16bit4SScaled(sx, sy, 0.5f, 0.5f, 256.f, 128.f);
     billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
@@ -405,21 +416,21 @@ void VadersGame::Init() {
 
 	//Create a pipeline that we can use to draw billboards
 	billboard_pipeline = zest_BeginPipelineTemplate(device, "pipeline_billboard");
-	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(billboard_instance_t), zest_input_rate_instance);
 
-	zest_AddVertexAttribute(billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
-	zest_AddVertexAttribute(billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(billboard_instance_t, position));			    // Location 0: Position
+	zest_AddVertexAttribute(billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(billboard_instance_t, uv));		    		// Location 1: uv_packed
+	zest_AddVertexAttribute(billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
+	zest_AddVertexAttribute(billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(billboard_instance_t, color));			        // Location 7: Instance Color
 
 	zest_SetPipelineVertShader(billboard_pipeline, billboard_vert_shader);
 	zest_SetPipelineFragShader(billboard_pipeline, billboard_frag_shader);
 	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
 
-	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(zest_billboard_instance_t), 10000);
+	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(billboard_instance_t), 10000);
 
 	font_resources = zest_CreateFontResources(context, "shaders/font.vert", "shaders/font.frag");
 	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
@@ -936,7 +947,7 @@ void BuildUI(VadersGame *game) {
 void DrawPlayer(VadersGame *game, zest_layer layer) {
 	zest_SetLayerColor(layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(layer, 1.f);
-	zest_DrawBillboard(layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
+	DrawBillboard(layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
 }
 
 tfx_vec3_t InterpolateVec3(float tween, tfx_vec3_t from, tfx_vec3_t to) {
@@ -948,11 +959,11 @@ void DrawVaders(VadersGame *game, zest_layer layer, float lerp) {
 	zest_SetLayerIntensity(layer, 1.f);
 	for (auto &vader : game->vaders[game->current_buffer]) {
 		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
-		zest_DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 0.5f, 0.5f);
+		DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 0.5f, 0.5f);
 	}
 	for (auto &vader : game->big_vaders[game->current_buffer]) {
 		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
-		zest_DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 1.f, 1.f);
+		DrawBillboard(layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 1.f, 1.f);
 	}
 }
 
@@ -962,10 +973,10 @@ void DrawVaderBullets(VadersGame *game, zest_layer layer, float lerp) {
 		tfx_vec3_t tween = InterpolateVec3(lerp, bullet.captured, bullet.position);
 		zest_SetLayerColor(layer, 255, 255, 255, 0);
 		zest_SetLayerIntensity(layer, 1.2f);
-		zest_DrawBillboard(layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
+		DrawBillboard(layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
 		zest_SetLayerColor(layer, 255, 128, 64, 0);
 		zest_SetLayerIntensity(layer, .5f);
-		zest_DrawBillboard(layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
+		DrawBillboard(layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
 	}
 }
 
