@@ -28,7 +28,7 @@ layout (location = 3) in vec2 inUV;
 layout (location = 4) in vec3 instancePos;
 layout (location = 5) in vec3 instanceRot;
 layout (location = 6) in vec3 instanceScale;
-layout (location = 7) in float instanceTexIndex;
+layout (location = 7) in uint instanceTexIndex;
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
@@ -39,7 +39,7 @@ layout (location = 4) out vec3 outLightVec;
 void main() 
 {
 	outColor = inColor.rgb;
-	outUV = vec3(inUV, instanceTexIndex);
+	outUV = vec3(inUV, float(instanceTexIndex));
 
 	mat3 mx, my, mz;
 	

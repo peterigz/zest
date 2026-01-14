@@ -78,7 +78,7 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 
 	app->pbr_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
-	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(textured_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
@@ -86,11 +86,9 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, parameters));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, roughness));   // Location 7: Instance Parameters
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, metallic));   // Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(textured_mesh_instance_t, color));        // Location 5: Instance Color
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(textured_mesh_instance_t, rotation));   // Location 6: Instance Rotation
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 9, zest_format_r32g32b32_sfloat, offsetof(textured_mesh_instance_t, scale));      // Location 8: Instance Scale
 
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_vert, pbr_texture_frag);
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
@@ -121,8 +119,8 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_size vertex_capacity = zest_MeshVertexDataSize(gun);
 	zest_size index_capacity = zest_MeshIndexDataSize(gun);
 
-	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
-	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
+	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(textured_mesh_instance_t), vertex_capacity, index_capacity);
+	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(textured_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
 
 	app->gun_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), gun, 0);
 	app->skybox_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), sky_box, 0);
@@ -235,6 +233,15 @@ void UpdateMouse(PBRTextureExample *app) {
 	}
 }
 
+void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
+    textured_mesh_instance_t* instance = (textured_mesh_instance_t*)zest_NextInstance(layer);
+
+	instance->pos = { pos[0], pos[1], pos[2] };
+	instance->rotation = { rot[0], rot[1], rot[2] };
+	instance->scale = { scale[0], scale[1], scale[2] };
+    instance->color = layer->current_color;
+}
+
 void UpdateImGui(PBRTextureExample *app) {
 	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
@@ -310,7 +317,7 @@ void MainLoop(PBRTextureExample *app) {
 			float zero[3] = { 0 };
 			zest_SetInstanceMeshDrawing(mesh_layer, app->gun_index, app->pbr_pipeline);
 			zest_SetLayerPushConstants(mesh_layer, &app->material_push, sizeof(pbr_consts_t));
-			zest_DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x, 1.f, .1f);
+			DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x);
 
 			zest_uint sky_push[] = {
 				app->material_push.view_buffer_index,
@@ -318,7 +325,7 @@ void MainLoop(PBRTextureExample *app) {
 			};
 			zest_SetInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
-			zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
+			DrawInstancedMesh(skybox_layer, zero, zero, zero);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
 
 			zest_swapchain swapchain = zest_GetSwapchain(app->context);

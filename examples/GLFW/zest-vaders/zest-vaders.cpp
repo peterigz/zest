@@ -1049,6 +1049,15 @@ void UploadGameLayerData(const zest_command_list command_list, void *user_data) 
 	zest_cmd_UploadBuffer(command_list, &tfx_upload);
 }
 
+void RenderGameSprites(zest_command_list command_list, void *user_data) {
+	VadersGame *game = (VadersGame*)user_data;
+	zest_layer billboard_layer = zest_GetLayer(game->billboard_layer_handle);
+	zest_layer font_layer = zest_GetLayer(game->font_layer_handle);
+	zest_tfx_DrawParticleLayer(command_list, &game->tfx_rendering);
+	zest_DrawInstanceLayer(command_list, billboard_layer);
+	zest_DrawInstanceLayer(command_list, font_layer);
+}
+
 void VadersGame::Update(float ellapsed) {
 	zest_UpdateDevice(device);
 
@@ -1240,28 +1249,14 @@ void VadersGame::Update(float ellapsed) {
 				}
 				//--------------------------------------------------------------------------------------------------
 
-				//------------------------ Particles Pass -----------------------------------------------------------
+				//------------------------ Sprites Pass -----------------------------------------------------------
 				zest_BeginRenderPass("Particles Pass"); {
 					zest_ConnectInput(tfx_write_layer);
 					zest_ConnectInput(tfx_read_layer);
-					zest_ConnectSwapChainOutput();
-					zest_SetPassTask(zest_tfx_DrawParticleLayer, &tfx_rendering);
-					zest_EndPass();
-				}
-
-				//------------------------ Billboards Pass -----------------------------------------------------------
-				zest_BeginRenderPass("Billboards Pass"); {
 					zest_ConnectInput(billboard_layer_resource);
-					zest_ConnectSwapChainOutput();
-					zest_SetPassTask(zest_DrawInstanceLayer, billboard_layer);
-					zest_EndPass();
-				}
-
-				//------------------------ Fonts Pass ----------------------------------------------------------------
-				zest_BeginRenderPass("Fonts Pass"); {
 					zest_ConnectInput(font_layer_resources);
+					zest_SetPassTask(RenderGameSprites, this);
 					zest_ConnectSwapChainOutput();
-					zest_SetPassTask(zest_DrawInstanceLayer, font_layer);
 					zest_EndPass();
 				}
 				//----------------------------------------------------------------------------------------------------

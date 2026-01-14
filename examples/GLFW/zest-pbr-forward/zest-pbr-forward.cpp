@@ -78,9 +78,9 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 
-	app->pbr_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->pbr_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_forward_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
-	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(forward_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
@@ -88,11 +88,11 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, parameters));                     // Location 2: Group id
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, roughness));   // Location 7: Instance Parameters
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, metallic));   // Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(forward_mesh_instance_t, color));        // Location 5: Instance Color
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(forward_mesh_instance_t, rotation));   // Location 6: Instance Rotation
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(forward_mesh_instance_t, roughness));   // Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(forward_mesh_instance_t, scale));      // Location 8: Instance Scale
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(forward_mesh_instance_t, metallic));   // Location 7: Instance Parameters
 
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
@@ -124,8 +124,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	index_capacity += zest_MeshIndexDataSize(torus);
 	index_capacity += zest_MeshIndexDataSize(venus);
 
-	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
-	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
+	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(forward_mesh_instance_t), vertex_capacity, index_capacity);
+	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(forward_mesh_instance_t), zest_MeshVertexDataSize(sky_box), zest_MeshIndexDataSize(sky_box));
 
 	app->teapot_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), teapot, 0);
 	app->torus_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), torus, 0);
@@ -213,6 +213,17 @@ void UpdateCameraPosition(SimplePBRExample *app) {
 			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
 		}
 	}
+}
+
+void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
+    forward_mesh_instance_t* instance = (forward_mesh_instance_t*)zest_NextInstance(layer);
+
+	instance->pos = { pos[0], pos[1], pos[2] };
+	instance->rotation = { rot[0], rot[1], rot[2] };
+	instance->scale = { scale[0], scale[1], scale[2] };
+    instance->color = layer->current_color;
+	instance->roughness = roughness;
+	instance->metallic = metallic;
 }
 
 void UpdateMouse(SimplePBRExample *app) {
@@ -354,12 +365,12 @@ void MainLoop(SimplePBRExample *app) {
 						case 0:
 						case 1:
 						case 3: {
-							zest_DrawInstancedMesh(mesh_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
+							DrawInstancedMesh(mesh_layer, &position.x, &rotation.x, &scale.x, roughness, metallic);
 							break;
 						}
 						case 2:
 						case 4: {
-							zest_DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x, roughness, metallic);
+							DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x, roughness, metallic);
 							break;
 						}
 					}
@@ -375,7 +386,7 @@ void MainLoop(SimplePBRExample *app) {
 			};
 			zest_SetInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
-			zest_DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
+			DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
 
 			if (app->reset) {

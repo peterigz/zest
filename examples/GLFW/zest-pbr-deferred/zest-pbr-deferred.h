@@ -31,6 +31,15 @@ typedef struct uniform_buffer_data_t {
     float update_time;
 } uniform_buffer_data_t;
 
+struct deferred_mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	float roughness;                          //pbr roughness
+	zest_vec3 scale;
+	float metallic;                          //pbr metallic
+};
+
 struct  composite_push_constant_t{
 	zest_uint sampler_index;
 	zest_uint gTarget_index;

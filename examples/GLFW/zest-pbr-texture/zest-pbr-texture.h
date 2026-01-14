@@ -22,6 +22,13 @@ struct UniformLights {
 	zest_uint sampler_index;
 };
 
+struct textured_mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	zest_vec3 scale;
+};
+
 typedef struct uniform_buffer_data_t {
     zest_matrix4 view;
     zest_matrix4 proj;

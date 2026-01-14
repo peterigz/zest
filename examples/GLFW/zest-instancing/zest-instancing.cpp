@@ -65,15 +65,15 @@ void InitInstancingExample(InstancingExample *app) {
 
 	app->rock_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->rock_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
-	zest_AddVertexInputBindingDescription(app->rock_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(app->rock_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->rock_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                         // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->rock_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));              // Location 1: Vertex Color
 	zest_AddVertexAttribute(app->rock_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));           // Location 2: Vertex Position
 	zest_AddVertexAttribute(app->rock_pipeline, 0, 3, zest_format_r32g32_sfloat, offsetof(zest_vertex_t, uv));                  // Location 3: Group id
 	zest_AddVertexAttribute(app->rock_pipeline, 1, 4, zest_format_r32g32b32_sfloat, 0);                                         // Location 4: Instance Position
-	zest_AddVertexAttribute(app->rock_pipeline, 1, 5, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));  // Location 5: Instance Rotation
-	zest_AddVertexAttribute(app->rock_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));     // Location 6: Instance Scale
-	zest_AddVertexAttribute(app->rock_pipeline, 1, 7, zest_format_r32_sfloat, offsetof(zest_mesh_instance_t, roughness));   	// Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->rock_pipeline, 1, 5, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, rotation));  // Location 5: Instance Rotation
+	zest_AddVertexAttribute(app->rock_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, scale));     // Location 6: Instance Scale
+	zest_AddVertexAttribute(app->rock_pipeline, 1, 7, zest_format_r32_uint, offsetof(mesh_instance_t, texture_layer_index));   	// Location 7: Instance Parameters
 
 	zest_SetPipelineShaders(app->rock_pipeline, instance_vert, instance_frag);
 	zest_SetPipelineCullMode(app->rock_pipeline, zest_cull_mode_back);
@@ -109,10 +109,10 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_size rock_vertex_capacity = zest_MeshVertexDataSize(rock);
 	zest_size rock_index_capacity = zest_MeshIndexDataSize(rock);
 
-	app->rock_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), rock_vertex_capacity, rock_index_capacity);
+	app->rock_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(mesh_instance_t), rock_vertex_capacity, rock_index_capacity);
 	app->rock_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->rock_layer), rock, 0);
 
-	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(zest_mesh_instance_t), zest_MeshVertexDataSize(cube), zest_MeshIndexDataSize(cube));
+	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Skybox Layer", sizeof(mesh_instance_t), zest_MeshVertexDataSize(cube), zest_MeshIndexDataSize(cube));
 	app->skybox_mesh_index = zest_AddMeshToLayer(zest_GetLayer(app->skybox_layer), cube, 0);
 
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
@@ -146,8 +146,8 @@ void InitInstancingExample(InstancingExample *app) {
 }
 
 void PrepareInstanceData(InstancingExample *app) {
-	zest_size instance_data_size = INSTANCE_COUNT * sizeof(zest_mesh_instance_t);
-	zest_mesh_instance_t *instance_data = (zest_mesh_instance_t*)malloc(instance_data_size);
+	zest_size instance_data_size = INSTANCE_COUNT * sizeof(mesh_instance_t);
+	mesh_instance_t *instance_data = (mesh_instance_t*)malloc(instance_data_size);
 
 	zest_image rock_image = zest_GetImage(app->rock_textures);
 	std::default_random_engine rndGenerator(zest_Millisecs());
@@ -167,7 +167,7 @@ void PrepareInstanceData(InstancingExample *app) {
 		instance_data[i].pos = { rho * cos(theta), uniformDist(rndGenerator) * 0.5f - 0.25f, rho * sin(theta) };
 		instance_data[i].rotation = { ZEST_PI * uniformDist(rndGenerator), ZEST_PI * uniformDist(rndGenerator), ZEST_PI * uniformDist(rndGenerator) };
 		float scale = (1.5f + uniformDist(rndGenerator) - uniformDist(rndGenerator)) * .75f;
-		instance_data[i].roughness = rndTextureIndex(rndGenerator);
+		instance_data[i].texture_layer_index = rndTextureIndex(rndGenerator);
 		instance_data[i].scale = { scale, scale, scale };
 
 		// Outer ring
@@ -176,7 +176,7 @@ void PrepareInstanceData(InstancingExample *app) {
 		instance_data[i + INSTANCE_COUNT / 2].pos = { rho * cos(theta), uniformDist(rndGenerator) * 0.5f - 0.25f, rho * sin(theta) };
 		instance_data[i + INSTANCE_COUNT / 2].rotation = { ZEST_PI * uniformDist(rndGenerator), ZEST_PI * uniformDist(rndGenerator), ZEST_PI * uniformDist(rndGenerator) };
 		scale = (1.5f + uniformDist(rndGenerator) - uniformDist(rndGenerator)) * .75f;
-		instance_data[i + INSTANCE_COUNT / 2].roughness = rndTextureIndex(rndGenerator);
+		instance_data[i + INSTANCE_COUNT / 2].texture_layer_index = rndTextureIndex(rndGenerator);
 		instance_data[i + INSTANCE_COUNT / 2].scale = { scale, scale, scale };
 	}
 

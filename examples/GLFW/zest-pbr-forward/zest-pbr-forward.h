@@ -30,6 +30,15 @@ typedef struct uniform_buffer_data_t {
     float update_time;
 } uniform_buffer_data_t;
 
+struct forward_mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	float roughness;                          //pbr roughness
+	zest_vec3 scale;
+	float metallic;                          //pbr metallic
+};
+
 struct irr_push_constant_t {
 	zest_uint source_env_index;
 	zest_uint irr_index;
@@ -136,4 +145,5 @@ void SetupBRDFLUT(SimplePBRExample *app);
 void SetupIrradianceCube(SimplePBRExample *app);
 void SetupPrefilteredCube(SimplePBRExample *app);
 void MainLoop(SimplePBRExample *app);
+void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
 

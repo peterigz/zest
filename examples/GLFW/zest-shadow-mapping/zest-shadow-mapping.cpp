@@ -57,15 +57,15 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 
 	app->mesh_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
-	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 2: Vertex Position
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 3, zest_format_r16g16_unorm, offsetof(zest_vertex_t, uv));                     // Location 3: Group id
 	zest_AddVertexAttribute(app->mesh_pipeline, 1, 4, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->mesh_pipeline, 1, 5, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->mesh_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->mesh_pipeline, 1, 7, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 7: Instance Scale
+	zest_AddVertexAttribute(app->mesh_pipeline, 1, 5, zest_format_r8g8b8a8_unorm, offsetof(mesh_instance_t, color));        // Location 5: Instance Color
+	zest_AddVertexAttribute(app->mesh_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, rotation));   // Location 6: Instance Rotation
+	zest_AddVertexAttribute(app->mesh_pipeline, 1, 7, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, scale));      // Location 7: Instance Scale
 
 	zest_SetPipelineShaders(app->mesh_pipeline, scene_vert, scene_frag);
 	zest_SetPipelineCullMode(app->mesh_pipeline, zest_cull_mode_back);
@@ -75,12 +75,12 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	
 	app->shadow_pipeline = zest_BeginPipelineTemplate(app->device, "Shadow pipeline");
 	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
-	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->shadow_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
 	zest_AddVertexAttribute(app->shadow_pipeline, 1, 1, zest_format_r32g32b32_sfloat, 0);                                          // Location 1: Instance Position
-	zest_AddVertexAttribute(app->shadow_pipeline, 1, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 2: Instance Color
-	zest_AddVertexAttribute(app->shadow_pipeline, 1, 3, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 3: Instance Rotation
-	zest_AddVertexAttribute(app->shadow_pipeline, 1, 4, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 4: Instance Scale
+	zest_AddVertexAttribute(app->shadow_pipeline, 1, 2, zest_format_r8g8b8a8_unorm, offsetof(mesh_instance_t, color));        // Location 2: Instance Color
+	zest_AddVertexAttribute(app->shadow_pipeline, 1, 3, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, rotation));   // Location 3: Instance Rotation
+	zest_AddVertexAttribute(app->shadow_pipeline, 1, 4, zest_format_r32g32b32_sfloat, offsetof(mesh_instance_t, scale));      // Location 4: Instance Scale
 	zest_SetPipelineFrontFace(app->shadow_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineVertShader(app->shadow_pipeline, offscreen_vert);
 	zest_SetPipelineDepthBias(app->shadow_pipeline, ZEST_TRUE);
@@ -90,7 +90,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_size vertex_capacity = zest_MeshVertexDataSize(vulkan_scene);
 	zest_size index_capacity = zest_MeshIndexDataSize(vulkan_scene);
 
-	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(zest_mesh_instance_t), vertex_capacity, index_capacity);
+	app->mesh_layer = zest_CreateInstanceMeshLayer(app->context, "Mesh Layer", sizeof(mesh_instance_t), vertex_capacity, index_capacity);
 	app->vulkanscene_index = zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), vulkan_scene, 0);
 	app->light_fov = 45;
 	app->light_position = {30.f, 50.f, 25.f};
@@ -216,6 +216,14 @@ void UpdateMouse(ShadowMappingExample *app) {
 	}
 }
 
+void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
+    mesh_instance_t* instance = (mesh_instance_t*)zest_NextInstance(layer);
+	instance->pos = { pos[0], pos[1], pos[2] };
+	instance->rotation = { rot[0], rot[1], rot[2] };
+	instance->scale = { scale[0], scale[1], scale[2] };
+    instance->color = layer->current_color;
+}
+
 void UpdateImGui(ShadowMappingExample *app) {
 	//We can use a timer to only update the gui every 60 times a second (or whatever you decide) for a little less
 	//cpu usage.
@@ -294,7 +302,7 @@ void MainLoop(ShadowMappingExample *app) {
 			zest_vec3 position = { 0.f };
 			zest_vec3 scale = { 1.f, 1.f, 1.f };
 			float zero[3] = { 0.f, 0.f, 0.f };
-			zest_DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x, 0, 0);
+			DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x);
 
 			//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
 			//image layout general. When they are used in the frame graph below they will be transitioned to read only

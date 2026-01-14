@@ -36,9 +36,7 @@ layout(location = 5) in uint group_id;
 layout(location = 6) in vec3 instance_position;
 layout(location = 7) in vec4 instance_color;
 layout(location = 8) in vec3 instance_rotation;
-layout(location = 9) in float roughness;
-layout(location = 10) in vec3 instance_scale;
-layout(location = 11) in float metallic;
+layout(location = 9) in vec3 instance_scale;
 
 layout (location = 0) out vec3 out_world_position;
 layout (location = 1) out vec3 out_normal;

@@ -28,6 +28,14 @@ struct instance_push_t {
 	zest_uint ubo_index;
 };
 
+struct mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	zest_vec3 scale;
+	zest_uint texture_layer_index;
+};
+
 struct mesh_t {
 	zest_buffer index_buffer;
 	zest_buffer vertex_buffer;

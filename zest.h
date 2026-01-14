@@ -3875,15 +3875,6 @@ typedef struct zest_textured_vertex_t {
 	zest_uint parameters;                          //packed parameters such as texture layer
 } zest_textured_vertex_t;
 
-typedef struct zest_vertex_t {
-	zest_vec3 pos;                              //3d position (12bytes)
-	zest_color_t color;							//Packed color rgba (4 bytes)
-	zest_vec3 normal;                           //3d normal packed vec3 (12 bytes)
-	zest_vec2 uv;								//uv coords
-	zest_u64 tangent;                    		//Tangent packed vec4 (4 16bit floats) (8 bytes)
-	zest_uint parameters;						//Additional parameters
-} zest_vertex_t;                                //Total: 44 bytes	
-
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
 typedef struct zest_ImDrawVert_t {
@@ -5171,34 +5162,30 @@ ZEST_API void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list com
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
-//Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
-ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], float uv[2], zest_u64 tangent, zest_color_t color, zest_uint group);
-//Push a zest_vertex_t to a mesh. A simpler version that doesn't take normal or group id.
-ZEST_API void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
 ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
 ZEST_API void zest_PushMeshTriangle(zest_mesh mesh, zest_uint i1, zest_uint i2, zest_uint i3);
 //Create a new mesh and return the handle to it
-ZEST_API zest_mesh zest_NewMesh(zest_context context);
+ZEST_API zest_mesh zest_NewMesh(zest_context context, zest_size vertex_struct_size);
 //Free the memeory used for the mesh. You can free the mesh once it's been added to the layer
 ZEST_API void zest_FreeMesh(zest_mesh mesh);
-//Set the position of the mesh in it's transform matrix
-ZEST_API void zest_PositionMesh(zest_mesh mesh, zest_vec3 position);
-//Rotate a mesh by the given pitch, yaw and roll values (in radians)
-ZEST_API zest_matrix4 zest_RotateMesh(zest_mesh mesh, float pitch, float yaw, float roll);
-//Transform a mesh by the given pitch, yaw and roll values (in radians), position x, y, z and scale sx, sy, sz
-ZEST_API zest_matrix4 zest_TransformMesh(zest_mesh mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz);
-//Calculate the normals of a mesh. This will unweld the mesh to create faceted normals.
-ZEST_API void zest_CalculateNormals(zest_mesh mesh);
+//Get a pointer to a vertex at the specified index
+ZEST_API void* zest_GetMeshVertex(zest_mesh mesh, zest_uint index);
+//Get the next vertex from the current vertex pointer. Returns NULL if at the end.
+ZEST_API void* zest_NextMeshVertex(zest_mesh mesh, void* current);
+//Push vertex data to the mesh. Copies vertex_struct_size bytes from the provided pointer.
+ZEST_API void zest_PushMeshVertexData(zest_mesh mesh, const void* vertex_data);
+//Copy vertex data to the mesh. All vertex data in the mesh will be overwritten.
+ZEST_API void zest_CopyMeshVertexData(zest_mesh mesh, const void* vertex_data, zest_size size);
+//Copy index data to the mesh. All index data in the mesh will be overwritten.
+ZEST_API void zest_CopyMeshIndexData(zest_mesh mesh, const zest_uint *index_data, zest_uint count);
+//Reserve capacity for vertices in the mesh
+ZEST_API void zest_ReserveMeshVertices(zest_mesh mesh, zest_uint count);
+//Clear all vertices from the mesh (keeps capacity)
+ZEST_API void zest_ClearMeshVertices(zest_mesh mesh);
 //Initialise a new bounding box to 0
 ZEST_API zest_bounding_box_t zest_NewBoundingBox();
-//Calculate the bounding box of a mesh and return it
-ZEST_API zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh);
-//Add all the vertices and indices of a mesh to another mesh to combine them into a single mesh.
-ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
-//Set the group id for every vertex in the mesh. This can be used in the shader to identify different parts of the mesh and do different shader stuff with them.
-ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
 ZEST_API zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint texture_index);
 //Get the vertex count in the mesh
@@ -5215,7 +5202,7 @@ ZEST_API void zest_MeshDataSizes(zest_mesh *meshes, zest_uint mesh_count, zest_s
 //Get a pointer to the index mesh data. You can use this as a source data for copying to a staging buffer
 ZEST_API zest_uint *zest_MeshIndexData(zest_mesh mesh);
 //Get a pointer to the vertex mesh data. You can use this as a source data for copying to a staging buffer
-ZEST_API zest_vertex_t *zest_MeshVertexData(zest_mesh mesh);
+ZEST_API void *zest_MeshVertexData(zest_mesh mesh);
 ZEST_API zest_uint zest_GetLayerMeshTextureIndex(zest_layer layer, zest_uint mesh_index);
 //--End Instance Draw mesh layers
 
@@ -6036,7 +6023,10 @@ static ZEST_THREAD_LOCAL zest_frame_graph_builder zest__frame_graph_builder = NU
 typedef struct zest_mesh_t {
     int magic;
 	zest_context context;
-    zest_vertex_t* vertices;
+	zest_size vertex_struct_size;
+	void *vertex_data;
+	zest_uint vertex_count;
+	zest_uint vertex_capacity;
     zest_uint* indexes;
 	zest_uint material;
 } zest_mesh_t;
@@ -16616,115 +16606,106 @@ void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pi
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
 }
 
-void zest_PushMeshVertexOnly(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color) {
-	zest_vertex_t vertex = { {pos_x, pos_y, pos_z}, color, {0, 0, 0}, 0 };
-    zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
-}
-
-void zest_PushMeshVertex(zest_mesh mesh, float pos[3], float normal[3], float uv[2], zest_u64 tangent, zest_color_t color, zest_uint group) {
-	zest_vertex_t vertex = { { pos[0], pos[1], pos[2] }, color, { normal[0], normal[1], normal[2] }, { uv[0], uv[1] }, tangent, group };
-    zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
-}
-
 void zest_PushMeshIndex(zest_mesh mesh, zest_uint index) {
-    ZEST_ASSERT(index < zest_vec_size(mesh->vertices)); //Add vertices first before triangles to make sure you're indexing vertices that exist
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    ZEST_ASSERT(index < mesh->vertex_count); //Add vertices first before triangles to make sure you're indexing vertices that exist
     zest_vec_push(mesh->context->device->allocator, mesh->indexes, index);
 }
 
 void zest_PushMeshTriangle(zest_mesh mesh, zest_uint i1, zest_uint i2, zest_uint i3) {
-    ZEST_ASSERT(i1 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
-    ZEST_ASSERT(i2 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
-    ZEST_ASSERT(i3 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    ZEST_ASSERT(i1 < mesh->vertex_count);	//Add vertices first before triangles to make sure you're indexing vertices that exist
+    ZEST_ASSERT(i2 < mesh->vertex_count);	//Add vertices first before triangles to make sure you're indexing vertices that exist
+    ZEST_ASSERT(i3 < mesh->vertex_count);	//Add vertices first before triangles to make sure you're indexing vertices that exist
     zest_vec_push(mesh->context->device->allocator, mesh->indexes, i1);
     zest_vec_push(mesh->context->device->allocator, mesh->indexes, i2);
     zest_vec_push(mesh->context->device->allocator, mesh->indexes, i3);
 }
 
-zest_mesh zest_NewMesh(zest_context context) {
+zest_mesh zest_NewMesh(zest_context context, zest_size vertex_struct_size) {
     zest_mesh mesh = (zest_mesh)ZEST__NEW(context->device->allocator, zest_mesh);
     *mesh = ZEST__ZERO_INIT(zest_mesh_t);
     mesh->magic = zest_INIT_MAGIC(zest_struct_type_mesh);
 	mesh->context = context;
+	mesh->vertex_struct_size = vertex_struct_size;
     return mesh;
 }
 
 void zest_FreeMesh(zest_mesh mesh) {
-    zest_vec_free(mesh->context->device->allocator, mesh->vertices);
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    if (mesh->vertex_data) {
+        ZEST__FREE(mesh->context->device->allocator, mesh->vertex_data);
+    }
     zest_vec_free(mesh->context->device->allocator, mesh->indexes);
     ZEST__FREE(mesh->context->device->allocator, mesh);
 }
 
-void zest_PositionMesh(zest_mesh mesh, zest_vec3 position) {
-    zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].pos.x += position.x;
-        mesh->vertices[i].pos.y += position.y;
-        mesh->vertices[i].pos.z += position.z;
-    }
+void* zest_GetMeshVertex(zest_mesh mesh, zest_uint index) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    ZEST_ASSERT(index < mesh->vertex_count);
+    return (char*)mesh->vertex_data + (index * mesh->vertex_struct_size);
 }
 
-zest_matrix4 zest_RotateMesh(zest_mesh mesh, float pitch, float yaw, float roll) {
-    zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
-    zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
-    zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
-    zest_matrix4 rotate_mat = zest_MatrixTransform(&pitch_mat, &yaw_mat);
-    rotate_mat = zest_MatrixTransform(&roll_mat, &rotate_mat);
-    zest_vec_foreach(i, mesh->vertices) {
-        zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
-        pos = zest_MatrixTransformVector(&rotate_mat, pos);
-        mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
-    }
-    return rotate_mat;
+void* zest_FirstMeshVertex(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+	if (!mesh->vertex_data) {
+		zest_size new_size = 256;
+		void* new_data = ZEST__ALLOCATE(mesh->context->device->allocator, new_size);
+	}
+    return mesh->vertex_data;
 }
 
-zest_matrix4 zest_TransformMesh(zest_mesh mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz) {
-    zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
-    zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
-    zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
-    zest_matrix4 rotate_mat = zest_MatrixTransform(&pitch_mat, &yaw_mat);
-    rotate_mat = zest_MatrixTransform(&roll_mat, &rotate_mat);
-    rotate_mat.v[0].w = x;
-    rotate_mat.v[1].w = y;
-    rotate_mat.v[2].w = z;
-    rotate_mat.v[3].x = sx;
-    rotate_mat.v[3].y = sy;
-    rotate_mat.v[3].z = sz;
-    zest_vec_foreach(i, mesh->vertices) {
-        zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
-        pos = zest_MatrixTransformVector(&rotate_mat, pos);
-        mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
-    }
-    return rotate_mat;
+void* zest_NextMeshVertex(zest_mesh mesh, void* current) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    char* next = (char*)current + mesh->vertex_struct_size;
+    char* end = (char*)mesh->vertex_data + (mesh->vertex_count * mesh->vertex_struct_size);
+    return (next < end && next > mesh->vertex_data) ? next : NULL;
 }
 
-void zest_CalculateNormals(zest_mesh mesh) {
-    // Zero out all normals first
-    zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].normal = zest_Vec3Set(0.f, 0.f, 0.f);
+void zest_ReserveMeshVertices(zest_mesh mesh, zest_uint count) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    if (count <= mesh->vertex_capacity) return;
+    zest_size new_size = count * mesh->vertex_struct_size;
+    void* new_data = ZEST__ALLOCATE(mesh->context->device->allocator, new_size);
+    if (mesh->vertex_data) {
+        memcpy(new_data, mesh->vertex_data, mesh->vertex_count * mesh->vertex_struct_size);
+        ZEST__FREE(mesh->context->device->allocator, mesh->vertex_data);
     }
+    mesh->vertex_data = new_data;
+    mesh->vertex_capacity = count;
+}
 
-    // Calculate face normals and add them to each vertex of the face
-    for (zest_uint i = 0; i < zest_vec_size(mesh->indexes); i += 3) {
-        zest_uint i0 = mesh->indexes[i + 0];
-        zest_uint i1 = mesh->indexes[i + 1];
-        zest_uint i2 = mesh->indexes[i + 2];
-
-        zest_vertex_t v0 = mesh->vertices[i0];
-        zest_vertex_t v1 = mesh->vertices[i1];
-        zest_vertex_t v2 = mesh->vertices[i2];
-
-        zest_vec3 edge1 = zest_SubVec3(v1.pos, v0.pos);
-        zest_vec3 edge2 = zest_SubVec3(v2.pos, v0.pos);
-        zest_vec3 normal = zest_CrossProduct(edge1, edge2);
-
-        mesh->vertices[i0].normal = zest_AddVec3(mesh->vertices[i0].normal, normal);
-        mesh->vertices[i1].normal = zest_AddVec3(mesh->vertices[i1].normal, normal);
-        mesh->vertices[i2].normal = zest_AddVec3(mesh->vertices[i2].normal, normal);
+void zest_PushMeshVertexData(zest_mesh mesh, const void* vertex_data) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    if (mesh->vertex_count >= mesh->vertex_capacity) {
+        zest_uint new_capacity = mesh->vertex_capacity ? mesh->vertex_capacity * 2 : 8;
+        zest_ReserveMeshVertices(mesh, new_capacity);
     }
+    void* dest = (char*)mesh->vertex_data + (mesh->vertex_count * mesh->vertex_struct_size);
+    memcpy(dest, vertex_data, mesh->vertex_struct_size);
+    mesh->vertex_count++;
+}
 
-    // Normalize all vertex normals
-    zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].normal = zest_NormalizeVec3(mesh->vertices[i].normal);
-    }
+ZEST_API void zest_CopyMeshVertexData(zest_mesh mesh, const void* vertex_data, zest_size size) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+	zest_uint size_check = size % mesh->vertex_struct_size;
+	ZEST_ASSERT(!size_check, "The vertex data size that you're trying to copy to the mesh is not divisable by the vertext struct size set in the mesh. Make sure you're uploading the correct vertex data.");
+	if (mesh->vertex_capacity * mesh->vertex_struct_size < size) {
+        zest_ReserveMeshVertices(mesh, size);
+	}
+	memcpy(mesh->vertex_data, vertex_data, size);
+	mesh->vertex_count = size / mesh->vertex_struct_size;
+}
+
+ZEST_API void zest_CopyMeshIndexData(zest_mesh mesh, const zest_uint *index_data, zest_uint count) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+	zest_vec_resize(mesh->context->device->allocator, mesh->indexes, count);
+	memcpy(mesh->indexes, index_data, count * sizeof(zest_uint));
+}
+
+void zest_ClearMeshVertices(zest_mesh mesh) {
+	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
+    mesh->vertex_count = 0;
 }
 
 zest_bounding_box_t zest_NewBoundingBox() {
@@ -16734,30 +16715,9 @@ zest_bounding_box_t zest_NewBoundingBox() {
     return bb;
 }
 
-zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh) {
-	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-    zest_bounding_box_t bb = zest_NewBoundingBox();
-    zest_vec_foreach(i, mesh->vertices) {
-        bb.max_bounds.x = ZEST__MAX(mesh->vertices[i].pos.x, bb.max_bounds.x);
-        bb.max_bounds.y = ZEST__MAX(mesh->vertices[i].pos.y, bb.max_bounds.y);
-        bb.max_bounds.z = ZEST__MAX(mesh->vertices[i].pos.z, bb.max_bounds.z);
-        bb.min_bounds.x = ZEST__MIN(mesh->vertices[i].pos.x, bb.min_bounds.x);
-        bb.min_bounds.y = ZEST__MIN(mesh->vertices[i].pos.y, bb.min_bounds.y);
-        bb.min_bounds.z = ZEST__MIN(mesh->vertices[i].pos.z, bb.min_bounds.z);
-    }
-    return bb;
-}
-
-void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id) {
-	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-    zest_vec_foreach(i, mesh->vertices) {
-        mesh->vertices[i].parameters = group_id;
-    }
-}
-
 zest_uint zest_MeshVertexCount(zest_mesh mesh) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-    return zest_vec_size(mesh->vertices);
+    return mesh->vertex_count;
 }
 
 zest_uint zest_MeshIndexCount(zest_mesh mesh) {
@@ -16767,12 +16727,12 @@ zest_uint zest_MeshIndexCount(zest_mesh mesh) {
 
 zest_size zest_MeshVertexDataSize(zest_mesh mesh) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-    return zest_vec_size(mesh->vertices) * sizeof(zest_vertex_t);
+    return mesh->vertex_count * mesh->vertex_struct_size;
 }
 
 zest_size zest_MeshIndexDataSize(zest_mesh mesh) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-    return zest_vec_size(mesh->indexes) * sizeof(zest_uint);
+    return zest_vec_size_in_bytes(mesh->indexes);
 }
 
 void zest_MeshDataSizes(zest_mesh *meshes, zest_uint mesh_count, zest_size *vertex_capacity, zest_size *index_capacity) {
@@ -16791,23 +16751,9 @@ zest_uint *zest_MeshIndexData(zest_mesh mesh) {
 	return mesh->indexes;
 }
 
-zest_vertex_t *zest_MeshVertexData(zest_mesh mesh) {
+void *zest_MeshVertexData(zest_mesh mesh) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-	return mesh->vertices;
-}
-
-void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
-    zest_uint dst_vertex_size = zest_vec_size(dst_mesh->vertices);
-    zest_uint src_vertex_size = zest_vec_size(src_mesh->vertices);
-    zest_uint dst_index_size = zest_vec_size(dst_mesh->indexes);
-    zest_uint src_index_size = zest_vec_size(src_mesh->indexes);
-    zest_vec_resize(dst_mesh->context->device->allocator, dst_mesh->vertices, dst_vertex_size + src_vertex_size);
-    memcpy(dst_mesh->vertices + dst_vertex_size, src_mesh->vertices, src_vertex_size * sizeof(zest_vertex_t));
-    zest_vec_resize(dst_mesh->context->device->allocator, dst_mesh->indexes, dst_index_size + src_index_size);
-    memcpy(dst_mesh->indexes + dst_index_size, src_mesh->indexes, src_index_size * sizeof(zest_uint));
-    for (int i = dst_index_size; i != src_index_size + dst_index_size; ++i) {
-        dst_mesh->indexes[i] += dst_vertex_size;
-    }
+	return mesh->vertex_data;
 }
 
 zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint texture_index) {
@@ -16819,7 +16765,7 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint te
 	zest_size src_mesh_index_size = zest_MeshIndexDataSize(src_mesh);
 	ZEST_ASSERT(layer->vertex_data->size - layer->used_vertex_data >= src_mesh_vertex_size, "Not enough space left in the layer vertex buffer to add this mesh data.");
 	ZEST_ASSERT(layer->index_data->size - layer->used_index_data >= src_mesh_index_size, "Not enough space left in the layer index buffer to add this mesh data.");
-    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(device, src_mesh_vertex_size, src_mesh->vertices);
+    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(device, src_mesh_vertex_size, src_mesh->vertex_data);
     zest_buffer index_staging_buffer = zest_CreateStagingBuffer(device, src_mesh_index_size, src_mesh->indexes);
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
     zest_imm_CopyBufferRegion(queue, vertex_staging_buffer, 0, layer->vertex_data, layer->used_vertex_data, src_mesh_vertex_size);

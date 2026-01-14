@@ -34,6 +34,13 @@ struct scene_push_constants_t {
 	bool enable_pcf;
 };
 
+struct mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	zest_vec3 scale;
+};
+
 struct ShadowMappingExample {
 	zest_context context;
 	zest_device device;
