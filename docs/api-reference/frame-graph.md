@@ -1167,7 +1167,7 @@ if (status == zest_semaphore_status_success) {
 
 Print the compiled frame graph structure to the console. Shows passes, resources, dependencies, and barriers for debugging.
 
-**Note** You must #define ZEST_TEST_MODE before including zest.h in order to print frame graphs.
+**Note** You must `#define ZEST_TEST_MODE` before including `zest.h` in order to print frame graphs.
 
 ```cpp
 void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph);
