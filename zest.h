@@ -4607,22 +4607,47 @@ ZEST_API void zest_SetGPUBufferPoolSize(zest_device device, zest_size minimum_si
 ZEST_API void zest_SetGPUSmallBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetGPUTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetGPUSmallTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
-ZEST_API void zest_SetStagingBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetSmallHostBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
+ZEST_API void zest_SetStagingBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 
 //--End Buffer related
 
-// --- Frame_graph_api
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer_handle zest_CreateMeshLayer(zest_context context, const char *name, zest_size vertex_type_size);
 ZEST_API zest_layer_handle zest_CreateInstanceMeshLayer(zest_context context, const char *name, zest_size instance_struct_size, zest_size vertex_capacity, zest_size index_capacity);
-//-- End Command queue setup and creation
 
 // --- Dynamic resource callbacks ---
 ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_prev_fif(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest_context context, zest_resource_node resource);
+
+// --- Frame_graph_api
+// -- Creating and Executing the render graph
+ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
+ZEST_API zest_frame_graph zest_EndFrameGraph();
+ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
+ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
+
+// --- Add Transient resources ---
+ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
+ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
+ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
+
+// --- Import external resouces into the render graph ---
+ZEST_API zest_resource_node zest_ImportSwapchainResource();
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
+ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
+
+// --- Add pass nodes that execute user commands ---
+ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
+ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
+ZEST_API void zest_EndPass();
+
+// --- Add callback tasks to passes
+ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
 
 // --- Utility callbacks ---
 ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
@@ -4648,31 +4673,10 @@ ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_fr
 ZEST_API void zest_FlushCachedFrameGraphs(zest_context context);
 ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
 
-// -- Creating and Executing the render graph
-ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
-ZEST_API zest_frame_graph zest_EndFrameGraph();
-ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
-ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
-
-// --- Add pass nodes that execute user commands ---
-ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
-ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
-ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
-ZEST_API void zest_EndPass();
-
 // --- Helper functions for acquiring bindless desriptor array indexes---
 ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
-
-// --- Add callback tasks to passes
-ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
-
-// --- Add Transient resources ---
-ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 
 // --- Special flags for passes and resource
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
@@ -4682,14 +4686,6 @@ ZEST_API void zest_DoNotCull();
 ZEST_API zest_resource_group zest_CreateResourceGroup();
 ZEST_API void zest_AddSwapchainToGroup(zest_resource_group group);
 ZEST_API void zest_AddResourceToGroup(zest_resource_group group, zest_resource_node image);
-
-// --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportSwapchainResource();
-ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
-ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
-
-// --- Descriptor Sets
-ZEST_API void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 
 // --- Manual Barrier Functions
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
@@ -4714,6 +4710,9 @@ ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline timeline);
 
 // -- General pass and resource getters/setters
 ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
+
+// --- Descriptor Sets
+ZEST_API void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count);
 
 // -- Command list helpers
 ZEST_API zest_context zest_GetContext(zest_command_list command_list);
