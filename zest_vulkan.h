@@ -4810,6 +4810,7 @@ zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image 
     return ZEST_TRUE;
 }
 
+/*
 zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image dst_image, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     VkCommandBuffer copy_command = 0; 
 
@@ -4910,6 +4911,7 @@ zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image dst_image, 
 
     return ZEST_FALSE;
 }
+*/
 
 zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height) {
     VkBufferImageCopy region = ZEST__ZERO_INIT(VkBufferImageCopy);

@@ -5302,7 +5302,7 @@ ZEST_API void zest_imm_FillBuffer (zest_queue queue, zest_buffer buffer, zest_ui
 //Update a buffer (max size 64k)
 ZEST_API void zest_imm_UpdateBuffer (zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size);
 //Copies an area of a zest_texture to another zest_texture
-ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+//ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 ZEST_API zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_API zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_image image_handle);
 ZEST_API zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image_handle);
