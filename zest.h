@@ -4881,7 +4881,7 @@ ZEST_API void zest_CameraStrafLeft(zest_camera_t *camera, float speed);
 //Straf the camera to the right by a given speed
 ZEST_API void zest_CameraStrafRight(zest_camera_t *camera, float speed);
 //Set the position of the camera
-ZEST_API void zest_CameraPosition(zest_camera_t *camera, zest_vec3 position);
+ZEST_API void zest_CameraPosition(zest_camera_t *camera, float position[3]);
 //Set the field of view for the camera
 ZEST_API void zest_CameraSetFoV(zest_camera_t *camera, float degrees);
 //Set the current pitch of the camera (looking up and down)
@@ -7343,8 +7343,8 @@ void zest_CameraStrafRight(zest_camera_t* camera, float speed) {
     camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(cross, speed));
 }
 
-void zest_CameraPosition(zest_camera_t* camera, zest_vec3 position) {
-    camera->position = position;
+void zest_CameraPosition(zest_camera_t* camera, float position[3]) {
+	camera->position = { position[0], position[1], position[2] };
 }
 
 void zest_CameraSetFoV(zest_camera_t* camera, float degrees) {
