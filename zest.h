@@ -2086,14 +2086,14 @@ typedef zest_uint zest_image_flags;
 typedef zest_uint zest_capability_flags;
 
 typedef enum {
-	zest_buffer_type_staging,
-	zest_buffer_type_vertex,
-	zest_buffer_type_index,
-	zest_buffer_type_uniform,
-	zest_buffer_type_storage,
-	zest_buffer_type_indirect,
-	zest_buffer_type_vertex_storage,
-	zest_buffer_type_index_storage
+	zest_buffer_type_staging,		//Used to upload data from CPU side to GPU
+	zest_buffer_type_vertex,		//Any kind of data for storing vertices used in vertex shaders
+	zest_buffer_type_index,			//Index data for use in vertex shaders
+	zest_buffer_type_uniform,		//Small buffers for uploading data to the GPU every frame
+	zest_buffer_type_storage,		//General purpose storage buffers mainly for compute but any other shader type can access too
+	zest_buffer_type_indirect,		
+	zest_buffer_type_vertex_storage,//Vertex data that can also be accessed/written to by the GPU
+	zest_buffer_type_index_storage	//Index data that can also be accessed/written to by the GPU
 } zest_buffer_type;
 
 typedef enum {
