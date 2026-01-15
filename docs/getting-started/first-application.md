@@ -185,4 +185,4 @@ Now that you understand the basic structure:
 
 - [Architecture Overview](architecture.md) - Deeper explanation of Device, Context, and Frame Graph
 - [Adding ImGui Tutorial](../tutorials/02-imgui.md) - Add a UI to your application
-- [Frame Graph Concept](../concepts/frame-graph.md) - Full details on the frame graph system
+- [Frame Graph Concept](../concepts/frame-graph/index.md) - Full details on the frame graph system

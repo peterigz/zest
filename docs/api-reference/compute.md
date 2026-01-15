@@ -244,4 +244,4 @@ void UpdateParticlesCallback(zest_command_list command_list, void *user_data) {
 ## See Also
 
 - [Compute Tutorial](../tutorials/05-compute.md)
-- [Frame Graph Concept](../concepts/frame-graph.md)
+- [Frame Graph Concept](../concepts/frame-graph/index.md)

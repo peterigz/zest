@@ -630,6 +630,6 @@ zest_cmd_DispatchCompute(cmd, groups_x, groups_y, 1);
 ## See Also
 
 - [Immediate API](immediate.md) - One-off commands
-- [Frame Graph Concept](../concepts/frame-graph.md)
+- [Frame Graph Concept](../concepts/frame-graph/index.md)
 - [Buffer Management](buffer.md) - Creating and managing buffers
 - [Pipeline API](pipeline.md) - Creating graphics and compute pipelines

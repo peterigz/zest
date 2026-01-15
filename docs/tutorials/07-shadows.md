@@ -95,4 +95,4 @@ Also check `examples/GLFW/zest-cascading-shadows/` for cascaded shadow maps.
 ## Next Steps
 
 - [Examples Gallery](../examples/index.md) - All working examples
-- [Frame Graph Concept](../concepts/frame-graph.md) - Multi-pass details
+- [Frame Graph Concept](../concepts/frame-graph/index.md) - Multi-pass details

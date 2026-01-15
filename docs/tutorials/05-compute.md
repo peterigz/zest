@@ -118,4 +118,4 @@ See `examples/GLFW/zest-compute-example/zest-compute-example.cpp` for complete p
 ## Next Steps
 
 - [Tutorial 6: Multi-Pass Rendering](06-multipass.md)
-- [Frame Graph Concept](../concepts/frame-graph.md) - Compute pass details
+- [Frame Graph Concept](../concepts/frame-graph/passes.md) - Compute pass details

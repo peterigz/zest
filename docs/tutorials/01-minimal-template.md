@@ -191,4 +191,4 @@ See the full source at `examples/GLFW/zest-minimal-template/zest-minimal-templat
 ## Next Steps
 
 - [Tutorial 2: Adding ImGui](02-imgui.md) - Add a user interface
-- [Frame Graph Concept](../concepts/frame-graph.md) - Deep dive on frame graphs
+- [Frame Graph Concept](../concepts/frame-graph/index.md) - Deep dive on frame graphs

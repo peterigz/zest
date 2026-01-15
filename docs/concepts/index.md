@@ -7,7 +7,7 @@ This section provides deep dives into Zest's core systems. Each concept page exp
 | Concept | Description |
 |---------|-------------|
 | [Device & Context](device-and-context.md) | The two fundamental objects in Zest |
-| [Frame Graph](frame-graph.md) | The declarative execution model |
+| [Frame Graph](frame-graph/index.md) | The declarative execution model |
 | [Memory Management](memory.md) | TLSF allocator and memory pools |
 | [Bindless Descriptors](bindless.md) | Global descriptor set design |
 
@@ -23,7 +23,7 @@ This section provides deep dives into Zest's core systems. Each concept page exp
 ## Recommended Reading Order
 
 1. **[Device & Context](device-and-context.md)** - Start here to understand the basic structure
-2. **[Frame Graph](frame-graph.md)** - The most important concept in Zest
+2. **[Frame Graph](frame-graph/index.md)** - The most important concept in Zest
 3. **[Pipelines](pipelines.md)** - How to set up rendering state
 4. **[Buffers](buffers.md)** and **[Images](images.md)** - Resource management
 5. **[Layers](layers.md)** - High-level rendering abstractions

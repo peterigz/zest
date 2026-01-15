@@ -210,6 +210,6 @@ while (running) {
 
 ## Next Steps
 
-- [Frame Graph Concept](../concepts/frame-graph.md) - Deep dive into frame graphs
+- [Frame Graph Concept](../concepts/frame-graph/index.md) - Deep dive into frame graphs
 - [Device & Context Concept](../concepts/device-and-context.md) - Detailed API reference
 - [Minimal Template Tutorial](../tutorials/01-minimal-template.md) - Annotated walkthrough
