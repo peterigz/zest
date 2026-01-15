@@ -13,7 +13,7 @@ zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const ch
 	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);
 
-	zest_pipeline_template pipeline_test = zest_BeginPipelineTemplate(tests->device, name);
+	zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, name);
 	
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
 	zest_AddVertexInputBindingDescription(pipeline_test, 0, sizeof(vertex), zest_input_rate_vertex);
@@ -291,7 +291,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
 		zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);
 
-		zest_pipeline_template pipeline_test = zest_BeginPipelineTemplate(tests->device, format_names[i]);
+		zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, format_names[i]);
 		
 		// Test with different position format
 		zest_AddVertexInputBindingDescription(pipeline_test, 0, sizeof(vertex), zest_input_rate_vertex);
@@ -313,7 +313,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	}
 	
 	// Test instance rate input
-	zest_pipeline_template instance_pipeline = zest_BeginPipelineTemplate(tests->device, "Instance Rate Test");
+	zest_pipeline_template instance_pipeline = zest_CreatePipelineTemplate(tests->device, "Instance Rate Test");
 	
 	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);

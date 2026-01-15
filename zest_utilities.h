@@ -794,7 +794,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	zest_shader_handle font_frag = zest_CreateShaderFromFile(device, frag_shader, "font_frag.spv", zest_fragment_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
-	zest_pipeline_template font_pipeline = zest_BeginPipelineTemplate(device, "pipeline_billboard");
+	zest_pipeline_template font_pipeline = zest_CreatePipelineTemplate(device, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(font_pipeline, 0, sizeof(zest_font_instance_t), zest_input_rate_instance);
 
     zest_AddVertexAttribute(font_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_font_instance_t, position));  
