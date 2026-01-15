@@ -37,7 +37,8 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->camera = zest_CreateCamera();
-	zest_CameraPosition(&app->camera, { -15.5f, 5.f, 0.f });
+	float position[3] = { -15.5f, 5.f, 0.f };
+	zest_CameraPosition(&app->camera, position);
 	zest_CameraSetFoV(&app->camera, 60.f);
 	zest_CameraSetYaw(&app->camera, 0.f);
 	zest_CameraSetPitch(&app->camera, -25.f);

@@ -34,7 +34,8 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->camera = zest_CreateCamera();
-	zest_CameraPosition(&app->camera, { 6.f, 6.f, 7.5f });
+	float position[3] = { 6.f, 6.f, 7.5f };
+	zest_CameraPosition(&app->camera, position);
 	zest_CameraSetFoV(&app->camera, 60.f);
 	zest_CameraSetYaw(&app->camera, -135.f);
 	zest_CameraSetPitch(&app->camera, -27.f);

@@ -35,7 +35,8 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->camera = zest_CreateCamera();
-	zest_CameraPosition(&app->camera, { -2.5f, 0.f, 0.f });
+	float position[3] = { -2.5f, 0.f, 0.f };
+	zest_CameraPosition(&app->camera, position);
 	zest_CameraSetFoV(&app->camera, 60.f);
 	zest_CameraSetYaw(&app->camera, zest_Radians(-90.f));
 	zest_CameraSetPitch(&app->camera, zest_Radians(0.f));

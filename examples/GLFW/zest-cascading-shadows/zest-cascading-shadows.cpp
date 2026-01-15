@@ -33,7 +33,8 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->camera = zest_CreateCamera();
-	zest_CameraPosition(&app->camera, {-0.12f, 1.14f, -2.25f});
+	float position[3] = { -0.12f, 1.14f, -2.25f };
+	zest_CameraPosition(&app->camera, position);
 	zest_CameraSetFoV(&app->camera, 45.f);
 	zest_CameraSetYaw(&app->camera, 7.f);
 	zest_CameraSetPitch(&app->camera, -17.f);
