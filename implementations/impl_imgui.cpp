@@ -48,7 +48,7 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 	imgui->pipeline_layout = zest_CreatePipelineLayout(&layout_info);
 
     //ImGuiPipeline
-    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(zest_GetContextDevice(imgui->context), "pipeline_imgui");
+    zest_pipeline_template imgui_pipeline = zest_CreatePipelineTemplate(zest_GetContextDevice(imgui->context), "pipeline_imgui");
     zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
     zest_AddVertexAttribute(imgui_pipeline, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV

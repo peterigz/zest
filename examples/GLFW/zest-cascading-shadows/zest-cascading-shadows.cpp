@@ -68,12 +68,12 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	zest_shader_handle debug_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-cascading-shadows/shaders/debugshadowmap.vert", "debugshadowmap_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle debug_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-cascading-shadows/shaders/debugshadowmap.frag", "debugshadowmap_frag.spv", zest_fragment_shader, true);
 
-	app->debug_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->debug_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_SetPipelineDisableVertexInput(app->debug_pipeline);
 	zest_SetPipelineShaders(app->debug_pipeline, debug_vert, debug_frag);
 	zest_SetPipelineCullMode(app->debug_pipeline, zest_cull_mode_back);
 
-	app->mesh_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->mesh_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 1, sizeof(zest_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
@@ -91,7 +91,7 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	zest_SetPipelineTopology(app->mesh_pipeline, zest_topology_triangle_list);
 	zest_SetPipelineDepthTest(app->mesh_pipeline, true, true);
 	
-	app->shadow_pipeline = zest_BeginPipelineTemplate(app->device, "Shadow pipeline");
+	app->shadow_pipeline = zest_CreatePipelineTemplate(app->device, "Shadow pipeline");
 	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 1, sizeof(zest_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->shadow_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position

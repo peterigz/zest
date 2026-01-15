@@ -419,7 +419,7 @@ void VadersGame::Init() {
 	billboard_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
-	billboard_pipeline = zest_BeginPipelineTemplate(device, "pipeline_billboard");
+	billboard_pipeline = zest_CreatePipelineTemplate(device, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(billboard_instance_t), zest_input_rate_instance);
 
 	zest_AddVertexAttribute(billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(billboard_instance_t, position));			    // Location 0: Position

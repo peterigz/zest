@@ -25,7 +25,7 @@ void InitExample(render_target_app_t *example) {
 	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
 	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
 
-    example->composite_pipeline = zest_BeginPipelineTemplate(example->device, "pipeline_pass_through");
+    example->composite_pipeline = zest_CreatePipelineTemplate(example->device, "pipeline_pass_through");
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
 	zest_SetPipelineFragShader(example->composite_pipeline, pass_frag);
     zest_SetPipelineBlend(example->composite_pipeline, zest_AdditiveBlendState());

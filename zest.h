@@ -4454,7 +4454,7 @@ ZEST_API void zest_implsdl2_DestroyWindow(zest_context context);
 //        the following functions are utilised, plus look at the exmaples for building your own custom pipeline_templates.
 //-----------------------------------------------
 //Add a new pipeline template to the renderer and return its handle.
-ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(zest_device device, const char *name);
+ZEST_API zest_pipeline_template zest_CreatePipelineTemplate(zest_device device, const char *name);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
 ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle vert_shader);
 ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle frag_shader);
@@ -10552,7 +10552,7 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
 
 zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_to_copy) {
 	zest_device device = pipeline_to_copy->device;
-    zest_pipeline_template copy = zest_BeginPipelineTemplate(device, name);
+    zest_pipeline_template copy = zest_CreatePipelineTemplate(device, name);
     copy->no_vertex_input = pipeline_to_copy->no_vertex_input;
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
@@ -10786,7 +10786,7 @@ zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_fr
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].descriptor_array_index;
 }
 
-zest_pipeline_template zest_BeginPipelineTemplate(zest_device device, const char* name) {
+zest_pipeline_template zest_CreatePipelineTemplate(zest_device device, const char* name) {
     zest_pipeline_template pipeline_template = (zest_pipeline_template)ZEST__NEW(device->allocator, zest_pipeline_template);
     *pipeline_template = ZEST__ZERO_INIT(zest_pipeline_template_t);
     pipeline_template->magic = zest_INIT_MAGIC(zest_struct_type_pipeline_template);
@@ -11616,7 +11616,7 @@ void zest__prepare_standard_pipelines(zest_device device) {
 	zest_pipeline_layout swap_layout = zest_CreatePipelineLayout(&info);
 
     //Final Render Pipelines
-    device->pipeline_templates.swap = zest_BeginPipelineTemplate(device, "pipeline_swap_chain");
+    device->pipeline_templates.swap = zest_CreatePipelineTemplate(device, "pipeline_swap_chain");
     zest_pipeline_template swap = device->pipeline_templates.swap;
     zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
     swap->no_vertex_input = ZEST_TRUE;

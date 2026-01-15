@@ -82,7 +82,7 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 
-	app->pbr_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->pbr_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(textured_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position

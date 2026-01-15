@@ -93,7 +93,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(resources->uniform_buffer);
 
-	resources->pipeline = zest_BeginPipelineTemplate(device, "Timelinefx pipeline");
+	resources->pipeline = zest_CreatePipelineTemplate(device, "Timelinefx pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
 	zest_AddVertexInputBindingDescription(resources->pipeline, 0, sizeof(tfx_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(resources->pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(tfx_instance_t, position));	            // Location 0: Postion and stretch in w

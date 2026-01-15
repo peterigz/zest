@@ -61,7 +61,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-shadow-mapping/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, true);
 	zest_shader_handle offscreen_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-shadow-mapping/shaders/offscreen.vert", "offscreen_vert.spv", zest_vertex_shader, true);
 
-	app->mesh_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->mesh_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->mesh_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->mesh_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
@@ -79,7 +79,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	zest_SetPipelineTopology(app->mesh_pipeline, zest_topology_triangle_list);
 	zest_SetPipelineDepthTest(app->mesh_pipeline, true, true);
 	
-	app->shadow_pipeline = zest_BeginPipelineTemplate(app->device, "Shadow pipeline");
+	app->shadow_pipeline = zest_CreatePipelineTemplate(app->device, "Shadow pipeline");
 	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->shadow_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->shadow_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position

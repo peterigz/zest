@@ -90,7 +90,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 
-	app->gbuffer_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->gbuffer_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->gbuffer_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->gbuffer_pipeline, 1, sizeof(deferred_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
@@ -123,13 +123,13 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_SetPipelineDepthTest(app->gbuffer_pipeline, true, true);  // Enable depth test and write for proper occlusion
 
 	// Deferred lighting pipeline (fullscreen, no vertex input)
-	app->lighting_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_deferred_lighting");
+	app->lighting_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_deferred_lighting");
 	zest_SetPipelineShaders(app->lighting_pipeline, app->lighting_vert, app->lighting_frag);
 	zest_SetPipelineDisableVertexInput(app->lighting_pipeline);
 	zest_SetPipelineDepthTest(app->lighting_pipeline, false, false);
 
 	// Composite pipeline (fullscreen, no vertex input) Draws the skybox and the GBuffer render target
-	app->composite_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_composite");
+	app->composite_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_composite");
 	zest_SetPipelineShaders(app->composite_pipeline, app->lighting_vert, app->composite_frag);
 	zest_SetPipelineDisableVertexInput(app->composite_pipeline);
 	zest_SetPipelineDepthTest(app->composite_pipeline, false, false);

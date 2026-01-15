@@ -69,7 +69,7 @@ void InitInstancingExample(InstancingExample *app) {
 	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-instancing/shaders/sky_box.vert", "skybox_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-instancing/shaders/sky_box.frag", "skybox_frag.spv", zest_fragment_shader, true);
 
-	app->rock_pipeline = zest_BeginPipelineTemplate(app->device, "pipeline_mesh_instance");
+	app->rock_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->rock_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->rock_pipeline, 1, sizeof(mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->rock_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                         // Location 0: Vertex Position
