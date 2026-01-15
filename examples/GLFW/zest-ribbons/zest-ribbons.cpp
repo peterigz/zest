@@ -53,7 +53,7 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", zest_fragment_shader, true);
 
 	//Create a compute shader to build the ribbon geometry
-	app->ribbon_compute = zest_CreateCompute(app->device, "Ribbon Compute", app->ribbon_comp_shader, app);
+	app->ribbon_compute = zest_CreateCompute(app->device, "Ribbon Compute", app->ribbon_comp_shader);
 
 	app->ribbon_pipeline = zest_BeginPipelineTemplate(app->device, "Ribbon Pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects

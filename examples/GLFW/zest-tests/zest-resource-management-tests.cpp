@@ -1989,7 +1989,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		phase_total++;
 
 		// Build compute pipeline
-		zest_compute_handle compute = zest_CreateCompute(tests->device, "Test Compute", shader, 0);
+		zest_compute_handle compute = zest_CreateCompute(tests->device, "Test Compute", shader);
 
 		if (compute.value != 0) {
 			phase_passed++;
@@ -2114,7 +2114,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			if (shaders[i].value != 0) {
 				char name[32];
 				snprintf(name, sizeof(name), "Multi Compute %d", i);
-				computes[i] = zest_CreateCompute(tests->device, name, shaders[i], 0);
+				computes[i] = zest_CreateCompute(tests->device, name, shaders[i]);
 
 				if (computes[i].value != 0) {
 					created++;
@@ -2158,46 +2158,6 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		}
 
 		PrintTestUpdate(test, 3, phase_passed == phase_total);
-		passed_tests += phase_passed;
-		total_tests += phase_total;
-	}
-
-	// Phase 4: Compute with User Data
-	{
-		int phase_total = 0;
-		int phase_passed = 0;
-
-		int user_data_value = 12345;
-
-		zest_shader_handle shader = zest_CreateShaderFromFile(
-			tests->device,
-			"examples/GLFW/zest-tests/shaders/buffer_write.comp",
-			"userdata_compute.spv",
-			zest_compute_shader,
-			1
-		);
-
-		if (shader.value != 0) {
-			zest_compute_handle compute = zest_CreateCompute(tests->device, "UserData Compute", shader, &user_data_value);
-
-			if (compute.value != 0) {
-				zest_compute comp = zest_GetCompute(compute);
-				if (comp && comp->user_data == &user_data_value) {
-					phase_passed++;
-				}
-				phase_total++;
-
-				zest_FreeCompute(compute);
-			} else {
-				phase_total++;
-			}
-
-			zest_FreeShader(shader);
-		} else {
-			phase_total++;
-		}
-
-		PrintTestUpdate(test, 4, phase_passed == phase_total);
 		passed_tests += phase_passed;
 		total_tests += phase_total;
 	}
@@ -2257,7 +2217,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			phase_total += 2;
 		}
 
-		PrintTestUpdate(test, 6, phase_passed == phase_total);
+		PrintTestUpdate(test, 5, phase_passed == phase_total);
 		passed_tests += phase_passed;
 		total_tests += phase_total;
 	}
@@ -2286,7 +2246,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			phase_total += 2;
 		}
 
-		PrintTestUpdate(test, 7, phase_passed == phase_total);
+		PrintTestUpdate(test, 6, phase_passed == phase_total);
 		passed_tests += phase_passed;
 		total_tests += phase_total;
 	}
@@ -2305,26 +2265,6 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			1
 		);
 
-		if (shader.value != 0) {
-			zest_compute_handle compute = zest_CreateCompute(tests->device, "Edge Compute", shader, 0);
-
-			if (compute.value != 0) {
-				zest_compute comp = zest_GetCompute(compute);
-				if (comp && comp->user_data == NULL) {
-					phase_passed++;
-				}
-				phase_total++;
-
-				zest_FreeCompute(compute);
-			} else {
-				phase_total++;
-			}
-
-			zest_FreeShader(shader);
-		} else {
-			phase_total++;
-		}
-
 		// Create/free cycle test
 		{
 			const int cycle_count = 5;
@@ -2340,7 +2280,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 				);
 
 				if (cycle_shader.value != 0) {
-					zest_compute_handle compute = zest_CreateCompute(tests->device, "Cycle Compute", cycle_shader, 0);
+					zest_compute_handle compute = zest_CreateCompute(tests->device, "Cycle Compute", cycle_shader);
 
 					if (compute.value != 0) {
 						zest_FreeCompute(compute);
@@ -2364,7 +2304,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			zest_EndFrame(tests->context);
 		}
 
-		PrintTestUpdate(test, 8, phase_passed == phase_total);
+		PrintTestUpdate(test, 7, phase_passed == phase_total);
 		passed_tests += phase_passed;
 		total_tests += phase_total;
 	}

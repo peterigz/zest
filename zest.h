@@ -5174,7 +5174,7 @@ ZEST_PRIVATE zest_compute zest__new_compute(zest_device device, const char *name
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest__new_compute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
-ZEST_API zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader, void* user_data);
+ZEST_API zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader);
 //Get a compute pointer from a handle that you can use to pass in to functions. If the the compute resource
 //is freed then the pointer is no longer valid.
 ZEST_API zest_compute zest_GetCompute(zest_compute_handle compute_handle);
@@ -6571,7 +6571,6 @@ typedef struct zest_compute_t {
 	zest_pipeline_layout pipeline_layout;
 	zest_shader_handle shader;                                // The shader handle that the compute dispatches to
 	void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
-	void *user_data;                                          // Custom user data
 	zest_compute_flags flags;
 } zest_compute_t;
 
@@ -16733,9 +16732,8 @@ zest_compute zest__new_compute(zest_device device, const char* name) {
     return compute;
 }
 
-zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader, void* user_data) {
+zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zest_shader_handle shader) {
 	zest_compute compute = zest__new_compute(device, name);
-    compute->user_data = user_data;
 	compute->shader = shader;
 
     compute->pipeline_layout = device->pipeline_layout;

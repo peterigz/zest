@@ -11,7 +11,7 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 	zest_uint brd_bindless_texture_index = zest_AcquireStorageImageIndex(device, brd_image, zest_storage_image_binding);
 	zest_AcquireSampledImageIndex(device, brd_image, zest_texture_2d_binding);
 
-	zest_compute_handle brd_compute = zest_CreateCompute(device, "Brd Compute", brd_shader, 0);
+	zest_compute_handle brd_compute = zest_CreateCompute(device, "Brd Compute", brd_shader);
 	zest_compute compute = zest_GetCompute(brd_compute);
 
 	const zest_uint local_size_x = 8;
@@ -49,7 +49,7 @@ zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle s
 	zest_uint irr_bindless_texture_index = zest_AcquireStorageImageIndex(device, irr_image, zest_storage_image_binding);
 	zest_AcquireSampledImageIndex(device, irr_image, zest_texture_cube_binding);
 
-	zest_compute_handle irr_compute = zest_CreateCompute(device, "irradiance compute", irr_shader, 0);
+	zest_compute_handle irr_compute = zest_CreateCompute(device, "irradiance compute", irr_shader);
 	zest_compute compute = zest_GetCompute(irr_compute);
 
 	irr_push_constant_t push;
@@ -94,7 +94,7 @@ zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle 
 	*prefiltered_mip_indexes = zest_AcquireImageMipIndexes(device, prefiltered_image, prefiltered_view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);
 	zest_AcquireSampledImageIndex(device, prefiltered_image, zest_texture_cube_binding);
 
-	zest_compute_handle prefiltered_compute = zest_CreateCompute(device, "prefiltered compute", prefiltered_shader, 0);
+	zest_compute_handle prefiltered_compute = zest_CreateCompute(device, "prefiltered compute", prefiltered_shader);
 	zest_compute compute = zest_GetCompute(prefiltered_compute);
 
 	const zest_uint local_size = 8;

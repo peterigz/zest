@@ -115,7 +115,7 @@ void InitComputeExample(ComputeExample *app) {
 	zest_SetPipelineFrontFace(app->particle_pipeline, zest_front_face_counter_clockwise);
 
 	//Set up the compute shader
-	app->compute = zest_CreateCompute(app->device, "Particles Compute", comp_shader, app);
+	app->compute = zest_CreateCompute(app->device, "Particles Compute", comp_shader);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);

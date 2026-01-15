@@ -37,7 +37,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
-	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
+	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
 
 	zest_BeginFrameGraph(tests->context, "BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
@@ -71,7 +71,7 @@ Verifies cross-graph synchronization.
 int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
@@ -175,7 +175,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
-		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
+		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
 	}
 
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
@@ -277,7 +277,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 		tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
-		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader, tests);
+		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
 	}
 
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
@@ -323,7 +323,7 @@ Create two timelines, single graph signals both, verify both can be waited on.
 int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
@@ -401,7 +401,7 @@ Common pattern for particle simulation.
 int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
@@ -457,7 +457,7 @@ Verify compiles and executes correctly.
 int test__compute_only_graph(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
@@ -466,7 +466,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
-		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader, tests);
+		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = 1;
@@ -547,7 +547,7 @@ Verify no crashes/conflicts.
 int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;

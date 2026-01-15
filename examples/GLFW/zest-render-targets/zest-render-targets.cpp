@@ -43,10 +43,10 @@ void InitExample(render_target_app_t *example) {
 	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer", 500);
 
 	//Create the compute shader pipeline for downsampling
-	example->downsampler_compute = zest_CreateCompute(example->device, "Downsampler Compute", downsampler_shader, example);
+	example->downsampler_compute = zest_CreateCompute(example->device, "Downsampler Compute", downsampler_shader);
 
 	//Create the compute shader pipeline for up sampling
-	example->upsampler_compute = zest_CreateCompute(example->device, "Upsampler Compute", upsampler_shader, example);
+	example->upsampler_compute = zest_CreateCompute(example->device, "Upsampler Compute", upsampler_shader);
 }
 
 void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {

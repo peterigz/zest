@@ -362,7 +362,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
@@ -371,7 +371,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
-		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader, tests);
+		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = -1;
@@ -531,7 +531,7 @@ Image Write / Read(Clear Color) :
 int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
-		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader, tests);
+		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = 1;
@@ -690,7 +690,7 @@ Multi-Queue Synchronization:
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
-		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader, tests);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
