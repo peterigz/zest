@@ -465,7 +465,7 @@ if (zest_BeginFrameGraph(context, "Main", &cache_key)) {
 
 Import an existing image (texture, render target) into the frame graph. Use this for persistent resources that outlive a single frame.
 
-**Important Note:** You don't have to import all the images that you want to use in a frame graph. You only need to import images that you're going to write and read from to create dependency chains and therefore require synconization and layout changes that the frame graph will take care of. Otherwise it's a waste of CPU time, you can just simply pass around the descriptor indexes inside the render/compute pass callbacks to use them in your shaders.
+> **Important Note:** You don't have to import all the images that you want to use in a frame graph. You only need to import images that you're going to write and read from to create dependency chains and therefore require synconization and layout changes that the frame graph will take care of. Otherwise it's a waste of CPU time, you can just simply pass around the descriptor indexes inside the render/compute pass callbacks to use them in your shaders.
 
 
 ```cpp
@@ -504,7 +504,7 @@ zest_EndPass();
 
 Import an existing buffer into the frame graph. Use for persistent buffers or CPU-accessible readback buffers.
 
-**Important Note:** You don't have to import all the buffers that you want to use in a frame graph. You only need to import buffers that you're going to write and read from to create dependency chains and therefore require synconization that the frame graph will take care of. Otherwise it's a waste of CPU time, you can just simply pass around the descriptor indexes for the buffers inside the render/compute pass callbacks to use them in your shaders.
+> **Important Note:** You don't have to import all the buffers that you want to use in a frame graph. You only need to import buffers that you're going to write and read from to create dependency chains and therefore require synconization that the frame graph will take care of. Otherwise it's a waste of CPU time, you can just simply pass around the descriptor indexes for the buffers inside the render/compute pass callbacks to use them in your shaders.
 
 ```cpp
 zest_resource_node zest_ImportBufferResource(
