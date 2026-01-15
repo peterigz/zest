@@ -3573,7 +3573,7 @@ typedef struct zest_timestamp_duration_s {
 
 //frame_graph_types
 
-typedef void (*zest_rg_execution_callback)(const zest_command_list command_list, void *user_data);
+typedef void (*zest_fg_execution_callback)(const zest_command_list command_list, void *user_data);
 typedef void* zest_resource_handle;
 
 typedef struct zest_buffer_description_t {
@@ -3600,7 +3600,7 @@ typedef struct zest_batch_key {
 zest_hash_map(zest_resource_usage_t) zest_map_resource_usages;
 
 typedef struct zest_pass_execution_callback_t {
-	zest_rg_execution_callback callback;
+	zest_fg_execution_callback callback;
 	void *user_data;
 } zest_pass_execution_callback_t;
 
@@ -4647,7 +4647,7 @@ ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
 // --- Add callback tasks to passes
-ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_SetPassTask(zest_fg_execution_callback callback, void *user_data);
 
 // --- Utility callbacks ---
 ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
@@ -14422,7 +14422,7 @@ void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *de
 	frame_graph->pipeline_layout = layout;
 }
 
-void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
+void zest_SetPassTask(zest_fg_execution_callback callback, void *user_data) {
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_OR_VALIDATE(zest__frame_graph_builder->current_pass, context->device, 
 							"No current pass found, make sure you call zest_BeginPass", (void)0);
