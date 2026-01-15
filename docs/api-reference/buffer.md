@@ -39,12 +39,30 @@ zest_buffer_info_t zest_CreateBufferInfo(
 
 ### zest_CreateBuffer
 
+Buffers can be used for wide variety of data storage depending on what you need. 
+
 ```cpp
 zest_buffer zest_CreateBuffer(
     zest_device device,
     zest_size size,
     zest_buffer_info_t *info
 );
+```
+
+Some typical examples:
+
+**For particle data processed in a compute shader**
+```cpp
+zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
+app->particle_buffer = zest_CreateBuffer(app->device, storage_buffer_size, &particle_vertex_buffer_info);
+```
+
+**For mesh data processed in a vertex shader**
+```cpp
+zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
+zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
+app->planet_mesh.index_buffer = zest_CreateBuffer(app->device, planet_index_capacity, &index_info);
+app->planet_mesh.vertex_buffer = zest_CreateBuffer(app->device, planet_vertex_capacity, &vertex_info);
 ```
 
 ---
