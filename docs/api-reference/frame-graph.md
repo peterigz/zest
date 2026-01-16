@@ -55,7 +55,6 @@ Returns the compiled frame graph ready for execution.
 if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
     // ... define passes ...
     zest_frame_graph graph = zest_EndFrameGraph();
-    zest_QueueFrameGraphForExecution(context, graph);
 }
 ```
 
@@ -145,7 +144,7 @@ if (!frame_graph) {
         frame_graph = zest_EndFrameGraph();	// <-- Frame graph get's cached here for the next frame(s)
     }
 }
-zest_QueueFrameGraphForExecution(context, frame_graph);
+// Frame graph is automatically executed during zest_EndFrame()
 ```
 
 ---
@@ -1100,29 +1099,6 @@ zest_EndPass();
 
 ## Execution
 
-### zest_QueueFrameGraphForExecution
-
-Queue a compiled frame graph for execution during `zest_EndFrame()`. The graph will be executed and its final output presented to the swapchain.
-
-```cpp
-void zest_QueueFrameGraphForExecution(
-    zest_context context,
-    zest_frame_graph frame_graph
-);
-```
-
-**Typical usage:** Queue the frame graph after building (or retrieving from cache) before calling `zest_EndFrame()`.
-
-```cpp
-if (zest_BeginFrame(context)) {
-    zest_frame_graph graph = GetOrBuildFrameGraph(context);
-    zest_QueueFrameGraphForExecution(context, graph);
-    zest_EndFrame(context);  // Executes and presents
-}
-```
-
----
-
 ### zest_WaitForSignal
 
 Wait for a timeline semaphore signal, blocking until the GPU work completes or timeout occurs.
@@ -1180,7 +1156,7 @@ zest_frame_graph graph = zest_EndFrameGraph();
 #ifdef _DEBUG
 zest_PrintCompiledFrameGraph(graph);  // Print in debug builds
 #endif
-zest_QueueFrameGraphForExecution(context, graph);
+// Graph is automatically executed during zest_EndFrame()
 ```
 
 ---
