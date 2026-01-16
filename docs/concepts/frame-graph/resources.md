@@ -17,10 +17,10 @@ Resources are the data that flows through a frame graph. This page covers import
 The swapchain is always imported first:
 
 ```cpp
-zest_resource_node swapchain = zest_ImportSwapchainResource();
+zest_ImportSwapchainResource();
 ```
 
-This returns the current frame's swapchain image as a resource node.
+This returns the current frame's swapchain image as a resource node (otional, you don't need to do anything with the returned resource as it's registered in the frame graph internally).
 
 ### Images
 
@@ -30,11 +30,9 @@ Import existing images (textures, render targets):
 zest_image image = zest_GetImage(image_handle);
 zest_resource_node tex = zest_ImportImageResource("Texture", image, zest_texture_2d_binding);
 ```
+> **You only need to import images that either require a layout transition before reading from or intend on writing to the image. It's recommended that if you only want to sample from an image and it's already in layout shader read only optimal then there's no need to import. You can just simply pass on it's descriptor array index in a push constant or uniform buffer and sample from it in a shader.**
 
-The `provider` parameter specifies how the image will be accessed:
-- `zest_texture_2d_binding` - 2D texture sampling
-- `zest_texture_cube_binding` - Cubemap sampling
-- `zest_storage_image_binding` - Storage image read/write
+The `provider` parameter specifies a callback that get's the correct image view to use specifically when the frame graph is cached. For example the swapchain uses a provider to get the correct image frame that was acquired. In most cases you can just pass NULL or 0 as the image will just have it's one default view.
 
 ### Buffers
 
@@ -42,12 +40,12 @@ Import existing buffers:
 
 ```cpp
 zest_buffer buffer = zest_GetBuffer(buffer_handle);
-zest_resource_node buf = zest_ImportBufferResource("Instances", buffer, zest_storage_buffer_binding);
+zest_resource_node buf = zest_ImportBufferResource("Instances", buffer, provider);
 ```
 
-The `provider` parameter specifies buffer access type:
-- `zest_storage_buffer_binding` - Storage buffer
-- `zest_uniform_buffer_binding` - Uniform buffer
+> **You only need to import buffers that you might write to and be a part of dependency chains in the graph. If your buffers will only be read from in the graph then there's no need to import, you can just access them in shaders via their descriptor array index.
+
+The `provider` parameter specifies a callback so that a cached frame graph can get the relevent resource - for example the correct frame in flight buffer.
 
 ## Transient Resources
 
@@ -71,7 +69,7 @@ zest_resource_node hdr_target = zest_AddTransientImageResource("HDR", &info);
 | Field | Description |
 |-------|-------------|
 | `format` | Image format (e.g., `zest_format_r8g8b8a8_unorm`) |
-| `usage_hint` | How the image will be used |
+| `usage_hint` | How the image will be used to give the frame graph hint to set the correct usage flags |
 | `width`, `height` | Dimensions in pixels |
 | `mip_levels` | Number of mip levels (1 = no mipmaps) |
 
@@ -100,11 +98,13 @@ For layer-based rendering with previous frame access:
 zest_resource_node layer_node = zest_AddTransientLayerResource("Sprites", sprite_layer, zest_false);
 ```
 
-The `prev_fif` parameter controls which frame-in-flight's buffer is used:
+For advanced use: the `prev_fif` parameter controls which frame-in-flight's buffer is used:
 - `zest_false` - Current frame's buffer
 - `zest_true` - Previous frame's buffer (for temporal effects)
 
 ## Resource Properties
+
+It can be useful to access resource properties inside pass callback functions.
 
 ### Dimensions and Format
 
@@ -121,6 +121,20 @@ Get full image description:
 ```cpp
 zest_image_info_t info = zest_GetResourceImageDescription(resource);
 ```
+
+The info struct contains the following data:
+
+| Field | Description |
+|-------|-------------|
+| `extent` | The image dimensions, width, height and depth |
+| `mip_levels` | The number of mip levels in the image |
+| `layer_count` | The number of image array layers if the image is a texture array |
+| `format` | The image format (zest_format) |
+| `aspect_flags` | The aspect flag (color, depth or stencil) |
+| `sample_count` | The sample count |
+| `flags` | The flags that describe how the image is used |
+| `layout` | The image layout (general, readonly, attachment etc.) |
+
 
 ### Resource Type
 
@@ -139,7 +153,7 @@ zest_SetResourceClearColor(color_target, 0.1f, 0.1f, 0.1f, 1.0f);
 
 ### Buffer Size
 
-Dynamically resize a buffer resource:
+Dynamically resize a buffer resource. This can be called inside a resource buffer provider function before the transient buffer is created if won't know the size until frame execution.
 
 ```cpp
 zest_SetResourceBufferSize(buffer_resource, new_size);
@@ -147,7 +161,7 @@ zest_SetResourceBufferSize(buffer_resource, new_size);
 
 ### User Data
 
-Attach custom data to resources:
+Attach custom data to resources that you can retrieve inside a pass callback function.
 
 ```cpp
 // Store
@@ -163,10 +177,10 @@ Change how a resource is accessed:
 
 ```cpp
 // Change image binding type
-zest_SetResourceImageProvider(resource, zest_storage_image_binding);
+zest_SetResourceImageProvider(resource, callback);
 
 // Change buffer binding type
-zest_SetResourceBufferProvider(resource, zest_uniform_buffer_binding);
+zest_SetResourceBufferProvider(resource, callback);
 ```
 
 ### Getting the Underlying Image
@@ -198,6 +212,7 @@ Group multiple resources for convenience:
 ```cpp
 // Create group
 zest_resource_group gbuffer = zest_CreateResourceGroup();
+zest_resource_group scene_output = zest_CreateResourceGroup();
 
 // Add resources
 zest_AddResourceToGroup(gbuffer, albedo);
@@ -205,12 +220,20 @@ zest_AddResourceToGroup(gbuffer, normal);
 zest_AddResourceToGroup(gbuffer, depth);
 
 // Add swapchain to a group
-zest_AddSwapchainToGroup(output_group);
+zest_AddSwapchainToGroup(scene_output);
+zest_AddResourceToGroup(scene_output, depth);
 
-// Use in pass
+// Use in passese
 zest_BeginRenderPass("G-Buffer"); {
     zest_ConnectOutputGroup(gbuffer);
     zest_SetPassTask(RenderGBuffer, app);
+    zest_EndPass();
+}
+
+zest_BeginRenderPass("Scene"); {
+    zest_ConnectInputGroup(gbuffer);
+	zest_ConnectOuputGroup(scene_output);
+    zest_SetPassTask(RenderScene, app);
     zest_EndPass();
 }
 ```
@@ -218,6 +241,8 @@ zest_BeginRenderPass("G-Buffer"); {
 ## Bindless Descriptor Access
 
 Get bindless descriptor indices for transient resources:
+
+> **Note: transient descriptor array indexes are automatically released after use.**
 
 ### Sampled Images
 
@@ -304,7 +329,7 @@ if (zest_BeginFrameGraph(context, "Deferred", &cache_key)) {
 ## Best Practices
 
 1. **Use transient resources for intermediates** - They benefit from memory aliasing
-2. **Import persistent resources** - Textures, meshes, and long-lived data
+2. **Import persistent resources only if used as output** - Textures, meshes, and long-lived data that you need to write too or transition.
 3. **Group related resources** - Simplifies MRT and G-buffer setups
 4. **Set clear colors explicitly** - Avoids undefined initial values
 5. **Use bindless helpers** - Simplifies shader resource access
