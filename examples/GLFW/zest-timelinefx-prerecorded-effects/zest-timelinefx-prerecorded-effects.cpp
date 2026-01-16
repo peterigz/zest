@@ -68,7 +68,7 @@ void UploadBuffers(tfxPrerecordedExample *example) {
 //Prepare the compute shader that will be used to playback the effects in the animation manager
 void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example) {
 	//Register a new compute shader
-	example->playback_shader = zest_AddShaderFromSPVFile(example->device, "examples/assets/spv/sprite_data_playback.comp.spv", zest_compute_shader);
+	example->playback_shader = zest_CreateShaderFromSPVFile(example->device, "examples/assets/spv/sprite_data_playback.comp.spv", zest_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
 	zest_compute_builder_t builder = zest_BeginComputeBuilder(example->device);

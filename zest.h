@@ -4411,7 +4411,7 @@ ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type);
+ZEST_API zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
 //If a path prefix is set (context->device->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
@@ -10688,7 +10688,7 @@ zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
     return handle;
 }
 
-zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type) {
+zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(filename);     //You must give the shader a name
     zest_shader_handle shader_handle = zest__new_shader(device, type);

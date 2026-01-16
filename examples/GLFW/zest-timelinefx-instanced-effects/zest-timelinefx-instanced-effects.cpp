@@ -138,7 +138,7 @@ void UploadBuffers(ComputeExample *example) {
 void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	//Register a new compute shader
 	example->compute = zest__new_compute("Sprite data compute");
-	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
+	example->playback_shader = zest_CreateShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
@@ -174,7 +174,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	//Register a new compute shader
 	example->bounding_box_compute = zest__new_compute("Sprite data bb compute");
-	example->bb_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_bounding_box.comp.spv", shaderc_compute_shader);
+	example->bb_shader = zest_CreateShaderFromSPVFile("examples/assets/spv/sprite_data_bounding_box.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
