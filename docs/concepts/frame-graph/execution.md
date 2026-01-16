@@ -7,24 +7,27 @@ This page covers building, caching, and executing frame graphs.
 ### Basic Flow
 
 ```cpp
-// 1. Begin building
-if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
-    // 2. Import/create resources
-    zest_ImportSwapchainResource();
+//1. Acquire a swapchain image
+if(zest_BeginFrame(context) {
+	// 2. Begin building
+	if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
+		// 3. Import/create resources
+		zest_ImportSwapchainResource();
 
-    // 3. Define passes
-    zest_BeginRenderPass("Main"); {
-        zest_ConnectSwapChainOutput();
-        zest_SetPassTask(RenderCallback, app);
-        zest_EndPass();
-    }
+		// 4. Define passes
+		zest_BeginRenderPass("Main"); {
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(RenderCallback, app);
+			zest_EndPass();
+		}
 
-    // 4. Compile
-    frame_graph = zest_EndFrameGraph();
+		// 5. Compile
+		frame_graph = zest_EndFrameGraph();
+	}
+
+	// 6. Execute the frame graph and present to the screen
+	zest_EndFrame(context, frame_graph);
 }
-
-// 5. Execute
-zest_QueueFrameGraphForExecution(context, frame_graph);
 ```
 
 ### zest_BeginFrameGraph
@@ -39,7 +42,7 @@ zest_bool zest_BeginFrameGraph(
 );
 ```
 
-Returns `zest_true` if building should proceed, `zest_false` if a cached graph was found.
+Returns `zest_true` if the frame graph successfully initialised. If there's any problems then it will assert here.
 
 ### zest_EndFrameGraph
 
@@ -63,15 +66,11 @@ Shorthand for compile and immediate execution:
 zest_EndFrameGraphAndExecute();
 ```
 
-Equivalent to:
-```cpp
-zest_frame_graph graph = zest_EndFrameGraph();
-zest_QueueFrameGraphForExecution(context, graph);
-```
+You can use this to perform a compute dispatch or render something to an image as part of an initialisation process. An alternative would be to use zest_imm_* commands which do something similar, but the advantage of using a frame graph is that it automatically take care of barriers and resource transitions if required.
 
 ## Frame Graph Caching
 
-Compiling frame graphs has CPU overhead. Cache them when the structure is static.
+Compiling frame graphs has CPU overhead. Cache them whenever possible to increase performance.
 
 ### Creating Cache Keys
 
@@ -105,8 +104,7 @@ if (!graph) {
     }
 }
 
-// Execute cached or newly built graph
-zest_QueueFrameGraphForExecution(context, graph);
+// Graph is automatically executed during zest_EndFrame()
 ```
 
 ### Cache Invalidation
@@ -120,13 +118,7 @@ zest_FlushCachedFrameGraphs(context);
 
 ## Execution
 
-### Queuing for Execution
-
-```cpp
-zest_QueueFrameGraphForExecution(context, frame_graph);
-```
-
-This queues the frame graph to execute during the next `zest_EndFrame()` call. Multiple frame graphs can be queued.
+Frame graphs are automatically executed when you call `zest_EndFrame()`. The compiled graph from `zest_EndFrameGraph()` is submitted to the GPU, and its final output is presented to the swapchain.
 
 ### Synchronization
 
@@ -141,14 +133,26 @@ Returns:
 - `zest_semaphore_status_timeout` - Timeout elapsed
 - `zest_semaphore_status_error` - Error occurred
 
+You can use this to signal a timeline in a frame graph and then wait on the signal outside to ensure that it's finished.
+
+```cpp
+zest_BeginFrameGraph(...);
+...
+zest_SignalTimeline(timeline)
+zest_EndFrameGraphAndExecute();
+
+zest_semaphore_status status = zest_WaitForSignal(timeline, timeout_microseconds);
+```
+
 ## Execution Flow
 
 The typical frame loop:
 
 ```cpp
 while (running) {
+    zest_UpdateDevice(device);
+
     // Start frame
-    zest_StartFrame(device);
     zest_BeginFrame(context);
 
     // Build or retrieve cached graph
@@ -157,35 +161,15 @@ while (running) {
 
     if (!graph) {
         if (zest_BeginFrameGraph(context, "Main", &key)) {
-            // Define passes...
+            // Setup resources and define passes...
             graph = zest_EndFrameGraph();
         }
     }
 
-    // Queue execution
-    zest_QueueFrameGraphForExecution(context, graph);
-
-    // End frame (executes queued graphs, presents)
+    // End frame (executes the graph, presents to swapchain)
     zest_EndFrame(context);
 }
 ```
-
-## Multiple Frame Graphs
-
-You can execute multiple frame graphs per frame:
-
-```cpp
-// Shadow pass graph
-zest_QueueFrameGraphForExecution(context, shadow_graph);
-
-// Main render graph
-zest_QueueFrameGraphForExecution(context, main_graph);
-
-// Post-process graph
-zest_QueueFrameGraphForExecution(context, post_graph);
-```
-
-Graphs execute in queue order with proper synchronization.
 
 ## Caching Patterns
 
@@ -206,7 +190,7 @@ if (!cached_graph) {
     }
 }
 
-zest_QueueFrameGraphForExecution(context, cached_graph);
+// Graph executes automatically during zest_EndFrame()
 ```
 
 ### Dynamic Configuration
@@ -237,17 +221,13 @@ if (!graph) {
 }
 ```
 
-### Window Resize Handling
+### State changes
+
+For any major state changes in your application you can flush the whole cache with
 
 ```cpp
-void OnWindowResize(int width, int height) {
-    // Invalidate cached graphs
-    zest_FlushCachedFrameGraphs(context);
-
-    // Resize swapchain
-    zest_RecreateSwapchain(context);
-
-    // Graphs will be rebuilt on next frame
+zest_FlushCachedFrameGraphs(context);
+// Graphs will be rebuilt on next frame
 }
 ```
 
@@ -256,8 +236,7 @@ void OnWindowResize(int width, int height) {
 1. **Cache whenever possible** - Static graphs should always be cached
 2. **Use cache keys for variants** - Different render modes get different cache keys
 3. **Flush on major changes** - Window resize, render mode switch
-4. **Queue multiple graphs** - Separate concerns (shadows, main, post)
-5. **Check compilation results** - During development, verify graph builds correctly
+4. **Check compilation results** - During development, verify graph builds correctly
 
 ## See Also
 
