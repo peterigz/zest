@@ -37,6 +37,7 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
 
     // 2. Create transient resources (optional)
     zest_resource_node depth = zest_AddTransientImageResource("Depth", &depth_info);
+    zest_resource_node shadow_map = zest_AddTransientImageResource("Shadows", &shadow_info);
 
     // 3. Define passes
     zest_BeginRenderPass("Shadow Pass"); {
@@ -48,11 +49,12 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
     zest_BeginRenderPass("Main Pass"); {
         zest_ConnectInput(shadow_map);
         zest_ConnectSwapChainOutput();
+        zest_ConnectOutput(depth);
         zest_SetPassTask(RenderScene, app);
         zest_EndPass();
     }
 
-    // 4. Compile and execute
+    // 4. Compile
     frame_graph = zest_EndFrameGraph();
 }
 ```
@@ -76,7 +78,7 @@ Resources flow through the graph as inputs and outputs:
 | Resource Type | Description |
 |--------------|-------------|
 | **Swapchain** | The window's presentation surface |
-| **Imported** | Existing images/buffers from outside the graph |
+| **Imported** | Existing images/buffers from outside the graph (only required to import if they require writing to or in an initial state that requires them to be transitioned with a barrier) |
 | **Transient** | Frame-lifetime resources allocated by the graph |
 
 See [Resources](resources.md) for detailed documentation.
