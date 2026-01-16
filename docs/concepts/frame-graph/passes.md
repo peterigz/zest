@@ -112,10 +112,10 @@ void MyRenderCallback(const zest_command_list cmd, void* user_data) {
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Set viewport/scissor
-    zest_cmd_SetScreenSizedViewport(cmd);
+    zest_cmd_SetScreenSizedViewport(cmd, 0.0f, 1.0f);
 
     // Bind vertex buffer
-    zest_cmd_BindVertexBuffer(cmd, buffer, 0);
+    zest_cmd_BindVertexBuffer(cmd, 0, 1, buffer);
 
     // Draw
     zest_cmd_Draw(cmd, vertex_count, 1, 0, 0);
@@ -166,8 +166,8 @@ zest_BeginRenderPass("Debug Pass"); {
 Pass additional descriptor sets to a pass:
 
 ```cpp
-VkDescriptorSet sets[] = {my_custom_set};
-zest_SetDescriptorSets(1, sets);
+zest_descriptor_set sets[] = {my_custom_set};
+zest_SetDescriptorSets(pipeline_layout, sets, 1);
 ```
 
 This is useful when you need descriptor sets beyond the global bindless set.
@@ -203,18 +203,18 @@ void RenderScene(const zest_command_list cmd, void* user_data) {
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Set viewport
-    zest_cmd_SetScreenSizedViewport(cmd);
+    zest_cmd_SetScreenSizedViewport(cmd, 0.0f, 1.0f);
 
     // Bind vertex/index buffers
-    zest_cmd_BindVertexBuffer(cmd, app->vertex_buffer, 0);
-    zest_cmd_BindIndexBuffer(cmd, app->index_buffer, VK_INDEX_TYPE_UINT32);
+    zest_cmd_BindVertexBuffer(cmd, 0, 1, app->vertex_buffer);
+    zest_cmd_BindIndexBuffer(cmd, app->index_buffer);
 
     // Push constants
     push_constants_t pc = {
         .mvp = app->camera_mvp,
         .texture_index = app->texture_index
     };
-    zest_cmd_PushConstants(cmd, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+    zest_cmd_SendPushConstants(cmd, &pc, sizeof(pc));
 
     // Draw indexed
     zest_cmd_DrawIndexed(cmd, app->index_count, 1, 0, 0, 0);
@@ -234,7 +234,7 @@ zest_BeginRenderPass("Scene"); {
 1. **Name passes descriptively** - Names appear in debug output and profilers
 2. **Minimize pass count** - Combine passes when logical to reduce overhead
 3. **Declare all resource dependencies** - Missing connections cause undefined behavior
-4. **Use groups for MRT** - Resource groups simplify multiple render target setups
+4. **Use groups for Multi Render Target (MRT)** - Resource groups simplify multiple render target setups
 5. **Let culling work** - Avoid `zest_DoNotCull` unless necessary
 
 ## See Also
