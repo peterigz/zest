@@ -31,7 +31,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, sprite_buffer);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(example->tfx_rendering.pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(example->tfx_rendering.pipeline, command_list);
 
 	//Draw all the sprites in the buffer that is built by the compute shader
 	zest_cmd_BindPipeline(command_list, pipeline);

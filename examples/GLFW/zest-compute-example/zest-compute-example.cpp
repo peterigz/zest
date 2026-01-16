@@ -151,7 +151,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	ComputeExample *app = (ComputeExample*)user_data;
 	//Get the pipeline from the template that we created. This will compile and cache the pipeline if it hasn't
 	//been already. Otherwise it will just fetch the cached pipeline.
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->particle_pipeline, command_list);
 	//Bind the pipeline 
 	zest_cmd_BindPipeline(command_list, pipeline);
 	//The shader needs to know the indexes into the descriptor array for the textures so we use push constants to

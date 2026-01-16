@@ -97,7 +97,7 @@ void RenderCallback(zest_command_list cmd, void* data) {
     zest_cmd_BindMeshIndexBuffer(cmd, layer);
 
     // Bind pipeline
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->pipeline, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Get mesh offsets

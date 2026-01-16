@@ -313,7 +313,7 @@ void RenderGeometry(zest_command_list command_list, void *user_data) {
 	zest_cmd_BindMeshVertexBuffer(command_list, skybox_layer);
 	zest_cmd_BindMeshIndexBuffer(command_list, skybox_layer);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->skybox_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->skybox_pipeline, command_list);
 	if (pipeline) {
 		zest_cmd_BindPipeline(command_list, pipeline);
 		zest_cmd_SendPushConstants(command_list, &app->push, sizeof(instance_push_t));
@@ -331,7 +331,7 @@ void RenderGeometry(zest_command_list command_list, void *user_data) {
 	zest_cmd_BindMeshIndexBuffer(command_list, rock_layer);
 	zest_cmd_BindVertexBuffer(command_list, 1, 1, app->rock_instances_buffer);
 
-	pipeline = zest_PipelineWithTemplate(app->rock_pipeline, command_list);
+	pipeline = zest_GetPipeline(app->rock_pipeline, command_list);
 	if (pipeline) {
 		zest_cmd_BindPipeline(command_list, pipeline);
 
@@ -346,7 +346,7 @@ void RenderGeometry(zest_command_list command_list, void *user_data) {
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, app->planet_mesh.vertex_buffer);
 	zest_cmd_BindIndexBuffer(command_list, app->planet_mesh.index_buffer);
 
-	pipeline = zest_PipelineWithTemplate(app->planet_pipeline, command_list);
+	pipeline = zest_GetPipeline(app->planet_pipeline, command_list);
 	if (!pipeline) {
 		return;
 	}

@@ -157,7 +157,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 
 		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
-		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
+		zest_pipeline pipeline = zest_GetPipeline(current->pipeline_template, command_list);
 		if (pipeline && current_pipeline != pipeline) {
 			current_pipeline = pipeline;
 			zest_cmd_BindPipeline(command_list, pipeline);

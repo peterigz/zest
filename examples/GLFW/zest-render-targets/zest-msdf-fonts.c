@@ -108,7 +108,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_conte
             vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
         }
 
-        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
+        zest_pipeline pipeline = zest_GetPipeline(current->pipeline_template, context->render_pass);
         if (pipeline) {
             zest_cmd_BindPipeline(command_buffer, pipeline, sets, 2);
         } else {

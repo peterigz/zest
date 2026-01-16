@@ -2264,7 +2264,7 @@ typedef enum zest_pipeline_set_flag_bits {
 	zest_pipeline_set_flag_none = 0,
 	zest_pipeline_set_flag_is_render_target_pipeline = 1 << 0,        //True if this pipeline is used for the final render of a render target to the swap chain
 	zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1,        //True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
-	zest_pipeline_invalid = 1 << 2        //The pipeline had validation errors when it was build and may be invalid
+	zest_pipeline_invalid = 1 << 2        //The pipeline had validation errors when it was built and may be invalid
 } zest_pipeline_set_flag_bits;
 
 typedef zest_uint zest_pipeline_set_flags;
@@ -4493,7 +4493,7 @@ ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendState(void);
 ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API zest_color_blend_attachment_t zest_MaxAlphaBlendState(void);
 ZEST_API zest_color_blend_attachment_t zest_ImGuiBlendState(void);
-ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list);
+ZEST_API zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const zest_command_list command_list);
 //Cache a pipeline ahead of time so that it's ready for use within a frame graph
 ZEST_API zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
@@ -10555,8 +10555,9 @@ void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
     zest__cleanup_pipeline_template(pipeline_template);
 }
 
-zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline) {
-	return ZEST__NOT_FLAGGED(pipeline->flags, zest_pipeline_invalid);
+zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline_template) {
+	zest_pipeline pipeline = zest_GetPipeline(pipeline_template);
+	return ZEST__NOT_FLAGGED(pipeline_template->flags, zest_pipeline_invalid);
 }
 
 void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
@@ -10806,13 +10807,13 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
     return (zest_key)zest__get_hash(&hasher); 
 }
 
-zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list) {
+zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const zest_command_list command_list) {
 	zest_context context = command_list->context;
     if (!ZEST_VALID_HANDLE(pipeline_template->layout, zest_struct_type_pipeline_layout)) {
         ZEST_ALERT("ERROR: You're trying to build a pipeline (%s) that has no pipeline layout configured. You can add descriptor layouts when building the pipeline with zest_SetPipelineLayout.", pipeline_template->name);
         return NULL;
     }
-	if (!zest_PipelineIsValid(pipeline_template)) {
+	if (!zest_PipelineIsValid(pipeline_template_template)) {
 		ZEST_REPORT(context->device, zest_report_unused_pass, "You're trying to build a pipeline (%s) that has been marked as invalid. This means that the last time this pipeline was created it failed with errors. You can check for validation errors to see what they were.", pipeline_template->name);
 		return NULL;
 	}
@@ -10831,7 +10832,7 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template
 zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context) {
 	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
 	command_list.context = context;
-	zest_pipeline pipeline = zest_PipelineWithTemplate(pipeline_template, &command_list);
+	zest_pipeline pipeline = zest_GetPipeline(pipeline_template, &command_list);
 	return pipeline;
 }
 
@@ -15250,7 +15251,7 @@ void zest__draw_instance_mesh_layer(zest_command_list command_list, zest_layer l
 	zest_pipeline current_pipeline = 0;
 	zest_pipeline pipeline = 0;
 	if (ZEST_VALID_HANDLE(pipeline_template, zest_struct_type_pipeline_template)) {
-		pipeline = zest_PipelineWithTemplate(pipeline_template, command_list);
+		pipeline = zest_GetPipeline(pipeline_template, command_list);
 		if (pipeline) {
 			zest_cmd_BindPipeline(command_list, pipeline);
 			current_pipeline = pipeline;
@@ -15273,7 +15274,7 @@ void zest__draw_instance_mesh_layer(zest_command_list command_list, zest_layer l
             zest_cmd_ViewPort(command_list, &layer->viewport);
         }
 
-        pipeline = !pipeline ? zest_PipelineWithTemplate(current->pipeline_template, command_list) : pipeline;
+        pipeline = !pipeline ? zest_GetPipeline(current->pipeline_template, command_list) : pipeline;
         if (pipeline && pipeline != current_pipeline) {
 			zest_cmd_BindPipeline(command_list, pipeline);
 			current_pipeline = pipeline;
@@ -16265,7 +16266,7 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 			zest_cmd_Scissor(command_list, &layer->scissor);
         }
 
-        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, command_list);
+        zest_pipeline pipeline = zest_GetPipeline(current->pipeline_template, command_list);
         if (pipeline && pipeline != current_pipeline) {
 			zest_cmd_BindPipeline(command_list, pipeline);
 			current_pipeline = pipeline;

@@ -245,7 +245,7 @@ void DrawLightingPass(const zest_command_list command_list, void *user_data) {
 	app->lighting_push.gPBR_index = zest_GetTransientSampledImageBindlessIndex(command_list, gPBR, zest_texture_2d_binding);
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->lighting_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->lighting_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &app->lighting_push, sizeof(deferred_lighting_push_t));
 	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle
@@ -261,7 +261,7 @@ void DrawComposite(const zest_command_list command_list, void *user_data) {
 	app->composite_push.gTarget_index = zest_GetTransientSampledImageBindlessIndex(command_list, gTarget, zest_texture_2d_binding);
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->composite_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->composite_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &app->composite_push, sizeof(composite_push_constant_t));
 	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle

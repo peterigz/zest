@@ -276,7 +276,7 @@ The user data must have the appropriate lifetime. Don't use a local variable or 
 ```cpp
 void DrawScene(const zest_command_list cmd_list, void *user_data) {
     SceneData *scene = (SceneData*)user_data;
-    zest_pipeline pipeline = zest_PipelineWithTemplate(scene->pipeline_template, cmd_list);
+    zest_pipeline pipeline = zest_GetPipeline(scene->pipeline_template, cmd_list);
     zest_cmd_BindPipeline(cmd_list, pipeline);
     zest_cmd_DrawIndexed(cmd_list, scene->index_count, 1, 0, 0, 0);
 }

@@ -75,7 +75,7 @@ void RenderCallback(zest_command_list cmd, void* data) {
     if (count == 0) return;
 
     // Bind pipeline
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->sprite_pipeline, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->sprite_pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Draw instanced
@@ -189,7 +189,7 @@ void RenderCallback(zest_command_list cmd, void* data) {
     zest_cmd_BindMeshIndexBuffer(cmd, layer);
 
     // Bind pipeline
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->mesh_pipeline, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->mesh_pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Draw each mesh type with its instances

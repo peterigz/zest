@@ -22,7 +22,7 @@ void zest_cmd_BindPipeline(
 ```cpp
 void my_render_callback(zest_command_list cmd, void *user_data) {
 	MyApp *app = (MyApp*)user_data;
-	zest_pipeline my_pipeline = zest_PipelineWithTemplate(app->my_pipeline_template, cmd);
+	zest_pipeline my_pipeline = zest_GetPipeline(app->my_pipeline_template, cmd);
     zest_cmd_BindPipeline(cmd, my_pipeline);
     zest_cmd_SetScreenSizedViewport(cmd, 0.0f, 1.0f);
     // ... draw commands

@@ -87,7 +87,7 @@ void InitImGuiApp(ImGuiApp *app) {
 void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
 	zest_imgui_callback_data_t *data = (zest_imgui_callback_data_t *)cmd->UserCallbackData;
 	ImGuiApp *app = (ImGuiApp*)data->user_data;
-	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui.pipeline, data->command_list);
+	data->render_state->pipeline = zest_GetPipeline(app->imgui.pipeline, data->command_list);
 	return;
 }
 

@@ -163,7 +163,7 @@ void RecordRibbonDrawing(zest_command_list command_list, void *user_data) {
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, vertex_buffer);
 	zest_cmd_BindIndexBuffer(command_list, index_buffer);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->ribbon_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->ribbon_pipeline, command_list);
 
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
 

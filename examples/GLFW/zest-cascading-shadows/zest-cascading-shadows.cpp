@@ -305,7 +305,7 @@ void DrawDebugShadowMap(const zest_command_list command_list, void *user_data) {
 	zest_uint shadow_index = zest_GetTransientSampledImageBindlessIndex(command_list, shadow_resource, zest_texture_array_binding);
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->debug_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->debug_pipeline, command_list);
 	app->scene_push.shadow_index = shadow_index;
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, (void*)&app->scene_push, sizeof(scene_push_constants_t));
@@ -337,7 +337,7 @@ void DrawSceneWithShadows(const zest_command_list command_list, void *user_data)
 	zest_buffer device_buffer = zest_GetLayerResourceBuffer(layer);
 	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(app->mesh_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(app->mesh_pipeline, command_list);
 
 	zest_uint instruction_count = zest_GetLayerInstructionCount(layer);
 	for(int i = 0; i != instruction_count; i++) {

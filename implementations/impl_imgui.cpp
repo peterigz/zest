@@ -266,7 +266,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 				}
 
 				if (current_image == &imgui_viewport->imgui->font_region) {
-					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_viewport->imgui->pipeline, command_list);
+					zest_pipeline pipeline = zest_GetPipeline(imgui_viewport->imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {
 						render_state.pipeline = pipeline;
 						zest_cmd_BindPipeline(command_list, render_state.pipeline);

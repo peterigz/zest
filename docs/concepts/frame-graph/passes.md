@@ -108,7 +108,7 @@ void MyRenderCallback(const zest_command_list cmd, void* user_data) {
     app_t* app = (app_t*)user_data;
 
     // Bind pipeline
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->pipeline, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Set viewport/scissor
@@ -199,7 +199,7 @@ void RenderScene(const zest_command_list cmd, void* user_data) {
     app_t* app = (app_t*)user_data;
 
     // Get pipeline variant for current render state
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->mesh_pipeline, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->mesh_pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
     // Set viewport

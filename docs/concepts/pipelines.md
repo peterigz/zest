@@ -17,7 +17,7 @@ zest_pipeline_template_handle template = zest_BeginPipelineTemplate(device, "my_
 // ... configure ...
 
 // 2. Build pipeline (in render callback)
-zest_pipeline pipeline = zest_PipelineWithTemplate(template, cmd);
+zest_pipeline pipeline = zest_GetPipeline(template, cmd);
 zest_cmd_BindPipeline(cmd, pipeline);
 ```
 
@@ -234,7 +234,7 @@ void RenderCallback(const zest_command_list cmd, void* user_data) {
     app_t* app = (app_t*)user_data;
 
     // Build pipeline for this command list
-    zest_pipeline pipeline = zest_PipelineWithTemplate(app->template, cmd);
+    zest_pipeline pipeline = zest_GetPipeline(app->template, cmd);
 
     // Bind pipeline
     zest_cmd_BindPipeline(cmd, pipeline);
@@ -269,7 +269,7 @@ zest_BeginComputePass(compute_obj, "Simulate"); {
 
 1. **Create templates at startup** - Not during rendering
 2. **Use `zest_CopyPipelineTemplate`** - For variants with minor differences
-3. **Cache pipelines are automatic** - `zest_PipelineWithTemplate` handles caching
+3. **Cache pipelines are automatic** - `zest_GetPipeline` handles caching
 4. **Match vertex input to shaders** - Locations must align
 
 ## See Also
