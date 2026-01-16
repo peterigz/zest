@@ -5016,10 +5016,6 @@ ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, floa
 //Set the intensity of the layer. This is used to apply an alpha value to the sprite or billboard you're drawing or you can use it in your own draw routines that
 //use zest_layers. Note that intensity levels can exceed 1.f to make your sprites extra bright because of pre-multiplied blending in the sprite.
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
-//A dirty layer denotes that it's buffers have changed and therefore needs uploading to the GPU again. This is currently used for Dear Imgui layers.
-ZEST_API void zest_SetLayerChanged(zest_layer layer);
-//Returns 1 if the layer is marked as changed
-ZEST_API zest_bool zest_LayerHasChanged(zest_layer layer);
 //Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_frame);
@@ -5070,7 +5066,6 @@ ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants,
 ZEST_API void *zest_GetLayerPushConstants(zest_layer layer);
 //Get the current push constants in the layer for the current instruction
 ZEST_API int zest_GetLayerFrameInFlight(zest_layer layer);
-#define zest_CastLayerPushConstants(type, layer) (type *)layer->current_instruction.push_constant
 
 
 //-----------------------------------------------
