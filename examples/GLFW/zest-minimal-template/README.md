@@ -14,7 +14,7 @@ This is the best starting point to understand Zest's core architecture.
 
 ## Zest Features Used
 
-- **Device/Context**: `zest_implglfw_CreateDevice`, `zest_CreateContext`
+- **Device/Context**: `zest_implglfw_CreateVulkanDevice`, `zest_CreateContext`
 - **Frame Graph**: `zest_BeginFrameGraph`, `zest_EndFrameGraph`
 - **Frame Graph Caching**: `zest_InitialiseCacheKey`, `zest_GetCachedFrameGraph`
 - **Swapchain**: `zest_ImportSwapchainResource`, `zest_ConnectSwapChainOutput`

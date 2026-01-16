@@ -283,7 +283,7 @@ int main() {
     glfwInit();
 
     app_t app = {};
-    app.device = zest_implglfw_CreateDevice(false);
+    app.device = zest_implglfw_CreateVulkanDevice(false);
 
     zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "ImGui Example");
     zest_create_context_info_t info = zest_CreateContextInfo();

@@ -28,7 +28,7 @@ Zest is a C11-compatible rendering library that wraps Vulkan with a clean, moder
 
 int main() {
     // Create device (one per application)
-    zest_device device = zest_implglfw_CreateDevice(false);
+    zest_device device = zest_implglfw_CreateVulkanDevice(false);
 
     // Create window and context
     zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "My App");

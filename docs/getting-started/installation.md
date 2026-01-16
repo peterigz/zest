@@ -112,7 +112,7 @@ All other files just include the header normally:
 Enable validation layers during development:
 
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(true);  // true = enable validation
+zest_device device = zest_implglfw_CreateVulkanDevice(true);  // true = enable validation
 ```
 
 ### Missing Submodules

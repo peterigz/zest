@@ -52,7 +52,7 @@ int main(void) {
     if (!glfwInit()) return 0;
 
     minimal_app_t app = {};
-    app.device = zest_implglfw_CreateDevice(false);
+    app.device = zest_implglfw_CreateVulkanDevice(false);
 
     zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
     app.context = zest_CreateContext(app.device, &window, &create_info);
@@ -80,7 +80,7 @@ The `ZEST_IMPLEMENTATION` macros tell Zest to include the actual implementation,
 ### 2. Create the Device
 
 ```cpp
-app.device = zest_implglfw_CreateDevice(false);
+app.device = zest_implglfw_CreateVulkanDevice(false);
 ```
 
 The **device** is a singleton that manages:

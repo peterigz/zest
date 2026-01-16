@@ -10,10 +10,10 @@ The device is a singleton that represents your GPU and all shared resources.
 
 ```cpp
 // Basic creation (validation disabled)
-zest_device device = zest_implglfw_CreateDevice(false);
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
 
 // With validation layers (recommended for development)
-zest_device device = zest_implglfw_CreateDevice(true);
+zest_device device = zest_implglfw_CreateVulkanDevice(true);
 ```
 
 ### What the Device Manages
@@ -34,7 +34,7 @@ zest_device device = zest_implglfw_CreateDevice(true);
 ```cpp
 int main() {
     // Create once at startup
-    zest_device device = zest_implglfw_CreateDevice(false);
+    zest_device device = zest_implglfw_CreateVulkanDevice(false);
 
     // ... create contexts, run application ...
 
@@ -120,7 +120,7 @@ if (zest_BeginFrame(context)) {
 One device can serve multiple contexts:
 
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(false);
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
 
 // Main window
 zest_window_data_t main_window = zest_implglfw_CreateWindow(...);

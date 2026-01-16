@@ -70,7 +70,7 @@ int main(void)
 	minimal_app_t app = {};
 
 	//Create the device that serves all vulkan based contexts
-	app.device = zest_implglfw_CreateDevice(false);
+	app.device = zest_implglfw_CreateVulkanDevice(false);
 
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest

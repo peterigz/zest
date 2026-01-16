@@ -413,7 +413,7 @@ int main(void) {
 	ShadowMappingExample imgui_app = {};
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implglfw_CreateDevice(false);
+	imgui_app.device = zest_implglfw_CreateVulkanDevice(false);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 

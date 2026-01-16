@@ -9,7 +9,7 @@ Zest is built around two core objects and one execution model. Understanding the
 The **device** is a singleton that represents your GPU and manages global resources:
 
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(false);
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
 ```
 
 **What it owns:**

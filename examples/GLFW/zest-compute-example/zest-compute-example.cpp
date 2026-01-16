@@ -361,7 +361,7 @@ int main(void) {
 	ComputeExample compute_example = { 0 };
 
 	//Create a device using a helper function for GLFW.
-	compute_example.device = zest_implglfw_CreateDevice(false);
+	compute_example.device = zest_implglfw_CreateVulkanDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Compute Particles Example");

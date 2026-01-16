@@ -44,7 +44,7 @@ int main(void) {
     app_t app = {};
 
     // Create device (Vulkan instance, GPU selection, resource pools)
-    app.device = zest_implglfw_CreateDevice(false);
+    app.device = zest_implglfw_CreateVulkanDevice(false);
 
     // Create window
     zest_window_data_t window = zest_implglfw_CreateWindow(

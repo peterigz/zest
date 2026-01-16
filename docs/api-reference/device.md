@@ -4,12 +4,12 @@ Functions for device creation, configuration, and management. The device is the 
 
 ## Creation
 
-### zest_implglfw_CreateDevice
+### zest_implglfw_CreateVulkanDevice
 
 Creates a Zest device with GLFW window support.
 
 ```cpp
-zest_device zest_implglfw_CreateDevice(zest_bool enable_validation);
+zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation);
 ```
 
 This is a convenience function that handles graphics backend initialization, GPU selection, and command queue setup for GLFW-based applications. Use validation layers during development to catch API misuse and bugs.
@@ -24,10 +24,10 @@ This is a convenience function that handles graphics backend initialization, GPU
 
 ```cpp
 // Development build with validation
-zest_device device = zest_implglfw_CreateDevice(true);
+zest_device device = zest_implglfw_CreateVulkanDevice(true);
 
 // Release build without validation overhead
-zest_device device = zest_implglfw_CreateDevice(false);
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
 ```
 
 ---
@@ -106,7 +106,7 @@ Configures the memory pool used for GPU-only buffers (vertex buffers, index buff
 **Example:**
 
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(ZEST_FALSE);
+zest_device device = zest_implglfw_CreateVulkanDevice(ZEST_FALSE);
 
 // Increase GPU buffer pool for a mesh-heavy application
 zest_SetGPUBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(256));
@@ -139,7 +139,7 @@ Staging buffers are CPU-visible memory used to upload data to the GPU (textures,
 **Example:**
 
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(ZEST_FALSE);
+zest_device device = zest_implglfw_CreateVulkanDevice(ZEST_FALSE);
 
 // Larger staging pool for texture-heavy applications
 zest_SetStagingBufferPoolSize(device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));

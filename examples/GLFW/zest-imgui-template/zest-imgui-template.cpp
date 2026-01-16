@@ -77,7 +77,7 @@ int main(void) {
 	ImGuiApp imgui_app = {};
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implglfw_CreateDevice(false);
+	imgui_app.device = zest_implglfw_CreateVulkanDevice(false);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Dear ImGui Dockspace Example");

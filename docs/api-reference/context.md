@@ -42,7 +42,7 @@ Call this after creating a device and window. The window data is typically obtai
 
 **Example:**
 ```cpp
-zest_device device = zest_implglfw_CreateDevice(false);
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
 zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "My App");
 zest_create_context_info_t info = zest_CreateContextInfo();
 zest_context context = zest_CreateContext(device, &window, &info);

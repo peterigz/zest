@@ -645,7 +645,7 @@ int main(void) {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implglfw_CreateDevice(false);
+	imgui_app.device = zest_implglfw_CreateVulkanDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

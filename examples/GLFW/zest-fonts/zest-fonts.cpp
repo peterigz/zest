@@ -181,7 +181,7 @@ int main(void) {
 	zest_fonts_example fonts_app = {};
 
 	//Create the device that serves all vulkan based contexts
-	fonts_app.device = zest_implglfw_CreateDevice(false);
+	fonts_app.device = zest_implglfw_CreateVulkanDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

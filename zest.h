@@ -4426,7 +4426,7 @@ ZEST_API zest_device zest_GetContextDevice(zest_context context);
 
 //--External_lib_helpers
 //GLFW Header
-ZEST_API zest_device zest_implglfw_CreateDevice(zest_bool enable_validation);
+ZEST_API zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation);
 ZEST_API zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
 ZEST_API void zest_implglfw_GetWindowSizeCallback(zest_window_data_t *window_data, int* fb_width, int* fb_height, int* window_width, int* window_height );
 ZEST_API zest_bool zest_implglfw_WindowIsFocused(void *window_handle);
@@ -17241,7 +17241,7 @@ void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_lay
 #include <GLFW/glfw3native.h>
 #endif
 
-zest_device zest_implglfw_CreateDevice(zest_bool enable_validation) {
+zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation) {
 	if (!glfwInit()) {
 		return 0;
 	}
