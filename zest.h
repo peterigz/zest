@@ -10800,7 +10800,7 @@ zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const z
         ZEST_ALERT("ERROR: You're trying to build a pipeline (%s) that has no pipeline layout configured. You can add descriptor layouts when building the pipeline with zest_SetPipelineLayout.", pipeline_template->name);
         return NULL;
     }
-	if (!zest_PipelineIsValid(pipeline_template_template)) {
+	if (!zest_PipelineIsValid(pipeline_template)) {
 		ZEST_REPORT(context->device, zest_report_unused_pass, "You're trying to build a pipeline (%s) that has been marked as invalid. This means that the last time this pipeline was created it failed with errors. You can check for validation errors to see what they were.", pipeline_template->name);
 		return NULL;
 	}
