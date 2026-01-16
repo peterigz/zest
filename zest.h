@@ -4489,8 +4489,6 @@ ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API zest_color_blend_attachment_t zest_MaxAlphaBlendState(void);
 ZEST_API zest_color_blend_attachment_t zest_ImGuiBlendState(void);
 ZEST_API zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const zest_command_list command_list);
-//Cache a pipeline ahead of time so that it's ready for use within a frame graph
-ZEST_API zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
@@ -10546,7 +10544,6 @@ void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
 }
 
 zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline_template) {
-	zest_pipeline pipeline = zest_GetPipeline(pipeline_template);
 	return ZEST__NOT_FLAGGED(pipeline_template->flags, zest_pipeline_invalid);
 }
 
@@ -10816,13 +10813,6 @@ zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const z
 	if (!zest__cache_pipeline(pipeline_template, command_list, pipeline_key, &pipeline)) {
 		ZEST_ALERT("ERROR: Unable to build and cache pipeline [%s]. Check the log and validation errors for the most recent errors.", pipeline_template->name);
 	}
-	return pipeline;
-}
-
-zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, zest_context context) {
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = context;
-	zest_pipeline pipeline = zest_GetPipeline(pipeline_template, &command_list);
 	return pipeline;
 }
 
