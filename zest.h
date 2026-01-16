@@ -119,7 +119,6 @@ Core Architecture & Features
 	(see zest-compute-example).
 */
 
-#define ZEST_DEBUGGING
 #define ZEST_OUTPUT_WARNING_MESSAGES
 #define ZLOC_THREAD_SAFE
 //#define ZLOC_EXTRA_DEBUGGING
@@ -883,6 +882,8 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #ifndef ZEST_ASSERT
 
 #ifndef NDEBUG
+
+#define ZEST_DEBUGGING
 
 #define ZEST_INTERNAL_ASSERT_IMPL(condition, format, ...) \
     do { \
@@ -3619,7 +3620,7 @@ typedef struct zest_pass_queue_info_t {
 	zest_device_queue_type queue_type;
 }zest_pass_queue_info_t;
 
-#ifdef ZEST_TEST_MODE
+#ifdef ZEST_DEBUGGING
 typedef struct zest_image_barrier_t {
 	zest_access_flags src_access_mask;
 	zest_pipeline_stage_flags src_stage;
@@ -6014,7 +6015,7 @@ typedef struct zest_execution_barriers_t {
 	zest_resource_node *acquire_buffer_barrier_nodes;
 	zest_resource_node *release_image_barrier_nodes;
 	zest_resource_node *release_buffer_barrier_nodes;
-	#ifdef ZEST_TEST_MODE
+	#ifdef ZEST_DEBUGGING
 	zest_image_barrier_t *acquire_image_barriers;
 	zest_buffer_barrier_t *acquire_buffer_barriers;
 	zest_image_barrier_t *release_image_barriers;
@@ -12004,7 +12005,7 @@ zest_bool zest__create_transient_resource(zest_context context, zest_resource_no
     return ZEST_TRUE;
 }
 
-#ifdef ZEST_TEST_MODE
+#ifdef ZEST_DEBUGGING
 void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
 							 zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
 							 zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
@@ -12059,7 +12060,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 																		 resource->image_layout, current_usage_layout,
 																		 src_queue_family_index, dst_queue_family_index,
 																		 resource->last_stage_mask, current_usage->stage_mask);
-				#ifdef ZEST_TEST_MODE
+				#ifdef ZEST_DEBUGGING
                 zest__add_image_barrier(resource, barriers, ZEST_TRUE,
 										resource->access_mask, current_usage->access_mask,
 										resource->image_layout, current_usage_layout,
@@ -12078,7 +12079,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 																		 resource->image_layout, current_usage_layout,
 																		 src_queue_family_index, dst_queue_family_index,
 																		 resource->last_stage_mask, current_usage->stage_mask);
-				#ifdef ZEST_TEST_MODE
+				#ifdef ZEST_DEBUGGING
                 zest__add_image_barrier(resource, barriers, ZEST_TRUE,
 										resource->access_mask, current_usage->access_mask,
 										resource->image_layout, current_usage_layout,
@@ -12107,7 +12108,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 																	 prev_usage->image_layout, current_usage_layout,
 																	 src_queue_family_index, dst_queue_family_index,
 																	 zest_pipeline_stage_top_of_pipe_bit, current_usage->stage_mask);
-			#ifdef ZEST_TEST_MODE
+			#ifdef ZEST_DEBUGGING
             zest__add_image_barrier(resource, barriers, ZEST_TRUE,
 									zest_access_none, current_usage->access_mask,
 									prev_usage->image_layout, current_usage_layout,
@@ -12149,7 +12150,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 																	 current_usage->image_layout, next_usage_layout,
 																	 src_queue_family_index, dst_queue_family_index,
 																	 current_usage->stage_mask, dst_stage);
-			#ifdef ZEST_TEST_MODE
+			#ifdef ZEST_DEBUGGING
             zest__add_image_barrier(resource, barriers, ZEST_FALSE,
 									current_usage->access_mask, zest_access_none,
 									current_usage->image_layout, next_usage_layout,
@@ -12984,7 +12985,7 @@ zest_frame_graph zest__compile_frame_graph() {
 																					  resource->access_mask, current_usage->access_mask,
 																					  src_queue_family_index, dst_queue_family_index,
 																					  resource->last_stage_mask, current_state->usage.stage_mask);
-							#ifdef ZEST_TEST_MODE
+							#ifdef ZEST_DEBUGGING
                             zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
 													 resource->access_mask, current_usage->access_mask,
 													 src_queue_family_index, dst_queue_family_index,
@@ -13003,7 +13004,7 @@ zest_frame_graph zest__compile_frame_graph() {
 																					  resource->access_mask, current_usage->access_mask,
 																					  src_queue_family_index, dst_queue_family_index,
 																					  resource->last_stage_mask, current_state->usage.stage_mask);
-							#ifdef ZEST_TEST_MODE
+							#ifdef ZEST_DEBUGGING
                             zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
 													 resource->access_mask, current_usage->access_mask,
 													 src_queue_family_index, dst_queue_family_index,
@@ -13030,7 +13031,7 @@ zest_frame_graph zest__compile_frame_graph() {
 																				  prev_usage->access_mask, current_usage->access_mask,
 																				  src_queue_family_index, dst_queue_family_index,
 																				  prev_state->usage.stage_mask, current_state->usage.stage_mask);
-						#ifdef ZEST_TEST_MODE
+						#ifdef ZEST_DEBUGGING
                         zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
 												 prev_usage->access_mask, current_usage->access_mask,
 												 src_queue_family_index, dst_queue_family_index,
@@ -13067,7 +13068,7 @@ zest_frame_graph zest__compile_frame_graph() {
 																				  current_usage->access_mask, next_state->usage.access_mask,
 																				  src_queue_family_index, dst_queue_family_index,
 																				  current_state->usage.stage_mask, dst_stage);
-						#ifdef ZEST_TEST_MODE
+						#ifdef ZEST_DEBUGGING
                         zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
 												 current_usage->access_mask, next_state->usage.access_mask,
 												 src_queue_family_index, dst_queue_family_index,
@@ -13082,7 +13083,7 @@ zest_frame_graph zest__compile_frame_graph() {
 																			  current_usage->access_mask, zest_access_none,
 																			  current_state->queue_family_index, ZEST_GRAPHICS_QUEUE_INDEX,
 																			  current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
-					#ifdef ZEST_TEST_MODE
+					#ifdef ZEST_DEBUGGING
 					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
 											 current_usage->access_mask, zest_access_none,
 											 current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
@@ -13634,7 +13635,7 @@ zest_size zest_GetFrameGraphCachedSize(zest_frame_graph frame_graph) {
 }
 
 void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
-#ifdef ZEST_TEST_MODE
+#ifdef ZEST_DEBUGGING
     if (!ZEST_VALID_HANDLE(frame_graph, zest_struct_type_frame_graph)) {
         ZEST_PRINT("frame graph handle is NULL.");
         return;
@@ -13884,7 +13885,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
     }
 	ZEST_PRINT("--- End of Report ---");
 #else
-	ZEST_PRINT("--- Printing the frame graph is only available in debug mode or if you define ZEST_TEST_MODE ---");
+	ZEST_PRINT("--- Printing the frame graph is only available in debug mode or if you define ZEST_DEBUGGING ---");
 #endif
 }
 
