@@ -81,7 +81,6 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[65] = { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[66] = { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->simple_create_info };
 	tests->tests[67] = { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->simple_create_info };
-	// Comment out remaining tests until we get working build
 	// Need a test for calling multiple resources the same name
 	// Can we test for adding the same resource twice?
 	// Test for memory leak when a layer is not reset each frame

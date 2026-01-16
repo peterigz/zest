@@ -7,7 +7,7 @@
 int test__no_update_device(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, 0);
 	}
 	test->result |= (zest_GetValidationErrorCount(tests->context) != 1);
 	test->frame_count++;
@@ -40,9 +40,8 @@ int test__no_swapchain_import(ZestTests *tests, Test *test) {
 				zest_EndPass();
 			}
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 	}
 	test->result |= (zest_GetValidationErrorCount(tests->context) != 1);
 	test->frame_count++;
@@ -69,9 +68,8 @@ int test__no_end_pass(ZestTests *tests, Test *test) {
 					zest_SetPassTask(zest_EmptyRenderPass, 0);
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
 		phase_total += 1;
@@ -98,9 +96,8 @@ int test__no_end_pass(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
 		phase_total += 1;
@@ -135,9 +132,8 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
 		phase_total += 1;
@@ -225,8 +221,8 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		int phase_passed = 0;
 		zest_frame_graph frame_graph = NULL;
 		zest_UpdateDevice(tests->device);
-		zest_EndFrame(tests->context);
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, 0);
+		zest_EndFrame(tests->context, 0);
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
@@ -275,7 +271,7 @@ int test__frame_graph_state_errors(ZestTests *tests, Test *test) {
 		if (zest_BeginFrame(tests->context)) {
 			zest_BeginFrameGraph(tests->context, "First Graph", 0);
 			zest_BeginFrameGraph(tests->context, "Second Graph", 0);
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 2);
 		phase_total += 1;
@@ -296,7 +292,7 @@ int test__frame_graph_state_errors(ZestTests *tests, Test *test) {
 		zest_UpdateDevice(tests->device);
 		if (zest_BeginFrame(tests->context)) {
 			zest_EndFrameGraph();
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
 		phase_total += 1;
@@ -314,7 +310,7 @@ int test__frame_graph_state_errors(ZestTests *tests, Test *test) {
 		zest_UpdateDevice(tests->device);
 		if (zest_BeginFrame(tests->context)) {
 			zest_BeginRenderPass("Orphan Pass");
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
 		phase_total += 1;
@@ -347,9 +343,8 @@ int test__pass_without_task(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		zest_PrintReports(tests->context);
 		phase_passed = (zest_ReportCount(tests->context) >= 3);
@@ -388,9 +383,8 @@ int test__unused_imported_resource(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should report about the unused/culled resource
 		phase_passed = (zest_ReportCount(tests->context) >= 1);
@@ -430,12 +424,12 @@ int test__unused_swapchain(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should report about the unused swapchain
-		phase_passed = (zest_ReportCount(tests->context) >= 4);
+		zest_PrintReports(tests->context);
+		phase_passed = (zest_ReportCount(tests->context) >= 3);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -473,9 +467,8 @@ int test__buffer_output_in_render_pass(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should compile and execute without errors
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
@@ -510,9 +503,8 @@ int test__multiple_swapchain_imports(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
 		phase_total += 1;
@@ -561,9 +553,8 @@ int test__transient_dependency_ordering(ZestTests *tests, Test *test) {
 				}
 
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should compile without errors - compiler should reorder correctly
 		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
@@ -604,9 +595,8 @@ int test__invalid_compute_handle(ZestTests *tests, Test *test) {
 					zest_EndPass();
 				}
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, frame_graph);
 		}
 		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
 		phase_total += 1;

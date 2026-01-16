@@ -229,13 +229,12 @@ void MainLoop(ImGuiApp *app) {
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
-			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			if (app->request_graph_print) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;
 			}
-			zest_EndFrame(app->context);
+			zest_EndFrame(app->context, frame_graph);
 		}
 	}
 }

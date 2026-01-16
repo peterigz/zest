@@ -293,8 +293,7 @@ void MainLoop(TimelineFXExample *game) {
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
-			zest_QueueFrameGraphForExecution(game->context, frame_graph);
-			zest_EndFrame(game->context);
+			zest_EndFrame(game->context, frame_graph);
 			if (game->request_graph_print) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);

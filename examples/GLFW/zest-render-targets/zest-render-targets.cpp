@@ -59,7 +59,7 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(example->composite_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 
 	CompositePushConstants push;
@@ -281,7 +281,6 @@ void Mainloop(render_target_app_t *example) {
 
 					//---------------------------------Downsample Pass--------------------------------------------------
 					zest_BeginComputePass(downsampler_compute, "Downsampler Pass"); {
-						//The stage should be assumed based on the pass queue type.
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(downsampler);
 						//tasks
@@ -292,7 +291,6 @@ void Mainloop(render_target_app_t *example) {
 
 					//---------------------------------Upsample Pass----------------------------------------------------
 					zest_BeginComputePass(upsampler_compute, "Upsampler Pass"); {
-						//The stage should be assumed based on the pass queue type.
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(upsampler);
 						//tasks
@@ -318,8 +316,7 @@ void Mainloop(render_target_app_t *example) {
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
-			zest_QueueFrameGraphForExecution(example->context, frame_graph);
-			zest_EndFrame(example->context);
+			zest_EndFrame(example->context, frame_graph);
 		}
 		if (zest_SwapchainWasRecreated(example->context)) {
 			zest_SetLayerSizeToSwapchain(font_layer);
@@ -335,7 +332,7 @@ int main()
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	render_target_app_t app = {};
-	zest_device device = zest_implglfw_CreateDevice(false);
+	zest_device device = zest_implglfw_CreateVulkanDevice(false);
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
 	app.context = zest_CreateContext(device, &window_handles, &create_info);

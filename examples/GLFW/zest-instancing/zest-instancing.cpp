@@ -456,8 +456,7 @@ void MainLoop(InstancingExample *app) {
 				}
 			}
 
-			zest_QueueFrameGraphForExecution(app->context, frame_graph);
-			zest_EndFrame(app->context);
+			zest_EndFrame(app->context, frame_graph);
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {

@@ -359,8 +359,7 @@ void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
 				frame_graph = zest_EndFrameGraph();
 			}
 		}
-		zest_QueueFrameGraphForExecution(viewport->context, frame_graph);
-		zest_EndFrame(viewport->context);
+		zest_EndFrame(viewport->context, frame_graph);
 	}
 }
 

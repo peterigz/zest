@@ -51,8 +51,7 @@ void MainLoop(minimal_app_t *app) {
 			//When building a frame graph that is within a zest_BeginFrame and zest_EndFrame you can 
 			//queue it for execution. This means that it will be executed inside zest_EndFrame and presented
 			//to the window surface.
-			zest_QueueFrameGraphForExecution(app->context, frame_graph);
-			zest_EndFrame(app->context);
+			zest_EndFrame(app->context, frame_graph);
 		}
 	}
 }

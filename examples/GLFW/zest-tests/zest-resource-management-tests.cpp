@@ -67,7 +67,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	for (int frame = 0; frame < frames_to_test; frame++) {
 		zest_UpdateDevice(tests->device);
 		zest_BeginFrame(tests->context);
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, 0);
 	}
 	
 	// Phase 3: Multiple image management
@@ -97,7 +97,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	for (int cleanup_frame = 0; cleanup_frame < 3; cleanup_frame++) {
 		resources_freed += zest_UpdateDevice(tests->device);
 		zest_BeginFrame(tests->context);
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, 0);
 		
 		// Free some images each frame to test deferred destruction
 		int start_idx = cleanup_frame * 3;
@@ -629,7 +629,7 @@ int test__uniform_buffer_descriptor_management(ZestTests *tests, Test *test) {
 	for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
 		zest_UpdateDevice(tests->device);
 		zest_BeginFrame(tests->context);
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, 0);
 	}
 
 	// Create new uniform buffer - should get recycled index
@@ -761,7 +761,7 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
 			zest_UpdateDevice(tests->device);
 			zest_BeginFrame(tests->context);
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 
 		// Create one more to verify handles are being reused
@@ -2010,7 +2010,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
 			zest_UpdateDevice(tests->device);
 			zest_BeginFrame(tests->context);
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 
 		// Cleanup shader
@@ -2154,7 +2154,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
 			zest_UpdateDevice(tests->device);
 			zest_BeginFrame(tests->context);
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 
 		PrintTestUpdate(test, 3, phase_passed == phase_total);
@@ -2301,7 +2301,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
 			zest_UpdateDevice(tests->device);
 			zest_BeginFrame(tests->context);
-			zest_EndFrame(tests->context);
+			zest_EndFrame(tests->context, 0);
 		}
 
 		PrintTestUpdate(test, 7, phase_passed == phase_total);

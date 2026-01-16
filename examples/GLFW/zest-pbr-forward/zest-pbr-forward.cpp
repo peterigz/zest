@@ -499,8 +499,7 @@ void MainLoop(SimplePBRExample *app) {
 				}
 			}
 
-			zest_QueueFrameGraphForExecution(app->context, frame_graph);
-			zest_EndFrame(app->context);
+			zest_EndFrame(app->context, frame_graph);
 			if (app->request_graph_print > 0) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);

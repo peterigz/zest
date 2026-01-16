@@ -1290,8 +1290,7 @@ void VadersGame::Update(float ellapsed) {
 				frame_graph = zest_EndFrameGraph();
 			}
 		}
-		zest_QueueFrameGraphForExecution(context, frame_graph);
-		zest_EndFrame(context);
+		zest_EndFrame(context, frame_graph);
 		if (request_graph_print > 0) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledFrameGraph(frame_graph);

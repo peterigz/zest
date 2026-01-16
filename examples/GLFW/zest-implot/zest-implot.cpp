@@ -56,6 +56,7 @@ void MainLoop(ImGuiApp *app) {
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
+			zest_frame_graph frame_graph = NULL;
 			if (zest_BeginFrameGraph(app->context, "ImGui Plot", 0)) {
 				zest_ImportSwapchainResource();
 				//If there was no imgui data to render then zest_imgui_BeginPass will return false
@@ -74,10 +75,9 @@ void MainLoop(ImGuiApp *app) {
 				zest_EndPass();
 				//If there's imgui to draw then draw it
 				//End the render graph. This compiles and executes the render graph.
-				zest_frame_graph frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(app->context, frame_graph);
+				frame_graph = zest_EndFrameGraph();
 			}
-			zest_EndFrame(app->context);
+			zest_EndFrame(app->context, frame_graph);
 		}
 	}
 }

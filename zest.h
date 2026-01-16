@@ -4331,7 +4331,7 @@ ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t 
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
-ZEST_API void zest_EndFrame(zest_context context);
+ZEST_API void zest_EndFrame(zest_context context, zest_frame_graph frame_gaph);
 //Maintenance function to be run each time the application loops to flush any unused resources that have been 
 //marked for deletion.
 ZEST_API int zest_UpdateDevice(zest_device device);
@@ -4658,7 +4658,6 @@ ZEST_API void zest_SetResourceImageProvider(zest_resource_node resource_node, ze
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
 ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API void zest_FlushCachedFrameGraphs(zest_context context);
-ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
 ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
@@ -6154,9 +6153,6 @@ typedef struct zest_context_t {
 	float dpi_scale;
 	zest_swapchain swapchain;
 	zest_window_data_t window_data;
-
-	//Context data
-	zest_frame_graph *frame_graphs;       //All the frame graphs used this frame. Gets cleared at the beginning of each frame
 
 	//Linear allocator for building the render graph each frame. The memory for this is allocated from
 	//The device TLSF allocator
@@ -7965,7 +7961,6 @@ zest_bool zest_BeginFrame(zest_context context) {
 	} else {
 		zloc_ResetLinearAllocator(&context->frame_graph_allocator[context->current_fif]);
 	}
-    context->frame_graphs = 0;
 
 	zest__do_context_scheduled_tasks(context);
 
@@ -7980,35 +7975,34 @@ zest_bool zest_BeginFrame(zest_context context) {
 	return fence_wait_result == zest_semaphore_status_success;
 }
 
-void zest_EndFrame(zest_context context) {
+void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
     ZEST_ASSERT_OR_VALIDATE(ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired),
 							context->device, 
 							"zest_EndFrame was called but a swap chain image was not acquired. Make sure that zest_BeginFrame was called to acquire a swap chain image.",
 							(void)0);
 	if (zest__frame_graph_builder) {
-		ZEST_ASSERT_OR_VALIDATE(!zest__frame_graph_builder,
-							context->device, 
+		ZEST_ASSERT_OR_VALIDATE(!zest__frame_graph_builder, context->device, 
 							"If zest_EndFrame is called then the frame graph builder should be NULL. If it's not NULL then this indicates that zest_BeginFrameGraph was called but no zest_EndFrameGraph was called after to finish and compile the frame graph.",
 							(void)0);
 	}
 	zest_frame_graph_flags flags = 0;
 	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
-    if (zest_vec_size(context->frame_graphs)) {
-        zest_vec_foreach(i, context->frame_graphs) {
-            zest_frame_graph frame_graph = context->frame_graphs[i];
-
-            zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
-            zest__frame_graph_builder = &builder;
-            zest__frame_graph_builder->context = context;
-            zest__frame_graph_builder->frame_graph = frame_graph;
-            zest__frame_graph_builder->current_pass = 0;
+    if (ZEST_VALID_HANDLE(frame_graph, zest_struct_type_frame_graph)) {
+		if (frame_graph->error_status != zest_fgs_success) {
+			ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
+		} else {
+			zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
+			zest__frame_graph_builder = &builder;
+			zest__frame_graph_builder->context = context;
+			zest__frame_graph_builder->frame_graph = frame_graph;
+			zest__frame_graph_builder->current_pass = 0;
 			if (zest__execute_frame_graph(context, frame_graph, ZEST_FALSE)) {
 				flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
 			}
-            zest__frame_graph_builder = NULL;
-        }
+			zest__frame_graph_builder = NULL;
+		}
     } else {
-        ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph. Also make sure that if you are calling that function the the frame graph you're passing in is not NULL. \n\nIt could just be that you have a condition (like if imgui doesn't return a pass because it has nothing to render yet), in which case this can be ignored.");
+        ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. \n\nIt could just be that you have a condition (like if imgui doesn't return a pass because it has nothing to render yet), in which case this can be ignored.");
     }
 	
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
@@ -11851,17 +11845,6 @@ zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const
     key.user_state = user_state;
     key.user_state_size = user_state_size;
     return key;
-}
-
-void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph) {
-	if (!frame_graph) return;
-	ZEST_ASSERT_HANDLE(context);	    //Not a valid context handle
-	ZEST_ASSERT(context == frame_graph->command_list.context);	//The context must equal the context that was used for the frame graph.
-	if (frame_graph->error_status == zest_fgs_success) {
-		zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], context->frame_graphs, frame_graph);
-	} else {
-		ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
-	}
 }
 
 zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {

@@ -349,16 +349,14 @@ void MainLoop(ComputeExample *app) {
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
-			//Queue the frame graph for execution
-			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 
 			if (app->print_render_graph) {
 				zest_PrintCompiledFrameGraph(frame_graph);
 				app->print_render_graph = false;
 			}
 
-			//Execute pending frame graphs and present to the swapchain.
-			zest_EndFrame(app->context);
+			//Execute the frame graph and present to the swapchain.
+			zest_EndFrame(app->context, frame_graph);
 		}
 	}
 }

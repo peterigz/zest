@@ -35,9 +35,8 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 			zest_SetPassTask(zest_EmptyRenderPass, 0);
 			zest_EndPass();
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -68,9 +67,8 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -93,9 +91,8 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 			zest_EndPass();
 			zest_frame_graph frame_graph = zest_EndFrameGraph();
 			test->result |= zest_GetFrameGraphCulledResourceCount(frame_graph) > 0 ? 1 : 0;
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -135,9 +132,8 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		if (frame_graph && zest_GetFrameGraphCulledPassesCount(frame_graph) == 2) {
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 		}
@@ -170,7 +166,6 @@ int test__transient_image(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 			if (zest_GetFrameGraphFinalPassCount(frame_graph) == 2) {
 				zest_uint create_size = zest_GetFrameGraphPassTransientCreateCount(frame_graph, zest_GetPassOutputKey(pass_a));
@@ -185,7 +180,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 				test->result = 1;
 			}
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -216,10 +211,9 @@ int test__import_image(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -254,7 +248,6 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			//zest_PrintCompiledRenderGraph(frame_graph);
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 			if (zest_GetFrameGraphSubmissionCount(frame_graph)) {
@@ -282,7 +275,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 				test->result += 1;
 			}
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -451,7 +444,6 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 			zest_ConnectInput(output_a);
 			zest_EndPass();
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 			int failed = 0;
 			if (zest_GetFrameGraphSubmissionCount(frame_graph) == 1) {
@@ -471,7 +463,7 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 			}
 			test->result |= failed;
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->frame_count++;
@@ -608,9 +600,8 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 			zest_SetSwapchainClearColor(tests->context, 0.0f, 0.1f, 0.2f, 1.0f);
 			zest_EndPass();
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result = 1;
 		if (zest_GetFrameGraphFinalPassCount(frame_graph) == 1) {
 			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, 0);
@@ -730,9 +721,8 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
@@ -763,9 +753,8 @@ int test__pass_grouping(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		zest_uint final_pass_count = zest_GetFrameGraphFinalPassCount(frame_graph);
 		test->result |= final_pass_count == 1 ? 0 : 1;
 		test->result |= zest_GetFrameGraphResult(frame_graph);
@@ -807,9 +796,8 @@ int test__cyclic_dependency(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			frame_graph = zest_EndFrameGraph();
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -835,13 +823,11 @@ int test__simple_caching(ZestTests *tests, Test *test) {
 				zest_SetPassTask(zest_EmptyRenderPass, NULL);
 				zest_EndPass();
 				frame_graph = zest_EndFrameGraph();
-				zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			}
 		} else {
-			zest_QueueFrameGraphForExecution(tests->context, frame_graph);
 			test->cache_count++;
 		}
-		zest_EndFrame(tests->context);
+		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
