@@ -3801,7 +3801,6 @@ typedef struct zest_pipeline_template_t {
 	zest_depth_stencil_state_t depth_stencil;
 	zest_pipeline_set_flags flags;                                               //Flag bits
 	zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
-	void *push_constants;                                                        //Pointer to user push constant data
     
 	zest_uint view_mask;
 	zest_vertex_attribute_desc_t *attribute_descriptions;
@@ -4468,10 +4467,6 @@ ZEST_API void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipel
 //Add a vertex attribute to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
 ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, zest_format format, zest_uint offset);
-//You can set a pointer in the pipeline template to point to the push constant data that you want to pass to the shader.
-//It MUST match the same data layout/size that you set with zest_SetPipelinePushConstantRange and align with the 
-//push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
-ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
 ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bool enable_test, zest_bool write_enable);
 ZEST_API void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled);
@@ -10276,11 +10271,6 @@ void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cul
 void zest_SetPipelinePolygonFillMode(zest_pipeline_template pipeline_template, zest_polygon_mode polygon_mode) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //invalid pipeline template handle
     pipeline_template->rasterization.polygon_mode = polygon_mode;
-}
-
-void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants) {
-    ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    pipeline_template->push_constants = push_constants;
 }
 
 void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment) {
