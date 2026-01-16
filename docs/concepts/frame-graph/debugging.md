@@ -14,22 +14,99 @@ zest_PrintCompiledFrameGraph(graph);
 Example output:
 
 ```
-=== Frame Graph: Deferred Renderer ===
-Pass 0: G-Buffer [RENDER]
-  Outputs: Albedo, Normal, Depth
-  Barriers: 3 image transitions
+Swapchain Info
+Image Available Wait Semaphores:
+000002181325E9D0 *
+000002181325EA68
 
-Pass 1: Lighting [RENDER]
-  Inputs: Albedo, Normal, Depth
-  Outputs: Swapchain
-  Barriers: 3 image transitions, 1 swapchain acquire
+Render Finished Signal Semaphores:
+000002181325EB00
+000002181325EB98 *
+000002181325EC30
 
-Resources:
-  Albedo: Transient (1920x1080, R8G8B8A8_UNORM)
-  Normal: Transient (1920x1080, R8G8B8A8_UNORM)
-  Depth: Transient (1920x1080, D32_SFLOAT)
-  Swapchain: Imported
-```
+--- Frame graph Execution Plan, Current FIF: 0 ---
+Resource List: Total Resources: 5
+
+Buffer: read particle buffer (0000021801EF0140) - Size: 8388608, Offset: 0
+Swapchain Image: Zest Window (000002181325D178)
+Image: Imgui Font (0000021801EDB578) - Size: 512 x 64
+Buffer: Viewport Vertex Buffer (0000000000000000) - Size: 5840, Offset: 0
+Buffer: Viewport Index Buffer (0000000000000000) - Size: 5840, Offset: 0
+
+Graph Wave Layout ([G]raphics, [C]ompute, [T]ransfer)
+Wave Index      G       C       T       Pass Count
+0                       X       X       2
+1               X                       1
+
+Number of Submission Batches: 2
+
+Wave Submission Index 0:
+  Target Queue Family: Compute Queue - index: 1
+  Waits on the following Semaphores:
+     Timeline Semaphore: 0000021801EDB190, Value: 15307, Stages: COMPUTE_SHADER_BIT
+  Passes in this batch:
+    Pass [0] (QueueType: 2)
+       Compute Particles
+        Release Buffers:
+            read particle buffer (0000021801EF0140) |
+            Access: SHADER_WRITE_BIT -> VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: COMPUTE_SHADER_BIT -> BOTTOM_OF_PIPE_BIT,
+            QFI: 1 -> 0, Size: 8388608
+  Signal Semaphores:
+  Timeline Semaphore: 00000218134146E0, Stage: BOTTOM_OF_PIPE_BIT, Value: 7654
+
+  Target Queue Family: Transfer Queue - index: 2
+  Waits on the following Semaphores:
+     Timeline Semaphore: 0000021801EDB190, Value: 15307, Stages: TRANSFER_BIT
+  Passes in this batch:
+    Pass [2] (QueueType: 4)
+       Upload ImGui Viewport
+        Release Buffers:
+            Viewport Vertex Buffer (0000000000000000) |
+            Access: TRANSFER_READ_BIT, TRANSFER_WRITE_BIT -> VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: TRANSFER_BIT -> BOTTOM_OF_PIPE_BIT,
+            QFI: 2 -> 0, Size: 5840
+            Viewport Index Buffer (0000000000000000) |
+            Access: TRANSFER_READ_BIT, TRANSFER_WRITE_BIT -> INDEX_READ_BIT, VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: TRANSFER_BIT -> BOTTOM_OF_PIPE_BIT,
+            QFI: 2 -> 0, Size: 5840
+  Signal Semaphores:
+  Timeline Semaphore: 0000021813414778, Stage: BOTTOM_OF_PIPE_BIT, Value: 7654
+
+Wave Submission Index 1:
+  Target Queue Family: Graphics Queue - index: 0
+  Waits on the following Semaphores:
+     Timeline Semaphore: 00000218134146E0, Value: 7654, Stages: VERTEX_INPUT_BIT, COMPUTE_SHADER_BIT, TRANSFER_BIT
+     Timeline Semaphore: 0000021813414778, Value: 7654, Stages: VERTEX_INPUT_BIT, COMPUTE_SHADER_BIT, TRANSFER_BIT
+     Binary Semaphore:   000002181325EA68, Stages: TOP_OF_PIPE_BIT
+  Passes in this batch:
+    Pass [1] (QueueType: 1)
+       Graphics Pass
+       Dear ImGui Viewport Pass
+        Acquire Images:
+            Zest Window (000002181325D178), Layout: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL,
+            Access: NONE -> COLOR_ATTACHMENT_WRITE_BIT,
+            Pipeline Stage: TOP_OF_PIPE_BIT -> COLOR_ATTACHMENT_OUTPUT_BIT,
+            QFI: 4294967295 -> 4294967295
+        Acquire Buffers:
+            read particle buffer (0000021801EF0140) |
+            Access: SHADER_WRITE_BIT -> VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: COMPUTE_SHADER_BIT -> VERTEX_INPUT_BIT,
+            QFI: 1 -> 0, Size: 8388608
+            Viewport Vertex Buffer (0000000000000000) |
+            Access: TRANSFER_READ_BIT, TRANSFER_WRITE_BIT -> VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: TRANSFER_BIT -> VERTEX_INPUT_BIT,
+            QFI: 2 -> 0, Size: 5840
+            Viewport Index Buffer (0000000000000000) |
+            Access: TRANSFER_READ_BIT, TRANSFER_WRITE_BIT -> INDEX_READ_BIT, VERTEX_ATTRIBUTE_READ_BIT,
+            Pipeline Stage: TRANSFER_BIT -> VERTEX_INPUT_BIT, INDEX_INPUT_BIT,
+            QFI: 2 -> 0, Size: 5840
+      RenderArea: (0,0)-(1280x768)
+  Signal Semaphores:
+  Binary Semaphore: 000002181325EB00 Stage: BOTTOM_OF_PIPE_BIT,
+  Timeline Semaphore: 0000021801EDB190, Stage: BOTTOM_OF_PIPE_BIT, Value: 15308
+
+--- End of Report ---```
 
 ## Checking Compilation Results
 
@@ -57,9 +134,9 @@ switch (result) {
 
 The frame graph compiler automatically removes unused passes. A pass is culled if:
 
-1. It has no connection to the swapchain (directly or through other passes)
-2. It produces no essential resources
-3. It is not marked with `zest_DoNotCull()`
+1. It produces no output, so in other words it does not use zest_ConnectOutput.
+2. It produces output but that ouput is not consumed and output to an essential target (like the swapchain or any resource you manually set as essential)
+3. It is not marked with `zest_DoNotCull()`. 
 
 ### Preventing Culling
 
@@ -97,7 +174,7 @@ zest_FlagResourceAsEssential(debug_buffer);
 
 **Solution:**
 ```cpp
-// Option 1: Connect to something that reaches swapchain
+// Option 1: Connect to something that reaches swapchain or other essential resource.
 zest_ConnectOutput(resource_used_by_later_pass);
 
 // Option 2: Force no culling
@@ -126,36 +203,6 @@ zest_ConnectOutput(color_target);
 // If you read-modify-write, connect both
 zest_ConnectInput(particle_buffer);
 zest_ConnectOutput(particle_buffer);
-```
-
-### Transient Resource Aliasing Issues
-
-**Symptom:** Resources appear corrupted when aliasing is enabled.
-
-**Causes:**
-1. Resource lifetimes overlap unexpectedly
-2. Missing dependency between passes
-
-**Solution:** Verify pass order through connections or use `zest_PrintCompiledFrameGraph()` to inspect execution order.
-
-## Performance Debugging
-
-### Minimize Pass Count
-
-Each pass has overhead. Combine passes when logical:
-
-```cpp
-// Instead of separate clear and draw passes:
-zest_BeginRenderPass("Clear"); { ... }
-zest_BeginRenderPass("Draw"); { ... }
-
-// Combine into one:
-zest_BeginRenderPass("Draw"); {
-    zest_SetResourceClearColor(target, 0, 0, 0, 1);
-    zest_ConnectOutput(target);
-    zest_SetPassTask(DrawCallback, app);
-    zest_EndPass();
-}
 ```
 
 ### Cache Frame Graphs
@@ -189,7 +236,7 @@ Transient resources benefit from memory aliasing:
 zest_resource_node temp = zest_AddTransientImageResource("Temp", &info);
 
 // vs. Imported: dedicated memory allocation
-zest_resource_node persistent = zest_ImportImageResource("Texture", image, binding);
+zest_resource_node persistent = zest_ImportImageResource("Depth", image, provider);
 ```
 
 ## Validation Layers
@@ -197,11 +244,19 @@ zest_resource_node persistent = zest_ImportImageResource("Texture", image, bindi
 Enable Vulkan validation layers during development:
 
 ```cpp
-zest_device_info_t device_info = zest_CreateDeviceInfo();
-device_info.enable_validation = zest_true;
-
-zest_device device = zest_CreateDevice(&device_info);
+zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+zest_AddDeviceBuilderValidation(device_builder);
+zest_DeviceBuilderLogToConsole(device_builder);
+zest_device device = zest_EndDeviceBuilder(device_builder);
 ```
+
+Or using the helper functions:
+
+```cpp
+zest_device device = zest_implglfw_CreateVulkanDevice(true);
+```
+
 
 Validation layers catch:
 - Incorrect resource states
@@ -215,6 +270,8 @@ Validation layers catch:
 3. **Enable validation** - Catch synchronization issues early
 4. **Name everything** - Pass and resource names appear in debug output
 5. **Understand culling** - Know why passes are removed
+
+If anything seems amiss please raise an issue, it could be a bug or missing feature in Zest!
 
 ## See Also
 
