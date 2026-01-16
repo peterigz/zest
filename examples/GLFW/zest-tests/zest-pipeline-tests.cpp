@@ -32,25 +32,27 @@ zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const ch
 
 //Pipeline state depths - test multiple depth configurations
 int test__pipeline_state_depth(ZestTests *tests, Test *test) {
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	// Test 1: Depth test enabled, write enabled
 	zest_pipeline_template pipeline1 = create_basic_pipeline_template(tests, "Depth Pipeline - Test Write");
 	zest_SetPipelineDepthTest(pipeline1, true, true);
-	zest_pipeline p1 = zest_CachePipeline(pipeline1, tests->context);
+	zest_pipeline p1 = zest_GetPipeline(pipeline1, &command_list);
 	
 	// Test 2: Depth test enabled, write disabled
 	zest_pipeline_template pipeline2 = create_basic_pipeline_template(tests, "Depth Pipeline - Test Only");
 	zest_SetPipelineDepthTest(pipeline2, true, false);
-	zest_pipeline p2 = zest_CachePipeline(pipeline2, tests->context);
+	zest_pipeline p2 = zest_GetPipeline(pipeline2, &command_list);
 	
 	// Test 3: Depth test disabled, write disabled
 	zest_pipeline_template pipeline3 = create_basic_pipeline_template(tests, "Depth Pipeline - Disabled");
 	zest_SetPipelineDepthTest(pipeline3, false, false);
-	zest_pipeline p3 = zest_CachePipeline(pipeline3, tests->context);
+	zest_pipeline p3 = zest_GetPipeline(pipeline3, &command_list);
 	
 	// Test 4: Depth test disabled, write enabled (should still work but no testing)
 	zest_pipeline_template pipeline4 = create_basic_pipeline_template(tests, "Depth Pipeline - Write Only");
 	zest_SetPipelineDepthTest(pipeline4, false, true);
-	zest_pipeline p4 = zest_CachePipeline(pipeline4, tests->context);
+	zest_pipeline p4 = zest_GetPipeline(pipeline4, &command_list);
 	
 	// All pipelines should be created successfully
 	test->result = (p1 == NULL || p2 == NULL || p3 == NULL || p4 == NULL) ? 1 : 0;
@@ -87,11 +89,14 @@ int test__pipeline_state_blending(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[9];
 	int failed_count = 0;
+
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 9; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, blend_names[i]);
 		zest_SetPipelineBlend(pipeline, blend_states[i]);
-		pipelines[i] = zest_CachePipeline(pipeline, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -139,6 +144,8 @@ int test__pipeline_state_culling(ZestTests *tests, Test *test) {
 	zest_pipeline pipelines[8]; // 4 cull modes × 2 front faces
 	int failed_count = 0;
 	int pipeline_index = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	int name_index = 0;
 	for (int i = 0; i < 4; i++) {
@@ -146,7 +153,7 @@ int test__pipeline_state_culling(ZestTests *tests, Test *test) {
 			zest_pipeline_template pipeline = create_basic_pipeline_template(tests, cull_names[name_index++]);
 			zest_SetPipelineCullMode(pipeline, cull_modes[i]);
 			zest_SetPipelineFrontFace(pipeline, front_faces[j]);
-			pipelines[pipeline_index] = zest_CachePipeline(pipeline, tests->context);
+			pipelines[pipeline_index] = zest_GetPipeline(pipeline, &command_list);
 			
 			if (pipelines[pipeline_index] == NULL) {
 				failed_count++;
@@ -186,11 +193,13 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[6];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 6; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, topology_names[i]);
 		zest_SetPipelineTopology(pipeline, topologies[i]);
-		pipelines[i] = zest_CachePipeline(pipeline, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -219,11 +228,13 @@ int test__pipeline_state_polygon_mode(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[3];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 3; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, polygon_mode_names[i]);
 		zest_SetPipelinePolygonFillMode(pipeline, polygon_modes[i]);
-		pipelines[i] = zest_CachePipeline(pipeline, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -250,11 +261,13 @@ int test__pipeline_state_front_face(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[2];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 2; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, front_face_names[i]);
 		zest_SetPipelineFrontFace(pipeline, front_faces[i]);
-		pipelines[i] = zest_CachePipeline(pipeline, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -286,6 +299,8 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[4];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 4; i++) {
 		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
@@ -305,7 +320,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 		zest_SetPipelineTopology(pipeline_test, zest_topology_triangle_list);
 		zest_SetPipelineCullMode(pipeline_test, zest_cull_mode_back);
 		
-		pipelines[i] = zest_CachePipeline(pipeline_test, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline_test, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -329,7 +344,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	zest_SetPipelineTopology(instance_pipeline, zest_topology_triangle_list);
 	zest_SetPipelineCullMode(instance_pipeline, zest_cull_mode_back);
 	
-	zest_pipeline instance_result = zest_CachePipeline(instance_pipeline, tests->context);
+	zest_pipeline instance_result = zest_GetPipeline(instance_pipeline, &command_list);
 	
 	if (instance_result == NULL) {
 		failed_count++;
@@ -395,11 +410,13 @@ int test__pipeline_state_multiblend(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[4];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	for (int i = 0; i < 4; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, custom_blend_names[i]);
 		zest_SetPipelineBlend(pipeline, custom_blends[i]);
-		pipelines[i] = zest_CachePipeline(pipeline, tests->context);
+		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
 		
 		if (pipelines[i] == NULL) {
 			failed_count++;
@@ -432,32 +449,34 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[6];
 	int failed_count = 0;
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
 	
 	// Test fill mode with default settings
 	zest_pipeline_template pipeline1 = create_basic_pipeline_template(tests, rasterization_names[0]);
 	zest_SetPipelinePolygonFillMode(pipeline1, zest_polygon_mode_fill);
-	pipelines[0] = zest_CachePipeline(pipeline1, tests->context);
+	pipelines[0] = zest_GetPipeline(pipeline1, &command_list);
 	
 	// Test line mode (note: line width would need to be set via internal struct access)
 	zest_pipeline_template pipeline2 = create_basic_pipeline_template(tests, rasterization_names[1]);
 	zest_SetPipelinePolygonFillMode(pipeline2, zest_polygon_mode_line);
-	pipelines[1] = zest_CachePipeline(pipeline2, tests->context);
+	pipelines[1] = zest_GetPipeline(pipeline2, &command_list);
 	
 	// Test point mode
 	zest_pipeline_template pipeline3 = create_basic_pipeline_template(tests, rasterization_names[3]);
 	zest_SetPipelinePolygonFillMode(pipeline3, zest_polygon_mode_point);
-	pipelines[3] = zest_CachePipeline(pipeline3, tests->context);
+	pipelines[3] = zest_GetPipeline(pipeline3, &command_list);
 	
 	// Test different culling combinations
 	zest_pipeline_template pipeline4 = create_basic_pipeline_template(tests, rasterization_names[4]);
 	zest_SetPipelineCullMode(pipeline4, zest_cull_mode_none);
 	zest_SetPipelinePolygonFillMode(pipeline4, zest_polygon_mode_fill);
-	pipelines[4] = zest_CachePipeline(pipeline4, tests->context);
+	pipelines[4] = zest_GetPipeline(pipeline4, &command_list);
 	
 	zest_pipeline_template pipeline5 = create_basic_pipeline_template(tests, rasterization_names[5]);
 	zest_SetPipelineCullMode(pipeline5, zest_cull_mode_front);
 	zest_SetPipelinePolygonFillMode(pipeline5, zest_polygon_mode_line);
-	pipelines[5] = zest_CachePipeline(pipeline5, tests->context);
+	pipelines[5] = zest_GetPipeline(pipeline5, &command_list);
 	
 	for (int i = 0; i < 6; i++) {
 		if (i != 2) { // Skip index 2 (thick line) as we didn't create it
