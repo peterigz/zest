@@ -272,6 +272,7 @@ void MainLoop(ComputeExample *app) {
 			ImGui::Text("FPS: %u", fps);
 			ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 			ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
+			ImGui::Checkbox("Print Render Graph", &app->print_render_graph);
 			ImGui::End();
 			ImGui::Render();
 		} zest_EndTimerLoop(app->loop_timer)
@@ -350,6 +351,11 @@ void MainLoop(ComputeExample *app) {
 			}
 			//Queue the frame graph for execution
 			zest_QueueFrameGraphForExecution(app->context, frame_graph);
+
+			if (app->print_render_graph) {
+				zest_PrintCompiledFrameGraph(frame_graph);
+				app->print_render_graph = false;
+			}
 
 			//Execute pending frame graphs and present to the swapchain.
 			zest_EndFrame(app->context);
