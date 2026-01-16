@@ -300,7 +300,7 @@ void MainLoop(ShadowMappingExample *app) {
 			zest_layer mesh_layer = zest_GetLayer(app->mesh_layer);
 			zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 			zest_uniform_buffer offscreen_buffer = zest_GetUniformBuffer(app->offscreen_uniform_buffer);
-			zest_SetInstanceMeshDrawing(mesh_layer, 0, app->shadow_pipeline);
+			zest_StartInstanceMeshDrawing(mesh_layer, 0, app->shadow_pipeline);
 			zest_SetLayerColor(mesh_layer, 255, 255, 255, 255);
 			app->scene_push.view_index = zest_GetUniformBufferDescriptorIndex(view_buffer);
 			app->scene_push.offscreen_index = zest_GetUniformBufferDescriptorIndex(offscreen_buffer);

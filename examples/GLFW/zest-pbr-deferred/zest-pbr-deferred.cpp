@@ -441,7 +441,7 @@ void MainLoop(SimplePBRExample *app) {
 			float count = 10.f;
 			float zero[3] = { 0 };
 			for (int m = 0; m != 5; m++) {
-				zest_SetInstanceMeshDrawing(mesh_layer, m, app->gbuffer_pipeline);
+				zest_StartInstanceMeshDrawing(mesh_layer, m, app->gbuffer_pipeline);
 				zest_SetLayerPushConstants(mesh_layer, &app->gbuffer_push, sizeof(gbuffer_push_t));
 				for (float i = 0; i < count; i++) {
 					float roughness = 1.0f - ZEST__CLAMP(i / count, 0.005f, 1.0f);
@@ -469,7 +469,7 @@ void MainLoop(SimplePBRExample *app) {
 				app->material_push.view_buffer_index,
 				app->material_push.lights_buffer_index,
 			};
-			zest_SetInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
+			zest_StartInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
 			DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);

@@ -282,7 +282,7 @@ void UpdateUniform3d(CascadingShadowsExample *app) {
 
 void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance, "Make sure you call zest_SetInstanceMeshDrawing before calling this function.");
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance, "Make sure you call zest_StartInstanceMeshDrawing before calling this function.");
 
     zest_instance_t* instance = (zest_instance_t*)zest_NextInstance(layer);
 
@@ -510,21 +510,21 @@ void MainLoop(CascadingShadowsExample *app) {
 				{ -1.25f, -0.25f, -1.25f }
 			};
 
-			zest_SetInstanceMeshDrawing(mesh_layer, 0, app->shadow_pipeline);
+			zest_StartInstanceMeshDrawing(mesh_layer, 0, app->shadow_pipeline);
 			app->scene_push.texture_index = zest_GetLayerMeshTextureIndex(mesh_layer, 0);
 			zest_SetLayerPushConstants(mesh_layer, &app->scene_push, sizeof(scene_push_constants_t));
 			for (int i = 0; i != 5; i++) {
 				DrawInstancedMesh(mesh_layer, &positions[i].x, zero, &scale.x);
 			}
 
-			zest_SetInstanceMeshDrawing(mesh_layer, 1, app->shadow_pipeline);
+			zest_StartInstanceMeshDrawing(mesh_layer, 1, app->shadow_pipeline);
 			app->scene_push.texture_index = zest_GetLayerMeshTextureIndex(mesh_layer, 1);
 			zest_SetLayerPushConstants(mesh_layer, &app->scene_push, sizeof(scene_push_constants_t));
 			for (int i = 0; i != 5; i++) {
 				DrawInstancedMesh(mesh_layer, &positions[i].x, zero, &scale.x);
 			}
 
-			zest_SetInstanceMeshDrawing(mesh_layer, 2, app->shadow_pipeline);
+			zest_StartInstanceMeshDrawing(mesh_layer, 2, app->shadow_pipeline);
 			app->scene_push.texture_index = zest_GetLayerMeshTextureIndex(mesh_layer, 2);
 			zest_SetLayerPushConstants(mesh_layer, &app->scene_push, sizeof(scene_push_constants_t));
 			DrawInstancedMesh(mesh_layer, zero, zero, &scale.x);

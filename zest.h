@@ -5097,12 +5097,11 @@ ZEST_API void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list com
 
 //-----------------------------------------------
 //        Draw_instance_mesh_layers
-//        Instance mesh layers are for creating meshes and then drawing instances of them. It should be
-//        one mesh per layer (and obviously many instances of that mesh can be drawn with the layer).
+//        Instance mesh layers are for creating meshes and then drawing instances of them. 
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
+ZEST_API void zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Push an index to a mesh to build triangles
 ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
@@ -16483,7 +16482,7 @@ void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list command_list
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_SetInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
+void zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
 	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index is out of bounds. Make sure you add all your meshes to the layer with zest_AddMeshToLayer");

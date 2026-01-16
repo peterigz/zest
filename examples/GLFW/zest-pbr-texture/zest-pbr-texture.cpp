@@ -321,7 +321,7 @@ void MainLoop(PBRTextureExample *app) {
 			zest_SetLayerColor(mesh_layer, 255, 255, 255, 255);
 			float count = 10.f;
 			float zero[3] = { 0 };
-			zest_SetInstanceMeshDrawing(mesh_layer, app->gun_index, app->pbr_pipeline);
+			zest_StartInstanceMeshDrawing(mesh_layer, app->gun_index, app->pbr_pipeline);
 			zest_SetLayerPushConstants(mesh_layer, &app->material_push, sizeof(pbr_consts_t));
 			DrawInstancedMesh(mesh_layer, &position.x, zero, &scale.x);
 
@@ -329,7 +329,7 @@ void MainLoop(PBRTextureExample *app) {
 				app->material_push.view_buffer_index,
 				app->material_push.lights_buffer_index,
 			};
-			zest_SetInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
+			zest_StartInstanceMeshDrawing(skybox_layer, 0, app->skybox_pipeline);
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
 			DrawInstancedMesh(skybox_layer, zero, zero, zero);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
