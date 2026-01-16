@@ -4759,10 +4759,10 @@ ZEST_API zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right);
 //Get the length of a vec without square rooting
 ZEST_API float zest_LengthVec3NS(zest_vec3 const v);
 ZEST_API float zest_LengthVec4NS(zest_vec4 const v);
-ZEST_API float zest_Vec2LengthNS(zest_vec2 const v);
+ZEST_API float zest_LengthVec2NS(zest_vec2 const v);
 //Get the length of a vec
 ZEST_API float zest_LengthVec3(zest_vec3 const v);
-ZEST_API float zest_Vec2Length(zest_vec2 const v);
+ZEST_API float zest_LengthVec2(zest_vec2 const v);
 //Normalise vectors
 ZEST_API zest_vec2 zest_NormalizeVec2(zest_vec2 const v);
 ZEST_API zest_vec3 zest_NormalizeVec3(zest_vec3 const v);
@@ -6910,11 +6910,11 @@ zest_vec4 zest_DivVec4(zest_vec4 left, zest_vec4 right) {
     return result;
 }
 
-float zest_Vec2Length(zest_vec2 const v) {
+float zest_LengthVec2(zest_vec2 const v) {
     return sqrtf(v.x * v.x + v.y * v.y);
 }
 
-float zest_Vec2LengthNS(zest_vec2 const v) {
+float zest_LengthVec2NS(zest_vec2 const v) {
     return v.x * v.x + v.y * v.y;
 }
 
@@ -6931,7 +6931,7 @@ float zest_LengthVec3(zest_vec3 const v) {
 }
 
 zest_vec2 zest_NormalizeVec2(zest_vec2 const v) {
-    float length = zest_Vec2Length(v);
+    float length = zest_LengthVec2(v);
 	zest_vec2 result;
 	result.x = v.x / length;
 	result.y = v.y / length;
