@@ -186,7 +186,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources) {
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, resources->pipeline);
+	zest_StartInstanceDrawing(layer, resources->pipeline);
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	int instance_count = tfx_GetInstanceCount(pm);
@@ -206,7 +206,7 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, resources->pipeline);
+	zest_StartInstanceDrawing(layer, resources->pipeline);
 
 	tfx_instance_t *billboards = NULL;
 	tfx_effect_instance_data_t *instance_data;

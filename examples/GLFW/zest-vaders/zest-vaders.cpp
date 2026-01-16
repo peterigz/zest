@@ -1000,7 +1000,7 @@ void ResetGame(VadersGame *game) {
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
+	zest_StartInstanceDrawing(layer, game->tfx_rendering.pipeline);
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
 	int fif = zest_GetLayerFrameInFlight(layer);
@@ -1010,7 +1010,7 @@ void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer
 //Render the particles by effect
 void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_SetInstanceDrawing(layer, game->tfx_rendering.pipeline);
+	zest_StartInstanceDrawing(layer, game->tfx_rendering.pipeline);
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
@@ -1194,13 +1194,13 @@ void VadersGame::Update(float ellapsed) {
 			}
 			//Draw the start text
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, .5f, 0.f, "Press Button to Start");
-			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
+			zest_StartInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawPlayer(this, billboard_layer);
 		} else if (state == GameState_game) {
 			//If the game is in the play state draw all the game billboards
 			//Set the billboard drawing to the sprite texture
-			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
+			zest_StartInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			//Draw the player and vaders
 			DrawPlayer(this, billboard_layer);
@@ -1211,7 +1211,7 @@ void VadersGame::Update(float ellapsed) {
 			}
 			//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
 			//We want to draw the vader bullets over the top of the particles so that they're easier to see
-			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
+			zest_StartInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			//Draw some text for score and wave
@@ -1220,13 +1220,13 @@ void VadersGame::Update(float ellapsed) {
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .95f, zest_ScreenHeightf(context) * .95f, 1.f, .5f, .3f, 0.f, "Wave: %i", (int)current_wave);
 		} else if (state == GameState_game_over) {
 			//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
-			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
+			zest_StartInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaders(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			if (zest_TimerUpdateWasRun(&tfx_rendering.timer)) {
 				RenderEffectParticles(game_pm, this, tfx_layer);
 			}
-			zest_SetInstanceDrawing(billboard_layer, billboard_pipeline);
+			zest_StartInstanceDrawing(billboard_layer, billboard_pipeline);
 			zest_SetLayerPushConstants(billboard_layer, &billboard_push, sizeof(billboard_push_constant_t));
 			DrawVaderBullets(this, billboard_layer, (float)tfx_rendering.timer.lerp);
 			zest_DrawMSDFText(font_layer, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .5f, .5f, .5f, 1.f, 0.f, "GAME OVER");

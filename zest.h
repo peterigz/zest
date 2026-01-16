@@ -3884,13 +3884,6 @@ typedef struct zest_layer_instruction_t {
 	zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
 
-//Todo: do we need this now?
-typedef struct zest_layer_builder_t {
-	zest_context context;
-	zest_size type_size;
-	zest_uint initial_count;
-} zest_layer_builder_t;
-
 zest_hash_map(zest_render_pass) zest_map_render_passes;
 zest_hash_map(zest_sampler_handle) zest_map_samplers;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
@@ -4966,7 +4959,7 @@ ZEST_API void zest_FreeSamplerNow(zest_sampler_handle handle);
 //Create a new layer for instanced drawing. This just creates a standard layer with default options and callbacks, all
 //you need to pass in is the size of type used for the instance struct that you'll use with whatever pipeline you setup
 //to use with the layer.
-ZEST_API zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size);
+ZEST_API zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size, zest_uint max_instances);
 //Get an opaque pointer to a layer that you can pass in to all of the layer functions. You can do this once for
 //each frame and then use the pointer for all the proceeding functions. This saves having to look up the resource
 //every function call
@@ -4977,10 +4970,6 @@ ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle);
 //id can be shared with any other frame in flight layer that will flip their frame in flight index at the same
 //time, like when ever the update loop is run.
 ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char *name, zest_size type_size, zest_uint max_instances);
-//Create a new layer builder which you can use to build new custom layers to draw with using instances
-ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_context context, zest_size type_size);
-//Once you have configured your layer you can call this to create the layer ready for adding to a command queue
-ZEST_API zest_layer_handle zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
 ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
@@ -5007,9 +4996,6 @@ ZEST_API zest_size zest_GetLayerVertexMemoryInUse(zest_layer layer);
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Get the current amount of instances being drawn in the layer
 ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
-//Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
-//This will return a void* so you can cast it to whatever struct you're using for the instance data
-#define zest_GetLayerInstance(type, layer, fif) (type *)layer->memory_refs[fif].instance_ptr
 //Move the pointer in memory to the next instance to write to.
 ZEST_API void *zest_NextInstance(zest_layer layer);
 //Free a layer and all it's resources
@@ -5036,8 +5022,6 @@ ZEST_API void zest_SetLayerChanged(zest_layer layer);
 ZEST_API zest_bool zest_LayerHasChanged(zest_layer layer);
 //Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
-//Get the user data from the layer
-#define zest_GetLayerUserData(type, layer) ((type *)layer->user_data)
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_frame);
 ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
 ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer layer);
@@ -5066,7 +5050,7 @@ ZEST_API zest_viewport_t zest_GetLayerViewport(zest_layer layer);
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
+ZEST_API void zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5074,7 +5058,7 @@ ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template p
 //Note that the struct size of the data you're copying MUST be the same size as the layer->struct_size.
 ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount);
 //In situations where you write directly to a staging buffer you can use this function to simply tell the draw instruction
-//how many instances should be drawn. You will still need to call zest_SetInstanceDrawing
+//how many instances should be drawn. You will still need to call zest_StartInstanceDrawing
 ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 //Set the viewport and scissors of the next draw instructions for a layer. Otherwise by default it will use either the screen size
 //of or the viewport size you set with zest_SetLayerViewPort
@@ -16304,9 +16288,8 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 
 //-- Start Instance Drawing API
 zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size, zest_uint max_instances) {
-    zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(context, type_size);
-	builder.initial_count = max_instances;
-    return zest_FinishInstanceLayer(name, &builder);
+    zest_layer_handle layer_handle = zest__create_instance_layer(context, name, type_size, max_instances);
+    return layer_handle;
 }
 
 ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle) {
@@ -16315,9 +16298,7 @@ ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle) {
 }
 
 zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* name, zest_size type_size, zest_uint max_instances) {
-    zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(context, type_size);
-    builder.initial_count = max_instances;
-    zest_layer_handle layer_handle = zest_FinishInstanceLayer(name, &builder);
+    zest_layer_handle layer_handle = zest_CreateInstanceLayer(context, name, type_size, max_instances);
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     zest_ForEachFrameInFlight(fif) {
 		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
@@ -16325,16 +16306,6 @@ zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* 
         layer->memory_refs[fif].device_vertex_data = zest_CreateBuffer(context->device, layer->memory_refs[fif].staging_instance_data->size, &buffer_info);
     }
     ZEST__FLAG(layer->flags, zest_layer_flag_manual_fif);
-    return layer_handle;
-}
-
-zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_context context, zest_size type_size) {
-    zest_layer_builder_t builder = { context, (zest_uint)type_size, 1000 };
-    return builder;
-}
-
-zest_layer_handle zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder) {
-    zest_layer_handle layer_handle = zest__create_instance_layer(builder->context, name, builder->type_size, builder->initial_count);
     return layer_handle;
 }
 
@@ -16367,7 +16338,7 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 }
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) {
+void zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
 	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
 	zest_context context = layer->context;
