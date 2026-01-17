@@ -1,6 +1,8 @@
 # Images
 
-Images in Zest include textures, render targets, and depth buffers. The library provides streamlined creation and bindless access.
+Images in Zest represent GPU memory that stores pixel data. This includes textures (sampled in shaders), color attachments (render targets), depth/stencil attachments, and storage images (read/write in compute shaders).
+
+Zest uses a handle-based system where `zest_image_handle` is a lightweight reference to the underlying `zest_image` resource. This separation allows safe deferred destruction while maintaining fast access during rendering.
 
 ## Creating Images
 
@@ -31,6 +33,8 @@ info.flags = zest_image_preset_texture_mipmaps;
 zest_size pixel_size = width * height * 4;
 zest_image_handle handle = zest_CreateImageWithPixels(device, pixels, pixel_size, &info);
 
+//Image is now ready to be sampled in a texture.
+
 stbi_image_free(pixels);
 ```
 
@@ -45,11 +49,11 @@ info.flags = zest_image_preset_texture_mipmaps;
 // Texture without mipmaps
 info.flags = zest_image_preset_texture;
 
-// Render target (color attachment)
-info.flags = zest_image_preset_render_target;
+// Color attachment (render target)
+info.flags = zest_image_preset_color_attachment;
 
-// Depth buffer
-info.flags = zest_image_preset_depth;
+// Depth attachment
+info.flags = zest_image_preset_depth_attachment;
 
 // Storage image (compute shader access)
 info.flags = zest_image_preset_storage;
@@ -84,7 +88,7 @@ Samplers define how textures are filtered and addressed.
 
 ```cpp
 zest_sampler_info_t info = zest_CreateSamplerInfo();
-zest_sampler_handle sampler = zest_CreateSampler(device, &info);
+zest_sampler_handle sampler = zest_CreateSampler(context, &info);
 ```
 
 ### Sampler Options
@@ -102,20 +106,16 @@ info.address_mode_u = zest_sampler_address_mode_repeat;
 info.address_mode_v = zest_sampler_address_mode_repeat;
 info.address_mode_w = zest_sampler_address_mode_clamp_to_edge;
 
-// Anisotropy
+// Anisotropic filtering (reduces blur on surfaces viewed at angles)
+info.anisotropy_enable = ZEST_TRUE;
 info.max_anisotropy = 16.0f;
-```
-
-### Preset Samplers
-
-```cpp
-// Repeat mode
-zest_sampler_info_t info = zest_CreateSamplerInfoRepeat();
 ```
 
 ## Bindless Access
 
-Images are accessed through global descriptor arrays.
+Zest uses bindless descriptors to access images in shaders. Instead of binding individual textures to specific slots, all textures are stored in global descriptor arrays and accessed by index. This allows shaders to use any texture without rebinding, enabling efficient batching and dynamic material systems.
+
+The following functions apply to persistant images that were created outside of a frame graph. Transient images acquire indexes with different functions as they will get automatically released at the end of each frame.
 
 ### Acquiring Indices
 
@@ -148,26 +148,41 @@ void main() {
 ### Releasing Indices
 
 ```cpp
-// When image is no longer needed
-zest_ReleaseSampledImageIndex(device, tex_index);
-zest_ReleaseSamplerIndex(device, sampler_index);
+// When image is no longer needed, release its bindless index
+zest_ReleaseImageIndex(device, image, zest_texture_2d_binding);
+
+// To release all bindless indices for an image at once
+zest_ReleaseAllImageIndexes(device, image);
 ```
+
+> **Note:** When you call zest_FreeImage or zest_FreeImageNow any indexes that the image acquired will be released so you only need to call the functions above if you want to keep the image but no longer need to sample it in the shader.
 
 ## Image Views
 
-For accessing specific mip levels or array layers:
+Image views provide a way to access a subset of an image's data. While an image might contain multiple mip levels or array layers, a view can expose just a portion of that data to shaders or as an attachment. This is useful for mipmap generation, cubemap face access, or array texture slicing.
+
+When an image is created it is automatically set up with a default view, but you can create other views if you have more specific needs.
 
 ```cpp
-// Create view for specific mip
-zest_image_view view = zest_CreateImageView(image, mip_level, array_layer);
+// Create view info (defaults to all mips and layers)
+zest_image_view_create_info_t view_info = zest_CreateViewImageInfo(image);
 
-// Create views for all mips
-zest_image_view* views = zest_CreateImageViewsPerMip(image);
-zest_uint mip_count = zest_GetImageMipCount(image);
+// Customize for specific mip range
+view_info.base_mip_level = 0;
+view_info.level_count = 1;  // Single mip
+
+// Create the view
+zest_image_view_handle view_handle = zest_CreateImageView(device, image, &view_info);
+zest_image_view view = zest_GetImageView(view_handle);
+
+// Create views for all mips (one view per mip level)
+zest_image_view_array_handle views_handle = zest_CreateImageViewsPerMip(device, image);
+zest_image_view_array views = zest_GetImageViewArray(views_handle);
+zest_uint mip_count = image->info.mip_levels;
 
 // Free views
-zest_FreeImageView(view);
-zest_FreeImageViewArray(views, mip_count);
+zest_FreeImageView(view_handle);
+zest_FreeImageViewArray(views_handle);
 ```
 
 ## Render Targets
@@ -177,21 +192,21 @@ zest_FreeImageViewArray(views, mip_count);
 ```cpp
 zest_image_info_t info = zest_CreateImageInfo(width, height);
 info.format = zest_format_r16g16b16a16_sfloat;
-info.flags = zest_image_preset_render_target;
+info.flags = zest_image_preset_color_attachment;
 
 zest_image_handle render_target = zest_CreateImage(device, &info);
 ```
 
 ### Transient Render Targets
 
-For intermediate targets in a frame graph:
+For intermediate targets that only exist within a single frame, use the frame graph's transient resource system. These resources are automatically created and destroyed as needed:
 
 ```cpp
 zest_image_resource_info_t info = {
     .format = zest_format_r16g16b16a16_sfloat,
-    .usage_hint = zest_resource_usage_hint_render_target,
-    .width = screen_width,
-    .height = screen_height,
+    .usage_hints = zest_resource_usage_hint_none,  // Frame graph infers usage
+    .width = screen_width,   // 0 defaults to screen width
+    .height = screen_height, // 0 defaults to screen height
     .mip_levels = 1
 };
 zest_resource_node hdr_target = zest_AddTransientImageResource("HDR", &info);
@@ -202,14 +217,14 @@ zest_resource_node hdr_target = zest_AddTransientImageResource("HDR", &info);
 ```cpp
 zest_image_info_t info = zest_CreateImageInfo(width, height);
 info.format = zest_format_d32_sfloat;
-info.flags = zest_image_preset_depth;
+info.flags = zest_image_preset_depth_attachment;
 
 zest_image_handle depth = zest_CreateImage(device, &info);
 ```
 
 ## Loading KTX Textures
 
-Using zest_utilities.h:
+Using the optional zest_utilities.h:
 
 ```cpp
 #include <zest_utilities.h>
@@ -226,11 +241,20 @@ KTX format supports:
 
 ## Image Operations
 
-### Copy Between Images
+Zest provides two ways to perform image operations:
+- **Immediate mode** (`zest_imm_*`): One-off operations that block until complete. Useful for initialization and loading.
+- **Frame graph commands** (`zest_cmd_*`): Operations within render/compute passes. Automatically synchronized by the frame graph.
+
+### Blit Between Images
+
+Use immediate mode commands for one-off operations outside the frame graph:
 
 ```cpp
-zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-zest_imm_CopyImageToImage(queue, src, dst, width, height);
+zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+zest_imm_BlitImage(queue, src_image, dst_image,
+    0, 0, src_width, src_height,    // Source region
+    0, 0, dst_width, dst_height,    // Destination region
+    zest_filter_linear);
 zest_imm_EndCommandBuffer(queue);
 ```
 
@@ -244,25 +268,43 @@ zest_imm_EndCommandBuffer(queue);
 
 ### Clear Image
 
+Within a frame graph callback:
+
 ```cpp
 void ClearCallback(zest_command_list cmd, void* data) {
-    zest_cmd_ImageClear(cmd, image, 0.0f, 0.0f, 0.0f, 1.0f);
+    zest_cmd_ImageClear(cmd, image);
 }
 ```
 
-### Blit (Scaled Copy)
+For immediate mode clearing with specific values:
 
 ```cpp
-zest_cmd_BlitImageMip(cmd, src, dst, src_mip, dst_mip, filter);
+zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+zest_clear_value_t clear = { .color = {0.0f, 0.0f, 0.0f, 1.0f} };
+zest_imm_ClearColorImage(queue, image, clear);
+zest_imm_EndCommandBuffer(queue);
+```
+
+### Blit Mip Level (Frame Graph)
+
+Within a frame graph, blit from one mip level to another:
+
+```cpp
+void BlitCallback(zest_command_list cmd, void* data) {
+    zest_cmd_BlitImageMip(cmd, src_resource, dst_resource, mip_to_blit,
+        zest_pipeline_stage_fragment_shader_bit);
+}
 ```
 
 ## Freeing Images
 
+Images should be freed when no longer needed. Use deferred destruction to ensure the GPU has finished using the resource:
+
 ```cpp
-// Deferred free (safe)
+// Deferred free (safe - waits for GPU to finish)
 zest_FreeImage(image_handle);
 
-// Immediate free (ensure GPU is done)
+// Immediate free (only use when you've ensured GPU is done)
 zest_FreeImageNow(image_handle);
 ```
 
@@ -270,9 +312,8 @@ zest_FreeImageNow(image_handle);
 
 1. **Use appropriate formats** - sRGB for color textures, linear for data
 2. **Generate mipmaps** - For textures viewed at varying distances
-3. **Use compressed formats** - BC7 for quality, BC1 for small size
+3. **Use compressed formats** - BC7 for quality, BC1 for small size, not essential but if you're using a lot of texture memory then well worth it.
 4. **Prefer transient images** - For intermediate render targets
-5. **Release bindless indices** - When images are freed
 
 ## See Also
 
