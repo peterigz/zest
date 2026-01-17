@@ -8,26 +8,57 @@ The device is a singleton that represents your GPU and all shared resources.
 
 ### Creation
 
-```cpp
-// Basic creation (validation disabled)
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
+An example of creating a device with GLFW:
 
-// With validation layers (recommended for development)
-zest_device device = zest_implglfw_CreateVulkanDevice(true);
+```cpp
+if (!glfwInit()) {
+	return 0;
+}
+
+//The device needs to know the required instance extensions to open a window
+zest_uint count;
+const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+
+//Create the device using Vulkan as the platform layer
+zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+if (enable_validation) {
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+}
+zest_device device = zest_EndDeviceBuilder(device_builder);
+```
+
+If using SDL2 or GLFW you can use helper functions aswell, just ensure that you include sdl/glfw library headers before zest.h.
+
+**GLFW:**
+```cpp
+zest_device device = zest_implglfw_CreateVulkanDevice(false);
+```
+
+**SDL2:**
+```cpp
+	/*
+	Create a window using SDL2. We must do this before setting up the 
+	device as it's needed to get the extensions info.
+	*/
+	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My Window");
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 ```
 
 ### What the Device Manages
 
 | Resource | Description |
 |----------|-------------|
-| Vulkan Instance | The Vulkan API entry point |
+| Platform Instance | The Platform API entry point (Currently Vulkan, DX/Metal/WebGPU(?) added in future) |
 | Physical Device | GPU selection and feature queries |
-| Logical Device | Vulkan device handle |
-| Shader Library | Compiled shader modules |
+| Shaders | Compiled/Loaded shaders |
 | Pipeline Templates | Cached pipeline configurations |
+| Compute Pipelines | Cached pipelines for compute dispatches |
 | Bindless Descriptors | Global descriptor set for all resources |
-| Memory Pools | GPU memory allocation (TLSF) |
-| Samplers | Texture sampler cache |
+| Memory Pools | GPU memory allocation (TLSF) and CPU side memory pools |
+| Samplers | Texture samplers for use in shaders |
+| Images | All textures stored on the GPU |
 
 ### Device Lifecycle
 
@@ -38,7 +69,7 @@ int main() {
 
     // ... create contexts, run application ...
 
-    // Destroy at shutdown (after all contexts)
+    // Destroy at shutdown 
     zest_DestroyDevice(device);
 }
 ```
@@ -56,7 +87,6 @@ while (running) {
 
 - Deferred resource destruction
 - Memory pool maintenance
-- Shader reloading (if enabled)
 
 ## Context (`zest_context`)
 
@@ -69,7 +99,7 @@ A context represents a render target - typically a window with its swapchain.
 zest_window_data_t window = zest_implglfw_CreateWindow(
     50, 50,        // Position
     1280, 768,     // Size
-    0,             // Flags
+    0,             // Maximised (0 = false)
     "My Window"    // Title
 );
 
@@ -87,7 +117,7 @@ zest_context context = zest_CreateContext(device, &window, &info);
 |----------|-------------|
 | Swapchain | Presentation images |
 | Command Pools | Per-frame command buffer allocation |
-| Synchronization | Semaphores and fences for frame pacing |
+| Synchronization | Uses semaphores for frame pacing |
 | Frame Graph Cache | Compiled frame graphs |
 | Linear Allocators | Fast per-frame memory |
 
@@ -106,14 +136,29 @@ zest_DestroyDevice(device);
 
 ### Frame Boundaries
 
-```cpp
-if (zest_BeginFrame(context)) {
-    // Frame content here
-    // Returns false if window is minimized
+Each frame is bracketed by `zest_BeginFrame()` and `zest_EndFrame()`. You must build or retrieve a frame graph between these calls:
 
-    zest_EndFrame(context);
+```cpp
+// Create a cache key for the frame graph (typically done once per frame)
+zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, NULL, 0);
+
+if (zest_BeginFrame(context)) {
+    // Try to retrieve cached frame graph
+    zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+    if (!frame_graph) {
+        // Build new frame graph if not cached
+        if (zest_BeginFrameGraph(context, "Main Graph", &cache_key)) {
+            // ... define passes ...
+            frame_graph = zest_EndFrameGraph();
+        }
+    }
+
+    // Execute frame graph and present
+    zest_EndFrame(context, frame_graph);
 }
 ```
+
+`zest_BeginFrame()` returns false if the window is minimized or if the swap chain could not be acquired (window resized or other state change), allowing you to skip rendering. See [Frame Graph](frame-graph.md) for details on building and caching frame graphs.
 
 ## Multiple Contexts (Multi-Window)
 
@@ -135,14 +180,14 @@ while (running) {
 
     // Render to main window
     if (zest_BeginFrame(main_context)) {
-        // ... main window rendering ...
-        zest_EndFrame(main_context);
+        zest_frame_graph main_graph = /* build or retrieve frame graph */;
+        zest_EndFrame(main_context, main_graph);
     }
 
     // Render to debug window
     if (zest_BeginFrame(debug_context)) {
-        // ... debug window rendering ...
-        zest_EndFrame(debug_context);
+        zest_frame_graph debug_graph = /* build or retrieve frame graph */;
+        zest_EndFrame(debug_context, debug_graph);
     }
 }
 ```
@@ -163,11 +208,9 @@ ZEST__FLAG(info.flags, zest_context_init_flag_enable_vsync);
 
 ### Memory Pool Sizes
 
-```cpp
-// Before creating the device
-zest_SetDevicePoolSize(device, 128 * 1024 * 1024);      // 128 MB device memory
-zest_SetStagingBufferPoolSize(device, 64 * 1024 * 1024); // 64 MB staging
-```
+The device manages multiple named memory pools for different buffer types (device buffers, staging buffers, transient buffers, etc.). Default pool sizes are configured automatically, but can be customized after device creation using `zest_SetDevicePoolSize()` and `zest_SetStagingBufferPoolSize()`.
+
+See [Memory Management](memory.md) for details on pool configuration.
 
 ## Utility Functions
 
@@ -194,8 +237,8 @@ GLFWwindow* glfw = (GLFWwindow*)zest_Window(context);
 
 ```cpp
 zest_swapchain swapchain = zest_GetSwapchain(context);
-VkFormat format = zest_GetSwapchainFormat(context);
-VkExtent2D extent = zest_GetSwapChainExtent(context);
+zest_format format = zest_GetSwapchainFormat(swapchain);
+zest_extent2d_t extent = zest_GetSwapChainExtent(context);
 
 // Set clear color
 zest_SetSwapchainClearColor(context, 0.1f, 0.1f, 0.1f, 1.0f);
@@ -204,7 +247,7 @@ zest_SetSwapchainClearColor(context, 0.1f, 0.1f, 0.1f, 1.0f);
 ### Frame State
 
 ```cpp
-// Current frame-in-flight index (0, 1, or 2)
+// Current frame-in-flight index (0 to ZEST_MAX_FIF - 1, default is 2 frames in flight)
 zest_uint fif = zest_CurrentFIF(context);
 
 // Check if swapchain was recreated (window resize)
@@ -217,7 +260,7 @@ if (zest_SwapchainWasRecreated(context)) {
 
 1. **Create device first** - Before any contexts or resources
 2. **Call `zest_UpdateDevice()` every frame** - Even if not rendering
-3. **Check `zest_BeginFrame()` return value** - Returns false when minimized
+3. **Check `zest_BeginFrame()` return value** - Returns false when minimized or swapchain was not acquired
 4. **Share resources via device** - Textures, pipelines work across contexts
 5. **Destroy device last** - After all rendering is complete
 
