@@ -45,6 +45,28 @@ Zest organizes GPU memory into pools:
 | Transient Buffer Memory Pool | 32 MB | Transient buffers used in frame graphs |
 | Small Transient Buffer Memory Pool | 4 MB | Small Transient buffers used in frame graphs |
 
+### Image Memory
+
+Unlike buffers, **non-transient images allocate memory directly** rather than from pools. This is because images have highly varied requirements (format, dimensions, mip levels, array layers, sample counts) that would require many specialized pools, adding complexity without significant benefit.
+
+**Transient images** (created via `zest_AddTransientImageResource`) do use pooled memory, since the frame graph compiler can efficiently manage and alias their memory and the requirements are less veried.
+
+For optimal memory usage with many small textures:
+
+- **Use texture arrays** - Store multiple textures in array layers of a single image
+- **Use image atlases** - Pack multiple sprites/textures into a single large image
+- **Use bindless indexing** - Reference textures by descriptor index in shaders
+
+```cpp
+// Instead of many small individual images (each allocates separately),
+// prefer texture arrays or atlases:
+
+zest_image_info_t info = zest_CreateImageInfo(256, 256);
+info.format = zest_format_r8g8b8a8_unorm;
+info.layer_count = 64;  // Store 64 textures in one allocation
+zest_image_handle texture_array = zest_CreateImage(device, &info);
+```
+
 ### Configuring Pool Sizes
 
 Configure after creating the device but before creating buffers:
