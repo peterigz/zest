@@ -4,14 +4,14 @@ Welcome to Zest! This section will help you get up and running with Zest quickly
 
 ## What is Zest?
 
-Zest is a lightweight Vulkan rendering library designed to simplify GPU programming while maintaining full control over the rendering pipeline. Unlike heavy game engines, Zest provides just enough abstraction to be productive without hiding important details.
+Zest is a lightweight rendering library designed to simplify GPU programming while maintaining full control over the rendering pipeline. Unlike heavy game engines, Zest provides just enough abstraction to be productive without hiding important details.
 
 ## Core Philosophy
 
 - **Simplicity** - Single header file, minimal dependencies
 - **Transparency** - You always know what's happening under the hood
 - **Efficiency** - Frame graph compilation, resource pooling, bindless descriptors
-- **Flexibility** - Use as much or as little of the library as you need
+- **Flexibility** - Use as much or as little of the library as you need and implement your own features as you need them.
 
 ## In This Section
 

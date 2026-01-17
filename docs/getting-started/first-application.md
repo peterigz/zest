@@ -40,8 +40,7 @@ void MainLoop(minimal_app_t *app) {
                     frame_graph = zest_EndFrameGraph();
                 }
             }
-            zest_QueueFrameGraphForExecution(app->context, frame_graph);
-            zest_EndFrame(app->context);
+            zest_EndFrame(app->context, frame_graph);
         }
     }
 }
@@ -115,8 +114,8 @@ while (!glfwWindowShouldClose(...)) {
     glfwPollEvents();                // Handle window events
 
     if (zest_BeginFrame(app.context)) {
-        // Build and execute frame graph...
-        zest_EndFrame(app.context);
+        // Build or get cached frame graph...
+        zest_EndFrame(app.context, frame_graph);  // Execute and present
     }
 }
 ```
@@ -125,8 +124,8 @@ Every frame:
 
 1. `zest_UpdateDevice()` - Updates device-level state
 2. `zest_BeginFrame()` - Acquires swapchain image, returns false if window minimized
-3. Build/execute frame graph
-4. `zest_EndFrame()` - Presents the frame
+3. Build or get cached frame graph
+4. `zest_EndFrame(context, frame_graph)` - Executes the graph and presents the frame
 
 ### 5. Frame Graph Caching
 
@@ -162,10 +161,10 @@ When building a frame graph:
 ### 7. Execute the Frame Graph
 
 ```cpp
-zest_QueueFrameGraphForExecution(app->context, frame_graph);
+zest_EndFrame(app->context, frame_graph);
 ```
 
-This queues the frame graph for execution. It will run during `zest_EndFrame()`.
+This executes the frame graph and presents the result to the window. The frame graph is passed directly to `zest_EndFrame()` which handles execution and presentation.
 
 ### 8. The Render Callback
 

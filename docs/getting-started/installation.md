@@ -4,10 +4,10 @@ This guide covers building Zest from source and running the examples.
 
 ## Prerequisites
 
-- **Vulkan SDK** - Download from [LunarG](https://vulkan.lunarg.com/)
-- **CMake 3.15+** - Build system
-- **C++17 compiler** - MSVC 2019+, GCC 9+, or Clang 10+
-- **GLFW** or **SDL2** - Windowing library (included as submodule)
+- **Vulkan SDK** - Although Zest has a separate platform layer, only Vulkan is implemented currently. Download from [LunarG](https://vulkan.lunarg.com/)
+- **CMake 3.15+** - Build system (if you want to create projects for the examples)
+- **C++17 compiler (for the examples, c11 for the library only)** - MSVC 2019+, GCC 9+, or Clang 10+
+- **GLFW** or **SDL2** - For convenience although you can use anything else if you want. Most examples use GLFW. Windowing library (included as submodule)
 
 ## Clone the Repository
 
@@ -17,7 +17,7 @@ cd zest
 ```
 
 !!! note "Submodules"
-    The `--recursive` flag is important - Zest uses submodules for GLFW, ImGui, and other dependencies.
+    The `--recursive` flag is important - Zest uses submodules for GLFW, ImGui, and other dependencies used by the examples.
 
 ## Build with CMake
 
@@ -55,7 +55,7 @@ After building, you'll find the executables in the build directory:
 
 ## Optional: Enable Slang Shader Compiler
 
-To use Slang shaders instead of GLSL:
+If you want to enable compiling slang shaders:
 
 ```bash
 cmake -B build -DZEST_ENABLE_SLANG=ON
@@ -70,7 +70,7 @@ cmake -B build -DZEST_ENABLE_SLANG=ON
 build\examples\GLFW\Release\zest-tests.exe
 ```
 
-The test suite includes 36 tests covering frame graph compilation, memory management, pipeline states, and image formats.
+The test suite includes 68 tests covering frame graph compilation, memory management, pipeline states, and image formats.
 
 ## Using Zest in Your Project
 
@@ -80,7 +80,7 @@ Copy these files to your project:
 
 - `zest.h` - Main API header
 - `zest_vulkan.h` - Vulkan implementation
-- `zest_utilities.h` (optional) - GLFW/SDL helpers, image loading, fonts
+- `zest_utilities.h` (optional) - image loading, mesh primitives, basic gltf loading, fonts
 
 ### Option 2: Add as Subdirectory
 

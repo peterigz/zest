@@ -9,12 +9,13 @@ Zest is built around two core objects and one execution model. Understanding the
 The **device** is a singleton that represents your GPU and manages global resources:
 
 ```cpp
+// Currently using the Vulkan backend with GLFW
 zest_device device = zest_implglfw_CreateVulkanDevice(false);
 ```
 
 **What it owns:**
 
-- Vulkan instance and physical device
+- Graphics API instance and physical device
 - Shader library (compiled shaders)
 - Pipeline template cache
 - Bindless descriptor sets
@@ -28,13 +29,15 @@ zest_device device = zest_implglfw_CreateVulkanDevice(false);
 The **context** represents a render target (window) and manages per-frame resources:
 
 ```cpp
-zest_context context = zest_CreateContext(device, &window, &create_info);
+zest_create_context_info_t create_info = zest_CreateContextInfo();
+zest_window_data_t window_data = zest_implglfw_CreateWindow(0, 0, 1280, 768, 0, "Window Title");
+zest_context context = zest_CreateContext(device, &window_data, &create_info);
 ```
 
 **What it owns:**
 
 - Swapchain and presentation
-- Frame synchronization (semaphores, fences)
+- Frame synchronization primitives
 - Command buffer pools
 - Frame graph cache
 - Linear allocators for frame-lifetime data
@@ -43,8 +46,8 @@ zest_context context = zest_CreateContext(device, &window, &create_info);
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                    Device                        │
-│  - Vulkan instance                              │
+│                    Device                       │
+│  - Graphics API instance                        │
 │  - Shader library                               │
 │  - Bindless descriptors                         │
 │  - Memory pools                                 │
@@ -63,12 +66,12 @@ The **frame graph** is Zest's execution model. Instead of manually managing barr
 
 ### Why Frame Graphs?
 
-Traditional Vulkan requires:
+Traditional low-level graphics APIs (Vulkan, D3D12, Metal) require:
 
-- Manual barrier insertion
-- Explicit semaphore management
-- Resource state tracking
-- Render pass object creation
+- Manual barrier/synchronization insertion
+- Explicit resource state tracking
+- Render pass management
+- Cross-queue synchronization
 
 Frame graphs handle all of this automatically by analyzing resource dependencies.
 
@@ -81,8 +84,7 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
 
     // 2. Define passes
     zest_BeginRenderPass("Pass Name"); {
-        zest_ConnectInput(some_resource);    // Read from resource
-        zest_ConnectOutput(other_resource);  // Write to resource
+        zest_ConnectSwapChainOutput();       // Output to swapchain
         zest_SetPassTask(MyCallback, data);  // Render callback
         zest_EndPass();
     }
@@ -90,6 +92,10 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
     // 3. Compile
     frame_graph = zest_EndFrameGraph();
 }
+
+// For custom resources, use:
+// zest_ConnectInput(some_resource);    // Read from resource
+// zest_ConnectOutput(other_resource);  // Write to resource
 ```
 
 ### What Happens at Compile Time
@@ -97,9 +103,9 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
 When you call `zest_EndFrameGraph()`, the compiler:
 
 1. **Builds the dependency graph** - Analyzes which passes depend on which resources
-2. **Inserts barriers** - Adds pipeline barriers for resource transitions
+2. **Inserts barriers** - Adds synchronization barriers for resource transitions
 3. **Culls unused passes** - Removes passes that don't contribute to final output
-4. **Handles synchronization** - Sets up semaphores between queues
+4. **Handles synchronization** - Manages synchronization between queues
 5. **Creates transient resources** - Allocates temporary images/buffers
 
 ### Pass Types
@@ -144,9 +150,9 @@ Zest uses a **bindless descriptor** model. Instead of creating and binding descr
 // Acquire an index when creating a texture
 zest_uint tex_index = zest_AcquireSampledImageIndex(device, image, zest_texture_2d_binding);
 
-// Pass the index to shaders via push constants
+// Pass the index to shaders via push constants (inside a render callback)
 push_data.texture_index = tex_index;
-zest_cmd_SendPushConstants(cmd, &push_data, sizeof(push_data));
+zest_cmd_SendPushConstants(command_list, &push_data, sizeof(push_data));
 ```
 
 In shaders:
@@ -183,8 +189,9 @@ Zest uses a **TLSF allocator** for both CPU and GPU memory:
 | Image Memory Pool | Textures | 256 MB |
 
 ```cpp
-// Configure pool sizes before creating device
-zest_SetDevicePoolSize(device, 128 * 1024 * 1024);  // 128 MB
+// Configure pool sizes after creating device
+zest_SetStagingBufferPoolSize(device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
+zest_SetGPUBufferPoolSize(device, zloc__KILOBYTE(256), zloc__MEGABYTE(64));
 ```
 
 ## Typical Frame Structure
@@ -201,9 +208,8 @@ while (running) {
         // Get or build frame graph
         zest_frame_graph graph = GetOrBuildFrameGraph();
 
-        // Queue for execution
-        zest_QueueFrameGraphForExecution(context, graph);
-        zest_EndFrame(context);          // 4. Present
+        // Execute graph and present
+        zest_EndFrame(context, graph);   // 4. Execute & present
     }
 }
 ```
