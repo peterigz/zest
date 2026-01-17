@@ -9034,6 +9034,8 @@ zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_
 
 zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
+	ZEST_ASSERT_OR_VALIDATE(!zest__is_compressed_format(image->info.format), queue->device,
+		"Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in KTX files instead.", ZEST_FALSE);
 	return queue->device->platform->generate_mipmaps(queue, image);
 }
 
@@ -15310,6 +15312,8 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
 		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_color_attachment) &&
 			!ZEST__FLAGGED(create_info->flags, zest_image_flag_depth_stencil_attachment),
 			device, "Compressed format cannot be used as render attachment", null_handle);
+		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps),
+			device, "Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in KTX files instead.", null_handle);
 	}
 	if (ZEST__FLAGGED(create_info->flags, zest_image_flag_cubemap)) {
 		ZEST_ASSERT_OR_VALIDATE(create_info->layer_count > 0 && create_info->layer_count % 6 == 0,
