@@ -1398,7 +1398,8 @@ void zest_FreeAtlasRegion(zest_atlas_region region) {
 zest_bitmap_t zest_CreateBitmapFromRawBuffer(void* pixels, int size, int width, int height, zest_format format) {
     zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
     bitmap.is_imported = 1;
-	zest_GetFormatPixelData(format, &bitmap.meta.channels, &bitmap.meta.bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &bitmap.meta.channels, &bitmap.meta.bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
     bitmap.data = (zest_byte*)pixels;
     bitmap.meta.width = width;
     bitmap.meta.height = height;
@@ -1419,7 +1420,8 @@ void zest_ConvertBitmap(zest_bitmap_t *src, zest_format new_format, zest_byte al
 
 	int to_channels;
 	int bytes_per_pixel;
-	zest_GetFormatPixelData(new_format, &to_channels, &bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(new_format, &to_channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
 	ZEST_ASSERT(to_channels);	//Not a valid format, must be an 8bit unorm format with 1 to 4 channels.
     int from_channels = src->meta.channels;
 
@@ -1543,7 +1545,8 @@ zest_bitmap_array_t zest_CreateBitmapArray(int width, int height, zest_format fo
     bitmap_array.meta = (zest_bitmap_meta_t*)ZEST_UTILITIES_REALLOC(bitmap_array.meta, size_of_array * sizeof(zest_bitmap_meta_t));
     size_t offset = 0;
 	int channels, bytes_per_pixel;
-	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
 	ZEST_ASSERT(channels, "Not a supported bitmap format.");
     size_t image_size = width * height * bytes_per_pixel;
 	int stride = bytes_per_pixel * width;
@@ -1577,7 +1580,8 @@ void zest_FreeBitmapArray(zest_bitmap_array_t* images) {
 
 zest_bool zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, zest_format format) {
 	ZEST_ASSERT(width && height);
-	zest_GetFormatPixelData(format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
     bitmap->meta.size = width * height * bitmap->meta.channels * bitmap->meta.bytes_per_pixel;
     if (bitmap->meta.size > 0) {
         bitmap->data = (zest_byte*)ZEST_UTILITIES_MALLOC(bitmap->meta.size);
@@ -1692,7 +1696,8 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format) {
 	ZEST_ASSERT(image_collection->image_count < image_collection->max_images, "No more room for new images in the image collection");
 	int channels, bytes_per_pixel;
-	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
 	ZEST_ASSERT(size == width * height * bytes_per_pixel, "The pixel data size does not match the expected size based on the width, height and format of the image. Make sure you're passing in the correct parameters to the function.");
 	zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
 	bitmap.data = (zest_byte*)ZEST_UTILITIES_MALLOC(size);
@@ -1720,7 +1725,8 @@ zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_col
 zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, int frame_width, int frame_height, int frames, zest_format format) {
 	ZEST_ASSERT(image_collection->image_count + frames < image_collection->max_images, "No more room for new images in the image collection");
 	int channels, bytes_per_pixel;
-	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
 
 	zest_uint rows = height / frame_height;
 	zest_uint cols = width / frame_width;

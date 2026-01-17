@@ -4914,7 +4914,7 @@ ZEST_API void zest_FreeImageView(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewNow(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewArray(zest_image_view_array_handle view_handle);
 ZEST_API void zest_FreeImageViewArrayNow(zest_image_view_array_handle view_handle);
-ZEST_API void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel);
+ZEST_API void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel, int *block_width, int *block_height, int *bytes_per_block);
 ZEST_API zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height);
 //Get the extent of the image
 ZEST_API const zest_image_info_t *zest_ImageInfo(zest_image image);
@@ -15442,9 +15442,12 @@ void zest__cleanup_execution_timeline(zest_execution_timeline timeline) {
 	ZEST__FREE(timeline->device->allocator, timeline);
 }
 
-void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel) { 
+void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel, int *block_width, int *block_height, int *bytes_per_block) {
 	*channels = 0;
 	*bytes_per_pixel = 0;
+	*block_width = 1;
+	*block_height = 1;
+	*bytes_per_block = 0;
     switch (format) {
 		case zest_format_undefined:
 		case zest_format_r8_unorm:
@@ -15452,6 +15455,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r8_srgb: {
 			*channels = 1;
 			*bytes_per_pixel = 1;
+			*bytes_per_block = 1;
 			break;
 		}
 		case zest_format_r8g8_unorm:
@@ -15461,6 +15465,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r8g8_srgb: {
 			*channels = 2;
 			*bytes_per_pixel = 2;
+			*bytes_per_block = 2;
 			break;
 		}
 		case zest_format_r8g8b8_unorm:
@@ -15475,6 +15480,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_b8g8r8_srgb: {
 			*channels = 3;
 			*bytes_per_pixel = 3;
+			*bytes_per_block = 3;
 			break;
 		}
 		case zest_format_r8g8b8a8_unorm:
@@ -15489,6 +15495,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_b8g8r8a8_srgb: {
 			*channels = 4;
 			*bytes_per_pixel = 4;
+			*bytes_per_block = 4;
 			break;
 		}
 		case zest_format_r16_sfloat:
@@ -15496,6 +15503,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r16_sint: {
 			*channels = 1;
 			*bytes_per_pixel = 2;
+			*bytes_per_block = 2;
 			break;
 		}
 		case zest_format_r16g16_sfloat:
@@ -15503,6 +15511,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r16g16_sint: {
 			*channels = 2;
 			*bytes_per_pixel = 4;
+			*bytes_per_block = 4;
 			break;
 		}
 		case zest_format_r16g16b16_sfloat:
@@ -15510,6 +15519,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r16g16b16_sint: {
 			*channels = 3;
 			*bytes_per_pixel = 6;
+			*bytes_per_block = 6;
 			break;
 		}
 		case zest_format_r16g16b16a16_sfloat:
@@ -15517,6 +15527,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r16g16b16a16_sint: {
 			*channels = 4;
 			*bytes_per_pixel = 8;
+			*bytes_per_block = 8;
 			break;
 		}
 		case zest_format_r32_sfloat:
@@ -15524,6 +15535,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r32_sint: {
 			*channels = 1;
 			*bytes_per_pixel = 4;
+			*bytes_per_block = 4;
 			break;
 		}
 		case zest_format_r32g32_sfloat:
@@ -15531,6 +15543,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r32g32_sint: {
 			*channels = 2;
 			*bytes_per_pixel = 8;
+			*bytes_per_block = 8;
 			break;
 		}
 		case zest_format_r32g32b32_sfloat:
@@ -15538,6 +15551,7 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r32g32b32_sint: {
 			*channels = 3;
 			*bytes_per_pixel = 12;
+			*bytes_per_block = 12;
 			break;
 		}
 		case zest_format_r32g32b32a32_sfloat:
@@ -15545,6 +15559,215 @@ void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_p
 		case zest_format_r32g32b32a32_sint: {
 			*channels = 4;
 			*bytes_per_pixel = 16;
+			*bytes_per_block = 16;
+			break;
+		}
+		// BC compressed formats (all use 4x4 blocks)
+		case zest_format_bc1_rgb_unorm_block:
+		case zest_format_bc1_rgb_srgb_block: {
+			*channels = 3;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_bc1_rgba_unorm_block:
+		case zest_format_bc1_rgba_srgb_block: {
+			*channels = 4;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_bc2_unorm_block:
+		case zest_format_bc2_srgb_block:
+		case zest_format_bc3_unorm_block:
+		case zest_format_bc3_srgb_block:
+		case zest_format_bc7_unorm_block:
+		case zest_format_bc7_srgb_block: {
+			*channels = 4;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_bc4_unorm_block:
+		case zest_format_bc4_snorm_block: {
+			*channels = 1;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_bc5_unorm_block:
+		case zest_format_bc5_snorm_block: {
+			*channels = 2;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_bc6h_ufloat_block:
+		case zest_format_bc6h_sfloat_block: {
+			*channels = 3;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		// ETC2 compressed formats (all use 4x4 blocks)
+		case zest_format_etc2_r8g8b8_unorm_block:
+		case zest_format_etc2_r8g8b8_srgb_block: {
+			*channels = 3;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_etc2_r8g8b8a1_unorm_block:
+		case zest_format_etc2_r8g8b8a1_srgb_block: {
+			*channels = 4;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_etc2_r8g8b8a8_unorm_block:
+		case zest_format_etc2_r8g8b8a8_srgb_block: {
+			*channels = 4;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		// EAC compressed formats (all use 4x4 blocks)
+		case zest_format_eac_r11_unorm_block:
+		case zest_format_eac_r11_snorm_block: {
+			*channels = 1;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 8;
+			break;
+		}
+		case zest_format_eac_r11g11_unorm_block:
+		case zest_format_eac_r11g11_snorm_block: {
+			*channels = 2;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		// ASTC compressed formats (all 16 bytes per block, varying block sizes)
+		case zest_format_astc_4X4_unorm_block:
+		case zest_format_astc_4X4_srgb_block: {
+			*channels = 4;
+			*block_width = 4;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_5X4_unorm_block:
+		case zest_format_astc_5X4_srgb_block: {
+			*channels = 4;
+			*block_width = 5;
+			*block_height = 4;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_5X5_unorm_block:
+		case zest_format_astc_5X5_srgb_block: {
+			*channels = 4;
+			*block_width = 5;
+			*block_height = 5;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_6X5_unorm_block:
+		case zest_format_astc_6X5_srgb_block: {
+			*channels = 4;
+			*block_width = 6;
+			*block_height = 5;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_6X6_unorm_block:
+		case zest_format_astc_6X6_srgb_block: {
+			*channels = 4;
+			*block_width = 6;
+			*block_height = 6;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_8X5_unorm_block:
+		case zest_format_astc_8X5_srgb_block: {
+			*channels = 4;
+			*block_width = 8;
+			*block_height = 5;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_8X6_unorm_block:
+		case zest_format_astc_8X6_srgb_block: {
+			*channels = 4;
+			*block_width = 8;
+			*block_height = 6;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_8X8_unorm_block:
+		case zest_format_astc_8X8_srgb_block: {
+			*channels = 4;
+			*block_width = 8;
+			*block_height = 8;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_10X5_unorm_block:
+		case zest_format_astc_10X5_srgb_block: {
+			*channels = 4;
+			*block_width = 10;
+			*block_height = 5;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_10X6_unorm_block:
+		case zest_format_astc_10X6_srgb_block: {
+			*channels = 4;
+			*block_width = 10;
+			*block_height = 6;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_10X8_unorm_block:
+		case zest_format_astc_10X8_srgb_block: {
+			*channels = 4;
+			*block_width = 10;
+			*block_height = 8;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_10X10_unorm_block:
+		case zest_format_astc_10X10_srgb_block: {
+			*channels = 4;
+			*block_width = 10;
+			*block_height = 10;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_12X10_unorm_block:
+		case zest_format_astc_12X10_srgb_block: {
+			*channels = 4;
+			*block_width = 12;
+			*block_height = 10;
+			*bytes_per_block = 16;
+			break;
+		}
+		case zest_format_astc_12X12_unorm_block:
+		case zest_format_astc_12X12_srgb_block: {
+			*channels = 4;
+			*block_width = 12;
+			*block_height = 12;
+			*bytes_per_block = 16;
 			break;
 		}
 		default:
@@ -15586,9 +15809,12 @@ zest_image_handle zest_CreateImage(zest_device device, zest_image_info_t *create
 } 
 
 zest_image_handle zest_CreateImageWithPixels(zest_device device, void *pixels, zest_size size, zest_image_info_t *create_info) {
-	int channels, bytes_per_pixel;
-	zest_GetFormatPixelData(create_info->format, &channels, &bytes_per_pixel);
-	ZEST_ASSERT(size == create_info->extent.width * create_info->extent.height * bytes_per_pixel, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height of the image.");
+	int channels, bytes_per_pixel, block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(create_info->format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
+	zest_size blocks_x = (create_info->extent.width + block_width - 1) / block_width;
+	zest_size blocks_y = (create_info->extent.height + block_height - 1) / block_height;
+	zest_size expected_size = blocks_x * blocks_y * bytes_per_block;
+	ZEST_ASSERT(size == expected_size, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height of the image.");
 	zest_image_handle image_handle = zest__create_image(device, create_info);
 	zest_image image = zest__get_image_unsafe(image_handle);
 
