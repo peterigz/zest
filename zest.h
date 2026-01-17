@@ -5014,6 +5014,7 @@ ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, floa
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
+ZEST_API void *zest_GetLayerUserData(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_frame);
 ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
 ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer layer);
@@ -16355,6 +16356,11 @@ zest_bool zest_LayerHasChanged(zest_layer layer) {
 void zest_SetLayerUserData(zest_layer layer, void *data) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->user_data = data;
+}
+
+void zest_GetLayerUserData(zest_layer layer, void *data) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+    return layer->user_data;
 }
 
 void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list) {
