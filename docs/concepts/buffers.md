@@ -37,7 +37,7 @@ zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_index, zest_mem
 // Storage buffer (for compute shaders)
 zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 
-// Vertex + storage (readable in shaders)
+// Vertex + storage (readable in vertex/fragment shaders)
 zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 ```
 
@@ -80,31 +80,32 @@ zest_BeginTransferPass("Upload"); {
 }
 
 void UploadCallback(zest_command_list cmd, void* user_data) {
+	...
     zest_cmd_CopyBuffer(cmd, staging, dest, size);
 }
 ```
 
 ## Uniform Buffers
 
-Per-frame uniform data with automatic multi-buffering:
+Per-frame uniform data with automatic multi-buffering. This means that inside the uniform buffer is a buffer for each frame in flight so you can safely modify one while the other is being accessed by the GPU.
 
 ```cpp
 // Create uniform buffer (returns a handle)
 zest_uniform_buffer_handle ubo = zest_CreateUniformBuffer(context, "camera_ubo", sizeof(camera_t));
 
 // Get pointer to current frame's data
-camera_t* camera = (camera_t*)zest_GetUniformBufferData(ubo);
-camera->view = view_matrix;
-camera->projection = proj_matrix;
+uniform_data_t* ubo = (uniform_data_t*)zest_GetUniformBufferData(ubo);
+ubo->view = view_matrix;
+ubo->projection = proj_matrix;
 
-// Get descriptor index for shader
+// Get descriptor index for shader. Each frame each have a different index (one for each frame in flight)
 zest_uint ubo_index = zest_GetUniformBufferDescriptorIndex(ubo);
 ```
 
 ### Using Uniform Buffers in Shaders
 
 ```glsl
-layout(set = 0, binding = 1) uniform CameraUBO {
+layout(set = 0, binding = 7) uniform CameraUBO {
     mat4 view;
     mat4 projection;
 } camera[];
@@ -145,7 +146,7 @@ void* end = zest_BufferDataEnd(buffer);
 ### Free Buffer
 
 ```cpp
-// Deferred free (safe, waits for GPU)
+// Immediately frees the buffer
 zest_FreeBuffer(buffer);
 ```
 
@@ -157,11 +158,28 @@ Buffers are allocated from named memory pools managed by the device. Pool sizes 
 // Configure GPU buffer pool (minimum allocation size, total pool size)
 zest_SetGPUBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(128));
 
+// Configure GPU buffer pool for small buffers (minimum allocation size, total pool size)
+zest_SetGPUSmallBufferPoolSize(device, zloc__KILOBYTE(1), zloc__MEGABYTE(8));
+
 // Configure staging buffer pool
 zest_SetStagingBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 ```
 
-Pools auto-expand when exhausted. See [Memory Management](memory.md) for detailed pool configuration.
+### Why Separate Small Buffer Pools?
+
+Zest uses a TLSF (Two-Level Segregated Fit) allocator that tracks memory blocks using proxy structures. Each allocatable block in the pool requires a small proxy header to track its state (free/used, size, neighbors). The minimum block size determines how many potential blocks exist in a pool.
+
+With a large pool (e.g., 128MB) and a small minimum block size (e.g., 1KB), you would have up to 128K potential blocks, each requiring proxy overhead. This wastes memory on bookkeeping. A larger minimum block size (e.g., 64KB) reduces proxy count to ~2K blocks, which is much more efficient.
+
+However, if your application allocates many small buffers (under 64KB), a large minimum block size wastes space due to internal fragmentation - each small allocation rounds up to the minimum size.
+
+The solution is separate pools:
+- **Large buffer pool**: Large minimum block size (64KB+), efficient for big allocations
+- **Small buffer pool**: Small minimum block size (1KB), smaller total pool size to limit proxy overhead
+
+This also helps with **external fragmentation**. Small allocations mixed with large ones can fragment a pool over time, making it hard to find contiguous space for large allocations. Keeping them separate prevents small buffers from fragmenting the large buffer pool.
+
+New pools are allocated when they run out of space. See [Memory Management](memory.md) for detailed pool configuration.
 
 ## Command Buffer Operations
 
@@ -205,7 +223,7 @@ Transient buffers:
 1. **Use staging buffers** - For large GPU-only uploads
 2. **Prefer GPU-only memory** - Faster for rendering
 3. **Use uniform buffers** - For frequently updated small data
-4. **Size pools appropriately** - Based on your application's needs
+4. **Size pools appropriately** - Based on your application's needs. The defaults will be fine to start with.
 5. **Use transient buffers** - For intermediate data in multi-pass rendering
 
 ## Example: Particle Buffer
