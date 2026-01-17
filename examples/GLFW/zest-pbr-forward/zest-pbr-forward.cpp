@@ -8,7 +8,7 @@
 #include "examples/Common/pbr_functions.cpp"
 
 /*
-Example recreated from Sascha Willems "Physical based rendering with image based lighting" 
+Example recreated from Sascha Willems "Physically based rendering with image based lighting" 
 https://github.com/SaschaWillems/Vulkan/tree/master/examples/pbribl
 */
 
