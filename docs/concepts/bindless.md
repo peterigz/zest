@@ -2,7 +2,18 @@
 
 Zest uses a **bindless descriptor** model where all resources are indexed into global arrays. This eliminates per-object descriptor set management and enables flexible resource access.
 
+## Why Bindless?
+
+In the case of Vulkan (not so much with Direct X and Metal), it requires creating and binding separate descriptor sets for each object's resources. This creates overhead from:
+- Allocating descriptor sets from pools
+- Updating descriptors when resources change
+- Binding different sets between draw calls
+
+Bindless descriptors solve this by putting all resources into large arrays indexed by integers. You bind the global descriptor set once, then pass indices via push constants or uniform buffers to select which resources each draw call uses.
+
 ## How Bindless Works
+
+The following pseudocode illustrates the conceptual difference:
 
 ### Traditional Model
 
@@ -21,32 +32,35 @@ vkCmdDraw(...);
 ### Bindless Model
 
 ```cpp
-// Single global set with all resources
-// Bind once, use indices to select resources
-zest_cmd_BindDescriptorSets(cmd, device->bindless_set);
+// Single global set with all resources - bound once at frame start
+// (Zest binds this automatically during frame graph execution)
 
-// Pass indices via push constants
+// Pass indices via push constants to select resources
 push.tex_index = object1_texture_index;
 zest_cmd_SendPushConstants(cmd, &push, sizeof(push));
-zest_cmd_Draw(...);
+zest_cmd_Draw(cmd, vertex_count, 1, 0, 0);
 
 push.tex_index = object2_texture_index;
 zest_cmd_SendPushConstants(cmd, &push, sizeof(push));
-zest_cmd_Draw(...);
+zest_cmd_Draw(cmd, vertex_count, 1, 0, 0);
 ```
 
 ## Resource Types
 
 Zest's bindless system supports:
 
-| Binding | Resource Type | Array |
-|---------|---------------|-------|
-| 0 | Samplers | `sampler[]` |
-| 1 | Sampled Images (2D) | `texture2D[]` |
-| 2 | Storage Images | `image2D[]` |
-| 3 | Storage Buffers | `buffer[]` |
-| 4 | Uniform Buffers | `uniform[]` |
-| 5+ | Additional bindings | Custom |
+| Binding | Constant | Resource Type | Array |
+|---------|----------|---------------|-------|
+| 0 | `zest_sampler_binding` | Samplers | `sampler[]` |
+| 1 | `zest_texture_2d_binding` | 2D Textures | `texture2D[]` |
+| 2 | `zest_texture_cube_binding` | Cube Textures | `textureCube[]` |
+| 3 | `zest_texture_array_binding` | Texture Arrays | `texture2DArray[]` |
+| 4 | `zest_texture_3d_binding` | 3D Textures | `texture3D[]` |
+| 5 | `zest_storage_buffer_binding` | Storage Buffers | `buffer[]` |
+| 6 | `zest_storage_image_binding` | Storage Images | `image2D[]` |
+| 7 | `zest_uniform_buffer_binding` | Uniform Buffers | `uniform[]` |
+
+Take note of the binding numbers as that's what you need to use to correctly set up your shaders.
 
 ## Acquiring Indices
 
@@ -73,7 +87,7 @@ zest_uint sampler_index = zest_AcquireSamplerIndex(device, sampler);
 ### Storage Images
 
 ```cpp
-zest_uint storage_index = zest_AcquireStorageImageIndex(device, image);
+zest_uint storage_index = zest_AcquireStorageImageIndex(device, image, zest_storage_image_binding);
 ```
 
 ### Storage Buffers
@@ -85,7 +99,9 @@ zest_uint buffer_index = zest_AcquireStorageBufferIndex(device, buffer);
 ### Uniform Buffers
 
 ```cpp
-zest_uniform_buffer ubo = zest_CreateUniformBuffer(context, "camera", sizeof(camera_t));
+//(Indexes are acquired automatically when the uniform buffer is created)
+zest_uniform_buffer_handle ubo_handle = zest_CreateUniformBuffer(context, "camera", sizeof(camera_t));
+zest_uniform_buffer ubo = zest_GetUniformBuffer(ubo_handle);
 zest_uint ubo_index = zest_GetUniformBufferDescriptorIndex(ubo);
 ```
 
@@ -97,14 +113,16 @@ zest_uint ubo_index = zest_GetUniformBufferDescriptorIndex(ubo);
 #version 450
 #extension GL_EXT_nonuniform_qualifier : enable
 
-// Bindless arrays at set 0
-layout(set = 0, binding = 0) uniform sampler samplers[];
-layout(set = 0, binding = 1) uniform texture2D textures[];
-layout(set = 0, binding = 2, rgba16f) uniform image2D storage_images[];
-layout(set = 0, binding = 3) buffer StorageBuffers {
+// Bindless arrays at set 0 (binding numbers match zest_binding_number_type)
+layout(set = 0, binding = 0) uniform sampler samplers[];           // zest_sampler_binding
+layout(set = 0, binding = 1) uniform texture2D textures[];         // zest_texture_2d_binding
+layout(set = 0, binding = 2) uniform textureCube cubemaps[];       // zest_texture_cube_binding
+layout(set = 0, binding = 3) uniform texture2D texture_arrays[];   // zest_texture_array_binding
+layout(set = 0, binding = 5) buffer StorageBuffers {               // zest_storage_buffer_binding
     float data[];
 } storage_buffers[];
-layout(set = 0, binding = 4) uniform UniformBuffers {
+layout(set = 0, binding = 6, rgba16f) uniform image2D storage_images[];  // zest_storage_image_binding
+layout(set = 0, binding = 7) uniform UniformBuffers {              // zest_uniform_buffer_binding
     mat4 view;
     mat4 projection;
 } uniforms[];
@@ -166,49 +184,37 @@ struct push_constants_t {
 
 ```cpp
 void RenderCallback(zest_command_list cmd, void* data) {
+    app_t* app = (app_t*)data;
+
     push_constants_t push = {};
-    push.transform = model_matrix;
-    push.texture_index = my_texture_index;
-    push.sampler_index = my_sampler_index;
-    push.ubo_index = my_ubo_index;
-    push.time = current_time;
+    push.transform = app->model_matrix;
+    push.texture_index = app->texture_index;
+    push.sampler_index = app->sampler_index;
+    push.ubo_index = app->ubo_index;
+    push.time = app->current_time;
 
     zest_cmd_SendPushConstants(cmd, &push, sizeof(push));
-    zest_cmd_Draw(cmd, ...);
+    zest_cmd_Draw(cmd, 6, 1, 0, 0);  // vertex_count, instance_count, first_vertex, first_instance
 }
 ```
 
 ## Releasing Indices
 
-When resources are freed, release their indices:
-
 ```cpp
-// Release texture index
-zest_ReleaseSampledImageIndex(device, tex_index);
+// Release image indices (sampled or storage images)
+// Pass the image and the binding type used when acquiring
+zest_ReleaseImageIndex(device, image, zest_texture_2d_binding);
+zest_ReleaseImageIndex(device, image, zest_storage_image_binding);
 
-// Release sampler index
-zest_ReleaseSamplerIndex(device, sampler_index);
-
-// Release storage image index
-zest_ReleaseStorageImageIndex(device, storage_index);
-
-// Release storage buffer index
+// Release storage buffer index (uses array index directly)
 zest_ReleaseStorageBufferIndex(device, buffer_index);
 ```
 
+Note: Image indices, Sampler indices and uniform buffer indices are managed automatically when the resource is freed.
+
 ## Bindless Layout Access
 
-Access the device's bindless descriptor layout:
-
-```cpp
-VkDescriptorSetLayout layout = zest_GetBindlessLayout(device);
-```
-
-For custom descriptor sets:
-
-```cpp
-zest_descriptor_set_layout custom_layout = zest_CreateBindlessSet(device, &layout_info);
-```
+Access the device's bindless descriptor set layout:
 
 ## Per-Instance Indices
 
@@ -241,13 +247,12 @@ void main() {
 2. **Release indices when done** - Prevents descriptor pool exhaustion
 3. **Use push constants for dynamic indices** - Fast to update
 4. **Store static indices in instance data** - For per-object textures
-5. **Keep index ranges contiguous** - Helps GPU cache efficiency
 
 ## Limitations
 
 - Maximum resources depend on GPU limits (usually 500K+ descriptors)
 - Some older GPUs have lower limits
-- `GL_EXT_nonuniform_qualifier` required for non-uniform indexing
+- `GL_EXT_nonuniform_qualifier` required for non-uniform indexing in GLSL shaders
 
 ## Example: Multi-Textured Scene
 
@@ -256,7 +261,8 @@ void main() {
 struct object_t {
     zest_uint texture_index;
     zest_uint normal_index;
-    zest_uint material_index;
+    zest_uint index_count;
+    zest_uint index_offset;
 };
 
 object_t objects[MAX_OBJECTS];
@@ -269,11 +275,19 @@ for (int i = 0; i < object_count; i++) {
 
 // At render time
 void RenderCallback(zest_command_list cmd, void* data) {
-    for (int i = 0; i < object_count; i++) {
-        push.texture_index = objects[i].texture_index;
-        push.normal_index = objects[i].normal_index;
+    scene_t* scene = (scene_t*)data;
+    push_constants_t push = {};
+
+    for (int i = 0; i < scene->object_count; i++) {
+        push.texture_index = scene->objects[i].texture_index;
+        push.normal_index = scene->objects[i].normal_index;
         zest_cmd_SendPushConstants(cmd, &push, sizeof(push));
-        zest_cmd_DrawIndexed(cmd, ...);
+        zest_cmd_DrawIndexed(cmd,
+            scene->objects[i].index_count,  // index_count
+            1,                               // instance_count
+            scene->objects[i].index_offset, // first_index
+            0,                               // vertex_offset
+            0);                              // first_instance
     }
 }
 ```
