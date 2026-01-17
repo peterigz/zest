@@ -45,8 +45,8 @@ zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage,
 
 ```cpp
 zest_memory_usage_gpu_only     // Fast GPU access, no CPU access
-zest_memory_usage_cpu_visible  // CPU can write, slower GPU access
-zest_memory_usage_auto         // Let Zest decide
+zest_memory_usage_cpu_to_gpu   // CPU can write, used for uploads
+zest_memory_usage_gpu_to_cpu   // GPU writes, CPU can read back
 ```
 
 ## Uploading Data
@@ -89,8 +89,8 @@ void UploadCallback(zest_command_list cmd, void* user_data) {
 Per-frame uniform data with automatic multi-buffering:
 
 ```cpp
-// Create uniform buffer
-zest_uniform_buffer ubo = zest_CreateUniformBuffer(context, "camera_ubo", sizeof(camera_t));
+// Create uniform buffer (returns a handle)
+zest_uniform_buffer_handle ubo = zest_CreateUniformBuffer(context, "camera_ubo", sizeof(camera_t));
 
 // Get pointer to current frame's data
 camera_t* camera = (camera_t*)zest_GetUniformBufferData(ubo);
@@ -119,24 +119,27 @@ void main() {
 ### Resize and Grow
 
 ```cpp
-// Resize buffer (may reallocate)
-zest_ResizeBuffer(buffer, new_size);
+// Resize buffer (may reallocate) - takes pointer to buffer
+zest_ResizeBuffer(&buffer, new_size);
 
-// Grow buffer (only if needed)
-zest_GrowBuffer(buffer, new_size);
+// Grow buffer (only if needed) - takes pointer, unit size, and minimum bytes
+zest_GrowBuffer(&buffer, unit_size, minimum_bytes);
 
 // Get current size
 zest_size size = zest_GetBufferSize(buffer);
 ```
 
-### Map and Unmap
+### Accessing Buffer Data
 
-For CPU-visible buffers:
+For CPU-visible buffers, you can directly access the mapped memory:
 
 ```cpp
+// Get pointer to buffer data (persistently mapped)
 void* data = zest_BufferData(buffer);
 memcpy(data, src, size);
-zest_BufferDataEnd(buffer);
+
+// Get pointer to end of buffer (for bounds checking)
+void* end = zest_BufferDataEnd(buffer);
 ```
 
 ### Free Buffer
@@ -148,31 +151,28 @@ zest_FreeBuffer(buffer);
 
 ## Memory Pools
 
-Buffers are allocated from pools. Configure pool sizes before device creation:
+Buffers are allocated from named memory pools managed by the device. Pool sizes can be configured after device creation:
 
 ```cpp
-// GPU buffer pool (default 64 MB)
-zest_SetGPUBufferPoolSize(device, 128 * 1024 * 1024);
+// Configure GPU buffer pool (minimum allocation size, total pool size)
+zest_SetGPUBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(128));
 
-// Staging buffer pool (default 32 MB)
-zest_SetStagingBufferPoolSize(device, 64 * 1024 * 1024);
-
-// Get current sizes
-zest_size gpu_size = zest_GetDevicePoolSize(device);
+// Configure staging buffer pool
+zest_SetStagingBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 ```
 
-Pools auto-expand when exhausted.
+Pools auto-expand when exhausted. See [Memory Management](memory.md) for detailed pool configuration.
 
 ## Command Buffer Operations
 
 ### Bind Buffers
 
 ```cpp
-// Bind vertex buffer
-zest_cmd_BindVertexBuffer(cmd, buffer, offset);
+// Bind vertex buffer (first_binding, binding_count, buffer)
+zest_cmd_BindVertexBuffer(cmd, 0, 1, buffer);
 
 // Bind index buffer
-zest_cmd_BindIndexBuffer(cmd, buffer, offset, zest_index_type_uint32);
+zest_cmd_BindIndexBuffer(cmd, buffer);
 ```
 
 ### Copy Buffers
@@ -180,9 +180,6 @@ zest_cmd_BindIndexBuffer(cmd, buffer, offset, zest_index_type_uint32);
 ```cpp
 // Copy entire buffer
 zest_cmd_CopyBuffer(cmd, src, dst, size);
-
-// Upload from staging
-zest_cmd_UploadBuffer(cmd, staging_buffer, dst_buffer, size);
 ```
 
 ## Transient Buffers
@@ -192,7 +189,7 @@ Temporary buffers within a frame graph:
 ```cpp
 zest_buffer_resource_info_t info = {
     .size = particle_count * sizeof(particle_t),
-    .usage_hint = zest_resource_usage_hint_vertex_storage
+    .usage_hints = zest_resource_usage_hint_vertex_buffer
 };
 zest_resource_node particles = zest_AddTransientBufferResource("Particles", &info);
 ```
@@ -230,7 +227,7 @@ zest_FreeBuffer(staging);
 
 // Use in render callback
 void RenderParticles(zest_command_list cmd, void* user_data) {
-    zest_cmd_BindVertexBuffer(cmd, particles, 0);
+    zest_cmd_BindVertexBuffer(cmd, 0, 1, particles);
     zest_cmd_Draw(cmd, particle_count, 1, 0, 0);
 }
 ```

@@ -7823,6 +7823,7 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     zest__compile_builtin_shaders(device);
 
     ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
+	//TODO: remove?
     zest__prepare_standard_pipelines(device);
 
     device->platform->set_depth_format(device);
@@ -17538,6 +17539,26 @@ void zest_implglfw_DestroyWindow(zest_context context) {
 #if defined(SDL_MAJOR_VERSION)
 #include <SDL_syswm.h>
 
+zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_bool enable_validation) {
+	unsigned int count = 0;
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data->window_handle, &count, NULL);
+	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data->window_handle, &count, sdl_extensions);
+
+	// Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
+	if (enable_validation) {
+		zest_AddDeviceBuilderValidation(device_builder);
+		zest_DeviceBuilderLogToConsole(device_builder);
+	}
+	zest_device device = zest_EndDeviceBuilder(device_builder);
+
+	// Clean up the extensions array
+	free(sdl_extensions);
+	return device;
+}
+
 zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char *title) {
     Uint32 flags = 0;
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
@@ -17554,36 +17575,36 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
 
     SDL_Window *window_handle = SDL_CreateWindow(title, x, y, width, height, flags);
 
-    zest_window_data_t window_handles = { 0 };
-    window_handles.width = width;
-    window_handles.height = height;
+    zest_window_data_t window_data = { 0 };
+    window_data.width = width;
+    window_data.height = height;
 
     if (maximised) {
-        SDL_GetWindowSize(window_handle, &window_handles.width, &window_handles.height);
+        SDL_GetWindowSize(window_handle, &window_data.width, &window_data.height);
     }
 
-    window_handles.window_handle = window_handle;
+    window_data.window_handle = window_handle;
 
     SDL_SysWMinfo wmi;
     SDL_VERSION(&wmi.version);
     if (!SDL_GetWindowWMInfo(window_handle, &wmi)) {
         // Handle error, for now returning partially filled struct
-        return window_handles;
+        return window_data;
     }
 
 #if defined(_WIN32)
-    window_handles.native_handle = wmi.info.win.window;
-    window_handles.display = wmi.info.win.hinstance;
+    window_data.native_handle = wmi.info.win.window;
+    window_data.display = wmi.info.win.hinstance;
 #elif defined(__linux__)
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
-    window_handles.native_handle = (void*)(uintptr_t)wmi.info.x11.window;
-    window_handles.display = wmi.info.x11.display;
+    window_data.native_handle = (void*)(uintptr_t)wmi.info.x11.window;
+    window_data.display = wmi.info.x11.display;
 #endif
 #endif
 
-    window_handles.window_sizes_callback = zest_implsdl2_GetWindowSizeCallback;
+    window_data.window_sizes_callback = zest_implsdl2_GetWindowSizeCallback;
 
-    return window_handles;
+    return window_data;
 }
 
 void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {

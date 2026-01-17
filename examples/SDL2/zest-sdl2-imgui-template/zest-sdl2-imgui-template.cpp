@@ -249,31 +249,17 @@ int main(int argc, char *argv[]) {
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
-	zest_window_data_t window_handles = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create the device that serves all vulkan based contexts
 	//Get the required instance extensions from SDL
-	unsigned int count = 0;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_handles.window_handle, &count, NULL);
-	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_handles.window_handle, &count, sdl_extensions);
-
-	// Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	device_builder->bindless_texture_2d_count = 4096;
-	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	imgui_app.device = zest_EndDeviceBuilder(device_builder);
-
-	// Clean up the extensions array
-	free(sdl_extensions);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	//Initialise a Zest context
-	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);
 
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
