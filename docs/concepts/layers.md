@@ -46,40 +46,48 @@ zest_layer layer = zest_GetLayer(layer_handle);
 // Start recording instances
 zest_StartInstanceInstructions(layer);
 
-// Get instance data pointer
-sprite_instance_t* instances = (sprite_instance_t*)zest_GetLayerInstancesData(layer);
-
-// Add instances
+// Add instances - zest_NextInstance returns pointer to next slot
 for (int i = 0; i < sprite_count; i++) {
-    zest_uint index = zest_NextInstance(layer);
-    instances[index].position = sprites[i].pos;
-    instances[index].scale = sprites[i].size;
-    instances[index].rotation = sprites[i].angle;
-    instances[index].texture_index = sprites[i].tex;
-    instances[index].color = sprites[i].color;
+    sprite_instance_t* inst = (sprite_instance_t*)zest_NextInstance(layer);
+    inst->position = sprites[i].pos;
+    inst->scale = sprites[i].size;
+    inst->rotation = sprites[i].angle;
+    inst->texture_index = sprites[i].tex;
+    inst->color = sprites[i].color;
 }
 
-// End recording
+// End recording (optional: is also ended in the next call to zest_StartInstanceInstructions
 zest_EndInstanceInstructions(layer);
 ```
 
 ### Drawing Instances
 
+Use `zest_DrawInstanceLayer` as a pass task callback:
+
+```cpp
+// Set up the render pass with the built-in draw function
+zest_BeginRenderPass("Draw Sprites"); {
+    zest_ConnectSwapChainOutput();
+    zest_SetPassTask(zest_DrawInstanceLayer, layer);  // Pass layer as user_data
+    zest_EndPass();
+}
+```
+
+Or implement a custom draw callback:
+
 ```cpp
 void RenderCallback(zest_command_list cmd, void* data) {
-    app_t* app = (app_t*)data;
-    zest_layer layer = zest_GetLayer(app->sprite_layer);
+    zest_layer layer = (zest_layer)data;
 
     // Get instance count
     zest_uint count = zest_GetInstanceLayerCount(layer);
     if (count == 0) return;
 
-    // Bind pipeline
-    zest_pipeline pipeline = zest_GetPipeline(app->sprite_pipeline, cmd);
+    // Bind pipeline and draw
+    zest_pipeline pipeline = zest_GetPipeline(sprite_pipeline, cmd);
     zest_cmd_BindPipeline(cmd, pipeline);
 
-    // Draw instanced
-    zest_DrawInstanceLayer(cmd, layer);
+    // Custom drawing logic here...
 }
 ```
 
@@ -93,9 +101,7 @@ For dynamic geometry with arbitrary vertex/index data (UI, procedural meshes).
 zest_layer_handle layer = zest_CreateMeshLayer(
     context,
     "ui_mesh",
-    sizeof(ui_vertex_t),  // Vertex size
-    MAX_VERTICES,
-    MAX_INDICES
+    sizeof(ui_vertex_t)   // Vertex size
 );
 ```
 
@@ -104,21 +110,24 @@ zest_layer_handle layer = zest_CreateMeshLayer(
 ```cpp
 zest_layer layer = zest_GetLayer(layer_handle);
 
-// Get write buffers
-ui_vertex_t* vertices = (ui_vertex_t*)zest_GetVertexWriteBuffer(layer);
-zest_uint* indices = (zest_uint*)zest_GetIndexWriteBuffer(layer);
+// Get write buffers (returns zest_buffer, use zest_BufferData to get pointer)
+zest_buffer vertex_buffer = zest_GetVertexWriteBuffer(layer);
+zest_buffer index_buffer = zest_GetIndexWriteBuffer(layer);
+
+ui_vertex_t* vertices = (ui_vertex_t*)zest_BufferData(vertex_buffer);
+zest_uint* indices = (zest_uint*)zest_BufferData(index_buffer);
 
 // Write vertex data
-vertices[0] = {.pos = {0, 0}, .uv = {0, 0}, .color = WHITE};
-vertices[1] = {.pos = {100, 0}, .uv = {1, 0}, .color = WHITE};
+vertices[0] = (ui_vertex_t){.pos = {0, 0}, .uv = {0, 0}, .color = WHITE};
+vertices[1] = (ui_vertex_t){.pos = {100, 0}, .uv = {1, 0}, .color = WHITE};
 // ...
 
 // Write index data
 indices[0] = 0; indices[1] = 1; indices[2] = 2;
 // ...
 
-// Set mesh drawing mode
-zest_SetMeshDrawing(layer, vertex_count, index_count, instance_count);
+// Set mesh drawing mode with pipeline
+zest_SetMeshDrawing(layer, mesh_pipeline);
 ```
 
 ## Instance Mesh Layers
@@ -152,29 +161,30 @@ zest_uint mesh_index = zest_AddMeshToLayer(layer, &mesh, texture_index);
 ### Using Zest Mesh API
 
 ```cpp
-// Create a mesh
-zest_mesh_handle mesh_handle = zest_NewMesh();
-zest_mesh mesh = zest_GetMesh(mesh_handle);
+// Create a mesh (returns zest_mesh directly, not a handle)
+zest_mesh mesh = zest_NewMesh(context, sizeof(vertex_t));
 
 // Reserve space
 zest_ReserveMeshVertices(mesh, vertex_count);
 
-// Add vertices
+// Add vertices - zest_NextMeshVertex takes current pointer and returns the next
+void* current = NULL;
 for (int i = 0; i < vertex_count; i++) {
-    vertex_t* v = (vertex_t*)zest_NextMeshVertex(mesh);
+    vertex_t* v = (vertex_t*)zest_NextMeshVertex(mesh, current);
     v->position = positions[i];
     v->normal = normals[i];
     v->uv = uvs[i];
+    current = v;
 }
 
 // Copy index data
 zest_CopyMeshIndexData(mesh, indices, index_count);
 
 // Add to layer
-zest_uint mesh_id = zest_AddMeshToLayer(layer, mesh, 0);
+zest_uint mesh_id = zest_AddMeshToLayer(layer, mesh, texture_index);
 
-// Free mesh handle (data is now in layer)
-zest_FreeMesh(mesh_handle);
+// Free mesh (data is now copied to layer)
+zest_FreeMesh(mesh);
 ```
 
 ### Drawing Instance Mesh Layer
@@ -185,29 +195,28 @@ void RenderCallback(zest_command_list cmd, void* data) {
     zest_layer layer = zest_GetLayer(app->mesh_layer);
 
     // Bind mesh vertex/index buffers
-    zest_cmd_BindMeshVertexBuffer(cmd, layer);
-    zest_cmd_BindMeshIndexBuffer(cmd, layer);
 
-    // Bind pipeline
-    zest_pipeline pipeline = zest_GetPipeline(app->mesh_pipeline, cmd);
-    zest_cmd_BindPipeline(cmd, pipeline);
+	zest_cmd_BindMeshVertexBuffer(command_list, layer);
+	zest_cmd_BindMeshIndexBuffer(command_list, layer);
 
-    // Draw each mesh type with its instances
-    for (int mesh_id = 0; mesh_id < mesh_count; mesh_id++) {
-        const zest_mesh_offset_data_t* offsets = zest_GetLayerMeshOffsets(layer, mesh_id);
+	zest_buffer device_buffer = zest_GetLayerResourceBuffer(layer);
+	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
 
-        // Bind instance buffer at correct offset
-        zest_cmd_BindVertexBuffer(cmd, 1, 1, instance_buffer, offsets->instance_offset);
+	zest_pipeline pipeline = zest_GetPipeline(app->mesh_pipeline, command_list);
 
-        // Draw indexed instances
-        zest_cmd_DrawIndexed(
-            cmd,
-            offsets->index_count,
-            instance_counts[mesh_id],
-            offsets->index_offset,
-            offsets->vertex_offset,
-            0
-        );
+	zest_uint instruction_count = zest_GetLayerInstructionCount(layer);
+	for(int i = 0; i != instruction_count; i++) {
+        const zest_layer_instruction_t *current = zest_GetLayerInstruction(layer, i);
+		const zest_mesh_offset_data_t *mesh_offsets = zest_GetLayerMeshOffsets(layer, current->mesh_index);
+
+		zest_cmd_LayerViewport(command_list, layer);
+		zest_cmd_BindPipeline(command_list, pipeline);
+
+		scene_push_constants_t *push = (scene_push_constants_t*)current->push_constant;
+		push->shadow_index = shadow_index;
+		zest_cmd_SendPushConstants(command_list, (void*)push, sizeof(scene_push_constants_t));
+
+		zest_cmd_DrawIndexed(command_list, mesh_offsets->index_count, current->total_instances, mesh_offsets->index_offset, mesh_offsets->vertex_offset, current->start_index);
     }
 }
 ```
@@ -217,13 +226,27 @@ void RenderCallback(zest_command_list cmd, void* data) {
 ### Viewport and Scissor
 
 ```cpp
-zest_SetLayerViewPort(layer, viewport);
-zest_SetLayerScissor(layer, scissor);
-zest_SetLayerSizeToSwapchain(layer);  // Match swapchain size
+// Set viewport with full control
+zest_SetLayerViewPort(
+    layer,
+    0, 0,                    // x, y offset
+    scissor_width, scissor_height,
+    viewport_width, viewport_height
+);
+
+// Set scissor rect
+zest_SetLayerScissor(layer, offset_x, offset_y, width, height);
+
+// Match swapchain size (convenience)
+zest_SetLayerSizeToSwapchain(layer);
+
+// Set specific size
 zest_SetLayerSize(layer, width, height);
 ```
 
 ### Colors
+
+These properties are a way that you can store a color in a layer and use it to tint or color instances.
 
 ```cpp
 // Set RGBA (0-255)
@@ -240,19 +263,7 @@ zest_SetLayerIntensity(layer, 1.5f);
 
 ```cpp
 zest_SetLayerUserData(layer, my_data);
-void* data = zest_GetLayerUserData(layer);
-```
-
-### Change Tracking
-
-```cpp
-// Mark layer as changed (triggers re-upload)
-zest_SetLayerChanged(layer);
-
-// Check if layer has changed
-if (zest_LayerHasChanged(layer)) {
-    // Handle change
-}
+AppData *data = (AppData*)zest_GetLayerUserData(layer);
 ```
 
 ## Push Constants
@@ -288,15 +299,14 @@ void RenderCallback(zest_command_list cmd, void* data) {
 Layer data must be uploaded to GPU before rendering:
 
 ```cpp
-// In transfer pass
+// In transfer pass - use built-in upload function as callback
 zest_BeginTransferPass("Upload Layers"); {
-    zest_ConnectOutput(layer_resources);
-    zest_SetPassTask(zest_UploadInstanceLayerData, layer);  // Built-in helper
+    zest_SetPassTask(zest_UploadInstanceLayerData, layer);  // Pass layer as user_data
     zest_EndPass();
 }
 ```
 
-Or manually:
+Or implement a custom upload callback:
 
 ```cpp
 void UploadCallback(zest_command_list cmd, void* data) {
@@ -310,15 +320,23 @@ void UploadCallback(zest_command_list cmd, void* data) {
 Clear instance data for next frame:
 
 ```cpp
-zest_ResetLayer(layer_handle);
+zest_layer layer = zest_GetLayer(layer_handle);
+
+// Reset layer to the next frame in flight
+zest_ResetLayer(layer);
+
+// Same as ResetLayer but specifically for an instance layer with manual frame in flight control
 zest_ResetInstanceLayer(layer);
+
+// Reset instance drawing state only. This is called automatically when you call 
+// zest_StartInstanceDrawing or zest_StartInstanceMeshDrawing in a new frame
+zest_ResetInstanceLayerDrawing(layer);
 ```
 
 ## Best Practices
 
-1. **Choose the right layer type** - Instance for sprites, Mesh for UI, Instance Mesh for 3D
+1. **Choose the right layer type** - Instance for sprites, Mesh for UI or static meshes, Instance Mesh for 3D
 2. **Batch by texture** - Minimize texture switches within a layer
-3. **Reset between frames** - Call reset before adding new instances
 4. **Upload before rendering** - Use transfer pass to upload layer data
 5. **Size appropriately** - Set max instances/vertices based on expected usage
 
