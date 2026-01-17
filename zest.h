@@ -3501,6 +3501,7 @@ typedef struct zest_binding_index_for_release_t {
 
 typedef struct zest_device_destruction_queue_t {
 	void **resources[ZEST_MAX_FIF];
+	zest_buffer *buffers[ZEST_MAX_FIF];
 } zest_device_destruction_queue_t;
 
 typedef struct zest_context_destruction_queue_t {
@@ -4546,8 +4547,10 @@ ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
 ZEST_API zest_size zest_GetBufferSize(zest_buffer buffer);
 //Copy data to a staging buffer
 void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size);
-//Free a zest_buffer and return it's memory to the pool
+//Free a zest_buffer and return it's memory to the pool. The freeing is deferred to the next frame.
 ZEST_API void zest_FreeBuffer(zest_buffer buffer);
+//Free a buffer immediately. It's up to you to ensure it's not in inuse.
+ZEST_API void zest_FreeBufferNow(zest_buffer buffer);
 //When creating your own draw routines you will probably need to upload data from a staging buffer to a GPU buffer like a vertex buffer. You can
 //use this command with zest_cmd_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
 //how many buffers you need to upload data for and then call zest_cmd_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
@@ -6079,7 +6082,6 @@ typedef struct zest_device_t {
 
 	//For scheduled tasks
 	zest_uint frame_counter;
-	zest_buffer *deferred_staging_buffers_for_freeing;
 	zest_device_destruction_queue_t deferred_resource_freeing_list;
 
 	//Debugging
@@ -8063,10 +8065,9 @@ void zest_ResetDevice(zest_device device) {
 
 	zest__free_device_buffer_allocators(device);
 
-    zest_vec_free(device->allocator, device->deferred_staging_buffers_for_freeing);
-
 	zest_ForEachFrameInFlight(fif) {
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
+		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
 
     zest_vec_free(device->allocator, device->debug.frame_log);
@@ -8212,12 +8213,14 @@ int zest_UpdateDevice(zest_device device) {
 		zest_vec_clear(device->deferred_resource_freeing_list.resources[index]);
     }
 
-    zest_vec_foreach(i, device->deferred_staging_buffers_for_freeing) {
-        zest_buffer staging_buffer = device->deferred_staging_buffers_for_freeing[i];
-		zest_FreeBuffer(staging_buffer);
-		resources_freed++;
-    }
-    zest_vec_clear(device->deferred_staging_buffers_for_freeing);
+	if (zest_vec_size(device->deferred_resource_freeing_list.buffers[index])) {
+		zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers) {
+			zest_buffer buffer = device->deferred_resource_freeing_list.buffers[index][i];
+			zest_FreeBufferNow(buffer);
+			resources_freed++;
+		}
+		zest_vec_clear(device->deferred_resource_freeing_list.buffers[index]);
+	}
 	return resources_freed;
 }
 
@@ -9173,6 +9176,20 @@ void zest_FreeBuffer(zest_buffer buffer) {
 	if (is_free) {
 		return;
 	}
+	zest_device device = buffer->memory_pool->device;
+	zest_uint index = device->frame_counter % ZEST_MAX_FIF;
+	zest_vec_push(device->allocator, device->deferred_resource_freeing_list.buffers[index], buffer);
+}
+
+void zest_FreeBufferNow(zest_buffer buffer) {
+    if (!buffer) return;    		//Nothing to free
+	//Get the proxy block in host memory to make sure that the buffer wasn't already freed
+	void *proxy_allocation = (char*)buffer - zloc__MINIMUM_BLOCK_SIZE;
+	zloc_header *proxy_header = zloc__block_from_allocation(proxy_allocation);
+	zloc_bool is_free = zloc__is_free_block(proxy_header);
+	if (is_free) {
+		return;
+	}
     zloc_FreeRemote(buffer->memory_pool->allocator->allocator, buffer);
 }
 
@@ -9448,7 +9465,14 @@ void zest__cleanup_device(zest_device device) {
 				zest__free_handle(device->allocator, handle);
 			}
 		}
+		if (zest_vec_size(device->deferred_resource_freeing_list.buffers[fif])) {
+			zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers[fif]) {
+				zest_buffer buffer = device->deferred_resource_freeing_list.buffers[fif][i];
+				zest_FreeBufferNow(buffer);
+			}
+		}
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
+		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
 
 	device->default_image_2d = NULL;
@@ -9502,8 +9526,6 @@ void zest__cleanup_device(zest_device device) {
     }
 
 	zest__free_device_buffer_allocators(device);
-
-    zest_vec_free(device->allocator, device->deferred_staging_buffers_for_freeing);
 
 	device->platform->cleanup_device_backend(device);
     ZEST__FREE(device->allocator, device->scratch_arena.data);
@@ -11960,10 +11982,10 @@ zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to
 
 void zest__free_transient_resource(zest_resource_node resource) {
     if (resource->type & zest_resource_type_buffer) {
-        zest_FreeBuffer(resource->storage_buffer);
+        zest_FreeBufferNow(resource->storage_buffer);
         resource->storage_buffer = 0;
     } else if (resource->type & zest_resource_type_is_image_or_depth) {
-        zest_FreeBuffer((zest_buffer)resource->image.buffer);
+        zest_FreeBufferNow((zest_buffer)resource->image.buffer);
         resource->image.buffer = 0;
     }
 }
