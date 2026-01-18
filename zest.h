@@ -142,6 +142,7 @@ typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
+#include <cmath>
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
 #define ZLOC_ASSERT assert
@@ -1032,11 +1033,11 @@ Other color possibilities
 #define ZEST_NOTICE_COLOR "\033[0m"
 #endif
 
-#define ZEST_PRINT(message_f, ...) printf(message_f"\n", ##__VA_ARGS__)
-#define ZEST_ALERT(message_f, ...) printf(ZEST_ALERT_COLOR##message_f"\n\033[0m", ##__VA_ARGS__)
+#define ZEST_PRINT(message_f, ...) printf(message_f "\n", ##__VA_ARGS__)
+#define ZEST_ALERT(message_f, ...) printf(ZEST_ALERT_COLOR message_f "\n\033[0m", ##__VA_ARGS__)
 
 #ifdef ZEST_OUTPUT_NOTICE_MESSAGES
-#define ZEST_PRINT_NOTICE(message_f, ...) printf(ZEST_NOTICE_COLOR##message_f"\n\033[0m", __VA_ARGS__)
+#define ZEST_PRINT_NOTICE(message_f, ...) printf(ZEST_NOTICE_COLOR message_f "\n\033[0m", ##__VA_ARGS__)
 #else
 #define ZEST_PRINT_NOTICE(message_f, ...)
 #endif
@@ -2796,8 +2797,8 @@ ZEST_API template<class T> T* zest__vec_linear_reserve_wrapper(zloc_linear_alloc
 }
 //ZEST_API template<class T> T* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, T *a, zest_uint unit_size, zest_uint new_capacity);
 ZEST_API void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
-#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : (void)0)
-#define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve_wrapper(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16)) : (void)0)
+#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8))) : (void)0)
+#define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_linear_reserve_wrapper(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16))) : (void)0)
 #define zest_vec_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); } while (0);
 #define zest_vec_resize(allocator, T, new_size)  do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); if (T) zest__vec_header(T)->current_size = new_size; } while (0);
 #define zest_vec_linear_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); } while (0)
@@ -2818,7 +2819,7 @@ extern "C" {
 #endif
 
 #define zest_vec_push(allocator, T, value) (zest_vec_grow(allocator, T), (T)[zest__vec_header(T)->current_size++] = value)
-#define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T) ? (T)[zest__vec_header(T)->current_size++] = value : (void)0 )
+#define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T) ? (void)((T)[zest__vec_header(T)->current_size++] = value) : (void)0)
 #define zest_vec_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_linear_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_linear_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_erase(T, location) do { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); } while (0)
@@ -11447,7 +11448,7 @@ void zest__log_entry_v(char *str, const char *text, va_list args)
     int len = vsnprintf(str ? str : NULL, (size_t)ZEST_LOG_ENTRY_SIZE, text, args);
     ZEST_ASSERT(len >= 0 && len + 1 < ZEST_LOG_ENTRY_SIZE); //log entry must be within buffer limit
 
-	vsnprintf(buffer->str, (size_t)len + 1, text, args2);
+	vsnprintf(str, (size_t)len + 1, text, args2);
 	#endif
 
     ZEST_ASSERT(str);

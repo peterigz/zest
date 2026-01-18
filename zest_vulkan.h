@@ -2260,12 +2260,11 @@ zest_bool zest__vk_finish_compute(zest_device device, zest_compute compute) {
     compute_pipeline_create_info.flags = 0;
 
     VkShaderModule shader_module = ZEST__ZERO_INIT(VkShaderModule);
+	VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(compute->shader.store, compute->shader.value);
 
 	ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
 	ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->spv, &shader_module));
-
-	VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	compute_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 	compute_shader_stage_info.module = shader_module;
@@ -3076,6 +3075,12 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 	VkPipelineRenderingCreateInfo vk_rendering_info = ZEST__ZERO_INIT(VkPipelineRenderingCreateInfo);
     VkGraphicsPipelineCreateInfo pipeline_info = ZEST__ZERO_INIT(VkGraphicsPipelineCreateInfo);
     VkPipelineVertexInputStateCreateInfo vertex_input_info = ZEST__ZERO_INIT(VkPipelineVertexInputStateCreateInfo);
+    VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
+	VkPipelineColorBlendAttachmentState *color_blend_attachments = 0;
+    VkVertexInputBindingDescription *binding_descriptions = 0;
+    VkVertexInputAttributeDescription *attribute_descriptions = 0;
+	VkPipelineShaderStageCreateInfo shaderStages[2];
+	zest_shader frag_shader = 0;
 
     VkShaderModule vert_shader_module = ZEST__ZERO_INIT(VkShaderModule);
     VkShaderModule frag_shader_module = ZEST__ZERO_INIT(VkShaderModule);
@@ -3094,11 +3099,9 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 		stage_count++;
     }
 
-	zest_shader frag_shader = 0; 
 	if (pipeline_template->fragment_shader.value) {
 		frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
 	}
-    VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
     if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
         if (!frag_shader->spv) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
@@ -3123,11 +3126,10 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkPipelineShaderStageCreateInfo shaderStages[2] = { vert_shader_stage_info, frag_shader_stage_info };
+	shaderStages[0] = vert_shader_stage_info;
+	shaderStages[1] = frag_shader_stage_info;
 
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    VkVertexInputBindingDescription *binding_descriptions = 0;
-    VkVertexInputAttributeDescription *attribute_descriptions = 0;
     if (!pipeline_template->no_vertex_input) {
         //If the pipeline is set to have vertex input, then you must add bindingDescriptions. 
         //You can use zest_AddVertexInputBindingDescription for this
@@ -3200,7 +3202,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     depth_stencil.depthCompareOp = (VkCompareOp)pipeline_template->depth_stencil.depth_compare_op;
 
 	//Todo: The pipeline should allow for a Number of color blend attachments
-	VkPipelineColorBlendAttachmentState *color_blend_attachments = 0;
 	if (stage_count == 2) {
 		for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
 			VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
@@ -3911,12 +3912,13 @@ zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
     submit_info.pCommandBufferInfos = &buffer_submit_info;
 	submit_info.signalSemaphoreInfoCount = 1;
 	submit_info.pSignalSemaphoreInfos = &signal_info;
+	zest_semaphore_status semaphore_stature;
 
 	ZEST_CLEANUP_ON_FAIL(device, device->backend->pfn_vkQueueSubmit2(queue->backend->vk_queue, 1, &submit_info, VK_NULL_HANDLE));
 
-	zest_semaphore_status status = zest_WaitForSignal(&queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
+	semaphore_stature = zest_WaitForSignal(&queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
 	queue->last_bound_compute = NULL;
-	if (status == zest_semaphore_status_success) {
+	if (semaphore_stature == zest_semaphore_status_success) {
 		zest__release_queue(queue);
 		vkFreeCommandBuffers(device->backend->logical_device, queue->backend->command_pool, 1, &queue->backend->command_buffer);
 		queue->backend->command_buffer = VK_NULL_HANDLE;
