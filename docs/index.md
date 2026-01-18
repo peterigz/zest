@@ -2,7 +2,7 @@
 
 **A lightweight single-header rendering library**
 
-Zest is a C11-compatible rendering library that wraps Vulkan with a clean, modern API. It provides a frame graph execution model, bindless descriptors, and automatic resource management - all in a single header file.
+Zest is a C11-compatible rendering library with a clean, modern API designed for multiple graphics backends. It provides a frame graph execution model, bindless descriptors, and automatic resource management - all in a single header file. Currently Vulkan is the primary backend, with DirectX, Metal, and WebGPU planned for the future.
 
 ## Key Features
 
@@ -10,14 +10,16 @@ Zest is a C11-compatible rendering library that wraps Vulkan with a clean, moder
 - **Frame Graph System** - Declarative rendering with automatic barrier insertion, pass culling, and resource management
 - **Bindless Descriptors** - Global descriptor set with indexed access to all textures and buffers
 - **TLSF Memory Allocator** - Efficient GPU memory management with minimal fragmentation
-- **Dynamic Rendering** - Uses Vulkan 1.3 dynamic render passes (no render pass objects needed)
-- **Layer System** - Built-in support for instanced sprites, meshes, and MSDF text rendering
+- **Dynamic Rendering** - No pre-baked render pass objects needed; render passes are configured at draw time
+- **Layer System** - Built-in support for instanced sprites, meshes and static meshes
 
 ## Requirements
 
-- Vulkan 1.2+ capable GPU with bindless descriptor support
-- GLFW or SDL2 for windowing
+- GPU with bindless descriptor support
+- GLFW or SDL2 for windowing or you can just use anything else that you want.
 - C11 compiler (also compiles as C++)
+
+**Vulkan backend:** Requires Vulkan 1.2+ capable GPU
 
 ## Quick Start
 
