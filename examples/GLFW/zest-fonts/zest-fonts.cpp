@@ -1,6 +1,7 @@
+// Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define ZEST_MSDF_IMPLEMENTATION
+#define ZEST_MSDF_IMPLEMENTATION		// Enables MSDF font generation/loading
 #include <GLFW/glfw3.h>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
@@ -11,37 +12,47 @@
 #include <stdlib.h>
 
 /*
-Shows a simple method for rendering MSDF fonts. Also generates the fonts from a ttf file using msdf.h single head library.
+MSDF Font Rendering Example
+---------------------------
+Demonstrates rendering crisp, scalable text using Multi-channel Signed Distance Field (MSDF) fonts.
+MSDF fonts stay sharp at any size without needing multiple texture atlases.
+
+This example:
+- Generates an MSDF font from a TTF file (cached to disk for faster subsequent loads)
+- Creates a font layer for GPU-accelerated text rendering
+- Uses the frame graph to compose font and ImGui passes
 */
 
+// Cache key data for frame graph caching. When this data changes, the frame graph is rebuilt.
 struct RenderCacheInfo {
 	bool draw_imgui;
 	zest_image_handle test_texture;
 };
 
+// Application state containing all rendering resources
 typedef struct zest_fonts_example {
-	zest_timer_t timer;
-	zest_imgui_t imgui;
-	zest_context context;
-	zest_device device;
-	RenderCacheInfo cache_info;
-	zest_msdf_font_t font;
-	zest_font_resources_t font_resources;
-	zest_layer_handle font_layer;
-	float font_size;
+	zest_timer_t timer;					// Timer for rate-limiting ImGui updates
+	zest_imgui_t imgui;					// ImGui integration state
+	zest_context context;				// Window/swapchain context
+	zest_device device;					// Vulkan device (one per application)
+	RenderCacheInfo cache_info;			// Frame graph cache key data
+	zest_msdf_font_t font;				// MSDF font atlas and glyph data
+	zest_font_resources_t font_resources;	// Font shader pipeline resources
+	zest_layer_handle font_layer;		// Layer for batching text draw calls
+	float font_size;					// Current font scale factor
 } zest_fonts_example;
 
 void InitExample(zest_fonts_example *app) {
-	//Initialise Dear ImGui
+	// Initialize Dear ImGui with Zest and GLFW backend
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
-
-	//Implement a dark style
 	zest_imgui_DarkStyle(&app->imgui);
 
-	//We can use a timer to only update imgui 60 times per second
+	// Timer for rate-limiting ImGui updates (reduces buffer uploads and command recording)
 	app->timer = zest_CreateTimer(60);
-	
+
+	// Load MSDF font from cache, or generate from TTF if not cached
+	// zest_CreateMSDF params: context, ttf path, sampler binding, font size (px), distance range
 	if (!zest__file_exists("examples/assets/vaders/Anta-Regular.msdf")) {
 		app->font = zest_CreateMSDF(app->context, "examples/assets/vaders/Anta-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
 		zest_SaveMSDF(&app->font, "examples/assets/vaders/Anta-Regular.msdf");
@@ -49,18 +60,22 @@ void InitExample(zest_fonts_example *app) {
 		app->font = zest_LoadMSDF(app->context, "examples/assets/vaders/Anta-Regular.msdf", app->imgui.font_sampler_binding_index);
 	}
 
+	// Create font rendering resources: shader pipeline for MSDF text
 	app->font_resources = zest_CreateFontResources(app->context, "shaders/font.vert", "shaders/font.frag");
+	// Create a layer to batch text draw calls (100 = initial instance capacity)
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer", 100);
 	app->font_size = 1.f;
 }
 
 void MainLoop(zest_fonts_example *app) {
+	// FPS tracking variables
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		// Calculate FPS
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
 		frame_time += current_frame_time;
@@ -71,19 +86,18 @@ void MainLoop(zest_fonts_example *app) {
 			frame_count = 0;
 		}
 
+		// Process device updates (handles resource cleanup, etc.)
 		zest_UpdateDevice(app->device);
 
 		glfwPollEvents();
-		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-		//less frequently.
+
+		// Rate-limit ImGui updates to reduce GPU uploads and command recording
 		zest_StartTimerLoop(app->timer) {
-			//Must call the imgui GLFW implementation function
 			ImGui_ImplGlfw_NewFrame();
-			//Draw our imgui stuff
 			ImGui::NewFrame();
 			ImGui::Begin("Test Window");
 
+			// Expose MSDF font settings for real-time tweaking
 			ImGui::DragFloat("Font Size", &app->font_size, 0.01f);
 			ImGui::DragFloat2("Unit range", &app->font.settings.unit_range.x, 0.001f);
 			ImGui::DragFloat2("Shadow Offset", &app->font.settings.shadow_offset.x, 0.01f);
@@ -97,69 +111,70 @@ void MainLoop(zest_fonts_example *app) {
 			ImGui::Render();
 		} zest_EndTimerLoop(app->timer);
 
+		// Get the font layer for this frame
 		zest_layer font_layer = zest_GetLayer(app->font_layer);
 
 		if (zest_BeginFrame(app->context)) {
+			// Queue text draw calls on the font layer
+			// These are batched and uploaded to GPU via the transfer pass below
 			zest_SetMSDFFontDrawing(font_layer, &app->font, &app->font_resources);
 			zest_SetLayerColor(font_layer, 255, 255, 255, 255);
 			zest_DrawMSDFText(font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u", fps);
 			zest_DrawMSDFText(font_layer, 20.f, 220.f, .0f, 0.0f, app->font_size, 0.f, "Some more test text !£$%^&*()", fps);
 
+			// Frame graph caching: when cache_info changes, the graph is rebuilt
+			// This avoids rebuilding the graph every frame when nothing structural changes
 			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 			zest_SetSwapchainClearColor(app->context, 0.f, 0.2f, 0.5f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
-			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
-			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
-			//if the window is resized for example.
+
+			// Build frame graph if not cached (first frame or cache key changed)
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+					// Declare resources used in the frame graph
+					// Transient resources are automatically managed (created/destroyed as needed)
 					zest_resource_node font_layer_resource = zest_AddTransientLayerResource("Font layer", font_layer, ZEST_FALSE);
 					zest_ImportSwapchainResource();
-					//If there was no imgui data to render then zest_imgui_BeginPass will return false
-					//Import our test texture with the Bunny sprite
-					//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 
-					//------------------------ Font Transfer Pass ----------------------------------------------------------------
+					// Pass 1: Upload font layer instance data to GPU
 					zest_BeginTransferPass("Upload font layer"); {
 						zest_ConnectOutput(font_layer_resource);
 						zest_SetPassTask(zest_UploadInstanceLayerData, font_layer);
 						zest_EndPass();
 					}
-					//----------------------------------------------------------------------------------------
 
-					//------------------------ Font Pass ----------------------------------------------------------------
+					// Pass 2: Render text to swapchain
+					// The frame graph compiler automatically inserts barriers between passes
 					zest_BeginRenderPass("Font pass"); {
 						zest_ConnectInput(font_layer_resource);
 						zest_ConnectSwapChainOutput();
 						zest_SetPassTask(zest_DrawInstanceLayer, font_layer);
 						zest_EndPass();
 					}
-					//----------------------------------------------------------------------------------------
 
-					//------------------------ ImGui Pass ----------------------------------------------------------------
-					//If there's imgui to draw then draw it
+					// Pass 3: Render ImGui overlay (if there's UI to draw)
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport);
 					if (imgui_pass) {
-						//zest_ConnectInput(test_texture, 0);
 						zest_ConnectSwapChainOutput();
 					} else {
-						//If there's no ImGui to render then just render a blank screen
+						// Fallback pass when no ImGui content
 						zest_BeginRenderPass("Draw Nothing");
 						zest_SetPassTask(zest_EmptyRenderPass, 0);
-						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 						zest_ConnectSwapChainOutput();
 					}
 					zest_EndPass();
-					//----------------------------------------------------------------------------------------------------
-					//End the render graph and execute it. This will submit it to the GPU.
+
+					// Compile and cache the frame graph
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
 			zest_EndFrame(app->context, frame_graph);
 		}
+
+		// Handle window resize: update layer dimensions and font projection matrix
 		if (zest_SwapchainWasRecreated(app->context)) {
 			zest_SetLayerSizeToSwapchain(font_layer);
 			zest_UpdateFontTransform(&app->font);
@@ -169,7 +184,7 @@ void MainLoop(zest_fonts_example *app) {
 }
 
 int main(void) {
-	//Create new config struct for Zest
+	// Configure context settings (disable vsync for uncapped framerate)
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
@@ -179,21 +194,21 @@ int main(void) {
 
 	zest_fonts_example fonts_app = {};
 
-	//Create the device that serves all vulkan based contexts
+	// Create the Vulkan device (one per application, shared across all contexts)
 	fonts_app.device = zest_implglfw_CreateVulkanDevice(false);
 
-	//Create a window using GLFW
-	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-	//Initialise Zest
+	// Create window and context (one context per window/swapchain)
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "MSDF Font Example");
 	fonts_app.context = zest_CreateContext(fonts_app.device, &window_handles, &create_info);
 
-	//Set the Zest use data
+	// Store app pointer for access in callbacks
 	zest_SetContextUserData(fonts_app.context, &fonts_app);
-	//Initialise our example
 	InitExample(&fonts_app);
 
-	//Start the main loop
+	// Run until window closed
 	MainLoop(&fonts_app);
+
+	// Cleanup in reverse order of creation
 	zest_FreeFont(&fonts_app.font);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&fonts_app.imgui);
