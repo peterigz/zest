@@ -2,6 +2,8 @@
 
 This tutorial walks through the simplest possible Zest application - displaying a blank screen using a frame graph.
 
+For all the tutorials to keeps things simple we will use GLFW as the library to provide window management.
+
 **Example:** `examples/GLFW/zest-minimal-template`
 
 ## What You'll Learn
@@ -32,7 +34,7 @@ struct app_t {
 ```
 
 !!! important
-    The `ZEST_IMPLEMENTATION` defines must be in exactly **one** `.cpp` file.
+    The `ZEST_IMPLEMENTATION` defines must be in exactly **one** `.cpp` or `c` file.
 
 ## Step 2: Initialize Device and Context
 
@@ -92,11 +94,8 @@ void MainLoop(app_t *app) {
                 frame_graph = BuildFrameGraph(app, &cache_key);
             }
 
-            // Queue for execution
-            zest_QueueFrameGraphForExecution(app->context, frame_graph);
-
-            // End frame (submits commands, presents)
-            zest_EndFrame(app->context);
+            // End frame (executes frame graph, submits commands, presents)
+            zest_EndFrame(app->context, frame_graph);
         }
     }
 }

@@ -100,8 +100,8 @@ void MainLoop(app_t *app) {
 
         // Render
         if (zest_BeginFrame(app->context)) {
-            // ... render frame graph ...
-            zest_EndFrame(app->context);
+            // ... build/get frame graph ...
+            zest_EndFrame(app->context, frame_graph);
         }
     }
 }
@@ -181,7 +181,7 @@ void InitImGui(app_t *app) {
 
 void DrawUI(app_t *app) {
     // Create dockspace over entire window
-    ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
+    ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
     // Now windows can be docked
     ImGui::Begin("Panel 1");
@@ -216,93 +216,7 @@ void HandleInput(app_t *app) {
 
 ## Complete Example
 
-```cpp
-#define ZEST_IMPLEMENTATION
-#define ZEST_VULKAN_IMPLEMENTATION
-#include <GLFW/glfw3.h>
-#include <zest.h>
-#include <imgui.h>
-#include <impl_imgui.h>
-#include <imgui_impl_glfw.h>
-
-struct app_t {
-    zest_device device;
-    zest_context context;
-    zest_imgui_t imgui;
-    zest_timer_t timer;
-	float clear_color[3];
-    float value = 0.5f;
-};
-
-void DrawUI(app_t *app) {
-    ImGui::Begin("Controls");
-    ImGui::SliderFloat("Value", &app->value, 0.0f, 1.0f);
-    ImGui::ColorEdit3("Clear Color", app->clear_color);
-    ImGui::End();
-}
-
-void MainLoop(app_t *app) {
-    while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
-        zest_UpdateDevice(app->device);
-        glfwPollEvents();
-
-        zest_StartTimerLoop(app->timer) {
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-            DrawUI(app);
-            ImGui::Render();
-        } zest_EndTimerLoop(app->timer);
-
-        if (zest_BeginFrame(app->context)) {
-            zest_frame_graph_cache_key_t key = zest_InitialiseCacheKey(app->context, 0, 0);
-            zest_frame_graph graph = zest_GetCachedFrameGraph(app->context, &key);
-
-			zest_SetSwapchainClearColor(app->context, app->clear_color[0], app->clear_color[1], app->clear_color[2], 1.f);
-
-            if (!graph) {
-                if (zest_BeginFrameGraph(app->context, "Graph", &key)) {
-                    zest_ImportSwapchainResource();
-
-                    zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport);
-                    if (imgui_pass) {
-                        zest_ConnectSwapChainOutput();
-                        zest_EndPass();
-                    }
-
-                    graph = zest_EndFrameGraph();
-                }
-            }
-
-            zest_QueueFrameGraphForExecution(app->context, graph);
-            zest_EndFrame(app->context);
-        }
-    }
-}
-
-int main() {
-    glfwInit();
-
-    app_t app = {};
-    app.device = zest_implglfw_CreateVulkanDevice(false);
-
-    zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "ImGui Example");
-    zest_create_context_info_t info = zest_CreateContextInfo();
-    app.context = zest_CreateContext(app.device, &window, &info);
-
-    zest_imgui_Initialise(app.context, &app.imgui, zest_implglfw_DestroyWindow);
-    ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)zest_Window(app.context), true);
-    zest_imgui_DarkStyle(&app.imgui);
-
-    app.timer = zest_CreateTimer(60.0);
-
-    MainLoop(&app);
-	ImGui_ImplGlfw_Shutdown();
-	zest_imgui_Destroy(&app.imgui);
-    zest_DestroyDevice(app.device);
-
-    return 0;
-}
-```
+See the full source at `examples/GLFW/zest-imgui-template/zest-imgui-template.cpp`.
 
 ## Next Steps
 

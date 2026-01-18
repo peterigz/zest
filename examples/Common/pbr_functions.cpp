@@ -23,10 +23,12 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 	zest_uint push;
 	push = brd_bindless_texture_index;
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+	//Note that we use the graphics queue because we want to transition the image as well
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_SendPushConstants(queue, &push, sizeof(zest_uint));
 	zest_imm_BindComputePipeline(queue, compute);
 	zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
+	zest_imm_TransitionImage(queue, brd_image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 1);
 	zest_imm_EndCommandBuffer(queue);
 
 	zest_ReleaseImageIndex(device, brd_image, zest_storage_image_binding);
@@ -64,10 +66,11 @@ zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle s
 	zest_uint group_count_x = (64 + local_size - 1) / local_size;
 	zest_uint group_count_y = (64 + local_size - 1) / local_size;
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_SendPushConstants(queue, &push, sizeof(irr_push_constant_t));
 	zest_imm_BindComputePipeline(queue, compute);
 	zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
+	zest_imm_TransitionImage(queue, irr_image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 6);
 	zest_imm_EndCommandBuffer(queue);
 
 	zest_ReleaseImageIndex(device, irr_image, zest_storage_image_binding);
@@ -105,7 +108,7 @@ zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle 
 
 	const zest_image_info_t *prefiltered_image_info = zest_ImageInfo(prefiltered_image);
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_SendPushConstants(queue, &push, sizeof(irr_push_constant_t));
 	zest_imm_BindComputePipeline(queue, compute);
 	for (zest_uint m = 0; m < prefiltered_image_info->mip_levels; m++) {
@@ -122,6 +125,7 @@ zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle 
 		//Dispatch the compute shader
 		zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
 	}
+	zest_imm_TransitionImage(queue, prefiltered_image, zest_image_layout_shader_read_only_optimal, 0, prefiltered_image_info->mip_levels, 0, 6);
 	zest_imm_EndCommandBuffer(queue);
 
 	zest_FreeCompute(prefiltered_compute);

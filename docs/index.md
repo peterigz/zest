@@ -79,7 +79,7 @@ int main() {
 
 ## Examples
 
-Zest includes 17 working examples demonstrating various features:
+Zest includes 16 working examples demonstrating various features:
 
 | Example | Description |
 |---------|-------------|
