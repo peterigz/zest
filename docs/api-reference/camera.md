@@ -141,6 +141,8 @@ zest_vec2 zest_WorldToScreen(
 
 ### zest_WorldToScreenOrtho
 
+Convert a 3D world position to 2D screen coordinates using an orthographic projection. Useful for 2D games or isometric views where perspective distortion is not desired.
+
 ```cpp
 zest_vec2 zest_WorldToScreenOrtho(
 	const float point[3], 
