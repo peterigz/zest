@@ -12,7 +12,9 @@ Example recreated from Sascha Willems "Attraction based compute shader particle 
 https://github.com/SaschaWillems/Vulkan/tree/master/examples/computeparticles
 
 This example shows how to use the frame graph to dispatch a compute shader to update particles and then
-render them in a render pass.
+render them in a render pass. It also demonstrates async compute where uploaded imgui data and dispatching
+the compute shader can be done asynchronisely as there are no dependencies between them. Print the frame
+graph to see the frame graph set up.
 */
 
 void InitComputeExample(ComputeExample *app) {
@@ -272,7 +274,9 @@ void MainLoop(ComputeExample *app) {
 			ImGui::Text("FPS: %u", fps);
 			ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 			ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
-			ImGui::Checkbox("Print Render Graph", &app->print_render_graph);
+			if (ImGui::Button("Print Render Graph")) {
+				app->print_render_graph = true;
+			}
 			ImGui::End();
 			ImGui::Render();
 		} zest_EndTimerLoop(app->loop_timer)
