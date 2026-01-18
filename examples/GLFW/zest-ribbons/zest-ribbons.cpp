@@ -5,6 +5,7 @@
 #include <zest.h>
 #include "imgui_internal.h"
 #include <cmath>
+#include "examples/Common/controls.cpp"
 
 /*
 	Example showing using a compute shader to build ribbon vertex geometry and then rendering
@@ -96,8 +97,8 @@ void InitImGuiApp(Ribbons *app) {
 
 	app->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&app->camera, 60.f);
-	app->camera_push.uv_scale = .1f;
-	app->camera_push.uv_offset = 0.5f;
+	app->camera_push.uv_scale = 1.f;
+	app->camera_push.uv_offset = 0.f;
 	app->camera_push.width_scale_multiplier = 1.5f;
 	app->camera_push.tessellation = tessellation;
 	app->camera.position.x = -5.f;
@@ -261,6 +262,7 @@ void BuildUI(Ribbons *app) {
 	}
 	ImGui::End();
 	ImGui::Render();
+	UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 }
 
 zest_uint CountSegments(Ribbons *app) {
@@ -394,18 +396,6 @@ void UpdateRibbons(Ribbons *app) {
 	}
 }
 
-void UpdateMouse(Ribbons *app) {
-	double mouse_x, mouse_y;
-	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
-	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
-	double last_mouse_x = app->mouse_x;
-	double last_mouse_y = app->mouse_y;
-	app->mouse_x = mouse_x;
-	app->mouse_y = mouse_y;
-	app->mouse_delta_x = last_mouse_x - app->mouse_x;
-	app->mouse_delta_y = last_mouse_y - app->mouse_y;
-}
-
 void MainLoop(Ribbons *app) {
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
@@ -427,77 +417,22 @@ void MainLoop(Ribbons *app) {
 
 		zest_UpdateDevice(app->device);
 
-		UpdateMouse(app);
-
 		float elapsed = (float)current_frame_time;
 
 		if (zest_BeginFrame(app->context)) {
+			zest_StartTimerLoop(app->timer) {
+				BuildUI(app);
+				UpdateRibbons(app);
+			} zest_EndTimerLoop(app->timer);
+
+			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(&app->timer));
+			
+			UpdateMouse(app->context, &app->mouse, &app->camera);
 
 			UpdateUniform3d(app);
 
-			//First control the camera with the mosue if the right mouse is clicked
-			bool camera_free_look = false;
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-				camera_free_look = true;
-				if (glfwRawMouseMotionSupported()) {
-					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-				}
-				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-			} else if (glfwRawMouseMotionSupported()) {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			} else {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			}
-
-			if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
-				app->ribbon_built = true;
-			}
-
 			zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
 			zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(uniform_buffer);
-			zest_StartTimerLoop(app->timer) {
-				BuildUI(app);
-
-				if (ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyReleased(ImGuiKey_N)) {
-					UpdateRibbons(app);
-				}
-
-				float speed = 5.f * (float)app->timer.update_time;
-				if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-					ImGui::SetWindowFocus(nullptr);
-
-					if (ImGui::IsKeyDown(ImGuiKey_W)) {
-						zest_CameraMoveForward(&app->camera, speed);
-					}
-					if (ImGui::IsKeyDown(ImGuiKey_S)) {
-						zest_CameraMoveBackward(&app->camera, speed);
-					}
-					if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
-						zest_CameraMoveUp(&app->camera, speed);
-					}
-					if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
-						zest_CameraMoveDown(&app->camera, speed);
-					}
-					if (ImGui::IsKeyDown(ImGuiKey_A)) {
-						zest_CameraStrafLeft(&app->camera, speed);
-					}
-					if (ImGui::IsKeyDown(ImGuiKey_D)) {
-						zest_CameraStrafRight(&app->camera, speed);
-					}
-				}
-
-				//Restore the mouse when right mouse isn't held down
-				if (camera_free_look) {
-					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-				} else {
-					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-				}
-
-			} zest_EndTimerLoop(app->timer);
 
 			zest_uint fif = zest_CurrentFIF(app->context);
 
@@ -535,6 +470,17 @@ void MainLoop(Ribbons *app) {
 
 					zest_ImportSwapchainResource();
 
+					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+					zest_BeginTransferPass("Transfer Ribbon Data"); {
+						//outputs
+						zest_ConnectOutput(ribbon_segment_buffer);
+						zest_ConnectOutput(ribbon_instance_buffer);
+						//tasks
+						zest_SetPassTask(UploadRibbonData, app);
+						zest_EndPass();
+					}
+					//--------------------------------------------------------------------------------------------------
+
 					//-------------------------Ribbon Compute Pass-------------------------------------------------
 					zest_compute ribbon_compute = zest_GetCompute(app->ribbon_compute);
 					zest_BeginComputePass(ribbon_compute, "Compute Ribbons"); {
@@ -546,17 +492,6 @@ void MainLoop(Ribbons *app) {
 						zest_ConnectOutput(ribbon_index_buffer);
 						//tasks
 						zest_SetPassTask(RecordComputeCommands, app);
-						zest_EndPass();
-					}
-					//--------------------------------------------------------------------------------------------------
-
-					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-					zest_BeginTransferPass("Transfer Ribbon Data"); {
-						//outputs
-						zest_ConnectOutput(ribbon_segment_buffer);
-						zest_ConnectOutput(ribbon_instance_buffer);
-						//tasks
-						zest_SetPassTask(UploadRibbonData, app);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------

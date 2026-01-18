@@ -43,6 +43,11 @@ struct mesh_t {
 	zest_uint vertex_count;
 };
 
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
 struct InstancingExample {
 	zest_context context;
 	zest_device device;
@@ -79,8 +84,7 @@ struct InstancingExample {
 	zest_vec3 old_camera_position;
 	zest_vec3 new_camera_position;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 	zest_uint fps;
 
 	float ellapsed_time;

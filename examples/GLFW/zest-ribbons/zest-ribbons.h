@@ -72,6 +72,11 @@ struct RibbonUniform {
 	zest_matrix4 proj;
 };
 
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
 struct Ribbons {
 	zest_imgui_t imgui;
 	zest_context context;
@@ -108,6 +113,9 @@ struct Ribbons {
 
 	RenderCacheInfo cache_info;
 
+	zest_vec3 old_camera_position;
+	zest_vec3 new_camera_position;
+
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];
 	ribbon_segment ribbon_segments[SEGMENT_COUNT * RIBBON_COUNT];
@@ -116,8 +124,7 @@ struct Ribbons {
 	RibbonBufferInfo ribbon_buffer_info;
 	zest_uint ribbon_built;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 };
 
 RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);

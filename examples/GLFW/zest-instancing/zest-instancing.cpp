@@ -6,6 +6,7 @@
 #include "zest.h"
 #include "imgui_internal.h"
 #include <random>
+#include "examples/Common/controls.cpp"
 
 /*
 Example recreated from Sascha Willems "Instanced mesh rendering" 
@@ -211,71 +212,11 @@ void UpdateUniform3d(InstancingExample *app) {
 	app->push.ubo_index = zest_GetUniformBufferDescriptorIndex(view_buffer);
 }
 
-void UpdateCameraPosition(InstancingExample *app) {
-	float speed = 5.f * (float)zest_TimerUpdateTime(&app->timer);
-	app->old_camera_position = app->camera.position;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		ImGui::SetWindowFocus(nullptr);
-
-		if (ImGui::IsKeyDown(ImGuiKey_W)) {
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_S)) {
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_A)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_D)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-	}
-}
-
 void UploadMeshData(const zest_command_list command_list, void *user_data) {
 	InstancingExample *app = (InstancingExample *)user_data;
 
 	zest_layer layer = zest_GetLayer(app->rock_layer);
 	zest_UploadLayerStagingData(layer, command_list);
-}
-
-void UpdateMouse(InstancingExample *app) {
-	double mouse_x, mouse_y;
-	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
-	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
-	double last_mouse_x = app->mouse_x;
-	double last_mouse_y = app->mouse_y;
-	app->mouse_x = mouse_x;
-	app->mouse_y = mouse_y;
-	app->mouse_delta_x = last_mouse_x - app->mouse_x;
-	app->mouse_delta_y = last_mouse_y - app->mouse_y;
-
-	bool camera_free_look = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		camera_free_look = true;
-		if (glfwRawMouseMotionSupported()) {
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-		}
-		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-	} else if (glfwRawMouseMotionSupported()) {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	} else {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-	}
-
-	//Restore the mouse when right mouse isn't held down
-	if (camera_free_look) {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	}
-	else {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	}
 }
 
 void UpdateImGui(InstancingExample *app) {
@@ -301,7 +242,7 @@ void UpdateImGui(InstancingExample *app) {
 		}
 		ImGui::End();
 		ImGui::Render();
-		UpdateCameraPosition(app);
+		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 	} zest_EndTimerLoop(app->timer);
 }
 
@@ -380,7 +321,7 @@ void MainLoop(InstancingExample *app) {
 
 		if (zest_BeginFrame(app->context)) {
 
-			UpdateMouse(app);
+			UpdateMouse(app->context, &app->mouse, &app->camera);
 
 			float elapsed = (float)current_frame_time;
 			app->frame_timer = (float)elapsed / ZEST_MICROSECS_SECOND;
