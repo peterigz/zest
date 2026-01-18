@@ -7935,14 +7935,6 @@ zest_bool zest_BeginFrame(zest_context context) {
 		return ZEST_FALSE;
 	}
 
-	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
-		zest_context_queue context_queue = context->queues[i];
-		if (context_queue->queue) {
-			zest__release_queue(context_queue->queue);
-			context_queue->queue = NULL;
-		}
-	}
-
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
 	if (context->frame_graph_allocator[context->current_fif].next) {
@@ -8031,6 +8023,14 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 		}
 	}
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
+
+	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
+		zest_context_queue context_queue = context->queues[i];
+		if (context_queue->queue) {
+			zest__release_queue(context_queue->queue);
+			context_queue->queue = NULL;
+		}
+	}
 }
 
 void zest_DestroyDevice(zest_device device) {
