@@ -9,9 +9,6 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	int brd_layout;
-	int irradiance_layout;
-	int prefiltered_layout;
 };
 
 struct UniformLights {
@@ -64,6 +61,11 @@ struct pbr_consts_t {
 	zest_uint sampler_index;
 	zest_uint view_buffer_index;
 	zest_uint lights_buffer_index;
+};
+
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
 };
 
 struct SimplePBRExample {
@@ -123,8 +125,7 @@ struct SimplePBRExample {
 	zest_vec3 old_camera_position;
 	zest_vec3 new_camera_position;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 	zest_uint fps;
 
 	zest_atlas_region_t light;

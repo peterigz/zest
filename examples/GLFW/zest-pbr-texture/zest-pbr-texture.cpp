@@ -6,6 +6,7 @@
 #include "zest.h"
 #include "imgui_internal.h"
 #include "examples/Common/pbr_functions.cpp"
+#include "examples/Common/controls.cpp"
 
 /*
 Example recreated from Sascha Willems "Physical based rendering a textured object (metal/roughness workflow) with image based lighting" 
@@ -179,66 +180,6 @@ void UploadMeshData(const zest_command_list context, void *user_data) {
 	}
 }
 
-void UpdateCameraPosition(PBRTextureExample *app) {
-	float speed = 5.f * (float)zest_TimerUpdateTime(&app->timer);
-	app->old_camera_position = app->camera.position;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		ImGui::SetWindowFocus(nullptr);
-
-		if (ImGui::IsKeyDown(ImGuiKey_W)) {
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_S)) {
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_A)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_D)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-	}
-}
-
-void UpdateMouse(PBRTextureExample *app) {
-	double mouse_x, mouse_y;
-	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
-	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
-	double last_mouse_x = app->mouse_x;
-	double last_mouse_y = app->mouse_y;
-	app->mouse_x = mouse_x;
-	app->mouse_y = mouse_y;
-	app->mouse_delta_x = last_mouse_x - app->mouse_x;
-	app->mouse_delta_y = last_mouse_y - app->mouse_y;
-
-	bool camera_free_look = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		camera_free_look = true;
-		if (glfwRawMouseMotionSupported()) {
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-		}
-		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-	} else if (glfwRawMouseMotionSupported()) {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	} else {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-	}
-
-	//Restore the mouse when right mouse isn't held down
-	if (camera_free_look) {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	}
-	else {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	}
-}
-
 void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
     textured_mesh_instance_t* instance = (textured_mesh_instance_t*)zest_NextInstance(layer);
 
@@ -266,7 +207,7 @@ void UpdateImGui(PBRTextureExample *app) {
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		UpdateCameraPosition(app);
+		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 	} zest_EndTimerLoop(app->timer);
 }
 
@@ -295,7 +236,7 @@ void MainLoop(PBRTextureExample *app) {
 
 		if (zest_BeginFrame(app->context)) {
 
-			UpdateMouse(app);
+			UpdateMouse(app->context, &app->mouse, &app->camera);
 
 			float elapsed = (float)current_frame_time;
 
@@ -342,9 +283,6 @@ void MainLoop(PBRTextureExample *app) {
 			//the cache key will change and a new cache will be created as a result. The other option is to transition 
 			//them before hand but this is just to show an example of how the frame graph caching can work.
 			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
-			app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
-			app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
-			app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
@@ -366,10 +304,6 @@ void MainLoop(PBRTextureExample *app) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
-					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
-					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", brd_image, 0);
-					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", irr_image, 0);
-					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 					zest_resource_group group = zest_CreateResourceGroup();
@@ -387,7 +321,6 @@ void MainLoop(PBRTextureExample *app) {
 
 					//------------------------ Skybox Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Skybox Pass"); {
-						zest_ConnectInput(skybox_texture_resource);
 						zest_ConnectInput(skybox_layer_resource);
 						zest_ConnectOutputGroup(group);
 						zest_SetPassTask(zest_DrawInstanceMeshLayer, skybox_layer);
@@ -398,9 +331,6 @@ void MainLoop(PBRTextureExample *app) {
 					//------------------------ PBR Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Instance Mesh Pass"); {
 						zest_ConnectInput(mesh_layer_resource);
-						zest_ConnectInput(brd_texture_resource);
-						zest_ConnectInput(irradiance_texture_resource);
-						zest_ConnectInput(prefiltered_texture_resource);
 						zest_ConnectOutputGroup(group);
 						zest_SetPassTask(zest_DrawInstanceMeshLayer, mesh_layer);
 						zest_EndPass();

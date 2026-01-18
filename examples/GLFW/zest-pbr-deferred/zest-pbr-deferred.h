@@ -9,9 +9,6 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	int brd_layout;
-	int irradiance_layout;
-	int prefiltered_layout;
 };
 
 struct UniformLights {
@@ -77,6 +74,11 @@ struct gbuffer_push_t {
 	zest_vec3 color;              // Albedo tint (12 bytes)
 	zest_uint _padding;           // Padding to align to 16 bytes
 	zest_uint view_buffer_index;
+};
+
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
 };
 
 // Deferred lighting pass push constants
@@ -168,8 +170,7 @@ struct SimplePBRExample {
 	zest_vec3 old_camera_position;
 	zest_vec3 new_camera_position;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 	zest_uint fps;
 
 	zest_atlas_region_t light;
@@ -182,8 +183,6 @@ struct SimplePBRExample {
 void InitSimplePBRExample(SimplePBRExample *app);
 void UpdateUniform3d(SimplePBRExample *app);
 void UpdateLights(SimplePBRExample *app, float timer);
-void UpdateMouse(SimplePBRExample *app);
-void UpdateCameraPosition(SimplePBRExample *app);
 void UpdateImGui(SimplePBRExample *app);
 void UploadMeshData(const zest_command_list context, void *user_data);
 void SetupBRDFLUT(SimplePBRExample *app);

@@ -41,6 +41,11 @@ struct mesh_instance_t {
 	zest_vec3 scale;
 };
 
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
 struct ShadowMappingExample {
 	zest_context context;
 	zest_device device;
@@ -71,8 +76,7 @@ struct ShadowMappingExample {
 	float z_near = 1.0f;
 	float z_far = 96.0f;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 	zest_uint fps;
 
 	float frame_timer;
@@ -82,8 +86,6 @@ struct ShadowMappingExample {
 void InitShadowMappingExample(ShadowMappingExample *app);
 void UpdateUniform3d(ShadowMappingExample *app);
 void UpdateLights(ShadowMappingExample *app, float timer);
-void UpdateMouse(ShadowMappingExample *app);
-void UpdateCameraPosition(ShadowMappingExample *app);
 void UpdateImGui(ShadowMappingExample *app);
 void UploadMeshData(const zest_command_list context, void *user_data);
 void SetupBRDFLUT(ShadowMappingExample *app);

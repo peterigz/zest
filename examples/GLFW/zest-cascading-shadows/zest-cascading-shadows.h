@@ -60,6 +60,11 @@ struct cascade_t {
 	zest_matrix4 viewProjMatrix;
 };
 
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
 struct CascadingShadowsExample {
 	zest_context context;
 	zest_device device;
@@ -98,8 +103,7 @@ struct CascadingShadowsExample {
 	bool color_cascades;
 	bool debug_draw;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
 	zest_uint fps;
 
 	float frame_timer;
@@ -109,8 +113,6 @@ struct CascadingShadowsExample {
 void InitCascadingShadowsExample(CascadingShadowsExample *app);
 void UpdateUniform3d(CascadingShadowsExample *app);
 void UpdateLights(CascadingShadowsExample *app, float timer);
-void UpdateMouse(CascadingShadowsExample *app);
-void UpdateCameraPosition(CascadingShadowsExample *app);
 void UpdateImGui(CascadingShadowsExample *app);
 void UploadMeshData(const zest_command_list context, void *user_data);
 void SetupBRDFLUT(CascadingShadowsExample *app);

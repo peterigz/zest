@@ -6,21 +6,38 @@
 #include "zest.h"
 #include "imgui_internal.h"
 #include "examples/Common/pbr_functions.cpp"
+#include "examples/Common/controls.cpp"
 
 /*
-Example based on Sascha Willems "Physical based rendering with image based lighting" except this deferrs the lighting
-calculations to a separate pass to show gbuffer output/input in the frame graphy.
+Deferred PBR Rendering with Image Based Lighting Example
+Based on Sascha Willems "Physical based rendering with image based lighting"
 https://github.com/SaschaWillems/Vulkan/tree/master/examples/pbribl
+
+This example demonstrates deferred rendering where lighting is computed in a separate pass:
+
+Deferred Rendering Pipeline:
+1. G-Buffer Pass: Render geometry to multiple render targets (MRT)
+   - Normal buffer (world-space normals)
+   - Albedo buffer (base color)
+   - PBR buffer (roughness, metallic)
+   - Depth buffer (for position reconstruction)
+2. Lighting Pass: Fullscreen pass that reads G-buffer and computes PBR+IBL lighting
+3. Composite Pass: Combines lit scene with skybox
+
+Key concepts demonstrated:
+- Multiple Render Targets (MRT) for G-buffer output
+- Resource groups for grouping G-buffer attachments
+- Position reconstruction from depth using inverse view-projection matrix
+- Fullscreen triangle rendering for deferred passes
+- Frame graph with complex input/output dependencies between passes
 */
 
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
-    ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
-	//Implement a dark style
+	ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 	zest_imgui_DarkStyle(&app->imgui);
-	
-	//This is an exmaple of how to change the font that ImGui uses
+
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
@@ -31,10 +48,9 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	config.PixelSnapH = true;
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
-
-	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
+	//Setup free-look camera
 	app->camera = zest_CreateCamera();
 	float position[3] = { -2.5f, 0.f, 0.f };
 	zest_CameraPosition(&app->camera, position);
@@ -45,7 +61,6 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->new_camera_position = app->camera.position;
 	app->old_camera_position = app->camera.position;
 
-	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
 	app->request_graph_print = 0;
 	app->reset = false;
@@ -57,11 +72,14 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.y = 0.8f;
 	app->material_push.color.z = 0.1f;
 
-	//Compile the shaders we will use to render the particles
+	//Load skybox shaders
 	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
 	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
 
-	// Deferred rendering shaders
+	//Deferred rendering shaders:
+	//- gbuffer: outputs geometry data to multiple render targets
+	//- lighting: fullscreen pass that reads G-buffer and computes PBR lighting
+	//- composite: combines lit scene with skybox
 	app->gbuffer_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/gbuffer.vert", "gbuffer_vert.spv", zest_vertex_shader, true);
 	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, true);
 	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, true);
@@ -90,45 +108,47 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 
+	//G-buffer pipeline: outputs geometry attributes to multiple render targets.
+	//Fragment shader writes to: normal, albedo, PBR (roughness/metallic) buffers.
 	app->gbuffer_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
 	zest_AddVertexInputBindingDescription(app->gbuffer_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->gbuffer_pipeline, 1, sizeof(deferred_mesh_instance_t), zest_input_rate_instance);
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 3, zest_format_r32g32_sfloat, offsetof(zest_vertex_t, uv));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, parameters));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(deferred_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(deferred_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(deferred_mesh_instance_t, roughness));   // Location 7: Instance Parameters
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(deferred_mesh_instance_t, scale));      // Location 8: Instance Scale
-	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(deferred_mesh_instance_t, metallic));   // Location 7: Instance Parameters
-
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 2, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 3, zest_format_r32g32_sfloat, offsetof(zest_vertex_t, uv));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 4, zest_format_r16g16b16a16_unorm, offsetof(zest_vertex_t, tangent));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_vertex_t, parameters));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 6, zest_format_r32g32b32_sfloat, 0);
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(deferred_mesh_instance_t, color));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(deferred_mesh_instance_t, rotation));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 9, zest_format_r32_sfloat, offsetof(deferred_mesh_instance_t, roughness));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 10, zest_format_r32g32b32_sfloat, offsetof(deferred_mesh_instance_t, scale));
+	zest_AddVertexAttribute(app->gbuffer_pipeline, 1, 11, zest_format_r32_sfloat, offsetof(deferred_mesh_instance_t, metallic));
 	zest_SetPipelineShaders(app->gbuffer_pipeline, app->gbuffer_vert, app->gbuffer_frag);
-	zest_SetPipelineDepthTest(app->gbuffer_pipeline, true, true);  // Enable depth test and write for proper occlusion
+	zest_SetPipelineDepthTest(app->gbuffer_pipeline, true, true);
 	zest_SetPipelineCullMode(app->gbuffer_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->gbuffer_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineTopology(app->gbuffer_pipeline, zest_topology_triangle_list);
 
+	//Skybox pipeline - depth test ON but write OFF so it only renders where nothing else is
 	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->gbuffer_pipeline);
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
-	zest_SetPipelineDepthTest(app->skybox_pipeline, true, false);  // Depth test ON, depth write OFF - skybox only renders where nothing else is
+	zest_SetPipelineDepthTest(app->skybox_pipeline, true, false);
 
-	// G-buffer pipeline (same vertex layout as PBR pipeline)
 	app->gbuffer_pipeline = zest_CopyPipelineTemplate("pipeline_gbuffer", app->gbuffer_pipeline);
 	zest_SetPipelineShaders(app->gbuffer_pipeline, app->gbuffer_vert, app->gbuffer_frag);
-	zest_SetPipelineDepthTest(app->gbuffer_pipeline, true, true);  // Enable depth test and write for proper occlusion
+	zest_SetPipelineDepthTest(app->gbuffer_pipeline, true, true);
 
-	// Deferred lighting pipeline (fullscreen, no vertex input)
+	//Deferred lighting pipeline: fullscreen pass that samples G-buffer and computes PBR+IBL.
+	//Uses fullscreen triangle (3 vertices, no vertex input).
 	app->lighting_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_deferred_lighting");
 	zest_SetPipelineShaders(app->lighting_pipeline, app->lighting_vert, app->lighting_frag);
 	zest_SetPipelineDisableVertexInput(app->lighting_pipeline);
 	zest_SetPipelineDepthTest(app->lighting_pipeline, false, false);
 
-	// Composite pipeline (fullscreen, no vertex input) Draws the skybox and the GBuffer render target
+	//Composite pipeline: combines lit scene with skybox (fullscreen pass)
 	app->composite_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_composite");
 	zest_SetPipelineShaders(app->composite_pipeline, app->lighting_vert, app->composite_frag);
 	zest_SetPipelineDisableVertexInput(app->composite_pipeline);
@@ -171,13 +191,15 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_FreeMesh(teapot);
 }
 
+//Update view matrices. The inverse view-projection is used in the lighting pass
+//to reconstruct world-space position from the depth buffer.
 void UpdateUniform3d(SimplePBRExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(view_buffer));
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
 	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
-	// Calculate inverse view-projection matrix for position reconstruction from depth
+	//Inverse VP matrix for reconstructing world position from depth in lighting pass
 	zest_matrix4 view_proj = zest_MatrixTransform(&ubo_ptr->proj, &ubo_ptr->view);
 	ubo_ptr->inv_view_proj = zest_Inverse(&view_proj);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
@@ -210,30 +232,29 @@ void UpdateLights(SimplePBRExample *app, float timer) {
 	app->material_push.lights_buffer_index = zest_GetUniformBufferDescriptorIndex(lights_buffer);
 }
 
+//Transfer pass - upload mesh instance data
 void UploadMeshData(const zest_command_list context, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
-
-	zest_layer_handle layers[2]{
-		app->mesh_layer,
-		app->skybox_layer
-	};
-
+	zest_layer_handle layers[2]{ app->mesh_layer, app->skybox_layer };
 	for (int i = 0; i != 2; ++i) {
 		zest_layer layer = zest_GetLayer(layers[i]);
 		zest_UploadLayerStagingData(layer, context);
 	}
 }
 
+//G-buffer pass - render geometry to multiple render targets (normal, albedo, PBR)
 void DrawGBufferPass(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 	zest_layer mesh_layer = zest_GetLayer(app->mesh_layer);
 	zest_DrawInstanceMeshLayer(command_list, mesh_layer);
 }
 
+//Deferred lighting pass - samples G-buffer and computes PBR+IBL lighting.
+//Position is reconstructed from depth using inverse view-projection matrix.
 void DrawLightingPass(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
-	// Get G-buffer and depth buffer bindless indices
+	//Get G-buffer textures from frame graph and acquire bindless indices for sampling
 	zest_resource_node gDepth = zest_GetPassInputResource(command_list, "Depth Buffer");
 	zest_resource_node gNormal = zest_GetPassInputResource(command_list, "GBuffer_Normal");
 	zest_resource_node gAlbedo = zest_GetPassInputResource(command_list, "GBuffer_Albedo");
@@ -248,15 +269,17 @@ void DrawLightingPass(const zest_command_list command_list, void *user_data) {
 	zest_pipeline pipeline = zest_GetPipeline(app->lighting_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &app->lighting_push, sizeof(deferred_lighting_push_t));
-	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);  //Fullscreen triangle
 }
 
+//Composite pass - draws skybox first, then overlays the lit scene from the lighting pass
 void DrawComposite(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample*)user_data;
-	//Draw the skybox mesh
+
+	//Draw the skybox mesh first (renders where depth buffer has no geometry)
 	zest_DrawInstanceMeshLayer(command_list, zest_GetLayer(app->skybox_layer));
 
-	//Draw the GBuffer render target
+	//Draw the lit scene from the lighting pass output
 	zest_resource_node gTarget = zest_GetPassInputResource(command_list, "GBuffer_Target");
 	app->composite_push.gTarget_index = zest_GetTransientSampledImageBindlessIndex(command_list, gTarget, zest_texture_2d_binding);
 
@@ -264,67 +287,7 @@ void DrawComposite(const zest_command_list command_list, void *user_data) {
 	zest_pipeline pipeline = zest_GetPipeline(app->composite_pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &app->composite_push, sizeof(composite_push_constant_t));
-	zest_cmd_Draw(command_list, 3, 1, 0, 0);  // Fullscreen triangle
-}
-
-void UpdateCameraPosition(SimplePBRExample *app) {
-	float speed = 5.f * (float)zest_TimerUpdateTime(&app->timer);
-	app->old_camera_position = app->camera.position;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		ImGui::SetWindowFocus(nullptr);
-
-		if (ImGui::IsKeyDown(ImGuiKey_W)) {
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_S)) {
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_A)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-		if (ImGui::IsKeyDown(ImGuiKey_D)) {
-			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
-			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
-		}
-	}
-}
-
-void UpdateMouse(SimplePBRExample *app) {
-	double mouse_x, mouse_y;
-	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
-	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
-	double last_mouse_x = app->mouse_x;
-	double last_mouse_y = app->mouse_y;
-	app->mouse_x = mouse_x;
-	app->mouse_y = mouse_y;
-	app->mouse_delta_x = last_mouse_x - app->mouse_x;
-	app->mouse_delta_y = last_mouse_y - app->mouse_y;
-
-	bool camera_free_look = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		camera_free_look = true;
-		if (glfwRawMouseMotionSupported()) {
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-		}
-		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
-	} else if (glfwRawMouseMotionSupported()) {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	} else {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-	}
-
-	//Restore the mouse when right mouse isn't held down
-	if (camera_free_look) {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	}
-	else {
-		glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	}
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);  //Fullscreen triangle
 }
 
 void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic) {
@@ -371,7 +334,7 @@ void UpdateImGui(SimplePBRExample *app) {
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		UpdateCameraPosition(app);
+		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 	} zest_EndTimerLoop(app->timer);
 }
 
@@ -400,7 +363,7 @@ void MainLoop(SimplePBRExample *app) {
 
 		if (zest_BeginFrame(app->context)) {
 
-			UpdateMouse(app);
+			UpdateMouse(app->context, &app->mouse, &app->camera);
 
 			float elapsed = (float)current_frame_time;
 
@@ -486,24 +449,18 @@ void MainLoop(SimplePBRExample *app) {
 
 			zest_swapchain swapchain = zest_GetSwapchain(app->context);
 
-			//Initially when the 3 textures that are created using compute shaders in the setup they will be in 
-			//image layout general. When they are used in the frame graph below they will be transitioned to read only
-			//so we store the current layout of the image in a custom cache info struct so that when the layout changes
-			//the cache key will change and a new cache will be created as a result. The other option is to transition 
-			//them before hand but this is just to show an example of how the frame graph caching can work.
+			//Frame graph caching - cache key includes whether ImGui has content to draw.
+			//If ImGui state changes, a new graph is compiled with/without the ImGui pass.
 			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&app->imgui);
-			app->cache_info.brd_layout = zest_ImageRawLayout(brd_image);
-			app->cache_info.irradiance_layout = zest_ImageRawLayout(irr_image);
-			app->cache_info.prefiltered_layout = zest_ImageRawLayout(prefiltered_image);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
-			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
-			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
-			//if the window is resized for example.
+			//Build frame graph if not cached (first frame or cache key changed)
 			if (!frame_graph) {
 
+				//Define transient resources for deferred rendering.
+				//These are created/destroyed automatically by the frame graph compiler.
 				zest_image_resource_info_t depth_info = {
 					zest_format_depth,
 					zest_resource_usage_hint_none,
@@ -551,11 +508,6 @@ void MainLoop(SimplePBRExample *app) {
 
 					zest_resource_node gTarget = zest_AddTransientImageResource("GBuffer_Target",  &gbuffer_normal_hdr_info);
 
-					// IBL and skybox texture imports
-					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", skybox_image, 0);
-					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", brd_image, 0);
-					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", irr_image, 0);
-					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", prefiltered_image, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 
 					// G-buffer output group (MRT) - 3 color attachments + depth
@@ -592,9 +544,6 @@ void MainLoop(SimplePBRExample *app) {
 					//------------------------ Deferred Lighting Pass ---------------------------------------------------
 					zest_BeginRenderPass("Lighting Pass"); {
 						zest_ConnectInputGroup(gbuffer_group);  
-						zest_ConnectInput(brd_texture_resource);
-						zest_ConnectInput(irradiance_texture_resource);
-						zest_ConnectInput(prefiltered_texture_resource);
 						zest_ConnectOutput(gTarget);
 						zest_SetPassTask(DrawLightingPass, app);
 						zest_EndPass();
@@ -604,7 +553,6 @@ void MainLoop(SimplePBRExample *app) {
 					//------------------------ Composite Layer Pass (after lighting) ---------------------------------------
 					zest_BeginRenderPass("Composite Pass"); {
 						zest_ConnectInput(gTarget);
-						zest_ConnectInput(skybox_texture_resource);
 						zest_ConnectInput(skybox_layer_resource);
 						zest_ConnectOutputGroup(final_group);
 						zest_SetPassTask(DrawComposite, app);
@@ -628,11 +576,12 @@ void MainLoop(SimplePBRExample *app) {
 					}
 					//----------------------------------------------------------------------------------------------------
 
-					//End the render graph and execute it. This will submit it to the GPU.
+					//Compile the frame graph - this handles barriers, semaphores, and resource lifetime
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
 
+			//Execute frame graph and present to swapchain
 			zest_EndFrame(app->context, frame_graph);
 			if (app->request_graph_print > 0) {
 				//You can print out the render graph for debugging purposes
@@ -641,6 +590,7 @@ void MainLoop(SimplePBRExample *app) {
 			}
 		}
 
+		//Handle window resize - update layer viewport sizes
 		if (zest_SwapchainWasRecreated(app->context)) {
 			zest_SetLayerSizeToSwapchain(mesh_layer);
 			zest_SetLayerSizeToSwapchain(skybox_layer);
@@ -649,32 +599,30 @@ void MainLoop(SimplePBRExample *app) {
 }
 
 int main(void) {
-
+	//Initialise GLFW
 	if (!glfwInit()) {
 		return 0;
 	}
 
 	SimplePBRExample imgui_app = {};
 
-	//Create the device that serves all vulkan based contexts
+	//Create the Vulkan device (one per application)
 	imgui_app.device = zest_implglfw_CreateVulkanDevice(false);
 
-	//Create a window using GLFW
+	//Create a GLFW window
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
-	//Create new config struct for Zest
+	//Create a Zest context for this window
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	//Initialise Zest
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
 
-	//int *test = nullptr;
-	//zest_vec_push(imgui_app.context->device->allocator, test, 10);
-
-	//Initialise our example
+	//Initialise deferred rendering pipelines, IBL textures, mesh layers
 	InitSimplePBRExample(&imgui_app);
 
-	//Start the main loop
+	//Run the main loop
 	MainLoop(&imgui_app);
+
+	//Cleanup
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
 	zest_DestroyDevice(imgui_app.device);
