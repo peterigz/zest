@@ -14559,10 +14559,10 @@ zest_resource_node zest_GetPassOutputResource(const zest_command_list command_li
 zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number) {
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
+    if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
 	zest_context context = zest__frame_graph_builder->context;
 	zest_device device = context->device;
     zest_frame_graph frame_graph = command_list->frame_graph;
-    if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
     zest_set_layout bindless_layout = frame_graph->bindless_layout;
     zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
     if (bindless_index == ZEST_INVALID) {
@@ -16358,7 +16358,7 @@ void zest_SetLayerUserData(zest_layer layer, void *data) {
     layer->user_data = data;
 }
 
-void zest_GetLayerUserData(zest_layer layer, void *data) {
+void *zest_GetLayerUserData(zest_layer layer, void *data) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->user_data;
 }
