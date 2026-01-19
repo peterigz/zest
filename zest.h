@@ -8217,7 +8217,7 @@ int zest_UpdateDevice(zest_device device) {
     }
 
 	if (zest_vec_size(device->deferred_resource_freeing_list.buffers[index])) {
-		zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers) {
+		zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers[index]) {
 			zest_buffer buffer = device->deferred_resource_freeing_list.buffers[index][i];
 			zest_FreeBufferNow(buffer);
 			resources_freed++;
