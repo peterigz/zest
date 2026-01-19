@@ -142,7 +142,7 @@ typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
-#include <cmath>
+#include <math.h>
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
 #define ZLOC_ASSERT assert
@@ -2383,7 +2383,7 @@ typedef zest_uint zest_frame_graph_result;                   //zest_frame_graph_
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
-static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
+#define ZEST_STRUCT_IDENTIFIER 0x4E57
 #define zest_INIT_MAGIC(struct_type) (struct_type | ZEST_STRUCT_IDENTIFIER);
 
 #define ZEST_ASSERT_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
@@ -2837,11 +2837,11 @@ typedef struct zest_bucket_array_t {
 	zest_uint element_size;     // The size of a single element
 } zest_bucket_array_t;
 
-ZEST_PRIVATE inline void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
-ZEST_PRIVATE inline void zest__free_bucket_array(zest_bucket_array_t *array);
-ZEST_API_TMP inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
-ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
-ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
+ZEST_PRIVATE void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
+ZEST_PRIVATE void zest__free_bucket_array(zest_bucket_array_t *array);
+ZEST_API_TMP void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
+ZEST_PRIVATE void *zest__bucket_array_add(zest_bucket_array_t *array);
+ZEST_PRIVATE void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
 #define zest_bucket_array_init(allocator, array, T, cap) zest__initialise_bucket_array(allocator, array, sizeof(T), cap)
 #define zest_bucket_array_get(array, T, index) ((T *)zest__bucket_array_get(array, index))
@@ -3390,6 +3390,7 @@ typedef struct zest_sampler_info_t {
 	float max_lod;
 } zest_sampler_info_t;
 
+struct zest_window_data_t;  // Forward declaration
 typedef void (*zest_get_window_sizes_callback)(struct zest_window_data_t* window_data, int* fb_width, int* fb_height, int* window_width, int* window_height);
 
 typedef struct zest_window_data_t {
@@ -17500,6 +17501,7 @@ zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation) {
 	if (enable_validation) {
 		zest_AddDeviceBuilderValidation(device_builder);
 		zest_DeviceBuilderLogToConsole(device_builder);
+		zest_DeviceBuilderPrintMemoryInfo(device_builder);
 	}
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 

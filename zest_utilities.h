@@ -709,15 +709,18 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
     zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, image_collection.bitmap_array.data);
     zest_image_handle image_handle = ZEST__ZERO_INIT(zest_image_handle);
 
-    if (!staging_buffer) {
-        goto cleanup;
-    }
-
     zest_uint width = bitmap_array->meta[0].width;
     zest_uint height = bitmap_array->meta[0].height;
 
     zest_uint mip_levels = bitmap_array->size_of_array;
     zest_image_info_t create_info = zest_CreateImageInfo(width, height);
+	zest_image image = 0;
+	zest_queue queue = 0;
+
+    if (!staging_buffer) {
+        goto cleanup;
+    }
+
     create_info.mip_levels = mip_levels;
     create_info.format = image_collection.format;
     create_info.layer_count = layer_count;
@@ -726,9 +729,9 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
 		create_info.flags |= zest_image_flag_cubemap;
 	}
     image_handle = zest_CreateImage(device, &create_info);
-	zest_image image = zest_GetImage(image_handle);
+	image = zest_GetImage(image_handle);
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
     zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
@@ -2060,9 +2063,7 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
 
     zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, atlas->bitmap_array.data);
 
-    if (!staging_buffer) {
-        goto cleanup;
-    }
+	zest_queue queue = 0;
 
     zest_uint width = atlas->bitmap_array.meta[0].width;
     zest_uint height = atlas->bitmap_array.meta[0].height;
@@ -2070,7 +2071,11 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
     zest_uint mip_levels =  zest_ImageInfo(image)->mip_levels;
 	zest_uint layer_count = atlas->bitmap_array.size_of_array;
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_graphics);
+    if (!staging_buffer) {
+        goto cleanup;
+    }
+
+	queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_graphics);
     zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, atlas->buffer_copy_regions, atlas->bitmap_array.size_of_array, staging_buffer, image);
 	if (mip_levels > 1) {
@@ -2153,7 +2158,7 @@ static inline void zest__normalize_vec3_cgltf(float v[3]) {
 }
 
 zest_mesh LoadGLTFScene(zest_context context, const char* filepath, float adjust_scale) {
-	cgltf_options options = {0};
+	cgltf_options options = ZEST__ZERO_INIT(cgltf_options);
 	cgltf_data* data = NULL;
 
 	// Parse and load buffer data
@@ -2267,7 +2272,7 @@ zest_mesh LoadGLTFScene(zest_context context, const char* filepath, float adjust
 }
 
 zest_gltf_t LoadGLTF(zest_context context, const char* filepath) {
-	cgltf_options options = {0};
+	cgltf_options options = ZEST__ZERO_INIT(cgltf_options);
 	cgltf_data* data = NULL;
 
 	// Parse and load buffer data

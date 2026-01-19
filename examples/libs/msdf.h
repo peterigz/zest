@@ -1081,9 +1081,16 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
                     contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
                 }
             } else if (contour_data[i].edge_count >= 1) {
+                msdf_EdgeSegment part_storage[6];
                 msdf_EdgeSegment *parts[7] = {NULL};
+                parts[0 + 3 * corner] = &part_storage[0];
+                parts[1 + 3 * corner] = &part_storage[1];
+                parts[2 + 3 * corner] = &part_storage[2];
                 msdf_edgeSplit(&contour_data[i].edges[0], parts[0 + 3 * corner], parts[1 + 3 * corner], parts[2 + 3 * corner]);
                 if (contour_data[i].edge_count >= 2) {
+                    parts[3 - 3 * corner] = &part_storage[3];
+                    parts[4 - 3 * corner] = &part_storage[4];
+                    parts[5 - 3 * corner] = &part_storage[5];
                     msdf_edgeSplit(&contour_data[i].edges[1], parts[3 - 3 * corner], parts[4 - 3 * corner], parts[5 - 3 * corner]);
                     parts[0]->color = parts[1]->color = colors[0];
                     parts[2]->color = parts[3]->color = colors[1];
@@ -1100,7 +1107,7 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
                 contour_data[i].edge_count = 0;
                 int index = 0;
                 for (int j = 0; parts[j]; ++j) {
-                    memcpy(&contour_data[i].edges[index++], &parts[j], sizeof(msdf_EdgeSegment));
+                    contour_data[i].edges[index++] = *parts[j];
                     contour_data[i].edge_count++;
                 }
             }
@@ -1131,16 +1138,16 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     // normalize shape
     for (int i = 0; i < contour_count; i++) {
         if (contour_data[i].edge_count == 1) {
-            msdf_EdgeSegment *parts[3] = {0};
-            msdf_edgeSplit(&contour_data[i].edges[0], parts[0], parts[1], parts[2]);
+            msdf_EdgeSegment part0, part1, part2;
+            msdf_edgeSplit(&contour_data[i].edges[0], &part0, &part1, &part2);
             if (allocCtx.free) {
                 allocCtx.free(contour_data[i].edges, allocCtx.ctx);
             }
             contour_data[i].edges = (msdf_EdgeSegment*)allocCtx.alloc(sizeof(msdf_EdgeSegment) * 3, allocCtx.ctx);
             contour_data[i].edge_count = 3;
-            for (int j = 0; j < 3; j++) {
-                memcpy(&contour_data[i].edges[j], &parts[j], sizeof(msdf_EdgeSegment));
-            }
+            contour_data[i].edges[0] = part0;
+            contour_data[i].edges[1] = part1;
+            contour_data[i].edges[2] = part2;
         }
     }
 
