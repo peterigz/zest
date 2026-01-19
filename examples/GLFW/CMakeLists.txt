@@ -147,13 +147,21 @@ function(buildExample EXAMPLE_NAME)
         # Disable C++ features for this target
         target_compile_features(${EXAMPLE_NAME} PRIVATE c_std_11)
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
+		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
+		if(NOT MSVC)
+			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma -fpermissive -Wno-ignored-attributes)
+		endif()
 	endif()
 
 	target_link_libraries(${EXAMPLE_NAME} freetype)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include) 
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
-		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX}) 
+		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
+		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
+		if(NOT MSVC)
+			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma -fpermissive -Wno-ignored-attributes)
+		endif()
 	endif()
 
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${EXAMPLE_FOLDER})
@@ -164,7 +172,6 @@ endfunction(buildExample)
 
 set(EXAMPLES
 	zest-minimal-template
-	zest-compute-example
 	zest-imgui-template
 	zest-tests
 	zest-vaders
@@ -180,6 +187,11 @@ set(EXAMPLES
 	zest-fonts
 	zest-render-targets
 )
+
+# zest-compute-example requires Slang, which is only available as MSVC-built library from Vulkan SDK
+if(ZEST_ENABLE_SLANG AND MSVC)
+	list(APPEND EXAMPLES zest-compute-example)
+endif()
 
 buildExamples()
 
