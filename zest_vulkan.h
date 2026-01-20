@@ -1838,16 +1838,20 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
             !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
             !(properties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
 			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated transfer queue on index %i", i);
-			transfer_queue_count = transfer_queue_count_overide >= 0 ? (zest_uint)transfer_queue_count_overide : properties.queueCount;
-            transfer_candidate = transfer_queue_count ? i : ZEST_INVALID;
+            if (transfer_candidate == ZEST_INVALID) {
+                transfer_queue_count = transfer_queue_count_overide >= 0 ? (zest_uint)transfer_queue_count_overide : properties.queueCount;
+                transfer_candidate = transfer_queue_count ? i : ZEST_INVALID;
+            }
         }
 
         // Is it a dedicated compute queue?
         if ((properties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
             !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
 			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated compute queue on index %i", i);
-			compute_queue_count = compute_queue_count_overide >= 0 ? (zest_uint)compute_queue_count_overide : properties.queueCount;
-            compute_candidate = compute_queue_count ? i : ZEST_INVALID;
+            if (compute_candidate == ZEST_INVALID) {
+                compute_queue_count = compute_queue_count_overide >= 0 ? (zest_uint)compute_queue_count_overide : properties.queueCount;
+                compute_candidate = compute_queue_count ? i : ZEST_INVALID;
+            }
         }
     }
 
