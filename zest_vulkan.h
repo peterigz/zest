@@ -1899,6 +1899,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 
 	zloc_linear_allocator_t *scratch_arena = zest__get_scratch_arena(device);
 
+    
     int queue_create_count = 0;
     // Graphics queue
     {
@@ -2103,16 +2104,19 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device->transfer_queue_family_index = indices.transfer_family_index;
     device->compute_queue_family_index = indices.compute_family_index;
 
-    zest_vec_push(device->allocator, device->queues, &device->graphics_queues);
+    zest_uint highest_family_index = ZEST__MAX(ZEST__MAX(indices.graphics_family_index, indices.compute_family_index), indices.transfer_family_index);
+    zest_vec_resize(device->allocator, device->queues, highest_family_index + 1);
+    memset(device->queues, 0, zest_vec_size_in_bytes(device->queues));
+    device->queues[indices.graphics_family_index] = &device->graphics_queues;
     device->graphics_queues.family_index = indices.graphics_family_index;
     device->graphics_queues.type = zest_queue_graphics;
     if (compute_queue_count > 0) {
-		zest_vec_push(device->allocator, device->queues, &device->compute_queues);
+		device->queues[indices.compute_family_index] = &device->compute_queues;
 		device->compute_queues.family_index = indices.compute_family_index;
 		device->compute_queues.type = zest_queue_compute;
     }
     if (transfer_queue_count > 0) {
-		zest_vec_push(device->allocator, device->queues, &device->transfer_queues);
+		device->queues[indices.transfer_family_index] = &device->transfer_queues;
 		device->transfer_queues.family_index = indices.transfer_family_index;
 		device->transfer_queues.type = zest_queue_transfer;
     }

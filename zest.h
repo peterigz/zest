@@ -15366,7 +15366,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
     }
 	image->info.layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
-        zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+        zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
         zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
         zest_imm_EndCommandBuffer(queue);
     }
