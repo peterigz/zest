@@ -701,6 +701,8 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 		total_tests++;
 	}
 
+	zest_uint initial_validation_errors = zest_GetValidationErrorCount(tests->context);
+	zest_ResetValidationErrors(tests->device);
 	// Size exceeding typical maxUniformBufferRange (64KB + 1)
 	// This should either fail gracefully or produce a validation error
 	{
@@ -712,6 +714,7 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 		passed_tests++; // Handled gracefully (no crash)
 		total_tests++;
 	}
+	zest_ResetValidationErrors(tests->device);
 
 	// Phase 2: Name edge cases
 	// NULL name
@@ -793,7 +796,7 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->context) + initial_validation_errors;
 	test->frame_count++;
 	return test->result;
 }
