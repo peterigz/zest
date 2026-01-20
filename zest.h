@@ -370,6 +370,7 @@ static inline zloc_thread_access zloc__compare_and_exchange(volatile zloc_thread
 
 static inline int zloc__scan_reverse(zloc_size bitmap)
 {
+	if (bitmap == 0) return -1;
 	#if defined(zloc__64BIT)
 	return 64 - __builtin_clzll(bitmap) - 1;
 	#else
@@ -8247,7 +8248,7 @@ void zest__do_context_scheduled_tasks(zest_context context) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_images[context->current_fif]) {
             zest_image image = &context->deferred_resource_freeing_list.transient_images[context->current_fif][i];
             context->device->platform->cleanup_image_backend(image);
-            zest_FreeBuffer((zest_buffer)image->buffer);
+            zest_FreeBufferNow((zest_buffer)image->buffer);
             if (image->default_view) {
 				context->device->platform->cleanup_image_view_backend(image->default_view);
             }
@@ -9451,6 +9452,7 @@ void zest__free_context_buffer_allocators(zest_context context) {
 }
 
 void zest__cleanup_device(zest_device device) {
+	int stage = 1;
 	zest_vec_foreach(i, device->queues) {
 		zest_queue_manager_t *queue_manager = device->queues[i];
 		zest_vec_foreach(c, queue_manager->queues) {
@@ -9810,7 +9812,7 @@ void zest__cleanup_context(zest_context context) {
             zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_images[fif]) {
                 zest_image image = &context->deferred_resource_freeing_list.transient_images[fif][i];
                 context->device->platform->cleanup_image_backend(image);
-                zest_FreeBuffer((zest_buffer)image->buffer);
+                zest_FreeBufferNow((zest_buffer)image->buffer);
                 if (image->default_view) {
                     context->device->platform->cleanup_image_view_backend(image->default_view);
                 }
@@ -9915,7 +9917,7 @@ zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const 
         uniform_buffer->buffer[fif] = zest_CreateBuffer(context->device, uniform_struct_size, &buffer_info);
 		if (!uniform_buffer->buffer[fif]) {
 			for (int i = 0; i != fif; i++) {
-				zest_FreeBuffer(uniform_buffer->buffer[i]);
+				zest_FreeBufferNow(uniform_buffer->buffer[i]);
 			}
 			zest__remove_store_resource(store, handle.value);
 			return ZEST__ZERO_INIT(zest_uniform_buffer_handle);
@@ -15394,15 +15396,17 @@ void zest__release_all_global_texture_indexes(zest_device device, zest_image ima
 	if (zest_map_valid_key(device->mip_indexes, hashed_key)) {
 		zest_mip_index_collection *collection = zest_map_at_key(device->mip_indexes, hashed_key);
 		int active_bindings = collection->binding_numbers;
-		int current_binding = zloc__scan_reverse(active_bindings);
-		while (current_binding >= 0) {
-			zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
-				zest_uint index = collection->mip_indexes[current_binding][i];
-				zest_ReleaseBindlessIndex(device, index, (zest_binding_number_type)current_binding);
+		if (active_bindings) {
+			int current_binding = zloc__scan_reverse(active_bindings);
+			while (current_binding >= 0) {
+				zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
+					zest_uint index = collection->mip_indexes[current_binding][i];
+					zest_ReleaseBindlessIndex(device, index, (zest_binding_number_type)current_binding);
+				}
+				zest_vec_free(device->allocator, collection->mip_indexes[current_binding]);
+				active_bindings &= ~(1 << current_binding);
+				current_binding = active_bindings ? zloc__scan_reverse(active_bindings) : -1;
 			}
-			zest_vec_free(device->allocator, collection->mip_indexes[current_binding]);
-			active_bindings &= ~(1 << current_binding);
-			current_binding = zloc__scan_reverse(active_bindings);
 		}
 		collection->binding_numbers = 0;
 	}
@@ -15416,6 +15420,7 @@ void zest__release_all_image_indexes(zest_device device) {
 	zest_map_foreach (i, device->mip_indexes) {
 		zest_mip_index_collection *collection = &device->mip_indexes.data[i];
 		zest_uint active_bindings = collection->binding_numbers;
+		if (!active_bindings) continue;
 		int current_binding = zloc__scan_reverse(active_bindings);
 		while (current_binding >= 0) {
 			zest_vec_foreach(j, collection->mip_indexes[current_binding]) {
@@ -15460,7 +15465,7 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
 	zest_context context = (zest_context)uniform_buffer->handle.store->origin;
     zest_ForEachFrameInFlight(fif) {
         zest_buffer buffer = uniform_buffer->buffer[fif];
-        zest_FreeBuffer(buffer);
+        zest_FreeBufferNow(buffer);
 		zest__release_bindless_index(context->device->bindless_set_layout, zest_uniform_buffer_binding, uniform_buffer->descriptor_index[fif]);
 		uniform_buffer->descriptor_index[fif] = ZEST_INVALID;
     }
@@ -16897,8 +16902,8 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint te
 	zest_vec_push(layer->context->allocator, layer->mesh_offsets, offset_data);
 	layer->used_vertex_data += src_mesh_vertex_size;
 	layer->used_index_data += src_mesh_index_size;
-    zest_FreeBuffer(vertex_staging_buffer);
-    zest_FreeBuffer(index_staging_buffer);
+    zest_FreeBufferNow(vertex_staging_buffer);
+    zest_FreeBufferNow(index_staging_buffer);
 	return index;
 }
 
