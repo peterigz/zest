@@ -1,6 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#define GLFW_EXPOSE_NATIVE_XCB
 #include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 #include <zest.h>
 #include <string>
 
@@ -69,7 +71,7 @@ int main(void)
 	minimal_app_t app = {};
 
 	//Create the device that serves all vulkan based contexts
-	app.device = zest_implglfw_CreateVulkanDevice(false);
+	app.device = zest_implglfw_CreateVulkanDevice(true);
 
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest

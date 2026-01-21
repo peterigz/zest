@@ -142,6 +142,8 @@ typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
+#include <string.h>		//For memcpy, memset etc.
+#include <stdarg.h>		//For va_start, va_end etc.
 #include <math.h>
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
@@ -1078,7 +1080,7 @@ typedef zest_uint zest_millisecs;
 typedef zest_uint zest_thread_access;
 typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
-typedef uint64_t zest_size;
+typedef zest_ull zest_size;
 typedef unsigned char zest_byte;
 typedef unsigned int zest_bool;
 typedef char* zest_file;
@@ -1202,7 +1204,7 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat(left, right)
 #define zest_strcpy(left, size, right) strcpy(left, right)
-#define zest_strerror(buffer, size, error) strerror_r(buffer, size, error)
+#define zest_strerror(buffer, size, error) strerror_r(error, buffer, size)
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
 	return __sync_val_compare_and_swap(target, original, value);
 }
@@ -4217,7 +4219,7 @@ ZEST_PRIVATE void zest__cleanup_pipeline_layout(zest_pipeline_layout layout);
 // --Buffer_allocation_funcitons
 ZEST_PRIVATE zest_size zest__get_minimum_block_size(zest_size pool_size);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
-ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
+ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zloc_size remote_size);
 // --End Buffer allocation funcitons
 
 // --Uniform_buffers
@@ -5491,7 +5493,7 @@ void *zloc__allocate(zloc_allocator *allocator, zloc_size size, zloc_size remote
 	}
 
 	//Out of memory;
-	ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Not enough memory in pool to allocate %zu bytes\n", ZLOC_ERROR_NAME, zloc__map_size);
+	ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Not enough memory in pool to allocate %llu bytes\n", ZLOC_ERROR_NAME, zloc__map_size);
 	zloc__unlock_thread_access;
 	return 0;
 }
@@ -7714,6 +7716,7 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	for (int i = 0; i != count; ++i) {
 		const char *extension_name = extension_names[i];
+		ZEST_PRINT("Extension: %s", extension_name);
 		size_t len = strlen(extension_name) + 1;
 		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
 		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
@@ -8475,7 +8478,7 @@ void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) 
 			zest_device device = (zest_device)allocator->user_data;
 			zest_size pool_size = ZEST__MAX(device->setup_info.memory_pool_size, min_pool_size);
 			if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-				ZEST_REPORT(device, zest_report_memory, "Adding a new device memory pool of size %zu", pool_size);
+				ZEST_REPORT(device, zest_report_memory, "Adding a new device memory pool of size %llu", pool_size);
 			}
 			zest__add_host_memory_pool(device, pool_size);
 			break;
@@ -8484,7 +8487,7 @@ void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) 
 			zest_context context = (zest_context)allocator->user_data;
 			zest_size pool_size = ZEST__MAX(context->create_info.memory_pool_size, min_pool_size);
 			if (ZEST__FLAGGED(context->device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-				ZEST_REPORT(context->device, zest_report_memory, "Adding a new context memory pool of size %zu", pool_size);
+				ZEST_REPORT(context->device, zest_report_memory, "Adding a new context memory pool of size %llu", pool_size);
 			}
 			zest__add_context_memory_pool(context, pool_size);
 			break;
@@ -8506,7 +8509,7 @@ void zest__add_host_memory_pool(zest_device device, zest_size size) {
 	device->memory_pool_sizes[device->memory_pool_count] = pool_size;
 	device->memory_pool_count++;
 	if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-		ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the device memory pool so adding a new one of size %zu. ", pool_size);
+		ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the device memory pool so adding a new one of size %llu. ", pool_size);
 	}
 }
 
@@ -8522,7 +8525,7 @@ void zest__add_context_memory_pool(zest_context context, zest_size size) {
 	context->memory_pool_sizes[context->memory_pool_count] = pool_size;
 	context->memory_pool_count++;
 	if (ZEST__FLAGGED(context->device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-		ZEST_REPORT(context->device, zest_report_memory, "Note: Ran out of space in the context memory pool so adding a new one of size %zu. ", pool_size);
+		ZEST_REPORT(context->device, zest_report_memory, "Note: Ran out of space in the context memory pool so adding a new one of size %llu. ", pool_size);
 	}
 }
 
@@ -8605,7 +8608,7 @@ void zest__on_add_pool(void* user_data, void* block) {
     buffer->memory_offset = 0;
 }
 
-void zest__on_split_block(void* user_data, zloc_header* block, zloc_header* trimmed_block, zest_size remote_size) {
+void zest__on_split_block(void* user_data, zloc_header* block, zloc_header* trimmed_block, zloc_size remote_size) {
     zest_buffer_allocator_t* buffer_allocator = (zest_buffer_allocator_t*)user_data;
     zest_buffer buffer = (zest_buffer)zloc_BlockUserExtensionPtr(block);
     zest_buffer trimmed_buffer = (zest_buffer)zloc_BlockUserExtensionPtr(trimmed_block);
@@ -8651,7 +8654,7 @@ void zest__remote_merge_prev_callback(void *user_data, zloc_header *prev_block, 
 	zest_device device = buffer_allocator->device;
 }
 
-zloc_size zest__get_minimum_block_size(zest_size pool_size) {
+zest_size zest__get_minimum_block_size(zest_size pool_size) {
     return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
@@ -8722,7 +8725,7 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
     if (buffer_allocator->buffer_info.buffer_usage_flags) {
         result = device->platform->add_buffer_memory_pool(device, context, buffer_pool->size, buffer_allocator, buffer_pool);
         if (result != ZEST_TRUE) {
-            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for buffer memory pool. Tried to allocate %zu.", buffer_pool->size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for buffer memory pool. Tried to allocate %llu.", buffer_pool->size);
             goto cleanup;
             return result;
         }
@@ -8730,7 +8733,7 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
     else {
         result = device->platform->create_image_memory_pool(device, context, buffer_pool->size, &buffer_allocator->buffer_info, buffer_pool);
         if (result != ZEST_TRUE) {
-            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for image memory pool. Tried to allocate %zu.", buffer_pool->size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for image memory pool. Tried to allocate %llu.", buffer_pool->size);
             goto cleanup;
             return result;
         }
@@ -8911,11 +8914,11 @@ zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, 
 
         buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
         if (!buffer) {    //Unable to allocate memory. Out of memory?
-            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %zu of memory.", size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %llu of memory.", size);
             return 0;
         }
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-			ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
+			ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %llu. ", buffer_allocator->name, (size_t)buffer_pool->size);
 		}
     }
 
@@ -8977,11 +8980,11 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 
         buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
         if (!buffer) {    //Unable to allocate memory. Out of memory?
-            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %zu of memory.", size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %llu of memory.", size);
             return 0;
         }
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-			ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
+			ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %llu. ", buffer_allocator->name, (size_t)buffer_pool->size);
 		}
     }
 
@@ -11658,7 +11661,7 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
     }
     if (!context->device->platform->create_image(context->device, image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
 		context->device->platform->cleanup_image_backend(image);
-        return FALSE;
+        return ZEST_FALSE;
     }
 	image->handle.store = &context->device->resource_stores[zest_handle_type_images];
     image->info.layout = resource->image_layout = zest_image_layout_undefined;
@@ -13684,7 +13687,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
 		void *resource_ptr = context->device->platform->get_resource_ptr(resource);
         if (resource->type & zest_resource_type_buffer) {
-			ZEST_PRINT("Buffer: %s (%p) - Size: %zu, Offset: %zu", resource->name, resource_ptr, resource->buffer_desc.size, ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) ? resource->storage_buffer->memory_offset : 0);
+			ZEST_PRINT("Buffer: %s (%p) - Size: %llu, Offset: %llu", resource->name, resource_ptr, resource->buffer_desc.size, ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) ? resource->storage_buffer->memory_offset : 0);
         } else if (resource->type & zest_resource_type_image) {
             ZEST_PRINT("Image: %s (%p) - Size: %u x %u", 
 					   resource->name, resource_ptr, resource->image.info.extent.width, resource->image.info.extent.height);
@@ -13795,7 +13798,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							ZEST_PRINT("            %s (%p) | \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
-									   "            QFI: %u -> %u, Size: %zu",
+									   "            QFI: %u -> %u, Size: %llu",
 									   buffer_resource->name, resource_ptr,
 									   src_access_mask.str, dst_access_mask.str,
 									   src_pipeline_stage.str, dst_pipeline_stage.str,
@@ -13863,7 +13866,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							ZEST_PRINT("            %s (%p) | \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
-									   "            QFI: %u -> %u, Size: %zu",
+									   "            QFI: %u -> %u, Size: %llu",
 									   buffer_resource->name, resource_ptr,
 									   src_access_mask.str, dst_access_mask.str,
 									   src_pipeline_stage.str, dst_pipeline_stage.str,
@@ -16960,7 +16963,7 @@ void zest_OutputMemoryUsage(zest_context context) {
     zest_size total_host_memory = 0;
     zest_size total_device_memory = 0;
     for (int i = 0; i != context->device->memory_pool_count; ++i) {
-        printf("\tMemory Pool Size: %zu\n", context->device->memory_pool_sizes[i]);
+        printf("\tMemory Pool Size: %llu\n", context->device->memory_pool_sizes[i]);
         total_host_memory += context->device->memory_pool_sizes[i];
     }
     printf("Device Memory Pools\n");
@@ -16981,8 +16984,8 @@ void zest_OutputMemoryUsage(zest_context context) {
             total_device_memory += memory_pool->size;
         }
     }
-    printf("Total Host Memory: %zu (%llu MB)\n", total_host_memory, total_host_memory / zloc__MEGABYTE(1));
-    printf("Total Device Memory: %zu (%llu MB)\n", total_device_memory, total_device_memory / zloc__MEGABYTE(1));
+    printf("Total Host Memory: %llu (%llu MB)\n", total_host_memory, total_host_memory / zloc__MEGABYTE(1));
+    printf("Total Device Memory: %llu (%llu MB)\n", total_device_memory, total_device_memory / zloc__MEGABYTE(1));
     printf("\n");
     printf("\t\t\t\t-- * --\n");
     printf("\n");
@@ -17109,10 +17112,10 @@ void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_he
 		zest_vec *vector = (zest_vec*)allocation;
 		switch (struct_type) {
 			case zest_struct_type_vector:
-				ZEST_PRINT("Allocation: %p, id: %i, size: %zu, offset: %zu, type: %s", allocation, vector->id, current_block->size, offset_from_allocator, zest__struct_type_to_string(struct_type));
+				ZEST_PRINT("Allocation: %p, id: %i, size: %zu, offset: %zi, type: %s", allocation, vector->id, current_block->size, offset_from_allocator, zest__struct_type_to_string(struct_type));
 				break;
 			default:
-				ZEST_PRINT("Allocation: %p, size: %zu, offset: %zu, type: %s", allocation, current_block->size, offset_from_allocator, zest__struct_type_to_string(struct_type));
+				ZEST_PRINT("Allocation: %p, size: %zu, offset: %zi, type: %s", allocation, current_block->size, offset_from_allocator, zest__struct_type_to_string(struct_type));
 				break;
 		}
     } else {
@@ -17129,7 +17132,7 @@ void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_he
 			} else if(zloc__block_size(current_block) > 0) {
 				//Unknown block, print what we can about it
                 ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-				ZEST_PRINT("Unknown Block - size: %zu (%p) Offset from allocator: %zu", zloc__block_size(current_block), allocation, offset_from_allocator);
+				ZEST_PRINT("Unknown Block - size: %zu (%p) Offset from allocator: %zi", zloc__block_size(current_block), allocation, offset_from_allocator);
             }
         }
     }
@@ -17177,7 +17180,7 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
         if (block_size) {
 			stats.used_blocks++;
             stats.used_size += block_size ? block_size : 0;
-			ZEST_PRINT("Block size: %zu (%p)", zloc__block_size(current_block), allocation);
+			ZEST_PRINT("Block size: %zi (%p)", zloc__block_size(current_block), allocation);
         }
         if (output_all) {
             zest__print_block_info(allocator, allocation, current_block, context_filter, command_filter);
@@ -17537,8 +17540,8 @@ zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int heig
 	window_handles.native_handle = (void*)glfwGetWin32Window(window_handle);
 	window_handles.display = GetModuleHandle(NULL);
 	#elif defined(__linux__)
-	window_handles.native_handle = (void*)glfwGetX11Window(glfw_window);
-	window_handles.display = glfwGetX11Display();
+	window_handles.native_handle = (void*)glfwGetXCBWindow(window_handle);
+	window_handles.display = glfwGetXCBConnection();
 	#endif
 
 	window_handles.window_sizes_callback = zest_implglfw_GetWindowSizeCallback;

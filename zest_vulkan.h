@@ -30,8 +30,15 @@ Zest Vulkan Implementation
     -- [Debug_functions]
 */
 
+#if defined(_WIN32)                                                                                              
+#define VK_USE_PLATFORM_WIN32_KHR                                                                                
+#elif defined(__linux__)                                                                                         
+#define VK_USE_PLATFORM_XCB_KHR                                                                                 
+#elif defined(__APPLE__)                                                                                         
+#define VK_USE_PLATFORM_METAL_EXT                                                                                
+#endif 
+
 #include <vulkan/vulkan.h>
-#include "vulkan/vulkan_win32.h"
 #include <shaderc/shaderc.h>
 
 #ifdef __cplusplus
@@ -258,7 +265,7 @@ ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapch
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 void zest__vk_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope);
-void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
+void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
 void zest__vk_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline);
 void zest__vk_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute);
@@ -1672,7 +1679,7 @@ void zest__vk_pick_physical_device(zest_device device) {
     ZEST_APPEND_LOG(device->log_path.str, "Max Memory Allocation Count: %i", device->backend->properties.limits.maxMemoryAllocationCount);
     ZEST_APPEND_LOG(device->log_path.str, "Memory available in GPU:");
     for (int i = 0; i != device->backend->memory_properties.memoryHeapCount; ++i) {
-        ZEST_APPEND_LOG(device->log_path.str, "    Heap flags: %i, Size: %llu", device->backend->memory_properties.memoryHeaps[i].flags, device->backend->memory_properties.memoryHeaps[i].size);
+        ZEST_APPEND_LOG(device->log_path.str, "    Heap flags: %i, Size: %zu", device->backend->memory_properties.memoryHeaps[i].flags, device->backend->memory_properties.memoryHeaps[i].size);
     }
 
     ZEST_APPEND_LOG(device->log_path.str, "Memory types mapping in GPU:");
@@ -1752,6 +1759,7 @@ zest_bool zest__vk_create_instance(zest_device device) {
 
     VkDebugUtilsMessengerCreateInfoEXT debug_create_info = ZEST__ZERO_INIT(VkDebugUtilsMessengerCreateInfoEXT);
     VkValidationFeatureEnableEXT *enabled_validation_features = 0;
+    VkValidationFeaturesEXT validation_features_ext = ZEST__ZERO_INIT(VkValidationFeaturesEXT);
     if (zest__validation_layers_are_enabled(device)) {
         create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
         create_info.ppEnabledLayerNames = zest_validation_layers;
@@ -1769,7 +1777,6 @@ zest_bool zest__vk_create_instance(zest_device device) {
         }
         if (zest_vec_size(enabled_validation_features)) {
             // Potentially add others like VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT for more advice
-            VkValidationFeaturesEXT validation_features_ext = ZEST__ZERO_INIT(VkValidationFeaturesEXT);
             validation_features_ext.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
             validation_features_ext.enabledValidationFeatureCount = zest_vec_size(enabled_validation_features);
             validation_features_ext.pEnabledValidationFeatures = enabled_validation_features;
@@ -2616,7 +2623,7 @@ void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_s
 		if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
 			alloc_info.pNext = &flags;
 		}
-		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %zu type: %i, alignment: %zu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
 		ZEST_SET_MEMORY_CONTEXT(device, zest_platform_context, zest_command_allocate_memory_pool);
 		vkAllocateMemory(device->backend->logical_device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
 	}
@@ -2666,7 +2673,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i, Buffer: %p", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %zu type: %i, alignment: %zu, type bits: %i, Buffer: %p", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
@@ -2703,7 +2710,7 @@ zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context con
 
     VkAllocationCallbacks *allocation_callbacks = context ? &context->backend->allocation_callbacks : &device->backend->allocation_callbacks;
 
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %zu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
@@ -3013,8 +3020,14 @@ zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context) {
 
 // -- Device_OS
 void zest__vk_os_add_platform_extensions(zest_context context) {
-    zest_AddInstanceExtension(context->device, VK_KHR_SURFACE_EXTENSION_NAME);
-    zest_AddInstanceExtension(context->device, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+    zest_AddInstanceExtension(context->device, VK_KHR_SURFACE_EXTENSION_NAME);                                 
+    #if defined(_WIN32)                                                                                            
+         zest_AddInstanceExtension(context->device, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);                           
+    #elif defined(__linux__)                                                                                       
+        zest_AddInstanceExtension(context->device, VK_KHR_XCB_SURFACE_EXTENSION_NAME);                            
+    #elif defined(__APPLE__)
+        zest_AddInstanceExtension(context->device, VK_KHR_METAL_SURFACE_EXTENSION_NAME);                            
+    #endif   
 }
 // -- End Device_OS
 
@@ -3852,6 +3865,17 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
+#elif defined(__linux__)                                                                                       
+    VkXcbSurfaceCreateInfoKHR surface_create_info;                                                             
+    surface_create_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;                                 
+    surface_create_info.pNext = NULL;                                                                          
+    surface_create_info.flags = 0;                                                                             
+    surface_create_info.connection = (xcb_connection_t*)context->window_data.display;                          
+    surface_create_info.window = (xcb_window_t)(uintptr_t)context->window_data.native_handle;                  
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXcbSurfaceKHR(context->device->backend->instance,       
+    &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));          
+    return ZEST_TRUE;
 #endif
 }
 
@@ -4461,7 +4485,7 @@ void zest__vk_set_depth_bias(const zest_command_list command_list, float factor,
     vkCmdSetDepthBias(command_list->backend->command_buffer, factor, clamp, slope);
 }
 
-void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
+void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
     VkBufferCopy copyInfo = ZEST__ZERO_INIT(VkBufferCopy);
     copyInfo.srcOffset = src_buffer->memory_offset;
     copyInfo.dstOffset = dst_buffer->memory_offset;
