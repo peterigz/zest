@@ -1,8 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define GLFW_EXPOSE_NATIVE_XCB
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <zest.h>
 #include <string>
 
