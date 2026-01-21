@@ -3026,7 +3026,7 @@ void zest__vk_os_add_platform_extensions(zest_context context) {
     #if defined(_WIN32)                                                                                            
          zest_AddInstanceExtension(context->device, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);                           
     #elif defined(__linux__)                                                                                       
-        zest_AddInstanceExtension(context->device, VK_KHR_XCB_SURFACE_EXTENSION_NAME);                            
+        zest_AddInstanceExtension(context->device, VK_KHR_SURFACE_EXTENSION_NAME);                            
     #elif defined(__APPLE__)
         zest_AddInstanceExtension(context->device, VK_KHR_METAL_SURFACE_EXTENSION_NAME);                            
     #endif   
@@ -3857,6 +3857,7 @@ VkAllocationCallbacks *zest_GetVKAllocationCallbacks(zest_context context) {
 }
 
 zest_bool zest__vk_create_window_surface(zest_context context) {
+	zest_device device = context->device;
 #ifdef _WIN32 
     VkWin32SurfaceCreateInfoKHR surface_create_info;
     surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -3865,13 +3866,12 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     surface_create_info.hinstance = (HINSTANCE)context->window_data.display;
     surface_create_info.hwnd = (HWND)context->window_data.native_handle;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #elif defined(__linux__)                                                                                       
 #ifdef GLFW_VERSION_MAJOR
-	zest_device device = context->device;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
-	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), &device->backend->allocation_callbacks, &context->backend->surface);
+	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), &device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #elif defined(SDL_MAJOR_VERSION)
 	zest_device device = context->device;

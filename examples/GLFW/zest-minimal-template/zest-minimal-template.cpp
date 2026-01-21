@@ -1,5 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <zest.h>
 #include <string>
