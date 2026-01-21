@@ -31,14 +31,16 @@ Zest Vulkan Implementation
 */
 
 #if defined(_WIN32)                                                                                              
-#define VK_USE_PLATFORM_WIN32_KHR                                                                                
+#include <vulkan/vulkan.h>
+#include "vulkan/vulkan_win32.h"
 #elif defined(__linux__)                                                                                         
 #define VK_USE_PLATFORM_XCB_KHR                                                                                 
+#include <vulkan/vulkan.h>
 #elif defined(__APPLE__)                                                                                         
 #define VK_USE_PLATFORM_METAL_EXT                                                                                
+#include <vulkan/vulkan.h>
 #endif 
 
-#include <vulkan/vulkan.h>
 #include <shaderc/shaderc.h>
 
 #ifdef __cplusplus
@@ -730,11 +732,11 @@ ZEST_PRIVATE inline VkAccessFlags2 zest__to_vk_access_flags(zest_access_flags fl
     return (VkAccessFlags2)flags;
 }
 
-ZEST_PRIVATE inline VkPipelineStageFlags2 zest__to_vk_pipeline_stage(zest_pipeline_stage_flags flags) {
-	VkPipelineStageFlags2 out = (VkPipelineStageFlags2)flags;
+ZEST_PRIVATE inline VkPipelineStageFlags zest__to_vk_pipeline_stage(zest_pipeline_stage_flags flags) {
+	VkPipelineStageFlags out = (VkPipelineStageFlags)flags;
 	out &= ~zest_pipeline_stage_index_input_bit;
 	if (flags & zest_pipeline_stage_index_input_bit) out |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-    return (VkPipelineStageFlags2)out;
+    return (VkPipelineStageFlags)out;
 }
 
 ZEST_PRIVATE inline VkShaderStageFlags zest__to_vk_shader_stage(zest_supported_shader_stages flags) {
@@ -3866,16 +3868,17 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #elif defined(__linux__)                                                                                       
-    VkXcbSurfaceCreateInfoKHR surface_create_info;                                                             
-    surface_create_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;                                 
-    surface_create_info.pNext = NULL;                                                                          
-    surface_create_info.flags = 0;                                                                             
-    surface_create_info.connection = (xcb_connection_t*)context->window_data.display;                          
-    surface_create_info.window = (xcb_window_t)(uintptr_t)context->window_data.native_handle;                  
+#ifdef GLFW_VERSION_MAJOR
+	zest_device device = context->device;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXcbSurfaceKHR(context->device->backend->instance,       
-    &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));          
+	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), &device->backend->allocation_callbacks, &context->backend->surface);
     return ZEST_TRUE;
+#elif defined(SDL_MAJOR_VERSION)
+	zest_device device = context->device;
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
+	ZEST_RETURN_FALSE_ON_FAIL(device, SDL_Vulkan_CreateSurface((GLFWwindow*)zest_Window(context), device->backend->instance, &context->backend->surface);
+    return ZEST_TRUE;
+#endif
 #endif
 }
 
