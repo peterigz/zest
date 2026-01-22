@@ -2290,7 +2290,7 @@ zest_gltf_t LoadGLTF(zest_context context, const char* filepath) {
 		return ZEST__ZERO_INIT(zest_gltf_t);
 	}
 
-	zest_uint mesh_count = data->materials_count ? data->materials_count : 1;
+	zest_uint mesh_count = data->materials_count ? (zest_uint)data->materials_count : 1;
 	zest_uint *primitive_counts;
 	if (data->materials_count) {
 		zest_size size = sizeof(zest_uint) * data->materials_count;
@@ -2435,10 +2435,10 @@ zest_gltf_t LoadGLTF(zest_context context, const char* filepath) {
 							size_t data_size = view->size;
 
 							int width, height, channels;
-							stbi_uc *bitmap_buffer = stbi_load_from_memory(pixel_data, data_size, &width, &height, &channels, 0);
+							stbi_uc *bitmap_buffer = stbi_load_from_memory(pixel_data, (int)data_size, &width, &height, &channels, 0);
 							if (channels == 3) {
 								STBI_FREE(bitmap_buffer);
-								bitmap_buffer = stbi_load_from_memory(pixel_data, data_size, &width, &height, &channels, 0);
+								bitmap_buffer = stbi_load_from_memory(pixel_data, (int)data_size, &width, &height, &channels, 0);
 							}
 							ZEST_ASSERT(bitmap_buffer, "Unable to load the font bitmap.");
 							zest_size size = width * height * channels;
