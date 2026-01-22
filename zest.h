@@ -7718,7 +7718,6 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	for (int i = 0; i != count; ++i) {
 		const char *extension_name = extension_names[i];
-		ZEST_PRINT("Extension: %s", extension_name);
 		size_t len = strlen(extension_name) + 1;
 		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
 		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
