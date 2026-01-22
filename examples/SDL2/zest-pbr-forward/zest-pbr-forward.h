@@ -1,0 +1,150 @@
+#pragma once
+
+#include <SDL.h>
+#include <zest.h>
+#include "implementations/impl_imgui.h"
+#include "imgui/imgui.h"
+#include <imgui/misc/freetype/imgui_freetype.h>
+#include <imgui/backends/imgui_impl_sdl2.h>
+
+struct RenderCacheInfo {
+	bool draw_imgui;
+};
+
+struct UniformLights {
+	zest_vec4 lights[4];
+	float exposure;
+	float gamma;
+	zest_uint texture_index;
+	zest_uint sampler_index;
+};
+
+typedef struct uniform_buffer_data_t {
+    zest_matrix4 view;
+    zest_matrix4 proj;
+    zest_vec2 screen_size;
+    float timer_lerp;
+    float update_time;
+} uniform_buffer_data_t;
+
+struct forward_mesh_instance_t {
+	zest_vec3 pos;                                 //3d position
+	zest_color_t color;                              //packed color
+	zest_vec3 rotation;
+	float roughness;                          //pbr roughness
+	zest_vec3 scale;
+	float metallic;                          //pbr metallic
+};
+
+struct irr_push_constant_t {
+	zest_uint source_env_index;
+	zest_uint irr_index;
+	zest_uint sampler_index;
+	float delta_phi;
+	float delta_theta;
+};
+
+struct prefiltered_push_constant_t {
+	zest_uint source_env_index;
+	zest_uint prefiltered_index;
+	zest_uint sampler_index;
+	float roughness;
+	zest_uint num_samples;
+};
+
+struct pbr_consts_t {
+	zest_vec4 camera;
+	zest_vec3 color;
+	zest_uint irradiance_index;
+	zest_uint brd_lookup_index;
+	zest_uint pre_filtered_index;
+	zest_uint sampler_index;
+	zest_uint view_buffer_index;
+	zest_uint lights_buffer_index;
+};
+
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
+struct SimplePBRExample {
+	zest_context context;
+	zest_device device;
+	zest_imgui_t imgui;
+	zest_uint imgui_draw_routine_index;
+	zest_timer_t timer;
+	zest_camera_t camera;
+
+	zest_layer_handle mesh_layer;
+	zest_layer_handle skybox_layer;
+
+	zest_uint teapot_index;
+	zest_uint torus_index;
+	zest_uint venus_index;
+	zest_uint cube_index;
+	zest_uint sphere_index;
+	zest_uint skybox_index;
+
+	zest_pipeline_template pbr_pipeline;
+	zest_pipeline_template skybox_pipeline;
+
+	zest_uniform_buffer_handle view_buffer;
+	zest_uniform_buffer_handle lights_buffer;
+
+	RenderCacheInfo cache_info;
+
+	pbr_consts_t material_push;
+	irr_push_constant_t irr_push_constant;
+	prefiltered_push_constant_t prefiltered_push_constant;
+
+	zest_image_handle imgui_font_texture;
+	zest_image_handle skybox_texture;
+	zest_image_handle brd_texture;
+	zest_image_handle irr_texture;
+	zest_image_handle prefiltered_texture;
+
+	zest_image_view_array_handle prefiltered_view_array;
+
+	zest_sampler_handle sampler_2d;
+	zest_uint sampler_2d_index;
+
+	zest_image_view_t *brd_view;
+
+	zest_compute_handle brd_compute;
+	zest_compute_handle irr_compute;
+	zest_compute_handle prefiltered_compute;
+
+	zest_uint skybox_bindless_texture_index;
+	zest_uint brd_bindless_texture_index;
+	zest_uint irr_bindless_texture_index;
+	zest_uint prefiltered_bindless_texture_index;
+
+	zest_uint *prefiltered_mip_indexes;
+
+	zest_vec3 old_camera_position;
+	zest_vec3 new_camera_position;
+
+	mouse_t mouse;
+	zest_uint fps;
+
+	zest_atlas_region_t light;
+	float ellapsed_time;
+	bool sync_refresh;
+	int request_graph_print;
+	bool reset;
+};
+
+void InitSimplePBRExample(SimplePBRExample *app);
+void UpdateUniform3d(SimplePBRExample *app);
+void UpdateLights(SimplePBRExample *app, float timer);
+void UpdateMouse(SimplePBRExample *app);
+void UpdateCameraPosition(SimplePBRExample *app);
+void UpdateImGui(SimplePBRExample *app);
+void UploadMeshData(const zest_command_list context, void *user_data);
+void SetupBRDFLUT(SimplePBRExample *app);
+void SetupIrradianceCube(SimplePBRExample *app);
+void SetupPrefilteredCube(SimplePBRExample *app);
+void MainLoop(SimplePBRExample *app);
+void DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3], float roughness, float metallic);
+

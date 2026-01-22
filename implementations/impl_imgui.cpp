@@ -324,7 +324,7 @@ void zest__imgui_create_viewport(ImGuiViewport* viewport) {
 
 	// Create Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	zest_window_data_t window_handles = { };  // Adapt from your implglfw
+	zest_window_data_t window_handles = { };  
 	window_handles.window_handle = viewport->PlatformHandle;
 	window_handles.native_handle = viewport->PlatformHandleRaw;
 #ifdef _WIN32
@@ -357,7 +357,12 @@ void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
 				if (imgui_pass) {
 					zest_ConnectSwapChainOutput();
 					zest_EndPass();
-				}
+                } else {
+                    zest_BeginRenderPass("Blank Viewport");
+                    zest_ConnectSwapChainOutput();
+                    zest_SetPassTask(zest_EmptyRenderPass, 0);
+                    zest_EndPass();
+                }
 				frame_graph = zest_EndFrameGraph();
 			}
 		}

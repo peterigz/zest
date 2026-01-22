@@ -419,3 +419,4 @@ spv/
 gemini.md
 /examples/GLFW/build
 /.claude
+/examples/SDL2/build
