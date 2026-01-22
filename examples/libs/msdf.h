@@ -663,7 +663,7 @@ int msdf_isCorner(msdf_Vec2 a, msdf_Vec2 b, float threshold) {
     return msdf_v2MulInner(a, b) <= 0 || fabsf(msdf_cross(a, b)) > threshold;
 }
 
-void msdf_switchColor(msdf_edgeColor *color, unsigned long long *seed, msdf_edgeColor banned)
+void msdf_switchColor(msdf_edgeColor *color, uint64_t *seed, msdf_edgeColor banned)
 {
     msdf_edgeColor combined = (msdf_edgeColor)(*color & banned);
     if (combined == msdf_edgeColor_red || combined == msdf_edgeColor_green || combined == msdf_edgeColor_blue) {
@@ -1394,7 +1394,15 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     float ty = MSDF_EDGE_THRESHOLD / (scale * range);
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            if ((x > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(MSDF_MAX(x - 1, 0), y, w, bitmap), tx)) || (x < w - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(MSDF_MIN(x + 1, w - 1), y, w, bitmap), tx)) || (y > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, MSDF_MAX(y - 1, 0), w, bitmap), ty)) || (y < h - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, MSDF_MIN(y + 1, h - 1), w, bitmap), ty))) {
+		msdf_Vec4 a = msdf_pixelAt(x, y, w, bitmap);
+		msdf_Vec4 b = msdf_pixelAt(MSDF_MAX(x - 1, 0), y, w, bitmap);
+		msdf_Vec4 c = msdf_pixelAt(MSDF_MIN(x + 1, w - 1), y, w, bitmap);
+		msdf_Vec4 d = msdf_pixelAt(x, MSDF_MAX(y - 1, 0), w, bitmap);
+		msdf_Vec4 e = msdf_pixelAt(x, MSDF_MIN(y + 1, h - 1), w, bitmap);
+            if ((x > 0 && msdf_pixelClash(a, b, tx)) || (x < w - 1 && 
+			  msdf_pixelClash(a, c, tx)) || (y > 0 && 
+			  msdf_pixelClash(a, d, ty)) || (y < h - 1 && 
+			  msdf_pixelClash(a, e, ty))) {
                 clashes[cindex].x = x;
                 clashes[cindex++].y = y;
             }

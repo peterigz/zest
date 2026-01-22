@@ -142,7 +142,6 @@ typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
-#include <stddef.h>		//For uint32_t etc.
 #include <string.h>		//For memcpy, memset etc.
 #include <stdarg.h>		//For va_start, va_end etc.
 #include <math.h>
@@ -965,6 +964,7 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
+#define ZEST__NEXTPOW2(x) pow(2, ceil(log(x) / log(2)));
 #define ZEST__FLAG(flag, bit) flag |= (bit)
 #define ZEST__MAYBE_FLAG(flag, bit, yesno) flag |= (yesno ? bit : 0)
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit
@@ -3292,7 +3292,7 @@ typedef struct zest_buffer_usage_t {
 	zest_memory_property_flags property_flags;
 	zest_memory_pool_type memory_pool_type;
 	zest_uint memory_type_index;
-	zest_size alignment;
+	zest_uint alignment;
 } zest_buffer_usage_t;
 
 typedef struct zest_buffer_allocator_key_t {
@@ -3395,7 +3395,6 @@ typedef struct zest_sampler_info_t {
 
 struct zest_window_data_t;  // Forward declaration
 typedef void (*zest_get_window_sizes_callback)(struct zest_window_data_t* window_data, int* fb_width, int* fb_height, int* window_width, int* window_height);
-typedef void (*zest_create_window_surface_callback)(zest_context context);
 
 typedef struct zest_window_data_t {
 	/**
@@ -3422,7 +3421,6 @@ typedef struct zest_window_data_t {
 	int width;
 	int height;
 	zest_get_window_sizes_callback window_sizes_callback;
-	zest_create_window_surface_callback create_surface_callback;
 } zest_window_data_t;
 
 typedef struct zest_resource_usage_t {
@@ -7718,6 +7716,7 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	for (int i = 0; i != count; ++i) {
 		const char *extension_name = extension_names[i];
+		ZEST_PRINT("Extension: %s", extension_name);
 		size_t len = strlen(extension_name) + 1;
 		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
 		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
@@ -8473,7 +8472,7 @@ void* zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_siz
 void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) {
 	void *user_data = (zest_device)allocator->user_data;
 	zest_struct_type struct_type = ZEST_STRUCT_TYPE(user_data);
-	zest_size min_pool_size = zest_GetNextPower(requested_size);
+	zest_size min_pool_size = ZEST__NEXTPOW2(requested_size);
 	switch (struct_type) {
 		case zest_struct_type_device: {
 			zest_device device = (zest_device)allocator->user_data;
@@ -13205,7 +13204,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					exe_details->rendering_info.sample_count = context->device->platform->get_msaa_sample_count(context);
 				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
 					zest_rendering_attachment_info_t *depth = &exe_details->depth_attachment;
-					*depth = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
+					//*depth = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
 					depth->image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
 					depth->layout = output_usage->image_layout;
 					depth->load_op = output_usage->load_op;
@@ -15153,7 +15152,9 @@ void zest_ConnectInputGroup(zest_resource_group group) {
         zest_resource_node resource = group->resources[i];
 		ZEST_ASSERT_OR_VALIDATE(resource->type != zest_resource_type_swap_chain_image, context->device,
 								"A swapchain resource cannot be used as input.", (void)0);
-		zest_ConnectInput(resource);
+        switch (resource->type) {
+			default: zest_ConnectInput(resource); break;
+        }
     }
 }
 
@@ -16806,13 +16807,13 @@ void zest_PushMeshVertexData(zest_mesh mesh, const void* vertex_data) {
 
 ZEST_API void zest_CopyMeshVertexData(zest_mesh mesh, const void* vertex_data, zest_size size) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-	zest_size size_check = size % mesh->vertex_struct_size;
+	zest_uint size_check = size % mesh->vertex_struct_size;
 	ZEST_ASSERT(!size_check, "The vertex data size that you're trying to copy to the mesh is not divisable by the vertext struct size set in the mesh. Make sure you're uploading the correct vertex data.");
 	if (mesh->vertex_capacity * mesh->vertex_struct_size < size) {
-        zest_ReserveMeshVertices(mesh, (zest_uint)(size / mesh->vertex_struct_size));
+        zest_ReserveMeshVertices(mesh, size);
 	}
 	memcpy(mesh->vertex_data, vertex_data, size);
-	mesh->vertex_count = (zest_uint)(size / mesh->vertex_struct_size);
+	mesh->vertex_count = size / mesh->vertex_struct_size;
 }
 
 ZEST_API void zest_CopyMeshIndexData(zest_mesh mesh, const zest_uint *index_data, zest_uint count) {
@@ -17538,6 +17539,9 @@ zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int heig
 	#if defined(_WIN32)
 	window_handles.native_handle = (void*)glfwGetWin32Window(window_handle);
 	window_handles.display = GetModuleHandle(NULL);
+	#elif defined(__linux__)
+	window_handles.native_handle = (void*)glfwGetX11Window(window_handle);
+	window_handles.display = glfwGetX11Display();
 	#endif
 
 	window_handles.window_sizes_callback = zest_implglfw_GetWindowSizeCallback;
