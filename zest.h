@@ -7716,7 +7716,6 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	for (int i = 0; i != count; ++i) {
 		const char *extension_name = extension_names[i];
-		ZEST_PRINT("Extension: %s", extension_name);
 		size_t len = strlen(extension_name) + 1;
 		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
 		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
@@ -9466,6 +9465,19 @@ void zest__cleanup_device(zest_device device) {
 		zest_vec_free(device->allocator, queue_manager->queues);
 	}
 
+	device->default_image_2d = NULL;
+	device->default_image_cube = NULL;
+
+	zest__cleanup_pipeline_layout(device->pipeline_layout);
+    zest__cleanup_buffers_in_allocators(device);
+	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
+	zest__free_all_device_resource_stores(device);
+
+	zest__cleanup_set_layout(device->bindless_set_layout);
+    ZEST__FREE(device->allocator, device->bindless_set->backend);
+    ZEST__FREE(device->allocator, device->bindless_set);
+	zest__release_all_image_indexes(device);
+
 	zest_ForEachFrameInFlight(fif) {
 		if (zest_vec_size(device->deferred_resource_freeing_list.resources[fif])) {
 			zest_vec_foreach(i, device->deferred_resource_freeing_list.resources[fif]) {
@@ -9482,19 +9494,6 @@ void zest__cleanup_device(zest_device device) {
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
-
-	device->default_image_2d = NULL;
-	device->default_image_cube = NULL;
-
-	zest__cleanup_pipeline_layout(device->pipeline_layout);
-    zest__cleanup_buffers_in_allocators(device);
-	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
-	zest__free_all_device_resource_stores(device);
-
-	zest__cleanup_set_layout(device->bindless_set_layout);
-    ZEST__FREE(device->allocator, device->bindless_set->backend);
-    ZEST__FREE(device->allocator, device->bindless_set);
-	zest__release_all_image_indexes(device);
 
 	zest_map_foreach(i, device->mip_indexes) {
 		zest_mip_index_collection *collection = &device->mip_indexes.data[i];
@@ -10999,7 +10998,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
         if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_device) {
 			zest_device device = (zest_device)allocator->user_data;
 			header->id = device->vector_id++;
-			if (header->id == 84) {
+			if (header->id == 117) {
 				int d = 0;
 			}
         } else if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_context) {
