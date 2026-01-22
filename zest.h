@@ -965,7 +965,6 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
-#define ZEST__NEXTPOW2(x) pow(2, ceil(log(x) / log(2)));
 #define ZEST__FLAG(flag, bit) flag |= (bit)
 #define ZEST__MAYBE_FLAG(flag, bit, yesno) flag |= (yesno ? bit : 0)
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit
@@ -3293,7 +3292,7 @@ typedef struct zest_buffer_usage_t {
 	zest_memory_property_flags property_flags;
 	zest_memory_pool_type memory_pool_type;
 	zest_uint memory_type_index;
-	zest_uint alignment;
+	zest_size alignment;
 } zest_buffer_usage_t;
 
 typedef struct zest_buffer_allocator_key_t {
@@ -8473,7 +8472,7 @@ void* zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_siz
 void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) {
 	void *user_data = (zest_device)allocator->user_data;
 	zest_struct_type struct_type = ZEST_STRUCT_TYPE(user_data);
-	zest_size min_pool_size = ZEST__NEXTPOW2(requested_size);
+	zest_size min_pool_size = zest_GetNextPower(requested_size);
 	switch (struct_type) {
 		case zest_struct_type_device: {
 			zest_device device = (zest_device)allocator->user_data;
@@ -15153,9 +15152,7 @@ void zest_ConnectInputGroup(zest_resource_group group) {
         zest_resource_node resource = group->resources[i];
 		ZEST_ASSERT_OR_VALIDATE(resource->type != zest_resource_type_swap_chain_image, context->device,
 								"A swapchain resource cannot be used as input.", (void)0);
-        switch (resource->type) {
-			default: zest_ConnectInput(resource); break;
-        }
+		zest_ConnectInput(resource);
     }
 }
 
@@ -16808,13 +16805,13 @@ void zest_PushMeshVertexData(zest_mesh mesh, const void* vertex_data) {
 
 ZEST_API void zest_CopyMeshVertexData(zest_mesh mesh, const void* vertex_data, zest_size size) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
-	zest_uint size_check = size % mesh->vertex_struct_size;
+	zest_size size_check = size % mesh->vertex_struct_size;
 	ZEST_ASSERT(!size_check, "The vertex data size that you're trying to copy to the mesh is not divisable by the vertext struct size set in the mesh. Make sure you're uploading the correct vertex data.");
 	if (mesh->vertex_capacity * mesh->vertex_struct_size < size) {
-        zest_ReserveMeshVertices(mesh, size);
+        zest_ReserveMeshVertices(mesh, (zest_uint)(size / mesh->vertex_struct_size));
 	}
 	memcpy(mesh->vertex_data, vertex_data, size);
-	mesh->vertex_count = size / mesh->vertex_struct_size;
+	mesh->vertex_count = (zest_uint)(size / mesh->vertex_struct_size);
 }
 
 ZEST_API void zest_CopyMeshIndexData(zest_mesh mesh, const zest_uint *index_data, zest_uint count) {
