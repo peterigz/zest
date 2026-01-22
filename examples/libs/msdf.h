@@ -1394,14 +1394,14 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     float ty = MSDF_EDGE_THRESHOLD / (scale * range);
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-		msdf_Vec4 a = msdf_pixelAt(x, y, w, bitmap);
-		msdf_Vec4 b = msdf_pixelAt(MSDF_MAX(x - 1, 0), y, w, bitmap);
-		msdf_Vec4 c = msdf_pixelAt(MSDF_MIN(x + 1, w - 1), y, w, bitmap);
-		msdf_Vec4 d = msdf_pixelAt(x, MSDF_MAX(y - 1, 0), w, bitmap);
-		msdf_Vec4 e = msdf_pixelAt(x, MSDF_MIN(y + 1, h - 1), w, bitmap);
-            if ((x > 0 && msdf_pixelClash(a, b, tx)) || (x < w - 1 && 
-			  msdf_pixelClash(a, c, tx)) || (y > 0 && 
-			  msdf_pixelClash(a, d, ty)) || (y < h - 1 && 
+			float *a = &bitmap[4 * (y * w + x)];
+			float *b = &bitmap[4 * (y * w + MSDF_MAX(x - 1, 0))];
+			float *c = &bitmap[4 * (y * w + MSDF_MIN(x + 1, w - 1))];
+			float *d = &bitmap[4 * (MSDF_MAX(y - 1, 0) * w + x)];
+			float *e = &bitmap[4 * (MSDF_MIN(y + 1, h - 1) * w + x)];
+            if ((x > 0 && msdf_pixelClash(a, b, tx)) || (x < w - 1 &&
+			  msdf_pixelClash(a, c, tx)) || (y > 0 &&
+			  msdf_pixelClash(a, d, ty)) || (y < h - 1 &&
 			  msdf_pixelClash(a, e, ty))) {
                 clashes[cindex].x = x;
                 clashes[cindex++].y = y;
