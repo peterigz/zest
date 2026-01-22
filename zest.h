@@ -142,6 +142,7 @@ typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdint.h>		//For uint32_t etc.
+#include <stddef.h>		//For ptrdiff etc.
 #include <string.h>		//For memcpy, memset etc.
 #include <stdarg.h>		//For va_start, va_end etc.
 #include <math.h>
