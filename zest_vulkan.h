@@ -3874,10 +3874,9 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
 	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), &device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #elif defined(SDL_MAJOR_VERSION)
-	zest_device device = context->device;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
-	ZEST_RETURN_FALSE_ON_FAIL(device, SDL_Vulkan_CreateSurface((GLFWwindow*)zest_Window(context), device->backend->instance, &context->backend->surface);
-    return ZEST_TRUE;
+	SDL_bool result = SDL_Vulkan_CreateSurface((SDL_Window*)zest_Window(context), device->backend->instance, &context->backend->surface);
+    return (zest_bool)result;
 #endif
 #endif
 }
