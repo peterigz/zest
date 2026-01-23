@@ -22,23 +22,25 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
 	*/
 	int width, height, channels;
 	stbi_uc *pixels = stbi_load(filename, &width, &height, &channels, 4);
-	int size = width * height * 4;
-	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
-	image_info.format = zest_format_r8g8b8a8_unorm;
-	image_info.flags = zest_image_preset_texture;
-	zest_image_handle image_handle = zest_CreateImageWithPixels(app->device, pixels, size, &image_info);
-	STBI_FREE(pixels);
-	zest_image image = zest_GetImage(image_handle);
-	if (image) {
-		zest_atlas_region_t sprite = zest_NewAtlasRegion();
-		sprite.width = width;
-		sprite.height = height;
-		zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
-		zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
-		app->sprite_state.staging_image_handle = image_handle;
-		app->sprite_state.staging_sprite = sprite;
-		app->sprite_state.update_ready.store(true);
-	}
+    if(pixels) {
+        int size = width * height * 4;
+        zest_image_info_t image_info = zest_CreateImageInfo(width, height);
+        image_info.format = zest_format_r8g8b8a8_unorm;
+        image_info.flags = zest_image_preset_texture;
+        zest_image_handle image_handle = zest_CreateImageWithPixels(app->device, pixels, size, &image_info);
+        STBI_FREE(pixels);
+        zest_image image = zest_GetImage(image_handle);
+        if (image) {
+            zest_atlas_region_t sprite = zest_NewAtlasRegion();
+            sprite.width = width;
+            sprite.height = height;
+            zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
+            zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
+            app->sprite_state.staging_image_handle = image_handle;
+            app->sprite_state.staging_sprite = sprite;
+            app->sprite_state.update_ready.store(true);
+        }
+    }
 }
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -152,7 +154,7 @@ void MainLoop(ImGuiApp *app) {
 					case 0: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/glow.png"); break; }
 					case 1: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png"); break; }
 					case 2: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/particle.png"); break; }
-					case 3: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/smoke.png"); break; }
+					case 3: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/Smoke.png"); break; }
 					case 4: { app->loader_thread = std::thread(LoadSprite, app, "examples/assets/texture.jpg"); break; }
 				}
 				app->load_image_index++;

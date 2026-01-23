@@ -177,6 +177,17 @@ typedef struct zest_msdf_font_t {
 	zest_bool is_loaded_from_file;
 } zest_msdf_font_t;
 
+// Cross-platform MSDF font file format (version 2)
+// All fields are written with explicit sizes, no struct padding issues
+#define ZEST_MSDF_FONT_MAGIC 0x5A464E54  // "ZFNT"
+#define ZEST_MSDF_FONT_VERSION 2
+
+typedef struct zest_msdf_font_file_header_t {
+	zest_uint magic;       // ZEST_MSDF_FONT_MAGIC
+	zest_uint version;     // File format version
+} zest_msdf_font_file_header_t;
+
+// Legacy struct kept for reference - not used in file I/O anymore
 typedef struct zest_msdf_font_file_t {
 	zest_uint magic;
 	zest_msdf_font_t font_details;
@@ -938,71 +949,158 @@ static void zest__stbi_write_mem(void *context, void *data, int size) {
 }
 
 void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
-	zest_image_collection_t *atlas = &font->font_atlas;
 	zest_byte *atlas_bitmap = zest_GetImageCollectionRawBitmap(&font->font_atlas, 0);
 	zest_bitmap_meta_t atlas_meta = zest_ImageCollectionBitmapArrayMeta(&font->font_atlas);
-	zest_msdf_font_file_t file;
-	file.magic = zest_INIT_MAGIC(zest_struct_type_file);
-	memcpy(&file.font_details, font, sizeof(zest_msdf_font_t));
-	
+
+	// Encode PNG to memory
 	zest_stbi_mem_context_t mem_context = ZEST__ZERO_INIT(zest_stbi_mem_context_t);
 	mem_context.context = ZEST_UTILITIES_MALLOC(zloc__MEGABYTE(4));
 	stbi_write_png_to_func(zest__stbi_write_mem, &mem_context, atlas_meta.width, atlas_meta.height, atlas_meta.channels, atlas_bitmap, atlas_meta.stride);
-    FILE *font_file = zest__open_file(filename, "wb");
-	file.png_size = mem_context.file_size;
-    size_t written = fwrite(&file.magic, sizeof(zest_uint), 1, font_file);
-	written += fwrite(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
-	written += fwrite(&file.png_size, sizeof(zest_uint), 1, font_file);
-	written += fwrite(mem_context.context, sizeof(char), mem_context.file_size, font_file);
-	if (written != 3 + mem_context.file_size) {
-		ZEST_PRINT("Failed to save the font to disk!");
+
+	FILE *font_file = zest__open_file(filename, "wb");
+	if (!font_file) {
+		ZEST_PRINT("Failed to open font file for writing!");
+		ZEST_UTILITIES_FREE(mem_context.context);
+		return;
 	}
+
+	// Write header with magic and version (cross-platform safe)
+	zest_uint magic = ZEST_MSDF_FONT_MAGIC;
+	zest_uint version = ZEST_MSDF_FONT_VERSION;
+	fwrite(&magic, sizeof(zest_uint), 1, font_file);
+	fwrite(&version, sizeof(zest_uint), 1, font_file);
+
+	// Write font-level metrics (explicit sizes, no struct padding)
+	fwrite(&font->size, sizeof(float), 1, font_file);
+	fwrite(&font->sdf_range, sizeof(float), 1, font_file);
+	fwrite(&font->y_max_offset, sizeof(float), 1, font_file);
+
+	// Write character count
+	zest_uint char_count = 256;
+	fwrite(&char_count, sizeof(zest_uint), 1, font_file);
+
+	// Write each character's data explicitly
+	for (int i = 0; i < 256; ++i) {
+		zest_font_character_t *ch = &font->characters[i];
+		// Character metrics
+		fwrite(&ch->x_offset, sizeof(float), 1, font_file);
+		fwrite(&ch->y_offset, sizeof(float), 1, font_file);
+		fwrite(&ch->width, sizeof(float), 1, font_file);
+		fwrite(&ch->height, sizeof(float), 1, font_file);
+		fwrite(&ch->x_advance, sizeof(float), 1, font_file);
+		fwrite(&ch->flags, sizeof(zest_uint), 1, font_file);
+		// Region data needed to reconstruct UVs
+		fwrite(&ch->region.top, sizeof(zest_uint), 1, font_file);
+		fwrite(&ch->region.left, sizeof(zest_uint), 1, font_file);
+		fwrite(&ch->region.width, sizeof(zest_uint), 1, font_file);
+		fwrite(&ch->region.height, sizeof(zest_uint), 1, font_file);
+		fwrite(&ch->region.uv.x, sizeof(float), 1, font_file);
+		fwrite(&ch->region.uv.y, sizeof(float), 1, font_file);
+		fwrite(&ch->region.uv.z, sizeof(float), 1, font_file);
+		fwrite(&ch->region.uv.w, sizeof(float), 1, font_file);
+	}
+
+	// Write PNG data
+	zest_uint png_size = (zest_uint)mem_context.file_size;
+	fwrite(&png_size, sizeof(zest_uint), 1, font_file);
+	fwrite(mem_context.context, sizeof(char), mem_context.file_size, font_file);
+
 	ZEST_UTILITIES_FREE(mem_context.context);
 	fclose(font_file);
 }
 
 zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_index) {
-	zest_msdf_font_file_t file;
-    FILE *font_file = zest__open_file(filename, "rb");
-
-    fread(&file.magic, sizeof(zest_uint), 1, font_file);
-	unsigned char *png_buffer = 0;
-	
-	if ((*((int*)&file) & 0xFFFF) == 0x4E57) {
-		fread(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
-		fread(&file.png_size, sizeof(zest_uint), 1, font_file);
-		png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(file.png_size);
-		size_t read = fread(png_buffer, sizeof(char), file.png_size, font_file);
-	} else {
-		ZEST_PRINT("Unable to read font file");
-		return ZEST__ZERO_INIT(zest_msdf_font_t);
+	zest_msdf_font_t font = ZEST__ZERO_INIT(zest_msdf_font_t);
+	FILE *font_file = zest__open_file(filename, "rb");
+	if (!font_file) {
+		ZEST_PRINT("Unable to open font file: %s", filename);
+		return font;
 	}
 
-	zest_device device = zest_GetContextDevice(context);
+	// Read and validate header
+	zest_uint magic = 0;
+	zest_uint version = 0;
+	fread(&magic, sizeof(zest_uint), 1, font_file);
 
-	int width, height, channels;
-	stbi_uc *bitmap_buffer = stbi_load_from_memory(png_buffer, file.png_size, &width, &height, &channels, 0);
-	ZEST_ASSERT(bitmap_buffer, "Unable to load the font bitmap.");
-	int size = width * height * channels;
-	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer(bitmap_buffer, size, width, height, zest_format_r8g8b8a8_unorm);
-	ZEST_UTILITIES_FREE(png_buffer);
-	zest_msdf_font_t font = file.font_details;
-	fclose(font_file);
-
-	zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap.meta.width, font_bitmap.meta.height);
-	image_info.flags = zest_image_preset_texture;
-	font.font_image = zest_CreateImage(device, &image_info);
-	zest_image font_image = zest_GetImage(font.font_image);
-	zest_CopyBitmapToImage(device, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
-	STBI_FREE(bitmap_buffer);
-
-	font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
-	font.settings.sampler_index = font_sampler_index;
-	for (int i = 0; i != 255; ++i) {
-		if (font.characters[i].width && font.characters[i].height) {
-			zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font_image, zest_texture_array_binding);
+	if (magic == ZEST_MSDF_FONT_MAGIC) {
+		// New cross-platform format (version 2+)
+		fread(&version, sizeof(zest_uint), 1, font_file);
+		if (version < ZEST_MSDF_FONT_VERSION) {
+			ZEST_PRINT("Warning: Font file version %u is older than current version %u", version, ZEST_MSDF_FONT_VERSION);
 		}
+
+		// Read font-level metrics
+		fread(&font.size, sizeof(float), 1, font_file);
+		fread(&font.sdf_range, sizeof(float), 1, font_file);
+		fread(&font.y_max_offset, sizeof(float), 1, font_file);
+
+		// Read character count
+		zest_uint char_count = 0;
+		fread(&char_count, sizeof(zest_uint), 1, font_file);
+		if (char_count > 256) char_count = 256;
+
+		// Read each character's data
+		for (zest_uint i = 0; i < char_count; ++i) {
+			zest_font_character_t *ch = &font.characters[i];
+			fread(&ch->x_offset, sizeof(float), 1, font_file);
+			fread(&ch->y_offset, sizeof(float), 1, font_file);
+			fread(&ch->width, sizeof(float), 1, font_file);
+			fread(&ch->height, sizeof(float), 1, font_file);
+			fread(&ch->x_advance, sizeof(float), 1, font_file);
+			fread(&ch->flags, sizeof(zest_uint), 1, font_file);
+			fread(&ch->region.top, sizeof(zest_uint), 1, font_file);
+			fread(&ch->region.left, sizeof(zest_uint), 1, font_file);
+			fread(&ch->region.width, sizeof(zest_uint), 1, font_file);
+			fread(&ch->region.height, sizeof(zest_uint), 1, font_file);
+			fread(&ch->region.uv.x, sizeof(float), 1, font_file);
+			fread(&ch->region.uv.y, sizeof(float), 1, font_file);
+			fread(&ch->region.uv.z, sizeof(float), 1, font_file);
+			fread(&ch->region.uv.w, sizeof(float), 1, font_file);
+			// Compute packed UV from the UV coordinates
+			ch->region.uv_packed = zest_Pack16bit4SNorm(ch->region.uv.x, ch->region.uv.y, ch->region.uv.z, ch->region.uv.w);
+			ch->uv_packed = ch->region.uv_packed;
+		}
+
+		// Read PNG data
+		zest_uint png_size = 0;
+		fread(&png_size, sizeof(zest_uint), 1, font_file);
+		unsigned char *png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(png_size);
+		fread(png_buffer, sizeof(char), png_size, font_file);
+		fclose(font_file);
+
+		// Decode PNG
+		zest_device device = zest_GetContextDevice(context);
+		int width, height, channels;
+		stbi_uc *bitmap_buffer = stbi_load_from_memory(png_buffer, png_size, &width, &height, &channels, 0);
+		ZEST_ASSERT(bitmap_buffer, "Unable to load the font bitmap.");
+		int size = width * height * channels;
+		zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer(bitmap_buffer, size, width, height, zest_format_r8g8b8a8_unorm);
+		ZEST_UTILITIES_FREE(png_buffer);
+
+		// Create GPU image
+		zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap.meta.width, font_bitmap.meta.height);
+		image_info.flags = zest_image_preset_texture;
+		font.font_image = zest_CreateImage(device, &image_info);
+		zest_image font_image = zest_GetImage(font.font_image);
+		zest_CopyBitmapToImage(device, font_bitmap.data, font_bitmap.meta.size, font_image, font_bitmap.meta.width, font_bitmap.meta.height);
+		STBI_FREE(bitmap_buffer);
+
+		// Bind image to descriptor and set up character regions
+		font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
+		font.settings.sampler_index = font_sampler_index;
+		for (int i = 0; i < 256; ++i) {
+			if (font.characters[i].width && font.characters[i].height) {
+				zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font_image, zest_texture_array_binding);
+			}
+		}
+	} else {
+		// Unknown or legacy format
+		ZEST_PRINT("Unknown font file format (magic: 0x%08X). Please regenerate the font cache.", magic);
+		fclose(font_file);
+		return font;
 	}
+
+	// Initialize runtime state
 	font.context = context;
 	font.is_loaded_from_file = ZEST_TRUE;
 	font.settings.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
