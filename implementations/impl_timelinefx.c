@@ -76,6 +76,9 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 
 	resources->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&resources->camera, 60.f);
+	//float cam_pos[3] = {0.f, 3.f, 7.5};
+	//zest_CameraPosition(&resources->camera, cam_pos);
+	zest_CameraUpdateFront(&resources->camera);
 
 	zest_tfx_UpdateUniformBuffer(context, resources);
 
@@ -97,7 +100,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
 	zest_AddVertexInputBindingDescription(resources->pipeline, 0, sizeof(tfx_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(resources->pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(tfx_instance_t, position));	            // Location 0: Postion and stretch in w
-	zest_AddVertexAttribute(resources->pipeline, 0, 1, zest_format_r32_uint, offsetof(tfx_instance_t, quaternion));	                        // Location 1: Quaternion (packed)
+	zest_AddVertexAttribute(resources->pipeline, 0, 1, zest_format_r8g8b8a8_snorm, offsetof(tfx_instance_t, quaternion));	                // Location 1: Quaternion (packed)
 	zest_AddVertexAttribute(resources->pipeline, 0, 2, zest_format_r8g8b8_snorm, offsetof(tfx_instance_t, alignment));					    // Location 2: Alignment
 	zest_AddVertexAttribute(resources->pipeline, 0, 3, zest_format_r16g16b16a16_sscaled, offsetof(tfx_instance_t, size_handle));		    // Location 3: Size and handle of the sprite
 	zest_AddVertexAttribute(resources->pipeline, 0, 4, zest_format_r16g16_sscaled, offsetof(tfx_instance_t, intensity_gradient_map));       // Location 4: 2 intensities for each color
