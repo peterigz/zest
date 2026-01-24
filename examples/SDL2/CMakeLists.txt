@@ -189,8 +189,8 @@ set(EXAMPLES
 	zest-sdl2-imgui-template
 )
 
-# zest-compute-example requires Slang, which is only available as MSVC-built library from Vulkan SDK
-if(ZEST_ENABLE_SLANG AND MSVC)
+# zest-compute-example requires Slang
+if(ZEST_ENABLE_SLANG)
 	list(APPEND EXAMPLES zest-compute-example)
 endif()
 
