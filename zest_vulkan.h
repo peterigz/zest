@@ -3900,7 +3900,9 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
         surface_create_info.window = (xcb_window_t)(uintptr_t)context->window_data.native_handle;
         ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXcbSurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
         return ZEST_TRUE;
-    } else if (zest__vk_has_extension(device, VK_KHR_XLIB_SURFACE_EXTENSION_NAME)) {
+    }
+#ifdef VK_USE_PLATFORM_XLIB_KHR
+    if (zest__vk_has_extension(device, VK_KHR_XLIB_SURFACE_EXTENSION_NAME)) {
         VkXlibSurfaceCreateInfoKHR surface_create_info;
         surface_create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
         surface_create_info.pNext = NULL;
@@ -3910,6 +3912,7 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
         ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXlibSurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
         return ZEST_TRUE;
     }
+#endif
     ZEST_ASSERT(ZEST_FALSE, "No Linux surface extension found. Add VK_KHR_XCB_SURFACE_EXTENSION_NAME or VK_KHR_XLIB_SURFACE_EXTENSION_NAME via zest_AddDeviceBuilderExtension(s).");
     return ZEST_FALSE;
 #endif
