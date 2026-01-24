@@ -1795,6 +1795,7 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 }
 
 zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format) {
+    ZEST_ASSERT(pixels, "No pixels passed in to the function");
 	ZEST_ASSERT(image_collection->image_count < image_collection->max_images, "No more room for new images in the image collection");
 	int channels, bytes_per_pixel;
 	int block_width, block_height, bytes_per_block;
