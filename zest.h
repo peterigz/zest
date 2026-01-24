@@ -3411,11 +3411,12 @@ typedef struct zest_window_data_t {
 	void *window_handle;
 
 	/**
-* The display or connection handle (can be NULL on some platforms).
-* - On Windows: A pointer to the HINSTANCE.
-- On Linux (X11): A pointer to the xcb_connection_t or Display*.
-* - On macOS: Not used (can be NULL).
-*/
+	* The display or connection handle (can be NULL on some platforms).
+	* - On Windows: A pointer to the HINSTANCE.
+	* - On Linux (XCB): A pointer to xcb_connection_t.
+	* - On Linux (Xlib): A pointer to Display*.
+	* - On macOS: Not used (can be NULL).
+	*/
 	void *display;
 	void *user_data;
 	int width;
@@ -9343,7 +9344,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 }
 
 zest_swapchain zest__create_swapchain(zest_context context, const char *name) {
-    zest_swapchain swapchain = (zest_swapchain)ZEST__NEW(context->allocator, zest_swapchain);
+    zest_swapchain swapchain = (zest_swapchain)ZEST__NEW_ALIGNED(context->allocator, zest_swapchain, 16);
     *swapchain = ZEST__ZERO_INIT(zest_swapchain_t);
     swapchain->magic = zest_INIT_MAGIC(zest_struct_type_swapchain);
     swapchain->backend = (zest_swapchain_backend)context->device->platform->new_swapchain_backend(context);
