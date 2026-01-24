@@ -7,9 +7,6 @@
 [submodule "submodules/imgui-file-dialog"]
 	path = submodules/imgui-file-dialog
 	url = https://github.com/aiekick/ImGuiFileDialog.git
-[submodule "submodules/imgui_file_dialog"]
-	path = submodules/imgui_file_dialog
-	url = https://github.com/aiekick/ImGuiFileDialog.git
 [submodule "submodules/timelinefxlib"]
 	path = submodules/timelinefxlib
 	url = https://github.com/peterigz/timelinefxlib.git
@@ -19,12 +16,6 @@
 [submodule "submodules/msdf-atlas-gen"]
 	path = submodules/msdf-atlas-gen
 	url = https://github.com/Chlumsky/msdf-atlas-gen.git
-[submodule "submodules/msdf_atlas_gen"]
-	path = submodules/msdf_atlas_gen
-	url = https://github.com/peterigz/msdf-atlas-gen.git
 [submodule "submodules/freetype"]
 	path = submodules/freetype
 	url = https://github.com/freetype/freetype.git
-[submodule "submodules/zloc"]
-	path = submodules/zloc
-	url = https://github.com/peterigz/zloc.git
