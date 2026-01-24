@@ -149,7 +149,7 @@ function(buildExample EXAMPLE_NAME)
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)
-			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma -fpermissive -Wno-ignored-attributes)
+			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
 		endif()
 	endif()
 
@@ -160,7 +160,7 @@ function(buildExample EXAMPLE_NAME)
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)
-			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma -fpermissive -Wno-ignored-attributes)
+			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
 		endif()
 	endif()
 
