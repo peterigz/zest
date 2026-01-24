@@ -1,9 +1,43 @@
 #pragma once
 
-#include <zest.h>
+// X11/Xlib.h defines macros like "None", "Bool", "Status" that conflict with Slang's enums.
+// Save and undefine them before including Slang headers, then restore after.
+#ifdef None
+#define _XLIB_NONE_SAVED None
+#undef None
+#endif
+
+#ifdef Bool
+#define _XLIB_BOOL_SAVED Bool
+#undef Bool
+#endif
+
+#ifdef Status
+#define _XLIB_STATUS_SAVED Status
+#undef Status
+#endif
+
 #include <slang/slang.h>
 #include <slang/slang-com-ptr.h>
 #include <slang/slang-com-helper.h>
+
+// Restore X11 macros
+#ifdef _XLIB_NONE_SAVED
+#define None _XLIB_NONE_SAVED
+#undef _XLIB_NONE_SAVED
+#endif
+
+#ifdef _XLIB_BOOL_SAVED
+#define Bool _XLIB_BOOL_SAVED
+#undef _XLIB_BOOL_SAVED
+#endif
+
+#ifdef _XLIB_STATUS_SAVED
+#define Status _XLIB_STATUS_SAVED
+#undef _XLIB_STATUS_SAVED
+#endif
+
+#include <zest.h>
 
 typedef struct zest_slang_info_s {
     int magic;
