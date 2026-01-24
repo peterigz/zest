@@ -1,6 +1,7 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define ZEST_MSDF_IMPLEMENTATION
+#define ZEST_MAX_FIF 2
 #include <SDL.h>
 #include <zest.h>
 #include "implementations/impl_imgui.h"
@@ -263,6 +264,34 @@ void DrawBillboard(zest_layer layer, zest_atlas_region_t *image, float position[
     billboard->intensity_texture_array = (image->layer_index << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
 }
 
+//We need a custom viewport window for sdl viewports because the imgui implementation stores the window id in the platform handle
+//rather then the window pointer.
+void CreateSDLViewport(ImGuiViewport *viewport) {
+	zest_imgui_viewport_t *app_viewport = (zest_imgui_viewport_t *)viewport->RendererUserData;
+	ImGuiIO &io = ImGui::GetIO();
+	zest_imgui_t *imgui = (zest_imgui_t *)io.UserData;
+	zest_device device = zest_GetContextDevice(imgui->context);
+	if (!app_viewport) {
+		app_viewport = zest_imgui_AcquireViewport(zest_GetContextDevice(imgui->context));
+		viewport->RendererUserData = app_viewport;
+	}
+
+	// Create Zest context
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	zest_window_data_t window_handles = { };
+	// SDL2 stores window ID, not window pointer
+	SDL_Window *sdl_window = SDL_GetWindowFromID((Uint32)(uintptr_t)viewport->PlatformHandle);
+	window_handles.window_handle = sdl_window;
+	window_handles.native_handle = viewport->PlatformHandleRaw;
+	window_handles.width = (int)viewport->Size.x;
+	window_handles.height = (int)viewport->Size.y;
+	window_handles.window_sizes_callback = zest_imgui_GetWindowSizeCallback;
+	window_handles.user_data = viewport;
+	app_viewport->context = zest_CreateContext(device, &window_handles, &create_info);
+	app_viewport->imgui = imgui;
+	app_viewport->imgui_viewport = viewport;
+}
+
 //Initialise the game and set up the renderer
 void VadersGame::Init() {
 	zest_tfx_InitTimelineFXRenderResources(device, context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
@@ -377,6 +406,9 @@ void VadersGame::Init() {
 	//Initialise imgui
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
+	//SDL requires a different viewport creation function
+	ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+	platform_io.Renderer_CreateWindow = CreateSDLViewport;
 
 	//Set up the font in imgui
 	ImGuiIO& io = ImGui::GetIO();
@@ -1241,7 +1273,9 @@ void VadersGame::Update(float ellapsed) {
 
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 		if (!frame_graph) {
+			ZEST_PRINT("Rebuilding frame graph");
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
+				//zest_WaitForSignal(tfx_rendering.timeline, 100000);
 				//---------------------------------Resources-------------------------------------------------------
 				zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_layer, false);
 				zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_layer, true);
@@ -1282,6 +1316,7 @@ void VadersGame::Update(float ellapsed) {
 				}
 				//----------------------------------------------------------------------------------------------------
 
+				//zest_SignalTimeline(tfx_rendering.timeline);
 				//Compile frame graph. 
 				frame_graph = zest_EndFrameGraph();
 			}
