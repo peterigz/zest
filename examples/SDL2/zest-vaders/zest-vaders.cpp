@@ -1273,7 +1273,6 @@ void VadersGame::Update(float ellapsed) {
 
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 		if (!frame_graph) {
-			ZEST_PRINT("Rebuilding frame graph");
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
 				//zest_WaitForSignal(tfx_rendering.timeline, 100000);
 				//---------------------------------Resources-------------------------------------------------------

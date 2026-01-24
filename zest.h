@@ -12,7 +12,6 @@
     [Macro_Defines]                     Just a bunch of typedefs and macro definitions
     [Typedefs_for_numbers]          
     [Platform_specific_code]            Windows/Mac specific, no linux yet
-    [Shader_code]                       glsl shader code for all the built in shaders
     [Enums_and_flags]                   Enums and bit flag definitions
         [pipeline_enums]
     [Forward_declarations]              Forward declarations for structs and setting up of handles
@@ -1228,41 +1227,6 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_NOT_BINDLESS 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
-//Shader_code
-//For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
-#define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
-
-//----------------------
-//Swap chain vert shader
-//----------------------
-static const char *zest_shader_swap_vert = ZEST_GLSL(450,
-													layout(location = 0) out vec2 outUV;
-
-	out gl_PerVertex
-	{
-		vec4 gl_Position;
-	};
-
-	void main()
-	{
-		outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-		gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
-	}
-);
-
-//----------------------
-//Swap chain frag shader
-//----------------------
-static const char *zest_shader_swap_frag = ZEST_GLSL(450,
-													layout(set = 0, binding = 0) uniform sampler2D samplerColor;
-	layout(location = 0) in vec2 inUV;
-	layout(location = 0) out vec4 outFragColor;
-	void main(void)
-	{
-		outFragColor = texture(samplerColor, inUV);
-	}
-);
-
 //Enums_and_flags
 typedef enum zest_platform_type {
 	zest_platform_vulkan,
@@ -2400,6 +2364,8 @@ typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, 
 #define ZEST_SET_MEMORY_CONTEXT(device, mem_context, command) device->platform_memory_info.timestamp = device->allocation_id++; \
 device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (mem_context << 16) | (command << 24)
 
+//For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
+#define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
 
 // --Forward_declarations
 typedef struct zest_context_t zest_context_t;
@@ -3537,15 +3503,6 @@ zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
 zest_hash_map(zest_frame_graph_semaphores) zest_map_frame_graph_semaphores;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 
-typedef struct zest_builtin_shaders_t {
-	zest_shader_handle swap_vert;
-	zest_shader_handle swap_frag;
-} zest_builtin_shaders_t;
-
-typedef struct zest_builtin_pipeline_templates_t {
-	zest_pipeline_template swap;
-} zest_builtin_pipeline_templates_t;
-
 typedef struct zest_descriptor_binding_desc_t {
 	zest_uint binding;                      // The binding slot (register in HLSL, binding in GLSL, [[id(n)]] in MSL)
 	zest_descriptor_type type;              // The generic resource type
@@ -4165,8 +4122,6 @@ ZEST_PRIVATE void zest__scan_memory_and_free_resources(void *origin, zest_bool i
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
-ZEST_PRIVATE void zest__compile_builtin_shaders(zest_device device);
-ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_device device);
 ZEST_PRIVATE void zest__cleanup_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
@@ -6095,10 +6050,6 @@ typedef struct zest_device_t {
 	zest_debug_t debug;
 	zest_map_reports reports;
 
-	//Built in shaders that I'll probably remove soon
-	zest_builtin_shaders_t builtin_shaders;
-	zest_builtin_pipeline_templates_t pipeline_templates;
-
 	//Global descriptor set and layout template.
 	zest_set_layout_builder_t global_layout_builder;
 
@@ -7828,12 +7779,7 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 
 	zest__create_default_images(device, builder);
 
-    ZEST_APPEND_LOG(device->log_path.str, "Compile shaders");
-    zest__compile_builtin_shaders(device);
-
     ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
-	//TODO: remove?
-    zest__prepare_standard_pipelines(device);
 
     device->platform->set_depth_format(device);
 
@@ -10699,11 +10645,6 @@ zest_shader zest_GetShader(zest_shader_handle shader_handle) {
 	return shader;
 }
 
-void zest__compile_builtin_shaders(zest_device device) {
-    device->builtin_shaders.swap_vert          = zest_CreateShader(device, zest_shader_swap_vert, zest_vertex_shader, "swap_vert.spv", 1);
-    device->builtin_shaders.swap_frag          = zest_CreateShader(device, zest_shader_swap_frag, zest_fragment_shader, "swap_frag.spv", 1);
-}
-
 zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
     zest_shader_handle handle = ZEST_STRUCT_LITERAL(zest_shader_handle, zest__add_store_resource(store), store );
@@ -11596,31 +11537,6 @@ void zest_FreeSamplerNow(zest_sampler_handle handle) {
 	zest_device device = (zest_device)handle.store->origin;
 	zest__free_handle(device->allocator, sampler);
 }
-
-void zest__prepare_standard_pipelines(zest_device device) {
-	//TODO: this needs looking at. Do we even need this at all?
-	zest_pipeline_layout_info_t info = zest_NewPipelineLayoutInfo(device);
-	zest_pipeline_layout swap_layout = zest_CreatePipelineLayout(&info);
-
-    //Final Render Pipelines
-    device->pipeline_templates.swap = zest_CreatePipelineTemplate(device, "pipeline_swap_chain");
-    zest_pipeline_template swap = device->pipeline_templates.swap;
-    zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
-    swap->no_vertex_input = ZEST_TRUE;
-    zest_SetPipelineVertShader(swap, device->builtin_shaders.swap_vert);
-    zest_SetPipelineFragShader(swap, device->builtin_shaders.swap_frag);
-    swap->uniforms = 0;
-    swap->flags = zest_pipeline_set_flag_is_render_target_pipeline;
-
-	zest_SetPipelineLayout(device->pipeline_templates.swap, swap_layout);
-    swap->depth_stencil.depth_write_enable = ZEST_FALSE;
-    swap->depth_stencil.depth_test_enable = ZEST_FALSE;
-
-    swap->color_blend_attachment = zest_PreMultiplyBlendStateForSwap();
-
-    ZEST_APPEND_LOG(device->log_path.str, "Final render pipeline");
-}
-
 // --End Renderer functions
 
 // --General Helper Functions
