@@ -60,7 +60,7 @@ void InitExample(zest_fonts_example *app) {
 	}
 
 	// Create font rendering resources: shader pipeline for MSDF text
-	app->font_resources = zest_CreateFontResources(app->context, "shaders/font.vert", "shaders/font.frag");
+	app->font_resources = zest_CreateFontResources(app->context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
 	// Create a layer to batch text draw calls (100 = initial instance capacity)
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer", 100);
 	app->font_size = 1.f;

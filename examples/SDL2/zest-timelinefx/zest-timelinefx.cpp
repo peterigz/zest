@@ -77,7 +77,7 @@ void TimelineFXExample::Init() {
 	* @param name						The name of the effect in the library that you want to use for the template. If the effect is in a folder then use normal pathing: "My Folder/My effect"
 	//Returns a handle for a tfx_effect_template.
 	*/
-	effect_template1 = tfx_CreateEffectTemplate(library, "Title");
+	effect_template1 = tfx_CreateEffectTemplate(library, "Big Explosion");
 	effect_template2 = tfx_CreateEffectTemplate(library, "Got Power Up");
 
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be

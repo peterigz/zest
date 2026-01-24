@@ -464,7 +464,7 @@ void VadersGame::Init() {
 
 	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(billboard_instance_t), 10000);
 
-	font_resources = zest_CreateFontResources(context, "shaders/font.vert", "shaders/font.frag");
+	font_resources = zest_CreateFontResources(context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
 	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
 
 	zest_ForEachFrameInFlight(fif) {

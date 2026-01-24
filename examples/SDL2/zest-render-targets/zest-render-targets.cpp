@@ -38,7 +38,7 @@ void InitExample(render_target_app_t *example) {
 		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->sampler_index);
 	}
 
-	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
+	example->font_resources = zest_CreateFontResources(example->context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
 	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer", 500);
 
 	//Create the compute shader pipeline for downsampling
