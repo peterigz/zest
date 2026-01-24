@@ -279,7 +279,7 @@ void VadersGame::Init() {
 	vader_image3 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader3.png", 1, 0, 0);
 	big_vader_image = AddGameSprite(&game_sprites, "examples/assets/vaders/big_vader.png", 1, 0, 0);
 	vader_bullet_image = AddGameSprite(&game_sprites, "examples/assets/vaders/vader_bullet_64_64_16.png", 64, 16, 16);
-	vader_bullet_glow_image = AddGameSprite(&game_sprites, "examples/assets/vaders/flare4.png", 1, 0, 0);
+	vader_bullet_glow_image = AddGameSprite(&game_sprites, "examples/assets/vaders/Flare4.png", 1, 0, 0);
 
 	sprite_texture = zest_CreateImageAtlas(context, &game_sprites, 1024, 1024, 0);
 	zest_image sprite_image = zest_GetImage(sprite_texture);

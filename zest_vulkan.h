@@ -225,6 +225,7 @@ ZEST_PRIVATE void zest__vk_cleanup_device_backend(zest_device device);
 ZEST_PRIVATE void zest__vk_cleanup_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_destroy_context_surface(zest_context context);
 
+ZEST_PRIVATE zest_bool zest__vk_has_extension(zest_device device, const char *extension_name);
 ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_initialise_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_swapchain(zest_context context);
@@ -2491,7 +2492,7 @@ void zest__vk_cleanup_context_backend(zest_context context) {
 
 void zest__vk_destroy_context_surface(zest_context context) {
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->allocator)));
-	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, &context->device->backend->allocation_callbacks);
+	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, VK_NULL_HANDLE);
 }
 // -- End Backend_cleanup_functions
 
@@ -3856,6 +3857,15 @@ VkAllocationCallbacks *zest_GetVKAllocationCallbacks(zest_context context) {
     return &context->device->backend->allocation_callbacks;
 }
 
+zest_bool zest__vk_has_extension(zest_device device, const char *extension_name) {
+    zest_vec_foreach(i, device->extensions) {
+        if (strcmp(device->extensions[i], extension_name) == 0) {
+            return ZEST_TRUE;
+        }
+    }
+    return ZEST_FALSE;
+}
+
 zest_bool zest__vk_create_window_surface(zest_context context) {
 	zest_device device = context->device;
 #ifdef _WIN32 
@@ -3866,17 +3876,42 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     surface_create_info.hinstance = (HINSTANCE)context->window_data.display;
     surface_create_info.hwnd = (HWND)context->window_data.native_handle;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &device->backend->allocation_callbacks, &context->backend->surface));
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
     return ZEST_TRUE;
-#elif defined(__linux__)                                                                                       
+#elif defined(__linux__)
 #ifdef GLFW_VERSION_MAJOR
-    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
-	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), &device->backend->allocation_callbacks, &context->backend->surface));
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
+	ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), VK_NULL_HANDLE, &context->backend->surface));
     return ZEST_TRUE;
 #elif defined(SDL_MAJOR_VERSION)
-    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);                             
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
 	SDL_bool result = SDL_Vulkan_CreateSurface((SDL_Window*)zest_Window(context), device->backend->instance, &context->backend->surface);
     return (zest_bool)result;
+#else
+    // Fallback: user provides window_data.display and window_data.native_handle
+    // Detect which surface extension they enabled via device builder
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
+    if (zest__vk_has_extension(device, VK_KHR_XCB_SURFACE_EXTENSION_NAME)) {
+        VkXcbSurfaceCreateInfoKHR surface_create_info;
+        surface_create_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+        surface_create_info.pNext = NULL;
+        surface_create_info.flags = 0;
+        surface_create_info.connection = (xcb_connection_t*)context->window_data.display;
+        surface_create_info.window = (xcb_window_t)(uintptr_t)context->window_data.native_handle;
+        ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXcbSurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
+        return ZEST_TRUE;
+    } else if (zest__vk_has_extension(device, VK_KHR_XLIB_SURFACE_EXTENSION_NAME)) {
+        VkXlibSurfaceCreateInfoKHR surface_create_info;
+        surface_create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+        surface_create_info.pNext = NULL;
+        surface_create_info.flags = 0;
+        surface_create_info.dpy = (Display*)context->window_data.display;
+        surface_create_info.window = (Window)(uintptr_t)context->window_data.native_handle;
+        ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateXlibSurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
+        return ZEST_TRUE;
+    }
+    ZEST_ASSERT(ZEST_FALSE, "No Linux surface extension found. Add VK_KHR_XCB_SURFACE_EXTENSION_NAME or VK_KHR_XLIB_SURFACE_EXTENSION_NAME via zest_AddDeviceBuilderExtension(s).");
+    return ZEST_FALSE;
 #endif
 #endif
 }
