@@ -3082,10 +3082,10 @@ ZEST_API void zest__add_report(zest_device device, zest_report_category category
 #define ZEST_MAYBE_REPORT(device, condition, category, entry, ...) if (condition) { zest__add_report(device, category, __LINE__, __FILE__, __FUNCTION__, entry, ##__VA_ARGS__); }
 #define ZEST_REPORT(device, category, entry, ...) zest__add_report(device, category, __LINE__, __FILE__, __FUNCTION__, entry, ##__VA_ARGS__)
 #else
-#define ZEST_FRAME_LOG(message_f, ...)
+#define ZEST_FRAME_LOG(context, message_f, ...)
 #define ZEST_RESET_LOG()
-#define ZEST_MAYBE_REPORT() 
-#define ZEST_REPORT()
+#define ZEST_MAYBE_REPORT(device, condition, category, entry, ...) 
+#define ZEST_REPORT(device, category, entry, ...)
 #endif
 
 // --Structs
