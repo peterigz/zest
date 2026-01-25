@@ -29,6 +29,7 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
+    /*
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
@@ -40,6 +41,7 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
+     */
 
 	//Setup a free-look camera
 	app->camera = zest_CreateCamera();
@@ -631,7 +633,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create a device using a helper function for SDL2.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);

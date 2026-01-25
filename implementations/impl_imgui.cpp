@@ -82,7 +82,15 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 //Dear ImGui helper functions
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels) {
     int upload_size = width * height * 4 * sizeof(char);
-    zest_FreeImage(imgui->font_texture);
+
+    // MoltenVK workaround: Free the texture from 2 rebuilds ago instead of the current one.
+    // This gives MoltenVK's argument buffers more time to release their reference to the
+    // old texture, preventing "Metal object being destroyed while still required" errors.
+    if (imgui->font_texture_previous.value) {
+        zest_FreeImage(imgui->font_texture_previous);
+    }
+    imgui->font_texture_previous = imgui->font_texture;
+
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     imgui->font_texture = zest_CreateImage(imgui->device, &image_info);
@@ -91,7 +99,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
     zest_CopyBitmapToImage(imgui->device, pixels, upload_size, font_image, width, height);
     imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->device, font_image, zest_texture_2d_binding);
 	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_2d_binding);
-    
+
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
 }
@@ -115,8 +123,6 @@ zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *
     ImDrawData *all_draw_data =  ImGui::GetDrawData();
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         //Declare resources
-		zest_image font_image = zest_GetImage(imgui->font_texture);
-        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", font_image, 0);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_AddVertexResources(imgui_draw_data, "Viewport Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_AddIndexResources(imgui_draw_data, "Viewport Index Buffer");
         //Transfer Pass
@@ -130,7 +136,6 @@ zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *
         //Graphics Pass for ImGui outputting to the output passed in to this function
 		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Viewport Pass");
         //inputs
-		zest_ConnectInput(imgui_font_texture);
         zest_ConnectInput(imgui_vertex_buffer);
 		zest_ConnectInput(imgui_index_buffer);
         //Task
@@ -624,6 +629,9 @@ void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	ImGui::DestroyContext();
 	zest_FreeImage(imgui->font_texture);
+	if (imgui->font_texture_previous.value) {
+		zest_FreeImage(imgui->font_texture_previous);
+	}
 	zest_FreePipelineTemplate(imgui->pipeline);
 }
 //--End Dear ImGui helper functions

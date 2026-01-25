@@ -145,6 +145,10 @@ typedef void* zloc_pool;
 #include <string.h>		//For memcpy, memset etc.
 #include <stdarg.h>		//For va_start, va_end etc.
 #include <math.h>
+#if defined(__APPLE__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__))
+#include <stdatomic.h>
+#define ZEST_USE_C11_ATOMICS
+#endif
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
 #define ZLOC_ASSERT assert
@@ -1114,7 +1118,7 @@ typedef char* zest_file;
 
 #ifdef ZEST_API_INTERNAL
 #endif
-ZEST_API void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity);
+ZEST_API void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity, zest_uint alignment);
 
 #define ZEST_API_TMP
 
@@ -2554,6 +2558,8 @@ typedef struct zest_sync_t {
 ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
 	#ifdef _WIN32
 	return InterlockedIncrement((LONG *)value);
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	return atomic_fetch_add((_Atomic zest_uint *)value, 1) + 1;
 	#else
 	return __sync_fetch_and_add(value, 1) + 1;
 	#endif
@@ -2562,6 +2568,9 @@ ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) 
 ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
 	#ifdef _WIN32
 	return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	int expected = comparand;
+	return atomic_compare_exchange_strong((_Atomic int *)dest, &expected, exchange);
 	#else
 	return __sync_bool_compare_and_swap(dest, comparand, exchange);
 	#endif
@@ -2574,6 +2583,8 @@ ZEST_PRIVATE inline zest_size zest__atomic_fetch_and(volatile zest_size *ptr, ze
 	#else
 	return InterlockedAnd((LONG *)ptr, mask);
 	#endif
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	return atomic_fetch_and((_Atomic zest_size *)ptr, mask);
 	#else
 	return __sync_fetch_and_and(ptr, mask);
 	#endif
@@ -2586,6 +2597,9 @@ ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zes
 	#else
 	return InterlockedOr((LONG *)ptr, mask);
 	#endif
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	return atomic_fetch_or((_Atomic zest_size *)ptr, mask);
+#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8))) : (void)0)
 	#else
 	return __sync_fetch_and_or(ptr, mask);
 	#endif
@@ -2594,6 +2608,8 @@ ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zes
 ZEST_API inline void zest__atomic_store(volatile int *ptr, int value) {
 	#ifdef _WIN32
 	InterlockedExchange((LONG *)ptr, value);
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	atomic_store((_Atomic int *)ptr, value);
 	#else
 	__sync_lock_test_and_set(ptr, value);
 	#endif
@@ -2602,6 +2618,8 @@ ZEST_API inline void zest__atomic_store(volatile int *ptr, int value) {
 ZEST_API inline int zest__atomic_load(volatile int *ptr) {
 	#ifdef _WIN32
 	return InterlockedOr((LONG *)ptr, 0);  // OR with 0 = read without modifying
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	return atomic_load((_Atomic int *)ptr);
 	#else
 	return __sync_fetch_and_or(ptr, 0);
 	#endif
@@ -2610,6 +2628,8 @@ ZEST_API inline int zest__atomic_load(volatile int *ptr) {
 ZEST_PRIVATE inline void zest__memory_barrier(void) {
 	#ifdef _WIN32
 	MemoryBarrier();
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	atomic_thread_fence(memory_order_seq_cst);
 	#else
 	__sync_synchronize();
 	#endif
@@ -2758,26 +2778,30 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #endif
 
 #ifdef __cplusplus
-template<class T> T* zest__vec_reserve_wrapper(zloc_allocator *allocator, T *a, zest_uint unit_size, zest_uint new_capacity) {
-	return (T *)zest__vec_reserve(allocator, a, unit_size, new_capacity);
+template<class T> T* zest__vec_reserve_wrapper(zloc_allocator *allocator, T *a, zest_uint unit_size, zest_uint new_capacity, zest_uint alignment) {
+	return (T *)zest__vec_reserve(allocator, a, unit_size, new_capacity, alignment);
 }
 ZEST_API template<class T> T* zest__vec_linear_reserve_wrapper(zloc_linear_allocator_t *allocator, T *a, zest_uint unit_size, zest_uint new_capacity) {
 	return (T *)zest__vec_linear_reserve(allocator, a, unit_size, new_capacity);
 }
 //ZEST_API template<class T> T* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, T *a, zest_uint unit_size, zest_uint new_capacity);
 ZEST_API void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
-#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8))) : (void)0)
+#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8), 0)) : (void)0)
 #define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_linear_reserve_wrapper(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16))) : (void)0)
-#define zest_vec_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); } while (0);
-#define zest_vec_resize(allocator, T, new_size)  do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); if (T) zest__vec_header(T)->current_size = new_size; } while (0);
+#define zest_vec_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0); } while (0);
+#define zest_vec_reserve_aligned(allocator, T, new_size, alignment) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment); } while (0);
+#define zest_vec_resize(allocator, T, new_size)  do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0); if (T) zest__vec_header(T)->current_size = new_size; } while (0);
+#define zest_vec_resize_aligned(allocator, T, new_size, alignment)  do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment); if (T) zest__vec_header(T)->current_size = new_size; } while (0);
 #define zest_vec_linear_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); } while (0)
 #define zest_vec_linear_resize(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); if (T) zest__vec_header(T)->current_size = new_size; } while (0)
 #define ZEST__ARRAY(allocator, name, T, count) T *name = static_cast<T *>(ZEST__REALLOCATE(allocator, 0, sizeof(T) * count))
 #else
 #define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16)) : 0)
-#define zest_vec_reserve(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size);
-#define zest_vec_resize(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); zest__vec_header(T)->current_size = new_size
+#define zest_vec_reserve(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0);
+#define zest_vec_reserve_aligned(allocator, T, new_size, alignment) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment);
+#define zest_vec_resize(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0); zest__vec_header(T)->current_size = new_size
+#define zest_vec_resize_aligned(allocator, T, new_size, alignment) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment); zest__vec_header(T)->current_size = new_size
 #define zest_vec_linear_reserve(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size);
 #define zest_vec_linear_resize(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); zest__vec_header(T)->current_size = new_size
 #define ZEST__ARRAY(allocator, name, T, count) T *name = ZEST__REALLOCATE(allocator, 0, sizeof(T) * count)
@@ -9975,10 +9999,10 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, ze
 		*manager = ZEST__ZERO_INIT(zest_descriptor_indices_t);
         manager->capacity = builder->bindings[i].count;
         manager->descriptor_type = builder->bindings[i].type;
-		zest_vec_reserve(device->allocator, manager->free_indices, manager->capacity);
+		zest_vec_reserve_aligned(device->allocator, manager->free_indices, manager->capacity, 8);
 		memset(manager->free_indices, 0, zest_vec_size_in_bytes(manager->free_indices));
 		zest_uint is_free_size = manager->capacity / (8 * sizeof(zest_size));
-		zest_vec_resize(device->allocator, manager->is_free, is_free_size);
+		zest_vec_resize_aligned(device->allocator, manager->is_free, is_free_size, 8);
 		memset(manager->is_free, 0, zest_vec_size_in_bytes(manager->is_free));
     }
 
@@ -10930,11 +10954,16 @@ zest_uint zest__grow_capacity(void* T, zest_uint size) {
     return new_capacity > size ? new_capacity : size;
 }
 
-void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity) {
+void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity, zest_uint alignment) {
     if (T && new_capacity <= zest__vec_header(T)->capacity) {
         return T;
     }
-    void* new_data = ZEST__REALLOCATE(allocator, (T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD);
+	void *new_data = 0;
+	if(alignment == 0) {
+		new_data = ZEST__REALLOCATE(allocator, (T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD);
+	} else {
+		new_data = ZEST__ALLOCATE_ALIGNED(allocator, new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD, alignment);
+	}
     if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD);
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
@@ -17550,6 +17579,13 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
 #if defined(_WIN32)
     window_data.native_handle = wmi.info.win.window;
     window_data.display = wmi.info.win.hinstance;
+#elif defined(__APPLE__)
+#if defined(ZEST_VULKAN_IMPLEMENTATION)
+    // On macOS with SDL, we use SDL_Vulkan_CreateSurface which handles everything
+    // but we still set these for completeness
+    window_data.native_handle = wmi.info.cocoa.window;
+    window_data.display = NULL;
+#endif
 #elif defined(__linux__)
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
     window_data.native_handle = (void*)(uintptr_t)wmi.info.x11.window;

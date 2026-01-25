@@ -1706,8 +1706,8 @@ ZEST_PRIVATE inline void zest__vk_get_required_extensions(zest_device device) {
     }
 #ifdef ZEST_PORTABILITY_ENUMERATION
     ZEST_APPEND_LOG(device->log_path.str, "Adding enumerate portability extension");
-    zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    zest_AddInstanceExtension("VK_KHR_get_physical_device_properties2");
+    zest_AddInstanceExtension(device, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    zest_AddInstanceExtension(device, "VK_KHR_get_physical_device_properties2");
 #endif
 }
 
@@ -1996,7 +1996,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.shaderInt64 = VK_TRUE;
     // Enable features needed for comprehensive pipeline testing
     device_features.fillModeNonSolid = VK_TRUE;
-    device_features.geometryShader = VK_TRUE;
+    //device_features.geometryShader = VK_TRUE;
     device_features.tessellationShader = VK_TRUE;
     device_features.shaderTessellationAndGeometryPointSize = VK_TRUE;
     if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
@@ -3029,8 +3029,8 @@ void zest__vk_os_add_platform_extensions(zest_context context) {
     #elif defined(__linux__)                                                                                       
         zest_AddInstanceExtension(context->device, VK_KHR_SURFACE_EXTENSION_NAME);                            
     #elif defined(__APPLE__)
-        zest_AddInstanceExtension(context->device, VK_KHR_METAL_SURFACE_EXTENSION_NAME);                            
-    #endif   
+        zest_AddInstanceExtension(context->device, VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+    #endif
 }
 // -- End Device_OS
 
@@ -3886,7 +3886,7 @@ zest_bool zest__vk_has_extension(zest_device device, const char *extension_name)
 
 zest_bool zest__vk_create_window_surface(zest_context context) {
 	zest_device device = context->device;
-#ifdef _WIN32 
+#ifdef _WIN32
     VkWin32SurfaceCreateInfoKHR surface_create_info;
     surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     surface_create_info.pNext = NULL;
@@ -3896,6 +3896,30 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
     return ZEST_TRUE;
+#elif defined(__APPLE__)
+#ifdef GLFW_VERSION_MAJOR
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
+    ZEST_RETURN_FALSE_ON_FAIL(device, glfwCreateWindowSurface(device->backend->instance, (GLFWwindow*)zest_Window(context), VK_NULL_HANDLE, &context->backend->surface));
+    return ZEST_TRUE;
+#elif defined(SDL_MAJOR_VERSION)
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
+    SDL_bool result = SDL_Vulkan_CreateSurface((SDL_Window*)zest_Window(context), device->backend->instance, &context->backend->surface);
+    return (zest_bool)result;
+#else
+    // Fallback: user provides window_data.native_handle as a CAMetalLayer*
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
+    if (zest__vk_has_extension(device, VK_EXT_METAL_SURFACE_EXTENSION_NAME)) {
+        VkMetalSurfaceCreateInfoEXT surface_create_info;
+        surface_create_info.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+        surface_create_info.pNext = NULL;
+        surface_create_info.flags = 0;
+        surface_create_info.pLayer = (const CAMetalLayer*)context->window_data.native_handle;
+        ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateMetalSurfaceEXT(context->device->backend->instance, &surface_create_info, VK_NULL_HANDLE, &context->backend->surface));
+        return ZEST_TRUE;
+    }
+    ZEST_ASSERT(ZEST_FALSE, "No macOS surface extension found. Add VK_EXT_METAL_SURFACE_EXTENSION_NAME via zest_AddDeviceBuilderExtension.");
+    return ZEST_FALSE;
+#endif
 #elif defined(__linux__)
 #ifdef GLFW_VERSION_MAJOR
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
@@ -3954,6 +3978,8 @@ zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_typ
 
     ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_command_buffer);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateCommandBuffers(device->backend->logical_device, &alloc_info, &queue->backend->command_buffer));
+    
+    ZEST_PRINT("Command buffer: %p", queue->backend->command_buffer);
 
     VkCommandBufferBeginInfo begin_info = ZEST__ZERO_INIT(VkCommandBufferBeginInfo);
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

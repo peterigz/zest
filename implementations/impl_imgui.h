@@ -30,6 +30,7 @@ typedef struct zest_imgui_t {
 	zest_device device;
 	ImGuiContext *imgui_context;
     zest_image_handle font_texture;
+    zest_image_handle font_texture_previous;  // MoltenVK workaround: keep previous texture alive longer
     zest_pipeline_template pipeline;
 	zest_pipeline_layout pipeline_layout;
     zest_shader_handle vertex_shader;
