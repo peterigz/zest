@@ -8993,6 +8993,8 @@ zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_OR_VALIDATE(!zest__is_compressed_format(image->info.format), queue->device,
 		"Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in KTX files instead.", ZEST_FALSE);
+	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 	return queue->device->platform->generate_mipmaps(queue, image);
 }
 

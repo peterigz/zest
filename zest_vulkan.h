@@ -3475,26 +3475,43 @@ VkAccessFlags zest__vk_get_access_mask_for_layout(VkImageLayout layout) {
     }
 }
 
-VkPipelineStageFlags zest__vk_get_stage_for_layout(VkImageLayout layout) {
+VkPipelineStageFlags zest__vk_get_stage_for_layout(VkImageLayout layout, zest_device_queue_type queue_type) {
+    VkPipelineStageFlags stage = 0;
     switch (layout) {
     case VK_IMAGE_LAYOUT_UNDEFINED:
         return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     case VK_IMAGE_LAYOUT_GENERAL:
-        return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        if (queue_type & (zest_queue_graphics | zest_queue_compute)) {
+            return VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        }
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
     case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
         return VK_PIPELINE_STAGE_TRANSFER_BIT;
     case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
     case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
-        return VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
-            | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-            | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        if (queue_type & zest_queue_graphics) {
+            stage |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        if (queue_type & (zest_queue_graphics | zest_queue_compute)) {
+            stage |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        }
+        return stage ? stage : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-        return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        if (queue_type & zest_queue_graphics) {
+            return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        }
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-        return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        if (queue_type & zest_queue_graphics) {
+            return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        }
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-        return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        if (queue_type & zest_queue_graphics) {
+            return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        }
+        return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     default:
         return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     }
@@ -3528,8 +3545,9 @@ zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, z
 
     barrier.srcAccessMask = zest__vk_get_access_mask_for_layout(image->backend->vk_current_layout);
     barrier.dstAccessMask = zest__vk_get_access_mask_for_layout(zest__to_vk_image_layout(new_layout));
-    VkPipelineStageFlags source_stage = zest__vk_get_stage_for_layout(image->backend->vk_current_layout);
-    VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(zest__to_vk_image_layout(new_layout));
+    zest_device_queue_type queue_type = queue->device->queues[queue->family_index]->type;
+    VkPipelineStageFlags source_stage = zest__vk_get_stage_for_layout(image->backend->vk_current_layout, queue_type);
+    VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(zest__to_vk_image_layout(new_layout), queue_type);
 
     vkCmdPipelineBarrier(queue->backend->command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
@@ -5076,6 +5094,8 @@ zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, fl
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
+	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkFormat vk_format = zest__to_vk_format(image->info.format);
 	VkImageAspectFlags aspect_mask = 0;
@@ -5134,6 +5154,8 @@ zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image 
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
+	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkImageLayout src_original_layout = src_image->backend->vk_current_layout;
 	VkImageLayout dst_original_layout = dst_image->backend->vk_current_layout;
@@ -5238,6 +5260,8 @@ zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_ima
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
+	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkImageLayout src_original_layout = src_image->backend->vk_current_layout;
 	VkImageLayout dst_original_layout = dst_image->backend->vk_current_layout;
