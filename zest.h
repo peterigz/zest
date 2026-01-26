@@ -160,7 +160,7 @@ typedef void* zloc_pool;
 #define zloc__static_assert(exp) \
 typedef char zloc__glue(static_assert, __LINE__) [(exp) ? 1 : -1]
 
-#if (defined(_MSC_VER) && defined(_M_X64)) || defined(__x86_64__)
+#if (defined(_MSC_VER) && defined(_M_X64)) || defined(__x86_64__) || defined(__aarch64__)
 #define zloc__64BIT
 typedef size_t zloc_size;
 typedef size_t zloc_fl_bitmap;
