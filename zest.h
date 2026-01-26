@@ -2599,7 +2599,6 @@ ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zes
 	#endif
 	#elif defined(ZEST_USE_C11_ATOMICS)
 	return atomic_fetch_or((_Atomic zest_size *)ptr, mask);
-#define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8))) : (void)0)
 	#else
 	return __sync_fetch_and_or(ptr, mask);
 	#endif
@@ -4343,7 +4342,7 @@ ZEST_API void zest__register_platform(zest_platform_type type, zest__platform_se
 //        These functions are for more advanced customisation of the render where more knowledge of how graphics APIs work is required.
 //-----------------------------------------------
 //Add an instance extension. You don't really need to worry about this function unless you're looking to customise the render with some specific extensions
-ZEST_API void zest_AddInstanceExtension(zest_device device, char *extension);
+ZEST_API void zest_AddInstanceExtension(zest_device device, const char *extension);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
 ZEST_API zest_bool zest_CreateDescriptorPoolForLayout(zest_set_layout layout, zest_uint max_set_count);
@@ -6042,7 +6041,7 @@ typedef struct zest_device_t {
 	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_uint memory_pool_count;
 	zloc_allocator *allocator;
-	char **extensions;
+	const char **extensions;
 	zest_platform_memory_info_t platform_memory_info;
 	zest_uint allocation_id;
 	zest_uint vector_id;
@@ -7139,21 +7138,16 @@ zest_matrix4 zest_MatrixTransform(zest_matrix4* left, zest_matrix4* right) {
     in_row[2] = vld1q_f32(&right->v[2].x);
     in_row[3] = vld1q_f32(&right->v[3].x);
 
-    float32x4_t m_row1 = vsetq_lane_f32(left->v[0].x, vdupq_n_f32(left->v[1].x), 0);
-    m_row1 = vsetq_lane_f32(left->v[2].x, m_row1, 1);
-    m_row1 = vsetq_lane_f32(left->v[3].x, m_row1, 2);
+    // Construct rows from left matrix columns (matching Intel version)
+    float row1_data[4] = {left->v[0].x, left->v[1].x, left->v[2].x, left->v[3].x};
+    float row2_data[4] = {left->v[0].y, left->v[1].y, left->v[2].y, left->v[3].y};
+    float row3_data[4] = {left->v[0].z, left->v[1].z, left->v[2].z, left->v[3].z};
+    float row4_data[4] = {left->v[0].w, left->v[1].w, left->v[2].w, left->v[3].w};
 
-    float32x4_t m_row2 = vsetq_lane_f32(left->v[0].y, vdupq_n_f32(left->v[1].y), 0);
-    m_row2 = vsetq_lane_f32(left->v[2].y, m_row2, 1);
-    m_row2 = vsetq_lane_f32(left->v[3].y, m_row2, 2);
-
-    float32x4_t m_row3 = vsetq_lane_f32(left->v[0].z, vdupq_n_f32(left->v[1].z), 0);
-    m_row3 = vsetq_lane_f32(left->v[2].z, m_row3, 1);
-    m_row3 = vsetq_lane_f32(left->v[3].z, m_row3, 2);
-
-    float32x4_t m_row4 = vsetq_lane_f32(left->v[0].w, vdupq_n_f32(left->v[1].w), 0);
-    m_row4 = vsetq_lane_f32(left->v[2].w, m_row4, 1);
-    m_row4 = vsetq_lane_f32(left->v[3].w, m_row4, 2);
+    float32x4_t m_row1 = vld1q_f32(row1_data);
+    float32x4_t m_row2 = vld1q_f32(row2_data);
+    float32x4_t m_row3 = vld1q_f32(row3_data);
+    float32x4_t m_row4 = vld1q_f32(row4_data);
 
     for (int r = 0; r <= 3; ++r)
     {
@@ -7162,15 +7156,16 @@ zest_matrix4 zest_MatrixTransform(zest_matrix4* left, zest_matrix4* right) {
         float32x4_t row3result = vmulq_f32(in_row[r], m_row3);
         float32x4_t row4result = vmulq_f32(in_row[r], m_row4);
 
-        float32x4_t tmp;
-        tmp = vaddq_f32(row1result, row2result);
-        tmp = vaddq_f32(tmp, row3result);
-        tmp = vaddq_f32(tmp, row4result);
-
-        res.v[r].x = vgetq_lane_f32(tmp, 0);
-        res.v[r].y = vgetq_lane_f32(tmp, 1);
-        res.v[r].z = vgetq_lane_f32(tmp, 2);
-        res.v[r].w = vgetq_lane_f32(tmp, 3);
+        // Horizontal sum (matching Intel version)
+        float tmp[4];
+        vst1q_f32(tmp, row1result);
+        res.v[r].x = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        vst1q_f32(tmp, row2result);
+        res.v[r].y = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        vst1q_f32(tmp, row3result);
+        res.v[r].z = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+        vst1q_f32(tmp, row4result);
+        res.v[r].w = tmp[0] + tmp[1] + tmp[2] + tmp[3];
     }
     return res;
 }
@@ -7774,6 +7769,9 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 				return NULL;
 			}
 			break;
+			default: {
+				ZEST_ASSERT(0, "Platform not implemented yet.");
+			}
 		}
 	}
 
@@ -8095,7 +8093,7 @@ Functions that create a vulkan device
 */
 
 
-void zest_AddInstanceExtension(zest_device device, char* extension) {
+void zest_AddInstanceExtension(zest_device device, const char* extension) {
     zest_vec_push(device->allocator, device->extensions, extension);
 }
 
@@ -8108,6 +8106,7 @@ void zest__initialise_device_stores(zest_device device) {
 			case zest_handle_type_samplers: zest__initialise_store(device->allocator, device, &device->resource_stores[i], sizeof(zest_sampler_t), zest_struct_type_sampler); break;
 			case zest_handle_type_shaders: zest__initialise_store(device->allocator, device, &device->resource_stores[i], sizeof(zest_shader_t), zest_struct_type_shader); break;
 			case zest_handle_type_compute_pipelines: zest__initialise_store(device->allocator, device, &device->resource_stores[i], sizeof(zest_compute_t), zest_struct_type_compute); break;
+			default: break;
 		}
 	}
 }
@@ -9257,6 +9256,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		switch ((zest_context_handle_type)i) {
 			case zest_handle_type_uniform_buffers: 		zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t), zest_struct_type_uniform_buffer); break;
 			case zest_handle_type_layers: 				zest__initialise_store(context->allocator, context, &context->resource_stores[i], sizeof(zest_layer_t), zest_struct_type_layer); break;
+			default: break;
 		}
 	}
 
@@ -9495,6 +9495,7 @@ void zest__cleanup_device(zest_device device) {
 			case zest_handle_type_samplers: zest__free_store(&device->resource_stores[i]); break;
 			case zest_handle_type_shaders: zest__free_store(&device->resource_stores[i]); break;
 			case zest_handle_type_compute_pipelines: zest__free_store(&device->resource_stores[i]); break;
+			default: break;
 		}
 	}
 
@@ -9575,6 +9576,7 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			ZEST__FREE(context->device->allocator, context);
 			break;
 		}
+		default: break;
     }
 }
 
@@ -9630,6 +9632,7 @@ void zest__scan_memory_and_free_resources(void *origin, zest_bool including_cont
 								zest_vec_push(allocator, memory_to_free, allocation);
 							}
 							break;
+						default: break;
 					}
 				}
 			}
@@ -9999,10 +10002,10 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, ze
 		*manager = ZEST__ZERO_INIT(zest_descriptor_indices_t);
         manager->capacity = builder->bindings[i].count;
         manager->descriptor_type = builder->bindings[i].type;
-		zest_vec_reserve_aligned(device->allocator, manager->free_indices, manager->capacity, 8);
+		zest_vec_reserve(device->allocator, manager->free_indices, manager->capacity);
 		memset(manager->free_indices, 0, zest_vec_size_in_bytes(manager->free_indices));
 		zest_uint is_free_size = manager->capacity / (8 * sizeof(zest_size));
-		zest_vec_resize_aligned(device->allocator, manager->is_free, is_free_size, 8);
+		zest_vec_resize(device->allocator, manager->is_free, is_free_size);
 		memset(manager->is_free, 0, zest_vec_size_in_bytes(manager->is_free));
     }
 
@@ -13680,7 +13683,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                 zest_vec_foreach(semaphore_index, batch->wait_values) {
                     zest_text_t pipeline_stages = zest__pipeline_stage_flags_to_string(context, batch->wait_stages[semaphore_index]);
                     if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
-                        ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu, Stages: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), batch->wait_values[semaphore_index], pipeline_stages.str);
+                        ZEST_PRINT("     Timeline Semaphore: %p, Value: %llu, Stages: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), (zest_ull)batch->wait_values[semaphore_index], pipeline_stages.str);
                     } else {
                         ZEST_PRINT("     Binary Semaphore:   %p, Stages: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), pipeline_stages.str);
                     }
@@ -13836,7 +13839,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                     ZEST_ASSERT(signal_index < stage_size);
 					zest_text_t pipeline_stages = zest__pipeline_stage_flags_to_string(context, batch->signal_stages[signal_index]);
                     if (batch->signal_values[signal_index] > 0) {
-                        ZEST_PRINT("  Timeline Semaphore: %p, Stage: %s, Value: %zu", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str, batch->signal_values[signal_index]);
+                        ZEST_PRINT("  Timeline Semaphore: %p, Stage: %s, Value: %llu", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str, (zest_ull)batch->signal_values[signal_index]);
                     } else {
                         ZEST_PRINT("  Binary Semaphore: %p Stage: %s,", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str);
                     }
@@ -14531,7 +14534,6 @@ zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list com
     zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
     zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], binding_index);
 
-    resource->bindless_index[binding_number];
     return bindless_index;
 }
 
@@ -14928,6 +14930,7 @@ void zest_ConnectInput(zest_resource_node resource) {
 				stages = zest_pipeline_stage_transfer_bit;
 				purpose = zest_purpose_transfer_image;
 				break;
+			default: break;
         }
         zest__add_pass_image_usage(pass, resource, purpose, stages, ZEST_FALSE,
 								   zest_load_op_dont_care, zest_store_op_dont_care, zest_load_op_dont_care, zest_store_op_dont_care, ZEST__ZERO_INIT(zest_clear_value_t));
@@ -14957,6 +14960,7 @@ void zest_ConnectInput(zest_resource_node resource) {
 				purpose = zest_purpose_transfer_buffer;
 				break;
 			}
+			default: break;
         }
 		zest__add_pass_buffer_usage(pass, resource, purpose, stages, ZEST_FALSE);
     }
@@ -15036,6 +15040,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
 										   zest_load_op_dont_care, zest_store_op_dont_care, ZEST__ZERO_INIT(zest_clear_value_t));
 				break;
 			}
+			default: break;
         }
 		//Preserve the contents of the buffer from this point on so that it can be used as output in other passes
 		ZEST__FLAG(resource->flags, zest_resource_node_flag_preserve);
@@ -15063,6 +15068,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
 											zest_pipeline_stage_transfer_bit, ZEST_TRUE);
 				break;
 			}
+			default: break;
         }
 
     }
