@@ -175,10 +175,13 @@ void DrawSceneWithShadows(const zest_command_list command_list, void *user_data)
 
 	//Get the shadow map from frame graph and acquire its descriptor index for shader sampling
 	zest_resource_node shadow_resource = zest_GetPassInputResource(command_list, "Shadow Buffer");
-	app->scene_push.shadow_index = zest_GetTransientSampledImageBindlessIndex(command_list, shadow_resource, zest_texture_2d_binding);
-
+	zest_uint shadow_index = zest_GetTransientSampledImageBindlessIndex(command_list, shadow_resource, zest_texture_2d_binding);
 	zest_layer mesh_layer = zest_GetLayer(app->mesh_layer);
-	zest_SetLayerPushConstants(mesh_layer, &app->scene_push, sizeof(scene_push_constants_t));
+
+	// The push constants from the layer instructions. There's only 1 instruction in the layer.
+	scene_push_constants_t *scene_push = (scene_push_constants_t*)zest_GetLayerInstructionPushConstants(mesh_layer, 0);
+	scene_push->shadow_index = shadow_index;
+
 	zest_SetLayerSizeToSwapchain(mesh_layer);
 	//We set the draw instructions with the shadow pipeline so now we want to specify the mesh pipeline
 	//to draw the scene instead.
@@ -204,6 +207,7 @@ void UpdateImGui(ShadowMappingExample *app) {
 		ImGui::Begin("Test Window");
 		ImGui::Text("FPS: %u", app->fps);
 		ImGui::Checkbox("PCF Filtering", &app->scene_push.enable_pcf);
+		//ImGui::DragFloat3("Light Position", &app->light_position.x, 0.25f);
 		ImGui::Separator();
 		if (ImGui::Button("Toggle Refresh Rate Sync")) {
 			if (app->sync_refresh) {
@@ -213,6 +217,9 @@ void UpdateImGui(ShadowMappingExample *app) {
 				zest_EnableVSync(app->context);
 				app->sync_refresh = true;
 			}
+		}
+		if (ImGui::Button("Print Frame Graph")) {
+			app->print_frame_graph = true;
 		}
 		ImGui::End();
 		ImGui::Render();
@@ -255,9 +262,9 @@ void MainLoop(ShadowMappingExample *app) {
 
 			UpdateLight(app);
 
-			UpdateUniform3d(app);
-
 			UpdateImGui(app);
+
+			UpdateUniform3d(app);
 
 			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(&app->timer));
 
@@ -351,6 +358,11 @@ void MainLoop(ShadowMappingExample *app) {
 			}
 
 			zest_EndFrame(app->context, frame_graph);
+
+			if (app->print_frame_graph) {
+				zest_PrintCompiledFrameGraph(frame_graph);
+				app->print_frame_graph = false;
+			}
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {
@@ -368,9 +380,6 @@ int main(int argc, char *argv[]) {
 
 	//Create Vulkan device
 	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
-
-	//Optional: configure staging buffer pool size for mesh uploads
-	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 
 	//Create window and context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

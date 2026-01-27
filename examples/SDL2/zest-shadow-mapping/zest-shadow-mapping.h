@@ -81,6 +81,7 @@ struct ShadowMappingExample {
 
 	float frame_timer;
 	bool sync_refresh;
+	bool print_frame_graph;
 };
 
 void InitShadowMappingExample(ShadowMappingExample *app);
