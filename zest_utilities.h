@@ -1144,9 +1144,7 @@ void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y) {
 
 void zest_FreeFont(zest_msdf_font_t *font) {
 	if (!font->is_loaded_from_file) {
-		if (font->characters) {
-			zest_FreeImageCollection(&font->font_atlas);
-		}
+		zest_FreeImageCollection(&font->font_atlas);
 	}
 }
 
@@ -2545,7 +2543,7 @@ zest_gltf_t LoadGLTF(zest_context context, const char* filepath) {
 							image_info.flags = zest_image_preset_texture_mipmaps;
 							model.materials[i].image = zest_CreateImageWithPixels(context->device, bitmap_buffer, size, &image_info);
 							zest_image material_image = zest_GetImage(model.materials[i].image);
-							model.materials[i].base_color = zest_AcquireSampledImageIndex(context->device, material_image, zest_texture_array_binding);
+							model.materials[i].base_color = zest_AcquireSampledImageIndex(context->device, material_image, zest_texture_2d_binding);
 							STBI_FREE(bitmap_buffer);
 						} else if (image->uri) {
 							ZEST_PRINT("Image is external: %s\n", image->uri);

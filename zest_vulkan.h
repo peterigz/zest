@@ -858,6 +858,7 @@ ZEST_PRIVATE inline VkSemaphore zest__vk_get_semaphore_reference(zest_frame_grap
     case zest_dynamic_resource_render_finished_semaphore:
         return (VkSemaphore)frame_graph->swapchain->backend->vk_render_finished_semaphore[frame_graph->swapchain->current_image_frame];
         break;
+    default: break;
     }
     return VK_NULL_HANDLE;
 }
@@ -1682,7 +1683,7 @@ void zest__vk_pick_physical_device(zest_device device) {
     ZEST_APPEND_LOG(device->log_path.str, "Max Memory Allocation Count: %i", device->backend->properties.limits.maxMemoryAllocationCount);
     ZEST_APPEND_LOG(device->log_path.str, "Memory available in GPU:");
     for (int i = 0; i != device->backend->memory_properties.memoryHeapCount; ++i) {
-        ZEST_APPEND_LOG(device->log_path.str, "    Heap flags: %i, Size: %zu", device->backend->memory_properties.memoryHeaps[i].flags, device->backend->memory_properties.memoryHeaps[i].size);
+        ZEST_APPEND_LOG(device->log_path.str, "    Heap flags: %i, Size: %llu", device->backend->memory_properties.memoryHeaps[i].flags, (zest_ull)device->backend->memory_properties.memoryHeaps[i].size);
     }
 
     ZEST_APPEND_LOG(device->log_path.str, "Memory types mapping in GPU:");
@@ -2626,7 +2627,7 @@ void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_s
 		if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
 			alloc_info.pNext = &flags;
 		}
-		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %zu type: %i, alignment: %zu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits);
 		ZEST_SET_MEMORY_CONTEXT(device, zest_platform_context, zest_command_allocate_memory_pool);
 		vkAllocateMemory(device->backend->logical_device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
 	}
@@ -2676,7 +2677,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %zu type: %i, alignment: %zu, type bits: %i, Buffer: %p", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i, Buffer: %p", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
@@ -2713,7 +2714,7 @@ zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context con
 
     VkAllocationCallbacks *allocation_callbacks = context ? &context->backend->allocation_callbacks : &device->backend->allocation_callbacks;
 
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %zu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)buffer_info->alignment, buffer_info->memory_type_bits);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
@@ -3979,8 +3980,6 @@ zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_typ
     ZEST_SET_MEMORY_CONTEXT(device, zest_platform_device, zest_command_command_buffer);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateCommandBuffers(device->backend->logical_device, &alloc_info, &queue->backend->command_buffer));
     
-    ZEST_PRINT("Command buffer: %p", queue->backend->command_buffer);
-
     VkCommandBufferBeginInfo begin_info = ZEST__ZERO_INIT(VkCommandBufferBeginInfo);
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;

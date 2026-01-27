@@ -148,13 +148,13 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	for (int i = 0; i != models[0].mesh_count; i++) {
 		zest_mesh mesh = models[0].meshes[i];
 		zest_image image = zest_GetImage(models[0].materials[mesh->material].image);
-		zest_uint texture_index = zest_ImageDescriptorIndex(image, zest_texture_array_binding);
+		zest_uint texture_index = zest_ImageDescriptorIndex(image, zest_texture_2d_binding);
 		zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), models[0].meshes[i], texture_index);
 	}
 	for (int i = 0; i != models[1].mesh_count; i++) {
 		zest_mesh mesh = models[1].meshes[i];
 		zest_image image = zest_GetImage(models[1].materials[mesh->material].image);
-		zest_uint texture_index = zest_ImageDescriptorIndex(image, zest_texture_array_binding);
+		zest_uint texture_index = zest_ImageDescriptorIndex(image, zest_texture_2d_binding);
 		zest_AddMeshToLayer(zest_GetLayer(app->mesh_layer), models[1].meshes[i], texture_index);
 	}
 
@@ -548,13 +548,13 @@ void MainLoop(CascadingShadowsExample *app) {
 				zest_image_resource_info_t shadow_info = {
 					zest_format_d32_sfloat_s8_uint,
 					zest_resource_usage_hint_none,
-					4096, 4096,
+					2048, 2048,
 					1,
 					SHADOW_MAP_CASCADE_COUNT  //Array layers for cascades
 				};
 
 				zest_uniform_buffer vert_buffer = zest_GetUniformBuffer(app->vert_buffer);
-				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
 					//Import/create resources used by the frame graph
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
