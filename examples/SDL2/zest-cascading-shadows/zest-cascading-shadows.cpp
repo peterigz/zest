@@ -298,10 +298,10 @@ void UpdateUniform3d(CascadingShadowsExample *app) {
 	for (uint32_t i = 0; i < SHADOW_MAP_CASCADE_COUNT; i++) {
 		cascade_matrix[i] = app->cascades[i].viewProjMatrix;
 		zest_matrix4 mat = cascade_matrix[i];
-		ZEST_PRINT("%u: [0] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[0].x, mat.v[0].y, mat.v[0].z, mat.v[0].w);
-		ZEST_PRINT("%u: [1] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[1].x, mat.v[1].y, mat.v[1].z, mat.v[1].w);
-		ZEST_PRINT("%u: [2] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[2].x, mat.v[2].y, mat.v[2].z, mat.v[2].w);
-		ZEST_PRINT("%u: [3] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[3].x, mat.v[3].y, mat.v[3].z, mat.v[3].w);
+		//ZEST_PRINT("%u: [0] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[0].x, mat.v[0].y, mat.v[0].z, mat.v[0].w);
+		//ZEST_PRINT("%u: [1] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[1].x, mat.v[1].y, mat.v[1].z, mat.v[1].w);
+		//ZEST_PRINT("%u: [2] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[2].x, mat.v[2].y, mat.v[2].z, mat.v[2].w);
+		//ZEST_PRINT("%u: [3] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[3].x, mat.v[3].y, mat.v[3].z, mat.v[3].w);
 	}
 	memcpy(cascade_ptr, cascade_matrix, sizeof(zest_matrix4) * SHADOW_MAP_CASCADE_COUNT);
 
@@ -548,13 +548,13 @@ void MainLoop(CascadingShadowsExample *app) {
 				zest_image_resource_info_t shadow_info = {
 					zest_format_d32_sfloat_s8_uint,
 					zest_resource_usage_hint_none,
-					2048, 2048,
+					SHADOW_MAP_TEXTURE_SIZE, SHADOW_MAP_TEXTURE_SIZE,
 					1,
 					SHADOW_MAP_CASCADE_COUNT  //Array layers for cascades
 				};
 
 				zest_uniform_buffer vert_buffer = zest_GetUniformBuffer(app->vert_buffer);
-				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					//Import/create resources used by the frame graph
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
@@ -638,7 +638,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create a device using a helper function for SDL2.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);
