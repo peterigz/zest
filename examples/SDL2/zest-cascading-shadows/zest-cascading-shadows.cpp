@@ -297,6 +297,11 @@ void UpdateUniform3d(CascadingShadowsExample *app) {
 	zest_matrix4 cascade_matrix[SHADOW_MAP_CASCADE_COUNT];
 	for (uint32_t i = 0; i < SHADOW_MAP_CASCADE_COUNT; i++) {
 		cascade_matrix[i] = app->cascades[i].viewProjMatrix;
+		zest_matrix4 mat = cascade_matrix[i];
+		ZEST_PRINT("%u: [0] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[0].x, mat.v[0].y, mat.v[0].z, mat.v[0].w);
+		ZEST_PRINT("%u: [1] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[1].x, mat.v[1].y, mat.v[1].z, mat.v[1].w);
+		ZEST_PRINT("%u: [2] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[2].x, mat.v[2].y, mat.v[2].z, mat.v[2].w);
+		ZEST_PRINT("%u: [3] - %.2f\t%.2f\t%.2f\t%.2f", i, mat.v[3].x, mat.v[3].y, mat.v[3].z, mat.v[3].w);
 	}
 	memcpy(cascade_ptr, cascade_matrix, sizeof(zest_matrix4) * SHADOW_MAP_CASCADE_COUNT);
 
