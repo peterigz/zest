@@ -12112,13 +12112,13 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
                 current_state->was_released = ZEST_FALSE;
             }
             context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_FALSE,
-																	 current_usage->access_mask, zest_access_none,
+																	 current_usage->access_mask, next_usage->access_mask,
 																	 current_usage->image_layout, next_usage_layout,
 																	 src_queue_family_index, dst_queue_family_index,
 																	 current_usage->stage_mask, dst_stage);
 			#ifdef ZEST_DEBUGGING
             zest__add_image_barrier(resource, barriers, ZEST_FALSE,
-									current_usage->access_mask, zest_access_none,
+									current_usage->access_mask, next_usage->access_mask,
 									current_usage->image_layout, next_usage_layout,
 									src_queue_family_index, dst_queue_family_index,
 									current_usage->stage_mask, dst_stage);
@@ -13396,7 +13396,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                         frame_graph->error_status |= zest_fgs_transient_resource_failure;
                         return ZEST_FALSE;
                     }
-					int d = 0;
                 }
 
                 //Batch execute acquire barriers for images and buffers
