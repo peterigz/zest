@@ -5010,6 +5010,7 @@ ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void 
 ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
 ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index);
+ZEST_API char *zest_GetLayerInstructionPushConstants(zest_layer layer, zest_uint index);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
 ZEST_API zest_scissor_rect_t zest_GetLayerScissor(zest_layer layer);
 ZEST_API zest_viewport_t zest_GetLayerViewport(zest_layer layer);
@@ -16410,6 +16411,12 @@ const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
 	return &layer->draw_instructions[layer->fif][index];
+}
+
+char *zest_GetLayerInstructionPushConstants(zest_layer layer, zest_uint index) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
+	return layer->draw_instructions[layer->fif][index].push_constant;
 }
 
 zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
