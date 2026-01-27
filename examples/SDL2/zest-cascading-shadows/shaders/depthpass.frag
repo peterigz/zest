@@ -21,7 +21,7 @@ layout(push_constant) uniform push {
 
 void main() 
 {	
-	float alpha = texture(sampler2DArray(textureArrays[pc.texture_index], samplers[pc.sampler_index]), inUV).a;
+	float alpha = texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), inUV.xy).a;
 	if (alpha < 0.5) {
 		discard;
 	}

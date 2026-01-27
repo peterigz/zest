@@ -1,6 +1,6 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : enable
-#extension GL_EXT_samplerless_texture_functions : enable
+//#extension GL_EXT_samplerless_texture_functions : enable
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 
@@ -66,7 +66,8 @@ float textureProj(vec4 shadowCoord, vec2 offset, uint cascadeIndex)
 
 float filterPCF(vec4 sc, uint cascadeIndex)
 {
-	ivec2 texDim = textureSize(textureArrays[pc.shadow_index], 0).xy;
+	//ivec2 texDim = textureSize(textureArrays[pc.shadow_index], 0).xy;
+	ivec2 texDim = ivec2(2048, 2048);
 	float scale = 0.75;
 	float dx = scale * 1.0 / float(texDim.x);
 	float dy = scale * 1.0 / float(texDim.y);
@@ -86,7 +87,7 @@ float filterPCF(vec4 sc, uint cascadeIndex)
 
 void main() 
 {	
-	vec4 color = texture(sampler2DArray(textureArrays[pc.texture_index], samplers[pc.sampler_index]), inUV);
+	vec4 color = texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), inUV.xy);
 	if (color.a < 0.5) {
 		discard;
 	}
