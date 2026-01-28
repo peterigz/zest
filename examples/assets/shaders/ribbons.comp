@@ -20,8 +20,8 @@ struct ribbon {
     uint start_index;           //The ribbon segment data are ring buffers so this is used to find the correct index into the buffer
 };
 
-struct vertex {
-    vec4 position;                    
+struct ribbon_vertex {
+    vec4 position;
     vec4 uv;
     uint color;
     uint padding[3];
@@ -46,16 +46,16 @@ layout(push_constant) uniform push_constants
 
 layout (local_size_x = group_size) in;
 
-layout (std430, binding = 5) readonly buffer InRibbonSegments {
+layout (std430, binding = 5) buffer InRibbonSegments {
     ribbon_segments data[];
 } in_segments[];
 
-layout (std430, binding = 5) readonly buffer InRibbonInstances {
+layout (std430, binding = 5) buffer InRibbonInstances {
     ribbon data[];
 } in_instances[];
 
 layout (std430, binding = 5) buffer OutVertices {
-    vertex data[];
+    ribbon_vertex data[];
 }out_vertices[];
 
 layout (std430, binding = 5) buffer OutIndices {  
