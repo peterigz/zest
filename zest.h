@@ -145,7 +145,7 @@ typedef void* zloc_pool;
 #include <string.h>		//For memcpy, memset etc.
 #include <stdarg.h>		//For va_start, va_end etc.
 #include <math.h>
-#if defined(__APPLE__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__))
+#if !defined(__cplusplus) && (defined(__APPLE__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)))
 #include <stdatomic.h>
 #define ZEST_USE_C11_ATOMICS
 #endif
