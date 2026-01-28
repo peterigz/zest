@@ -11,6 +11,7 @@ layout(location = 1) in vec4 frag_color;
 layout(location = 0) out vec4 out_color;
 
 layout(set = 0, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 1) uniform texture2D textures[];
 layout(set = 0, binding = 3) uniform texture2DArray images[];
 
 layout(push_constant) uniform push_constants {
@@ -24,6 +25,7 @@ layout(push_constant) uniform push_constants {
 	float gamma;
 	uint sampler_index;
 	uint image_index;
+	uint binding_number;  // 1 for texture2D, 3 for texture2DArray. Changes if the font texture is on more than one layer
 } font;
 
 float median(float r, float g, float b) {
@@ -43,16 +45,35 @@ float contour(float distance) {
               font.smoothness);
 }
 
+vec3 sampleFontTexture(vec2 uv) {
+    if (font.binding_number == 1) {
+        return texture(sampler2D(textures[nonuniformEXT(font.image_index)],
+                       samplers[nonuniformEXT(font.sampler_index)]), uv).rgb;
+    } else {
+        return texture(sampler2DArray(images[nonuniformEXT(font.image_index)],
+                       samplers[nonuniformEXT(font.sampler_index)]),
+                       vec3(uv, frag_tex_coord.z)).rgb;
+    }
+}
+
+vec2 getTextureSize() {
+    if (font.binding_number == 1) {
+        return vec2(textureSize(textures[font.image_index], 0));
+    } else {
+        return textureSize(images[font.image_index], 0).xy;
+    }
+}
+
 void main() {
     // 1. Calculate shadow alpha
-    vec2 texture_size = textureSize(images[font.image_index], 0).xy;
+    vec2 texture_size = getTextureSize();
     vec2 shadow_uv_offset = font.shadow_offset / texture_size;
-	vec3 shadow_msd = texture(sampler2DArray(images[nonuniformEXT(font.image_index)], samplers[nonuniformEXT(font.sampler_index)]), vec3(frag_tex_coord.xy - shadow_uv_offset, frag_tex_coord.z)).rgb;
+    vec3 shadow_msd = sampleFontTexture(frag_tex_coord.xy - shadow_uv_offset);
     float shadow_sd = median(shadow_msd.r, shadow_msd.g, shadow_msd.b);
     float shadow_alpha = contour(shadow_sd) * font.shadow_color.a;
 
     // 2. Calculate fill alpha
-	vec3 fill_msd = texture(sampler2DArray(images[nonuniformEXT(font.image_index)], samplers[nonuniformEXT(font.sampler_index)]), frag_tex_coord).rgb;
+    vec3 fill_msd = sampleFontTexture(frag_tex_coord.xy);
     float fill_sd = median(fill_msd.r, fill_msd.g, fill_msd.b);
     float fill_alpha = contour(fill_sd);
 

@@ -26,6 +26,7 @@ layout(push_constant) uniform push_constants {
 	float gamma;
 	uint sampler_index;
 	uint image_index;
+	uint binding_number;  // 1 for texture2D, 3 for texture2DArray
 } font;
 
 void main() {
