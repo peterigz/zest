@@ -2113,10 +2113,13 @@ typedef enum {
 } zest_query_state;
 
 typedef enum {
+	zest_queue_none = 0,
 	zest_queue_graphics = 1,
 	zest_queue_compute = 1 << 1,
 	zest_queue_transfer = 1 << 2
-} zest_device_queue_type;
+} zest_device_queue_type_bits;
+
+typedef zest_uint zest_device_queue_type;
 
 typedef enum {
 	zest_resource_type_none = 0,
@@ -6023,6 +6026,12 @@ typedef struct zest_context_queue_t {
 	zest_context_queue_backend backend;
 } zest_context_queue_t;
 
+typedef struct zest_queue_manager_list_t {
+	zest_queue_manager_t *managers;
+} zest_queue_manager_list_t;
+
+zest_hash_map(zest_queue_manager_list_t) zest_map_queue_pool;
+
 typedef struct zest_device_t {
 	int magic;
 	zest_uint api_version;
@@ -6051,6 +6060,7 @@ typedef struct zest_device_t {
 	zest_platform platform;
 	zest_device_backend backend;
 
+	zest_map_queue_pool queue_pool;
 	zest_uint graphics_queue_family_index;
 	zest_uint transfer_queue_family_index;
 	zest_uint compute_queue_family_index;
