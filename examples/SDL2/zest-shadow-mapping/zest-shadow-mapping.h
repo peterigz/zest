@@ -8,6 +8,8 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
 
+#define SHADOW_MAP_SIZE 2048
+
 struct RenderCacheInfo {
 	bool draw_imgui;
 };
