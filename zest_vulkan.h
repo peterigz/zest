@@ -1836,6 +1836,9 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 	int compute_queue_count_overide = device->setup_info.compute_queue_count;
 	int transfer_queue_count_overide = device->setup_info.transfer_queue_count;
 
+    VkDeviceQueueCreateInfo *queue_infos = 0;
+	zloc_linear_allocator_t *scratch_arena = zest__get_scratch_arena(device);
+
 	ZEST_APPEND_LOG(device->log_path.str, "Iterate available queues:");
     zest_vec_foreach(i, device->backend->queue_families) {
         VkQueueFamilyProperties properties = device->backend->queue_families[i];
@@ -1843,6 +1846,45 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         zest_text_t queue_flags = zest__vk_queue_flags_to_string(device, properties.queueFlags);
 		ZEST_APPEND_LOG(device->log_path.str, "Index: %i) %s, Queue count: %i", i, queue_flags.str, properties.queueCount);
         zest_FreeText(device->allocator, &queue_flags);
+
+        zest_device_queue_type queue_bits = 0;
+
+        if (properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            queue_bits |= zest_queue_graphics; 
+        }
+
+        if (properties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+            queue_bits |= zest_queue_compute; 
+        }
+
+        if (properties.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+            queue_bits |= zest_queue_transfer; 
+        }
+
+        if(queue_bits) {
+            zest_queue_manager_t new_queue_manager = ZEST__ZERO_INIT(zest_queue_manager_t);
+            new_queue_manager.family_index = i;
+            new_queue_manager.queue_count = properties.queueCount;
+            new_queue_manager.type = queue_bits;
+            if(!zest_map_valid_key(device->queue_pool, (zest_key)queue_bits)) {
+                zest_queue_manager_list_t manager_list = ZEST__ZERO_INIT(zest_queue_manager_list_t);
+                zest_vec_push(device->allocator, manager_list.managers, new_queue_manager);
+                zest_map_insert_key(device->allocator, device->queue_pool, (zest_key)queue_bits, manager_list);
+            } else {
+                zest_queue_manager_list_t *manager_list = zest_map_at_key(device->queue_pool, (zest_key)queue_bits);
+                zest_vec_push(device->allocator, manager_list->managers, new_queue_manager);
+            }
+                VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
+                queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+                queue_info.queueFamilyIndex = indices.graphics_family_index;
+                queue_info.queueCount = properties.queueCount;
+                float *priorities = (float*)zloc_LinearAllocation(scratch_arena, sizeof(float) * properties.queueCount); 
+                for(int i = 0; i != properties.queueCount; i++) {
+                    priorities[i] = 1.f;
+                }
+                queue_info.pQueuePriorities = priorities;
+                zest_vec_linear_push(scratch_arena, queue_infos, queue_info);
+        }
 
         // Is it a dedicated transfer queue?
         if ((properties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
@@ -1907,8 +1949,6 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 
     float queue_priority = 0.0f;
     VkDeviceQueueCreateInfo queue_create_infos[3];
-
-	zloc_linear_allocator_t *scratch_arena = zest__get_scratch_arena(device);
 
     
     int queue_create_count = 0;
