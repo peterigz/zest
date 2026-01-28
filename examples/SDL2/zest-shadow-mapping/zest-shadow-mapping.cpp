@@ -165,7 +165,7 @@ void DrawSceneDepth(const zest_command_list command_list, void *user_data) {
 
 	//Set depth bias to prevent shadow acne. Values are: constant factor, clamp, slope factor.
 	zest_cmd_SetDepthBias(command_list, 1.25f, 0.f, 1.75f);
-	zest_SetLayerViewPort(mesh_layer, 0, 0, 2048, 2048, 2048, 2048);
+	zest_SetLayerViewPort(mesh_layer, 0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
 	zest_DrawInstanceMeshLayer(command_list, mesh_layer);
 }
 
@@ -301,7 +301,7 @@ void MainLoop(ShadowMappingExample *app) {
 				zest_image_resource_info_t shadow_info = {
 					zest_format_d16_unorm,
 					zest_resource_usage_hint_none,
-					2048, 2048,
+					SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
 					1, 1
 				};
 
