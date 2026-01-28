@@ -162,6 +162,7 @@ typedef struct zest_msdf_font_settings_t {
 	float gamma;
     zest_uint sampler_index;
     zest_uint image_index;
+    zest_uint binding_number;  // 1 for texture2D, 3 for texture2DArray
 } zest_msdf_font_settings_t;
 
 typedef struct zest_msdf_font_t {
@@ -909,8 +910,11 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	}
 	zest_image_handle image_atlas_handle = zest_CreateImageAtlas(context, &font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
 	zest_image image_atlas = zest_GetImage(image_atlas_handle);
-	font.font_binding_index = zest_AcquireSampledImageIndex(context->device, image_atlas, zest_texture_array_binding);
+	// Use texture2D binding for single-layer images (Mac/MoltenVK compatibility)
+	zest_binding_number_type binding_type = (image_atlas->info.layer_count == 1) ? zest_texture_2d_binding : zest_texture_array_binding;
+	font.font_binding_index = zest_AcquireSampledImageIndex(context->device, image_atlas, binding_type);
 	font.settings.sampler_index = font_sampler_index;
+	font.settings.binding_number = binding_type;
 	zest_uint bitmap_index = 0;
 	for (int i = 32; i < 127; ++i) {
 		if (ZEST__NOT_FLAGGED(font.characters[i].flags, zest_character_flag_whitespace)) {
@@ -921,7 +925,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	for (int i = 0; i != 256; ++i) {
 		if (font.characters[i].region.width && font.characters[i].region.height) {
 			font.characters[i].uv_packed = font.characters[i].region.uv_packed;
-			zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, image_atlas, zest_texture_array_binding);
+			zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, image_atlas, binding_type);
 		}
 	}
 	font.context = context;
@@ -1086,11 +1090,14 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 		STBI_FREE(bitmap_buffer);
 
 		// Bind image to descriptor and set up character regions
-		font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
+		// Use texture2D binding for single-layer images (Mac/MoltenVK compatibility)
+		zest_binding_number_type binding_type = (font_image->info.layer_count == 1) ? zest_texture_2d_binding : zest_texture_array_binding;
+		font.font_binding_index = zest_AcquireSampledImageIndex(device, font_image, binding_type);
 		font.settings.sampler_index = font_sampler_index;
+		font.settings.binding_number = binding_type;
 		for (int i = 0; i < 256; ++i) {
 			if (font.characters[i].width && font.characters[i].height) {
-				zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font_image, zest_texture_array_binding);
+				zest_BindAtlasRegionToImage(&font.characters[i].region, font.settings.sampler_index, font_image, binding_type);
 			}
 		}
 	} else {
