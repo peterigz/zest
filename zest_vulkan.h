@@ -4340,7 +4340,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
 	if (!batch->queue->queue) {
-		batch->queue->queue = zest__acquire_queue(device, batch->queue_type);
+		batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
 	}
 
 	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);

@@ -4129,6 +4129,7 @@ ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(z
 
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
+ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
 ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
 //End Queue_management
@@ -8994,20 +8995,26 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 	zest_vec_foreach(i, manager_list->managers) {
 		zest_queue_manager queue_manager = manager_list->managers[i];
 		//Atomically decrement free_queues to reserve a slot
-		int old_free;
-		do {
-			old_free = zest__atomic_load(&queue_manager->free_queues);
-			if (old_free <= 0) break;
-		} while (!zest__atomic_compare_exchange(&queue_manager->free_queues, old_free - 1, old_free));
-		if (old_free <= 0) continue;
-		//Reserved a slot, pick the next queue via atomic fetch-add
-		int queue_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % (int)queue_manager->queue_count;
-		if (queue_index < 0) queue_index += (int)queue_manager->queue_count;
-		zest_queue queue = &queue_manager->queues[queue_index];
-		zest__atomic_store(&queue->in_use, 1);
-		return queue;
+		zest_queue queue = zest__acquire_manager_queue(queue_manager);
+		if(queue) return queue;
 	}
 	return NULL;
+}
+
+zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager) {
+	//Atomically decrement free_queues to reserve a slot
+	int old_free;
+	do {
+		old_free = zest__atomic_load(&queue_manager->free_queues);
+		if (old_free <= 0) break;
+	} while (!zest__atomic_compare_exchange(&queue_manager->free_queues, old_free - 1, old_free));
+	if (old_free <= 0) return NULL;
+	//Reserved a slot, pick the next queue via atomic fetch-add
+	int queue_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % (int)queue_manager->queue_count;
+	if (queue_index < 0) queue_index += (int)queue_manager->queue_count;
+	zest_queue queue = &queue_manager->queues[queue_index];
+	zest__atomic_store(&queue->in_use, 1);
+	return queue;
 }
 
 void zest__release_queue(zest_queue queue) {
