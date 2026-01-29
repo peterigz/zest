@@ -6132,6 +6132,9 @@ typedef struct zest_context_t {
 
 	//Queues and command buffer pools
 	zest_context_queue queues[ZEST_QUEUE_COUNT];
+	zest_uint graphics_queue_index;
+	zest_uint compute_queue_index;
+	zest_uint transfer_queue_index;
 	zest_uint graphics_family_index;
 	zest_uint compute_family_index;
 	zest_uint transfer_family_index;
@@ -9313,21 +9316,24 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 					case zest_queue_graphics: {
 						zest_context_queue context_queue = zest__create_context_queue(context, i);
 						context->queues[queue_index] = context_queue;
-						context->graphics_family_index = queue_index;
+						context->graphics_queue_index = queue_index;
+						context->graphics_family_index = i;
 						context->active_queue_count++;
 						break;
 					}
 					case zest_queue_compute: {
 						zest_context_queue context_queue = zest__create_context_queue(context, i);
 						context->queues[queue_index] = context_queue;
-						context->compute_family_index = queue_index;
+						context->compute_queue_index = queue_index;
+						context->compute_family_index = i;
 						context->active_queue_count++;
 						break;
 					}
 					case zest_queue_transfer: {
 						zest_context_queue context_queue = zest__create_context_queue(context, i);
 						context->queues[queue_index] = context_queue;
-						context->transfer_family_index = queue_index;
+						context->transfer_queue_index = queue_index;
+						context->transfer_family_index = i;
 						context->active_queue_count++;
 						break;
 					}
@@ -9338,9 +9344,9 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		}
 	}
 
-	ZEST_ASSERT(context->queues[context->graphics_family_index], "Unable to create a graphics queue!");
-	if (!context->queues[context->compute_family_index]) context->queues[context->compute_family_index] = context->queues[context->graphics_family_index];
-	if (!context->queues[context->transfer_family_index]) context->queues[context->transfer_family_index] = context->queues[context->graphics_family_index];
+	ZEST_ASSERT(context->queues[context->graphics_queue_index], "Unable to create a graphics queue!");
+	if (!context->queues[context->compute_queue_index]) context->queues[context->compute_queue_index] = context->queues[context->graphics_queue_index];
+	if (!context->queues[context->transfer_queue_index]) context->queues[context->transfer_queue_index] = context->queues[context->graphics_queue_index];
 
     zest_ForEachFrameInFlight(fif) {
 		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
@@ -12439,21 +12445,20 @@ zest_frame_graph zest__compile_frame_graph() {
 
 		//Confirm the actual queue that will be used. Even though the pass was intended for a specific queue
 		//that queue might not be available on the gpu so set the type here to whatever will actually be used.
-		//zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
-		//if (ZEST__NOT_FLAGGED(pass_node->queue_info.queue_type, context->queues[queue_index]->queue_manager->type)) {
-		//}
+		zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
+		ZEST_ASSERT(pass_node->queue_info.queue_type & context->queues[queue_index]->queue_manager->type);
 
         switch (pass_node->queue_info.queue_type) {
 			case zest_queue_graphics:
-				pass_node->queue_info.queue = context->queues[context->graphics_family_index];
+				pass_node->queue_info.queue = context->queues[context->graphics_queue_index];
 				pass_node->queue_info.queue_family_index = context->graphics_family_index;
 				break;
 			case zest_queue_compute:
-				pass_node->queue_info.queue = context->queues[context->compute_family_index];
+				pass_node->queue_info.queue = context->queues[context->compute_queue_index];
 				pass_node->queue_info.queue_family_index = context->compute_family_index;
 				break;
 			case zest_queue_transfer:
-				pass_node->queue_info.queue = context->queues[context->transfer_family_index];
+				pass_node->queue_info.queue = context->queues[context->transfer_queue_index];
 				pass_node->queue_info.queue_family_index = context->transfer_family_index;
 				break;
         }
@@ -12574,7 +12579,7 @@ zest_frame_graph zest__compile_frame_graph() {
 			zest_vec_foreach(i, first_wave.pass_indices) {
 				zest_pass_group_t *pass = &frame_graph->final_passes.data[first_wave.pass_indices[i]];
 				if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-					pass->compiled_queue_info.queue = context->queues[context->graphics_family_index];
+					pass->compiled_queue_info.queue = context->queues[context->graphics_queue_index];
 					pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
 					pass->compiled_queue_info.queue_type = zest_queue_graphics;
 				}
@@ -12610,7 +12615,7 @@ zest_frame_graph zest__compile_frame_graph() {
 					zest_pass_group_t *pass = &frame_graph->final_passes.data[next_wave.pass_indices[i]];
 					if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
 						pass->compiled_queue_info.queue = context->queues[context->graphics_family_index];
-						pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
+						pass->compiled_queue_info.queue_family_index = context->graphics_queue_index;
 						pass->compiled_queue_info.queue_type = zest_queue_graphics;
 					}
 				}
@@ -12744,7 +12749,7 @@ zest_frame_graph zest__compile_frame_graph() {
     if (zloc__count_bits(last_execution_wave->queue_bits) > 1) {
 		zest_pass_group_t sync_pass = ZEST__ZERO_INIT(zest_pass_group_t);
 		sync_pass.compiled_queue_info.queue = context->queues[context->graphics_family_index];
-		sync_pass.compiled_queue_info.queue_family_index = context->graphics_family_index;
+		sync_pass.compiled_queue_info.queue_family_index = context->graphics_queue_index;
 		sync_pass.compiled_queue_info.queue_type = zest_queue_graphics;
 		sync_pass.compiled_queue_info.timeline_wait_stage = zest_pipeline_stage_bottom_of_pipe_bit;
 		sync_pass.flags = zest_pass_flag_sync_only;
@@ -12929,13 +12934,13 @@ zest_frame_graph zest__compile_frame_graph() {
 		// --- Handle renderFinishedSemaphore for the last batch ---
 		if (last_wave_that_presented != ZEST_INVALID) {
 			zest_wave_submission_t *last_wave = &frame_graph->submissions[last_wave_that_presented];
-			if (last_wave->batches[context->graphics_family_index].magic &&
-				last_wave->batches[context->graphics_family_index].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
+			if (last_wave->batches[context->graphics_queue_index].magic &&
+				last_wave->batches[context->graphics_queue_index].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
 				// This assumes the last batch's *primary* signal is renderFinished.
-				if (!last_wave->batches[context->graphics_family_index].signal_semaphores) {
+				if (!last_wave->batches[context->graphics_queue_index].signal_semaphores) {
 					zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
-					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_family_index].signal_semaphores, semaphore_reference);
-					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_family_index].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
+					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_semaphores, semaphore_reference);
+					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
 				} else {
 					//We should write a test for this scenario
 					ZEST_REPORT(context->device, zest_report_last_batch_already_signalled, "Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
