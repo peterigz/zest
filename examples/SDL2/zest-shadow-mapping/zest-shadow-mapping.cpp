@@ -379,7 +379,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Shadow Mapping");
 
 	//Create Vulkan device
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 	//Create window and context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

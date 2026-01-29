@@ -1287,8 +1287,8 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context co
 zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetCommandPool(context->device->backend->logical_device, context->backend->utility_command_pool[context->current_fif], 0));
 
-	if (!context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue) {
-		context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue = zest__acquire_queue(context->device, context->device->graphics_queue_family_index);
+	if (!context->queues[context->graphics_family_index]->queue) {
+		context->queues[context->graphics_family_index]->queue = zest__acquire_queue(context->device, zest_queue_graphics);
 	}
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -1362,7 +1362,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
     VkFence fence = VK_NULL_HANDLE;
-	context->device->backend->pfn_vkQueueSubmit2(context->device->graphics_queues.queues[0].backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
+	context->device->backend->pfn_vkQueueSubmit2(context->device->queue_pool[zest_queue_graphics]->managers[0]->queues[0].backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
 
 	zloc_ResetLinearAllocator(&context->device->scratch_arena);
 
@@ -1384,9 +1384,9 @@ zest_bool zest__vk_present_frame(zest_context context) {
     presentInfo.pImageIndices = image_index;
     presentInfo.pResults = ZEST_NULL;
 
-	ZEST_ASSERT(context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue, "Trying to present but the frame graph did not acquire a graphics queue!");
+	ZEST_ASSERT(context->queues[context->graphics_family_index]->queue, "Trying to present but the frame graph did not acquire a graphics queue!");
 
-	VkResult result = vkQueuePresentKHR(context->queues[ZEST_GRAPHICS_QUEUE_INDEX]->queue->backend->vk_queue, &presentInfo);
+	VkResult result = vkQueuePresentKHR(context->queues[context->graphics_family_index]->queue->backend->vk_queue, &presentInfo);
     context->device->backend->last_result = result;
 
 	zest_bool status = ZEST_TRUE;
@@ -1474,7 +1474,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == 559874765) {
 		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
-    if (pCallbackData->messageIdNumber == 1069809988) {
+    if (pCallbackData->messageIdNumber == 1544472022) {
         int d = 0;
     }
     if (pCallbackData->messageIdNumber == -1575303641) {
@@ -1816,30 +1816,19 @@ zest_bool zest__vk_create_instance(zest_device device) {
 }
 
 zest_bool zest__vk_create_logical_device(zest_device device) {
-    zest_queue_family_indices indices = ZEST__ZERO_INIT(zest_queue_family_indices);
-
     zest_uint queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device->backend->physical_device, &queue_family_count, ZEST_NULL);
 
     zest_vec_resize(device->allocator, device->backend->queue_families, queue_family_count);
     vkGetPhysicalDeviceQueueFamilyProperties(device->backend->physical_device, &queue_family_count, device->backend->queue_families);
 
-    zest_uint graphics_candidate = ZEST_INVALID;
-    zest_uint compute_candidate = ZEST_INVALID;
-    zest_uint transfer_candidate = ZEST_INVALID;
-
-    zest_uint graphics_queue_count = 0;
-    zest_uint compute_queue_count = 0;
-    zest_uint transfer_queue_count = 0;
-
-	int graphics_queue_count_overide = device->setup_info.graphics_queue_count;
-	int compute_queue_count_overide = device->setup_info.compute_queue_count;
-	int transfer_queue_count_overide = device->setup_info.transfer_queue_count;
-
     VkDeviceQueueCreateInfo *queue_infos = 0;
 	zloc_linear_allocator_t *scratch_arena = zest__get_scratch_arena(device);
+	zest_vec_resize(device->allocator, device->queue_families, queue_family_count);
+    memset(device->queue_families, 0, sizeof(zest_queue_manager) * queue_family_count);
 
 	ZEST_APPEND_LOG(device->log_path.str, "Iterate available queues:");
+	zest_bool graphics_found = ZEST_FALSE;
     zest_vec_foreach(i, device->backend->queue_families) {
         VkQueueFamilyProperties properties = device->backend->queue_families[i];
 
@@ -1851,6 +1840,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 
         if (properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
             queue_bits |= zest_queue_graphics; 
+			graphics_found = ZEST_TRUE;
         }
 
         if (properties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
@@ -1862,158 +1852,48 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         }
 
         if(queue_bits) {
-            zest_queue_manager_t new_queue_manager = ZEST__ZERO_INIT(zest_queue_manager_t);
-            new_queue_manager.family_index = i;
-            new_queue_manager.queue_count = properties.queueCount;
-            new_queue_manager.type = queue_bits;
-            if(!zest_map_valid_key(device->queue_pool, (zest_key)queue_bits)) {
-                zest_queue_manager_list_t manager_list = ZEST__ZERO_INIT(zest_queue_manager_list_t);
-                zest_vec_push(device->allocator, manager_list.managers, new_queue_manager);
-                zest_map_insert_key(device->allocator, device->queue_pool, (zest_key)queue_bits, manager_list);
+            zest_queue_manager new_queue_manager = (zest_queue_manager)ZEST__NEW(device->allocator, zest_queue_manager);
+			*new_queue_manager = ZEST__ZERO_INIT(zest_queue_manager_t);
+            new_queue_manager->family_index = i;
+            new_queue_manager->queue_count = properties.queueCount;
+            new_queue_manager->type = queue_bits;
+			new_queue_manager->free_queues = properties.queueCount;
+			zest_queue_manager_list_t *manager_list = 0;
+			if(!device->queue_pool[queue_bits]) {
+                manager_list = (zest_queue_manager_list_t*)ZEST__ALLOCATE(device->allocator, sizeof(zest_queue_manager_list_t));
+                manager_list->managers = 0;
+                zest_vec_push(device->allocator, manager_list->managers, new_queue_manager);
+				zest_vec_push(device->allocator, device->queue_managers, manager_list);
             } else {
-                zest_queue_manager_list_t *manager_list = zest_map_at_key(device->queue_pool, (zest_key)queue_bits);
+				manager_list = device->queue_pool[queue_bits];
                 zest_vec_push(device->allocator, manager_list->managers, new_queue_manager);
             }
-                VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
-                queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-                queue_info.queueFamilyIndex = indices.graphics_family_index;
-                queue_info.queueCount = properties.queueCount;
-                float *priorities = (float*)zloc_LinearAllocation(scratch_arena, sizeof(float) * properties.queueCount); 
-                for(int i = 0; i != properties.queueCount; i++) {
-                    priorities[i] = 1.f;
-                }
-                queue_info.pQueuePriorities = priorities;
-                zest_vec_linear_push(scratch_arena, queue_infos, queue_info);
-        }
-
-        // Is it a dedicated transfer queue?
-        if ((properties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
-            !(properties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
-			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated transfer queue on index %i", i);
-            if (transfer_candidate == ZEST_INVALID) {
-                transfer_queue_count = transfer_queue_count_overide >= 0 ? (zest_uint)transfer_queue_count_overide : properties.queueCount;
-                transfer_candidate = transfer_queue_count ? i : ZEST_INVALID;
-            }
-        }
-
-        // Is it a dedicated compute queue?
-        if ((properties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
-            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
-			ZEST_APPEND_LOG(device->log_path.str, "Found a dedicated compute queue on index %i", i);
-            if (compute_candidate == ZEST_INVALID) {
-                compute_queue_count = compute_queue_count_overide >= 0 ? (zest_uint)compute_queue_count_overide : properties.queueCount;
-                compute_candidate = compute_queue_count ? i : ZEST_INVALID;
-            }
+			device->queue_pool[queue_bits] = manager_list;
+			device->queue_families[i] = new_queue_manager;
+			int mask = zloc__scan_forward(queue_bits);
+			while (queue_bits != 0) {
+				device->queue_pool[(int)(1 << mask)] = manager_list;
+				queue_bits &= ~(1 << mask); 
+				mask = zloc__scan_forward(queue_bits);
+			}
+			VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
+			queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			queue_info.queueFamilyIndex = i;
+			queue_info.queueCount = properties.queueCount;
+			float *priorities = (float*)zloc_LinearAllocation(scratch_arena, sizeof(float) * properties.queueCount); 
+			for(int i = 0; i != properties.queueCount; i++) {
+				priorities[i] = 1.f;
+			}
+			queue_info.pQueuePriorities = priorities;
+			zest_vec_linear_push(scratch_arena, queue_infos, queue_info);
         }
     }
 
-    zest_vec_foreach(i, device->backend->queue_families) {
-        VkQueueFamilyProperties properties = device->backend->queue_families[i];
-        // Find the primary graphics queue (must support presentation!)
-
-        if (properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            if (graphics_candidate == ZEST_INVALID) {
-                graphics_candidate = i;
-				graphics_queue_count = graphics_queue_count_overide >= 0 ? (zest_uint)graphics_queue_count_overide : properties.queueCount;
-            }
-        }
-
-        if (compute_candidate == ZEST_INVALID) {
-            if (properties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
-				ZEST_APPEND_LOG(device->log_path.str, "Set compute queue to index %i", i);
-                compute_candidate = i;
-            }
-        }
-
-        if (transfer_candidate == ZEST_INVALID) {
-            if (properties.queueFlags & VK_QUEUE_TRANSFER_BIT) {
-				ZEST_APPEND_LOG(device->log_path.str, "Set transfer queue to index %i", i);
-                transfer_candidate = i;
-            }
-        }
-    }
-
-	if (graphics_candidate == ZEST_INVALID) {
+	if (!graphics_found) {
 		ZEST_APPEND_LOG(device->log_path.str, "Fatal Error: Unable to find graphics queue/present support!");
 		return 0;
 	}
 
-	if (compute_candidate == ZEST_INVALID) {
-		compute_candidate = graphics_candidate;
-	}
-
-	if (transfer_candidate == ZEST_INVALID) {
-		transfer_candidate = graphics_candidate;
-	}
-
-    float queue_priority = 0.0f;
-    VkDeviceQueueCreateInfo queue_create_infos[3];
-
-    
-    int queue_create_count = 0;
-    // Graphics queue
-    {
-        indices.graphics_family_index = graphics_candidate;
-		zest_vec_linear_resize(scratch_arena, indices.graphics_priorities, graphics_queue_count);
-		for (int i = 0; i != graphics_queue_count; i++) {
-			indices.graphics_priorities[i] = 1.f;
-		}
-        VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
-        queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_info.queueFamilyIndex = indices.graphics_family_index;
-		queue_info.queueCount = graphics_queue_count;
-        queue_info.pQueuePriorities = indices.graphics_priorities;
-        queue_create_infos[0] = queue_info;
-        queue_create_count++;
-        ZEST_APPEND_LOG(device->log_path.str, "Graphics queue index set to: %i", indices.graphics_family_index);
-		zest_map_insert_key(device->allocator, device->queue_names, indices.graphics_family_index, "Graphics Queue");
-    }
-
-    // Dedicated compute queue
-    if(compute_queue_count > 0) {
-        indices.compute_family_index = compute_candidate;
-        if (indices.compute_family_index != indices.graphics_family_index)
-        {
-			zest_vec_linear_resize(scratch_arena, indices.compute_priorities, compute_queue_count);
-			for (int i = 0; i != compute_queue_count; i++) {
-				indices.compute_priorities[i] = 1.f;
-			}
-            // If compute family index differs, we need an additional queue create info for the compute queue
-            VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
-            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_info.queueFamilyIndex = indices.compute_family_index;
-            queue_info.queueCount = compute_queue_count;
-            queue_info.pQueuePriorities = indices.compute_priorities;
-            queue_create_infos[1] = queue_info;
-            queue_create_count++;
-			zest_map_insert_key(device->allocator, device->queue_names, indices.compute_family_index, "Compute Queue");
-        }
-        ZEST_APPEND_LOG(device->log_path.str, "Compute queue index set to: %i", indices.compute_family_index);
-    }
-
-    //Dedicated transfer queue
-    if(transfer_queue_count > 0) {
-        indices.transfer_family_index = transfer_candidate;
-        if (indices.transfer_family_index != indices.graphics_family_index && indices.transfer_family_index != indices.compute_family_index)
-        {
-			zest_vec_linear_resize(scratch_arena, indices.transfer_priorities, transfer_queue_count);
-			for (int i = 0; i != transfer_queue_count; i++) {
-				indices.transfer_priorities[i] = 1.f;
-			}
-            // If transfer_index family index differs, we need an additional queue create info for the transfer queue
-            VkDeviceQueueCreateInfo queue_info = ZEST__ZERO_INIT(VkDeviceQueueCreateInfo);
-            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queue_info.queueFamilyIndex = indices.transfer_family_index;
-            queue_info.queueCount = transfer_queue_count;
-            queue_info.pQueuePriorities = indices.transfer_priorities;
-            queue_create_infos[2] = queue_info;
-            queue_create_count++;
-			zest_map_insert_key(device->allocator, device->queue_names, indices.transfer_family_index, "Transfer Queue");
-        }
-        ZEST_APPEND_LOG(device->log_path.str, "Transfer queue index set to: %i", indices.transfer_family_index);
-    }
-    
 	zest_map_insert_key(device->allocator, device->queue_names, VK_QUEUE_FAMILY_IGNORED, "Ignored");
 
 	// Check for bindless support
@@ -2081,8 +1961,8 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     VkDeviceCreateInfo create_info = ZEST__ZERO_INIT(VkDeviceCreateInfo);
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     create_info.pEnabledFeatures = &device_features;
-    create_info.queueCreateInfoCount = queue_create_count;
-    create_info.pQueueCreateInfos = queue_create_infos;
+    create_info.queueCreateInfoCount = zest_vec_size(queue_infos);
+    create_info.pQueueCreateInfos = queue_infos;
     create_info.enabledExtensionCount = zest__required_extension_names_count;
     create_info.ppEnabledExtensionNames = zest_required_extensions;
 	create_info.pNext = &device_features_12;
@@ -2108,69 +1988,23 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device->backend->pfn_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdPipelineBarrier2KHR");
     device->backend->pfn_vkQueueSubmit2 = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkQueueSubmit2KHR");
 
-	if (graphics_queue_count) {
-		zest_vec_resize(device->allocator, device->graphics_queues.queues, graphics_queue_count);
-		device->graphics_queues.queue_count = graphics_queue_count;
-		for (int i = 0; i != graphics_queue_count; i++) {
-			device->graphics_queues.queues[i] = ZEST__ZERO_INIT(zest_queue_t);
-			device->graphics_queues.queues[i].magic = zest_INIT_MAGIC(zest_struct_type_queue);
-			device->graphics_queues.queues[i].index = i;
-			device->graphics_queues.queues[i].family_index = indices.graphics_family_index;
-			device->graphics_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.graphics_family_index);
-			device->graphics_queues.queues[i].device = device;
-			zest__initialise_timeline(device, &device->graphics_queues.queues[i].timeline);
-			vkGetDeviceQueue(device->backend->logical_device, indices.graphics_family_index, i, &device->graphics_queues.queues[i].backend->vk_queue);
+	//Loop over the available device queues and add queues for each one
+	zest_vec_foreach(i, device->queue_families) {
+		zest_queue_manager_t *manager = device->queue_families[i];
+		if (!manager) continue;
+		zest_vec_resize(device->allocator, manager->queues, manager->queue_count);
+		for (int k = 0; k != manager->queue_count; k++) {
+			manager->queues[k] = ZEST__ZERO_INIT(zest_queue_t);
+			manager->queues[k].magic = zest_INIT_MAGIC(zest_struct_type_queue);
+			manager->queues[k].index = i;
+			manager->queues[k].manager = manager;
+			manager->queues[k].family_index = manager->family_index;
+			manager->queues[k].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, manager->family_index);
+			manager->queues[k].device = device;
+			zest__initialise_timeline(device, &manager->queues[k].timeline);
+			vkGetDeviceQueue(device->backend->logical_device, manager->family_index, k, &manager->queues[k].backend->vk_queue);
 		}
 	}
-	if (compute_queue_count) {
-		zest_vec_resize(device->allocator, device->compute_queues.queues, compute_queue_count);
-		device->compute_queues.queue_count = compute_queue_count;
-		for (int i = 0; i != compute_queue_count; i++) {
-			device->compute_queues.queues[i] = ZEST__ZERO_INIT(zest_queue_t);
-			device->compute_queues.queues[i].magic = zest_INIT_MAGIC(zest_struct_type_queue);
-			device->compute_queues.queues[i].index = i;
-			device->compute_queues.queues[i].family_index = indices.compute_family_index;
-			device->compute_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.compute_family_index);
-			device->compute_queues.queues[i].device = device;
-			zest__initialise_timeline(device, &device->compute_queues.queues[i].timeline);
-			vkGetDeviceQueue(device->backend->logical_device, indices.compute_family_index, i, &device->compute_queues.queues[i].backend->vk_queue);
-		}
-	}
-	if (transfer_queue_count) {
-		zest_vec_resize(device->allocator, device->transfer_queues.queues, transfer_queue_count);
-		device->transfer_queues.queue_count = transfer_queue_count;
-		for (int i = 0; i != transfer_queue_count; i++) {
-			device->transfer_queues.queues[i] = ZEST__ZERO_INIT(zest_queue_t);
-			device->transfer_queues.queues[i].magic = zest_INIT_MAGIC(zest_struct_type_queue);
-			device->transfer_queues.queues[i].index = i;
-			device->transfer_queues.queues[i].family_index = indices.transfer_family_index;
-			device->transfer_queues.queues[i].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, indices.transfer_family_index);
-			device->transfer_queues.queues[i].device = device;
-			zest__initialise_timeline(device, &device->transfer_queues.queues[i].timeline);
-			vkGetDeviceQueue(device->backend->logical_device, indices.transfer_family_index, i, &device->transfer_queues.queues[i].backend->vk_queue);
-		}
-	}
-
-    device->graphics_queue_family_index = indices.graphics_family_index;
-    device->transfer_queue_family_index = indices.transfer_family_index;
-    device->compute_queue_family_index = indices.compute_family_index;
-
-    zest_uint highest_family_index = ZEST__MAX(ZEST__MAX(indices.graphics_family_index, indices.compute_family_index), indices.transfer_family_index);
-    zest_vec_resize(device->allocator, device->queues, highest_family_index + 1);
-    memset(device->queues, 0, zest_vec_size_in_bytes(device->queues));
-    device->queues[indices.graphics_family_index] = &device->graphics_queues;
-    device->graphics_queues.family_index = indices.graphics_family_index;
-    device->graphics_queues.type = zest_queue_graphics;
-    if (compute_queue_count > 0) {
-		device->queues[indices.compute_family_index] = &device->compute_queues;
-		device->compute_queues.family_index = indices.compute_family_index;
-		device->compute_queues.type = zest_queue_compute;
-    }
-    if (transfer_queue_count > 0) {
-		device->queues[indices.transfer_family_index] = &device->transfer_queues;
-		device->transfer_queues.family_index = indices.transfer_family_index;
-		device->transfer_queues.type = zest_queue_transfer;
-    }
 
 	zloc_ResetLinearAllocator(scratch_arena);
 
@@ -3033,7 +2867,7 @@ void zest__vk_set_depth_format(zest_device device) {
 zest_bool zest__vk_initialise_context_backend(zest_context context) {
     VkCommandPoolCreateInfo cmd_info_pool = ZEST__ZERO_INIT(VkCommandPoolCreateInfo);
     cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    cmd_info_pool.queueFamilyIndex = context->device->graphics_queue_family_index;
+    cmd_info_pool.queueFamilyIndex = context->graphics_family_index;
     cmd_info_pool.flags = 0;    //Maybe needs transient bit?
 	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_device, zest_command_command_pool);
     zest_ForEachFrameInFlight(fif) {
@@ -3586,7 +3420,7 @@ zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, z
 
     barrier.srcAccessMask = zest__vk_get_access_mask_for_layout(image->backend->vk_current_layout);
     barrier.dstAccessMask = zest__vk_get_access_mask_for_layout(zest__to_vk_image_layout(new_layout));
-    zest_device_queue_type queue_type = queue->device->queues[queue->family_index]->type;
+    zest_device_queue_type queue_type = queue->manager->type;
     VkPipelineStageFlags source_stage = zest__vk_get_stage_for_layout(image->backend->vk_current_layout, queue_type);
     VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(zest__to_vk_image_layout(new_layout), queue_type);
 
@@ -4003,13 +3837,7 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
 }
 
 zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
-	zest_queue queue = 0;
-	switch (target_queue) {
-		case zest_queue_graphics: queue = zest__acquire_queue(device, device->graphics_queue_family_index); break;
-		case zest_queue_compute: queue = zest__acquire_queue(device, device->compute_queue_family_index); break;
-		case zest_queue_transfer: queue = zest__acquire_queue(device, device->transfer_queue_family_index); break;
-		default: queue = zest__acquire_queue(device, device->graphics_queue_family_index);
-	}
+	zest_queue queue = zest__acquire_queue(device, target_queue);
 
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -4512,7 +4340,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
 	if (!batch->queue->queue) {
-		batch->queue->queue = zest__acquire_queue(device, batch->queue->queue_manager->family_index);
+		batch->queue->queue = zest__acquire_queue(device, batch->queue_type);
 	}
 
 	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
@@ -5159,7 +4987,7 @@ zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, fl
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
-	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+	ZEST_ASSERT_OR_VALIDATE(queue->manager->type & zest_queue_graphics, queue->device, 
 							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkFormat vk_format = zest__to_vk_format(image->info.format);
@@ -5219,7 +5047,7 @@ zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image 
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
-	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+	ZEST_ASSERT_OR_VALIDATE(queue->manager->type & zest_queue_graphics, queue->device, 
 							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkImageLayout src_original_layout = src_image->backend->vk_current_layout;
@@ -5325,7 +5153,7 @@ zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_ima
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
-	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+	ZEST_ASSERT_OR_VALIDATE(queue->manager->type & zest_queue_graphics, queue->device, 
 							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 
 	VkImageLayout src_original_layout = src_image->backend->vk_current_layout;

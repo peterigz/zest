@@ -29,7 +29,7 @@
 		[Platform_dependent_functions]
         [Buffer_and_Memory_Management]
         [Queue_management]
-        [Renderer_functions]
+        [Context_functions]
         [Draw_layer_internal_functions]
         [Image_internal_functions]
         [General_layer_internal_functions]
@@ -1725,9 +1725,6 @@ typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, ze
 typedef enum {
 	ZEST_ALL_MIPS = 0xffffffff,
 	ZEST_QUEUE_COUNT = 3,
-	ZEST_GRAPHICS_QUEUE_INDEX = 0,
-	ZEST_COMPUTE_QUEUE_INDEX = 1,
-	ZEST_TRANSFER_QUEUE_INDEX = 2,
 	ZEST_BITS_PER_WORD = (sizeof(zest_size) * 8),
 	ZEST_MAX_PUSH_SIZE = 128
 } zest_constants;
@@ -2624,6 +2621,16 @@ ZEST_API inline int zest__atomic_load(volatile int *ptr) {
 	return atomic_load((_Atomic int *)ptr);
 	#else
 	return __sync_fetch_and_or(ptr, 0);
+	#endif
+}
+
+ZEST_PRIVATE inline int zest__atomic_fetch_add(volatile int *ptr, int value) {
+	#ifdef _WIN32
+	return InterlockedExchangeAdd((LONG *)ptr, value);
+	#elif defined(ZEST_USE_C11_ATOMICS)
+	return atomic_fetch_add((_Atomic int *)ptr, value);
+	#else
+	return __sync_fetch_and_add(ptr, value);
 	#endif
 }
 
@@ -4121,13 +4128,14 @@ ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(z
 //End Buffer Management
 
 //Queue_management
-ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_uint family_index);
+ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
 ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
 //End Queue_management
 
-//Renderer_functions
+//Context_functions
 ZEST_PRIVATE zest_bool zest__initialise_context(zest_context context, zest_create_context_info_t *create_info);
+ZEST_PRIVATE zest_context_queue zest__create_context_queue(zest_context context, zest_uint family_index);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
 ZEST_PRIVATE void zest__get_window_size_callback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_data);
@@ -4151,7 +4159,7 @@ ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint
 ZEST_PRIVATE void zest__cleanup_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
-// --End Renderer functions
+// --End Context_functions
 
 // --Draw_layer_internal_functions
 ZEST_PRIVATE zest_layer_handle zest__new_layer(zest_context context, zest_layer *layer);
@@ -5987,6 +5995,7 @@ typedef struct zest_queue_t {
 	zest_uint index;
 	zest_uint family_index;
 	zest_device device;
+	zest_queue_manager manager;
 	zest_compute last_bound_compute;
 	volatile int in_use;
 } zest_queue_t;
@@ -5995,9 +6004,9 @@ typedef struct zest_queue_manager_t {
 	zest_uint family_index;
 	zest_device_queue_type type;
 	zest_queue_t *queues;
-	zest_sync_t sync;
-	zest_uint current_queue_index;
 	zest_uint queue_count;
+	volatile int next_queue_index;
+	volatile int free_queues;
 } zest_queue_manager_t;
 
 typedef struct zest_execution_barriers_t {
@@ -6027,7 +6036,7 @@ typedef struct zest_context_queue_t {
 } zest_context_queue_t;
 
 typedef struct zest_queue_manager_list_t {
-	zest_queue_manager_t *managers;
+	zest_queue_manager *managers;
 } zest_queue_manager_list_t;
 
 zest_hash_map(zest_queue_manager_list_t) zest_map_queue_pool;
@@ -6060,14 +6069,9 @@ typedef struct zest_device_t {
 	zest_platform platform;
 	zest_device_backend backend;
 
-	zest_map_queue_pool queue_pool;
-	zest_uint graphics_queue_family_index;
-	zest_uint transfer_queue_family_index;
-	zest_uint compute_queue_family_index;
-	zest_queue_manager_t graphics_queues;
-	zest_queue_manager_t compute_queues;
-	zest_queue_manager_t transfer_queues;
-	zest_queue_manager *queues;
+	zest_queue_manager_list_t *queue_pool[8];
+	zest_queue_manager_list_t **queue_managers;
+	zest_queue_manager *queue_families;
 	zest_map_queue_names queue_names;
 	zest_text_t log_path;
 	zest_device_builder_t setup_info;
@@ -6128,6 +6132,9 @@ typedef struct zest_context_t {
 
 	//Queues and command buffer pools
 	zest_context_queue queues[ZEST_QUEUE_COUNT];
+	zest_uint graphics_family_index;
+	zest_uint compute_family_index;
+	zest_uint transfer_family_index;
 	zest_uint active_queue_indexes[ZEST_QUEUE_COUNT];
 	zest_uint active_queue_count;
 
@@ -7786,10 +7793,6 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 		}
 	}
 
-	zest__sync_init(&device->graphics_queues.sync);
-	zest__sync_init(&device->compute_queues.sync);
-	zest__sync_init(&device->transfer_queues.sync);
-
 	zest__initialise_device_stores(device);
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
@@ -8980,28 +8983,35 @@ zest_buffer zest_CreateStagingBuffer(zest_device device, zest_size size, void* d
     return buffer;
 }
 
-zest_queue zest__acquire_queue(zest_device device, zest_uint family_index) {
-	zest_queue_manager queue_manager = device->queues[family_index];
-	zest__sync_lock(&queue_manager->sync);
-	zest_uint index = queue_manager->current_queue_index;
-	while (queue_manager->queues[index].in_use != 0) { 
-		index++;  
-		if (index >= queue_manager->queue_count) index = 0;
+zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type) {
+	if (!device->queue_pool[queue_type]) {
+		return NULL;
 	}
-	queue_manager->current_queue_index = index;
-	zest_queue queue = &queue_manager->queues[index];
-	queue->in_use = 1;
-	zest__sync_unlock(&queue_manager->sync);
-	return queue;
+	zest_queue_manager_list_t *manager_list = device->queue_pool[queue_type];
+	zest_vec_foreach(i, manager_list->managers) {
+		zest_queue_manager queue_manager = manager_list->managers[i];
+		//Atomically decrement free_queues to reserve a slot
+		int old_free;
+		do {
+			old_free = zest__atomic_load(&queue_manager->free_queues);
+			if (old_free <= 0) break;
+		} while (!zest__atomic_compare_exchange(&queue_manager->free_queues, old_free - 1, old_free));
+		if (old_free <= 0) continue;
+		//Reserved a slot, pick the next queue via atomic fetch-add
+		int queue_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % (int)queue_manager->queue_count;
+		if (queue_index < 0) queue_index += (int)queue_manager->queue_count;
+		zest_queue queue = &queue_manager->queues[queue_index];
+		zest__atomic_store(&queue->in_use, 1);
+		ZEST_PRINT("Queue index: %i, Family Index: %u", queue_index, queue->family_index);
+		return queue;
+	}
+	return NULL;
 }
 
 void zest__release_queue(zest_queue queue) {
-	zest_device device = queue->device;
-	zest_queue_manager queue_manager = device->queues[queue->family_index];
-	zest__sync_lock(&queue_manager->sync);
-	queue->in_use = 0;
-	queue_manager->current_queue_index = queue->index;
-	zest__sync_unlock(&queue_manager->sync);
+	zest_queue_manager queue_manager = queue->manager;
+	zest__atomic_store(&queue->in_use, 0);
+	zest__atomic_fetch_add(&queue_manager->free_queues, 1);
 }
 
 zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
@@ -9026,8 +9036,8 @@ zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_
 zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_OR_VALIDATE(!zest__is_compressed_format(image->info.format), queue->device,
-		"Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in KTX files instead.", ZEST_FALSE);
-	ZEST_ASSERT_OR_VALIDATE(queue->family_index == queue->device->graphics_queue_family_index, queue->device, 
+		"Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in image files instead.", ZEST_FALSE);
+	ZEST_ASSERT_OR_VALIDATE(queue->manager->type & zest_queue_graphics, queue->device, 
 							"Any graphics based gpu commands must be run on the graphics queue", ZEST_FALSE);
 	return queue->device->platform->generate_mipmaps(queue, image);
 }
@@ -9282,34 +9292,55 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
         return ZEST_FALSE;
     }
 
+	zest_device device = context->device;
+
 	context->active_queue_count = 0;
-	zest_vec_foreach(i, context->device->queues) {
-		zest_queue_manager_t *queue_manager = context->device->queues[i];
-		zest_context_queue context_queue = (zest_context_queue)ZEST__NEW(context->allocator, zest_context_queue);
-		*context_queue = ZEST__ZERO_INIT(zest_context_queue_t);
-		context_queue->queue_manager = queue_manager;
-		context_queue->backend = (zest_context_queue_backend)context->device->platform->new_context_queue_backend(context);
-		context->device->platform->initialise_context_queue_backend(context, context_queue);
-		switch (queue_manager->type) {
-			case zest_queue_graphics: 
-				context->queues[ZEST_GRAPHICS_QUEUE_INDEX] = context_queue; 
-				context->active_queue_indexes[i] = ZEST_GRAPHICS_QUEUE_INDEX;
+
+	zest_device_queue_type queue_types[3] {
+		zest_queue_graphics,
+		zest_queue_compute,
+		zest_queue_transfer
+	};
+
+	zest_vec_foreach(i, device->queue_families) {
+		zest_queue_manager queue_manager = device->queue_families[i];
+		if (!queue_manager) continue;
+		for (int j = 0; j != 3; j++) {
+			if (queue_manager->type & queue_types[j]) {
+				int queue_index = zloc__scan_forward(queue_types[j]);
+				context->active_queue_indexes[queue_index] = queue_index;
+				switch (queue_types[j]) {
+					case zest_queue_graphics: {
+						zest_context_queue context_queue = zest__create_context_queue(context, i);
+						context->queues[queue_index] = context_queue;
+						context->graphics_family_index = queue_index;
+						context->active_queue_count++;
+						break;
+					}
+					case zest_queue_compute: {
+						zest_context_queue context_queue = zest__create_context_queue(context, i);
+						context->queues[queue_index] = context_queue;
+						context->compute_family_index = queue_index;
+						context->active_queue_count++;
+						break;
+					}
+					case zest_queue_transfer: {
+						zest_context_queue context_queue = zest__create_context_queue(context, i);
+						context->queues[queue_index] = context_queue;
+						context->transfer_family_index = queue_index;
+						context->active_queue_count++;
+						break;
+					}
+				}
+				queue_types[j] = 0;
 				break;
-			case zest_queue_compute: 
-				context->queues[ZEST_COMPUTE_QUEUE_INDEX] = context_queue;
-				context->active_queue_indexes[i] = ZEST_COMPUTE_QUEUE_INDEX;
-				break;
-			case zest_queue_transfer: 
-				context->queues[ZEST_TRANSFER_QUEUE_INDEX] = context_queue;
-				context->active_queue_indexes[i] = ZEST_TRANSFER_QUEUE_INDEX;
-				break;
+			}
 		}
-		context->active_queue_count++;
 	}
 
-	ZEST_ASSERT(context->queues[ZEST_GRAPHICS_QUEUE_INDEX], "Unable to create a graphics queue!");
-	if (!context->queues[ZEST_COMPUTE_QUEUE_INDEX]) context->queues[ZEST_COMPUTE_QUEUE_INDEX] = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
-	if (!context->queues[ZEST_TRANSFER_QUEUE_INDEX]) context->queues[ZEST_TRANSFER_QUEUE_INDEX] = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
+	ZEST_ASSERT(context->queues[context->graphics_family_index], "Unable to create a graphics queue!");
+	if (!context->queues[context->compute_family_index]) context->queues[context->compute_family_index] = context->queues[context->graphics_family_index];
+	if (!context->queues[context->transfer_family_index]) context->queues[context->transfer_family_index] = context->queues[context->graphics_family_index];
 
     zest_ForEachFrameInFlight(fif) {
 		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
@@ -9324,6 +9355,15 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
     ZEST__FLAG(context->flags, zest_context_flag_initialised);
 
     return ZEST_TRUE;
+}
+
+zest_context_queue zest__create_context_queue(zest_context context, zest_uint family_index) {
+	zest_context_queue context_queue = (zest_context_queue)ZEST__NEW(context->allocator, zest_context_queue);
+	*context_queue = ZEST__ZERO_INIT(zest_context_queue_t);
+	context_queue->queue_manager = context->device->queue_families[family_index];
+	context_queue->backend = (zest_context_queue_backend)context->device->platform->new_context_queue_backend(context);
+	context->device->platform->initialise_context_queue_backend(context, context_queue);
+	return context_queue;
 }
 
 zest_swapchain zest__create_swapchain(zest_context context, const char *name) {
@@ -9439,14 +9479,22 @@ void zest__free_context_buffer_allocators(zest_context context) {
 
 void zest__cleanup_device(zest_device device) {
 	int stage = 1;
-	zest_vec_foreach(i, device->queues) {
-		zest_queue_manager_t *queue_manager = device->queues[i];
-		zest_vec_foreach(c, queue_manager->queues) {
-			zest_queue queue = &queue_manager->queues[c];
+	zest_vec_foreach(i, device->queue_families) {
+		zest_queue_manager manager = device->queue_families[i];
+		if (!manager) continue;
+		zest_vec_foreach(c, manager->queues) {
+			zest_queue queue = &manager->queues[c];
 			device->platform->cleanup_execution_timeline_backend(&queue->timeline);
 			device->platform->cleanup_queue_backend(device, queue);
 		}
-		zest_vec_free(device->allocator, queue_manager->queues);
+		zest_vec_free(device->allocator, manager->queues);
+		ZEST__FREE(device->allocator, manager);
+	}
+
+	zest_vec_foreach(i, device->queue_managers) {
+		zest_queue_manager_list_t *list = device->queue_managers[i];
+		zest_vec_free(device->allocator, list->managers);
+		ZEST__FREE(device->allocator, list);
 	}
 
 	device->default_image_2d = NULL;
@@ -9494,10 +9542,6 @@ void zest__cleanup_device(zest_device device) {
 		}
 	}
 
-	zest__sync_cleanup(&device->graphics_queues.sync);
-	zest__sync_cleanup(&device->compute_queues.sync);
-	zest__sync_cleanup(&device->transfer_queues.sync);
-
 	for (int i = 0; i != zest_max_device_handle_type; ++i) {
 		switch ((zest_device_handle_type)i) {
 			case zest_handle_type_images: zest__free_store(&device->resource_stores[i]); break;
@@ -9526,7 +9570,8 @@ void zest__cleanup_device(zest_device device) {
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
     zest_vec_free(device->allocator, device->extensions);
-    zest_vec_free(device->allocator, device->queues);
+    zest_vec_free(device->allocator, device->queue_families);
+    zest_vec_free(device->allocator, device->queue_managers);
     zest_map_free(device->allocator, device->queue_names);
     zest_map_free(device->allocator, device->pool_sizes);
     zest_FreeText(device->allocator, &device->log_path);
@@ -10839,8 +10884,9 @@ void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state
 
 void zest_WaitForIdleDevice(zest_device device) { 
 	device->platform->wait_for_idle_device(device); 
-	zest_vec_foreach(i, device->queues) {
-		zest_queue_manager queue_manager = device->queues[i];
+	zest_vec_foreach(i, device->queue_families) {
+		zest_queue_manager queue_manager = device->queue_families[i];
+		if (!queue_manager) continue;
 		zest_vec_foreach(j, queue_manager->queues) {
 			zest_queue queue = &queue_manager->queues[j];
 			zest__release_queue(queue);
@@ -12136,7 +12182,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 			#endif
         }
     } else if (resource->flags & zest_resource_node_flag_imported
-        && current_state->queue_family_index != context->device->transfer_queue_family_index) {
+        && current_state->queue_family_index != context->transfer_family_index) {
         //Maybe we add something for images here if it's needed.
     }
 }
@@ -12393,21 +12439,22 @@ zest_frame_graph zest__compile_frame_graph() {
 
 		//Confirm the actual queue that will be used. Even though the pass was intended for a specific queue
 		//that queue might not be available on the gpu so set the type here to whatever will actually be used.
-		zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
-		pass_node->queue_info.queue_type = context->queues[queue_index]->queue_manager->type;
+		//zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
+		//if (ZEST__NOT_FLAGGED(pass_node->queue_info.queue_type, context->queues[queue_index]->queue_manager->type)) {
+		//}
 
         switch (pass_node->queue_info.queue_type) {
 			case zest_queue_graphics:
-				pass_node->queue_info.queue = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
-				pass_node->queue_info.queue_family_index = context->device->graphics_queue_family_index;
+				pass_node->queue_info.queue = context->queues[context->graphics_family_index];
+				pass_node->queue_info.queue_family_index = context->graphics_family_index;
 				break;
 			case zest_queue_compute:
-				pass_node->queue_info.queue = context->queues[ZEST_COMPUTE_QUEUE_INDEX];
-				pass_node->queue_info.queue_family_index = context->device->compute_queue_family_index;
+				pass_node->queue_info.queue = context->queues[context->compute_family_index];
+				pass_node->queue_info.queue_family_index = context->compute_family_index;
 				break;
 			case zest_queue_transfer:
-				pass_node->queue_info.queue = context->queues[ZEST_TRANSFER_QUEUE_INDEX];
-				pass_node->queue_info.queue_family_index = context->device->transfer_queue_family_index;
+				pass_node->queue_info.queue = context->queues[context->transfer_family_index];
+				pass_node->queue_info.queue_family_index = context->transfer_family_index;
 				break;
         }
 
@@ -12527,8 +12574,8 @@ zest_frame_graph zest__compile_frame_graph() {
 			zest_vec_foreach(i, first_wave.pass_indices) {
 				zest_pass_group_t *pass = &frame_graph->final_passes.data[first_wave.pass_indices[i]];
 				if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-					pass->compiled_queue_info.queue = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
-					pass->compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+					pass->compiled_queue_info.queue = context->queues[context->graphics_family_index];
+					pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
 					pass->compiled_queue_info.queue_type = zest_queue_graphics;
 				}
 			}
@@ -12562,8 +12609,8 @@ zest_frame_graph zest__compile_frame_graph() {
 				zest_vec_foreach(i, next_wave.pass_indices) {
 					zest_pass_group_t *pass = &frame_graph->final_passes.data[next_wave.pass_indices[i]];
 					if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-						pass->compiled_queue_info.queue = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
-						pass->compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+						pass->compiled_queue_info.queue = context->queues[context->graphics_family_index];
+						pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
 						pass->compiled_queue_info.queue_type = zest_queue_graphics;
 					}
 				}
@@ -12696,8 +12743,8 @@ zest_frame_graph zest__compile_frame_graph() {
 	zest_execution_wave_t *last_execution_wave = &frame_graph->execution_waves[zest_vec_last_index(frame_graph->execution_waves)];
     if (zloc__count_bits(last_execution_wave->queue_bits) > 1) {
 		zest_pass_group_t sync_pass = ZEST__ZERO_INIT(zest_pass_group_t);
-		sync_pass.compiled_queue_info.queue = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
-		sync_pass.compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+		sync_pass.compiled_queue_info.queue = context->queues[context->graphics_family_index];
+		sync_pass.compiled_queue_info.queue_family_index = context->graphics_family_index;
 		sync_pass.compiled_queue_info.queue_type = zest_queue_graphics;
 		sync_pass.compiled_queue_info.timeline_wait_stage = zest_pipeline_stage_bottom_of_pipe_bit;
 		sync_pass.flags = zest_pass_flag_sync_only;
@@ -12825,7 +12872,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     first_batch_to_wait = &wave_submission->batches[queue_index];
                     //wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
-                    if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, context->device->queues[queue_index]->type)) {
+                    if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, context->queues[queue_index]->queue_manager->type)) {
                         ZEST_REPORT(context->device, zest_report_incompatible_stage_for_queue, "Swapchain usage stage %i is not compatible with queue family %u for wave submission %i",
 								   wait_stage_for_acquire_semaphore,
 								   first_batch_to_wait->queue_family_index, submission_index);
@@ -12855,10 +12902,10 @@ zest_frame_graph zest__compile_frame_graph() {
                 for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
                     if (actual_first_wave->batches[queue_index].magic) {
                         first_batch = &actual_first_wave->batches[queue_index];
-                        if (context->device->queues[queue_index]->type & zest_queue_transfer) {
+                        if (context->queues[queue_index]->queue_manager->type & zest_queue_transfer) {
                             compatible_dummy_wait_stage = zest_pipeline_stage_transfer_bit;
                             queue_family_index = actual_first_wave->batches[queue_index].queue_family_index;
-                        } else if (context->device->queues[queue_index]->type & zest_queue_compute) {
+                        } else if (context->queues[queue_index]->queue_manager->type & zest_queue_compute) {
                             compatible_dummy_wait_stage = zest_pipeline_stage_compute_shader_bit;
                             queue_family_index = actual_first_wave->batches[queue_index].queue_family_index;
                         }
@@ -12882,13 +12929,13 @@ zest_frame_graph zest__compile_frame_graph() {
 		// --- Handle renderFinishedSemaphore for the last batch ---
 		if (last_wave_that_presented != ZEST_INVALID) {
 			zest_wave_submission_t *last_wave = &frame_graph->submissions[last_wave_that_presented];
-			if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic &&
-				last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
+			if (last_wave->batches[context->graphics_family_index].magic &&
+				last_wave->batches[context->graphics_family_index].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
 				// This assumes the last batch's *primary* signal is renderFinished.
-				if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
+				if (!last_wave->batches[context->graphics_family_index].signal_semaphores) {
 					zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
-					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
-					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
+					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_family_index].signal_semaphores, semaphore_reference);
+					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_family_index].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
 				} else {
 					//We should write a test for this scenario
 					ZEST_REPORT(context->device, zest_report_last_batch_already_signalled, "Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
@@ -13053,12 +13100,12 @@ zest_frame_graph zest__compile_frame_graph() {
 						#endif
                     }
                 } else if (resource->flags & zest_resource_node_flag_release_after_use
-                    && current_state->queue_family_index != context->device->transfer_queue_family_index) {
+                    && current_state->queue_family_index != context->transfer_family_index) {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
 																			  current_usage->access_mask, zest_access_none,
-																			  current_state->queue_family_index, ZEST_GRAPHICS_QUEUE_INDEX,
+																			  current_state->queue_family_index, context->graphics_family_index,
 																			  current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#ifdef ZEST_DEBUGGING
 					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,

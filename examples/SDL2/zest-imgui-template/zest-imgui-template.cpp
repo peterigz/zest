@@ -150,7 +150,7 @@ int main(int argc, char *argv[]) {
 	//selects a physical device, and sets up the logical device with required queues.
 	//The false parameter indicates we don't want a debug/validation layer.
 	//One device can serve multiple windows/contexts.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 	//Create a context info struct with default settings. You can modify this to change
 	//things like the number of frames in flight, MSAA settings, etc.

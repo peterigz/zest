@@ -39,6 +39,7 @@ typedef struct zest_fonts_example {
 	zest_font_resources_t font_resources;	// Font shader pipeline resources
 	zest_layer_handle font_layer;		// Layer for batching text draw calls
 	float font_size;					// Current font scale factor
+	bool print_frame_graph;
 } zest_fonts_example;
 
 void InitExample(zest_fonts_example *app) {
@@ -106,6 +107,9 @@ void MainLoop(zest_fonts_example *app) {
 			ImGui::DragFloat("Out bias", &app->font.settings.out_bias, 0.01f);
 			ImGui::DragFloat("Smoothness", &app->font.settings.smoothness, 0.01f);
 			ImGui::DragFloat("Gamma", &app->font.settings.gamma, 0.01f);
+			if (ImGui::Button("Print Frame Graph")) {
+				app->print_frame_graph = true;
+			}
 
 			ImGui::End();
 			ImGui::Render();
@@ -169,7 +173,12 @@ void MainLoop(zest_fonts_example *app) {
 
 					// Compile and cache the frame graph
 					frame_graph = zest_EndFrameGraph();
+
 				}
+			}
+			if (app->print_frame_graph) {
+				app->print_frame_graph = false;
+				zest_PrintCompiledFrameGraph(frame_graph);
 			}
 			zest_EndFrame(app->context, frame_graph);
 		}
@@ -195,7 +204,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "MSDF Fonts");
 
 	//Create a device using a helper function for GLFW.
-	fonts_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	fonts_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 	// Create window and context (one context per window/swapchain)
 	fonts_app.context = zest_CreateContext(fonts_app.device, &window_data, &create_info);
