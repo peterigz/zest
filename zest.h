@@ -9005,7 +9005,6 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 		if (queue_index < 0) queue_index += (int)queue_manager->queue_count;
 		zest_queue queue = &queue_manager->queues[queue_index];
 		zest__atomic_store(&queue->in_use, 1);
-		ZEST_PRINT("Queue index: %i, Family Index: %u", queue_index, queue->family_index);
 		return queue;
 	}
 	return NULL;
@@ -9014,6 +9013,7 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 void zest__release_queue(zest_queue queue) {
 	zest_queue_manager queue_manager = queue->manager;
 	zest__atomic_store(&queue->in_use, 0);
+	zest__atomic_store(&queue_manager->next_queue_index, queue->index);
 	zest__atomic_fetch_add(&queue_manager->free_queues, 1);
 }
 
