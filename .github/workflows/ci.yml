@@ -36,7 +36,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev libsdl2-dev libshaderc-dev
+          sudo apt-get install -y libvulkan-dev libsdl2-dev libshaderc-dev glslang-dev spirv-tools
 
       - name: Configure
         run: cmake -B build -G "${{ matrix.generator }}"
