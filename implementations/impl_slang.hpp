@@ -1,5 +1,7 @@
 #pragma once
 
+#include <new>
+
 // X11/Xlib.h defines macros like "None", "Bool", "Status" that conflict with Slang's enums.
 // Save and undefine them before including Slang headers, then restore after.
 #ifdef None

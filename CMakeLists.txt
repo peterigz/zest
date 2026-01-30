@@ -33,19 +33,21 @@ if(ZEST_ENABLE_SLANG)
     # Add a preprocessor definition to use in your code (#ifdef ZEST_ENABLE_SLANG)
     target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_SLANG)
 
-    # Find the Slang library within the Vulkan SDK directory
-    if(NOT DEFINED ENV{VULKAN_SDK})
-        message(FATAL_ERROR "ZEST_ENABLE_SLANG is ON, but the VULKAN_SDK environment variable is not set.")
+    # Find the Slang library. Search the Vulkan SDK first (including macOS layout),
+    # then fall back to system paths (e.g. /usr/local/lib from brew).
+    set(SLANG_SEARCH_PATHS "")
+    if(DEFINED ENV{VULKAN_SDK})
+        list(APPEND SLANG_SEARCH_PATHS "$ENV{VULKAN_SDK}/lib" "$ENV{VULKAN_SDK}/macOS/lib")
     endif()
 
     find_library(SLANG_LIBRARY
         NAMES slang
-        PATHS "$ENV{VULKAN_SDK}/lib"
-        DOC "Path to slang.lib"
+        PATHS ${SLANG_SEARCH_PATHS}
+        DOC "Path to slang library"
     )
 
     if(NOT SLANG_LIBRARY)
-        message(FATAL_ERROR "Could not find Slang library under $ENV{VULKAN_SDK}/lib. Please check your Vulkan SDK installation.")
+        message(FATAL_ERROR "Could not find Slang library. Set VULKAN_SDK or install slang (e.g. via brew).")
     else()
         message(STATUS "Found Slang library: ${SLANG_LIBRARY}")
     endif()
