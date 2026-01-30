@@ -149,18 +149,24 @@ function(buildExample EXAMPLE_NAME)
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)
-			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
+			if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
+				target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma)
+			endif()
+			target_compile_options(${EXAMPLE_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
 		endif()
 	endif()
 
 	target_link_libraries(${EXAMPLE_NAME} freetype)
-	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include) 
+	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)
-			target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
+			if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
+				target_compile_options(${EXAMPLE_NAME} PRIVATE -mavx2 -mfma)
+			endif()
+			target_compile_options(${EXAMPLE_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-fpermissive> -Wno-ignored-attributes)
 		endif()
 	endif()
 
