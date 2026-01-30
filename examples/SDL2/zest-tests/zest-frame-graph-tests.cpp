@@ -266,7 +266,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 						test->result += barriers->release_image_barriers[0].old_layout == zest_image_layout_color_attachment_optimal ? 0 : 1;
 						test->result += barriers->release_image_barriers[0].new_layout == zest_image_layout_shader_read_only_optimal ? 0 : 1;
 						test->result += barriers->release_image_barriers[0].src_access_mask == zest_access_color_attachment_write_bit ? 0 : 1;
-						test->result += barriers->release_image_barriers[0].dst_access_mask == zest_access_none ? 0 : 1;
+						test->result += barriers->release_image_barriers[0].dst_access_mask == zest_access_shader_read_bit ? 0 : 1;
 					}
 				} else {
 					test->result += 1;
