@@ -140,6 +140,7 @@ typedef int zloc_bool;
 typedef void* zloc_pool;
 
 #include <stdio.h>		//For printf mainly and loading files
+#include <stdlib.h>		//For abort etc.
 #include <stdint.h>		//For uint32_t etc.
 #include <stddef.h>		//For ptrdiff etc.
 #include <string.h>		//For memcpy, memset etc.
@@ -2027,6 +2028,10 @@ typedef enum zest_image_flag_bits {
 
 	//For transient images in a frame graph
 	zest_image_flag_transient = 1 << 16,
+
+	//Forces the default image view to use an image array. Useful on MoltenVK which can't sample and image as a texture array
+	//when the image view is just a 2d image 
+	zest_image_flag_force_image_array = 1 << 17,
 
 	//Convenient preset flags for common usages
 	// For a standard texture loaded from CPU.
@@ -15855,7 +15860,7 @@ zest_image_view_type zest__get_image_view_type(zest_image image) {
     } else if (ZEST__FLAGGED(image->info.flags, zest_image_flag_cubemap)) {
         view_type = (image->info.layer_count > 6) ? zest_image_view_type_cube_array : zest_image_view_type_cube;
     } else {
-        view_type = (image->info.layer_count > 1) ? zest_image_view_type_2d_array : zest_image_view_type_2d;
+        view_type = (image->info.layer_count > 1 || (image->info.flags & zest_image_flag_force_image_array)) ? zest_image_view_type_2d_array : zest_image_view_type_2d;
     }
     return view_type;
 }

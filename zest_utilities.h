@@ -2158,6 +2158,9 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
         image_info.flags = flags;
 	}
 
+	//Force the view to be an image array (Something needed for MoltenVK only)
+	image_info.flags |= zest_image_flag_force_image_array;
+
 	zest_device device = zest_GetContextDevice(context);
 
 	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
