@@ -3420,6 +3420,8 @@ typedef struct zest_window_data_t {
 	void *user_data;
 	int width;
 	int height;
+	int fb_width;
+	int fb_height;
 	zest_get_window_sizes_callback window_sizes_callback;
 } zest_window_data_t;
 
@@ -3943,6 +3945,8 @@ typedef struct zest_platform_t {
 	zest_bool				   (*finish_compute)(zest_device device, zest_compute compute);
 	//Semaphores
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
+	void                       (*wait_for_fif_semaphore)(zest_context context, int fif);
+	void                       (*queue_wait_idle)(zest_context context, zest_context_queue queue);
 	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
@@ -7915,9 +7919,9 @@ zest_bool zest_BeginFrame(zest_context context) {
 							"zest_UpdateDevice was not called this frame. Make sure you call it at least once each frame before calling zest_BeginFrame.",
 							ZEST_FALSE);
 	context->device_frame_counter = context->device->frame_counter;
-	zest_semaphore_status fence_wait_result = zest__main_loop_semaphore_wait(context);
-	if (fence_wait_result == zest_semaphore_status_success) {
-	} else if (fence_wait_result == zest_semaphore_status_timeout) {
+	zest_semaphore_status semaphore_wait_result = zest__main_loop_semaphore_wait(context);
+	if (semaphore_wait_result == zest_semaphore_status_success) {
+	} else if (semaphore_wait_result == zest_semaphore_status_timeout) {
 		ZEST_ALERT("Fence wait timed out.");
 		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
 		return ZEST_FALSE;
@@ -7960,7 +7964,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 	ZEST__UNFLAG(context->swapchain->flags, zest_swapchain_flag_was_recreated);
 
-	return fence_wait_result == zest_semaphore_status_success;
+	return semaphore_wait_result == zest_semaphore_status_success;
 }
 
 void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
@@ -9919,16 +9923,14 @@ void zest__cleanup_context(zest_context context) {
 
 zest_bool zest__recreate_swapchain(zest_context context) {
 	zest_swapchain swapchain = context->swapchain;
-    int fb_width = 0, fb_height = 0;
-    int window_width = 0, window_height = 0;
-    while (fb_width == 0 || fb_height == 0) {
-        context->window_data.window_sizes_callback(&context->window_data, &fb_width, &fb_height, &window_width, &window_height);
+
+    // First wait on all in-flight timeline semaphores to drain any pending
+    // GPU work. This prevents vkDeviceWaitIdle from deadlocking on
+    // macOS/MoltenVK where timeline semaphore emulation can interact
+    // badly with a broad device-wide wait.
+    zest_ForEachFrameInFlight(fif) {
+        context->device->platform->wait_for_fif_semaphore(context, fif);
     }
-
-    swapchain->size = ZEST_STRUCT_LITERAL(zest_extent2d_t, (zest_uint)fb_width, (zest_uint)fb_height );
-    swapchain->resolution.x = 1.f / fb_width;
-    swapchain->resolution.y = 1.f / fb_height;
-
     zest_WaitForIdleDevice(context->device);
 
 	const char *name = swapchain->name;
@@ -17638,6 +17640,8 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
         flags |= SDL_WINDOW_MAXIMIZED;
     }
 
+    flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+
     SDL_Window *window_handle = SDL_CreateWindow(title, x, y, width, height, flags);
 
     zest_window_data_t window_data = { 0 };
@@ -17688,6 +17692,16 @@ void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *f
     // Metal equivalent
 #endif
 	SDL_GetWindowSize((SDL_Window*)window_data->window_handle, window_width, window_height);
+	//On macOS, SDL_Vulkan_GetDrawableSize can return invalid sizes during
+	//swapchain recreation. Cache valid framebuffer sizes and fall back to
+	//the cached values when this happens.
+	if (*fb_width > 1 && *fb_height > 1) {
+		window_data->fb_width = *fb_width;
+		window_data->fb_height = *fb_height;
+	} else if (window_data->fb_width > 0 && window_data->fb_height > 0) {
+		*fb_width = window_data->fb_width;
+		*fb_height = window_data->fb_height;
+	}
 }
 
 void zest_implsdl2_DestroyWindow(zest_context context) {

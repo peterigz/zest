@@ -155,6 +155,8 @@ ZEST_PRIVATE void zest__vk_update_bindless_uniform_buffer_descriptor(zest_device
 ZEST_PRIVATE void zest__vk_set_depth_format(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_device device);
+ZEST_PRIVATE void zest__vk_wait_for_fif_semaphore(zest_context context, int fif);
+ZEST_PRIVATE void zest__vk_queue_wait_idle(zest_context context, zest_context_queue queue);
 ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context);
 
 //Allocation callbacks
@@ -505,6 +507,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->finish_compute                                = zest__vk_finish_compute;
 
 	platform->wait_for_renderer_semaphore				    = zest__vk_wait_for_renderer_semaphore;
+	platform->wait_for_fif_semaphore					    = zest__vk_wait_for_fif_semaphore;
+	platform->queue_wait_idle							    = zest__vk_queue_wait_idle;
 	platform->wait_for_timeline							    = zest__vk_wait_for_timeline;
 
     platform->create_set_layout                             = zest__vk_create_set_layout;
@@ -1391,7 +1395,18 @@ zest_bool zest__vk_present_frame(zest_context context) {
 
 	zest_bool status = ZEST_TRUE;
 
-    if (ZEST__FLAGGED(context->flags, zest_context_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || swapchain->framebuffer_resized) {
+    zest_bool needs_recreate = ZEST__FLAGGED(context->flags, zest_context_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || swapchain->framebuffer_resized;
+    //Only recreate for VK_SUBOPTIMAL_KHR if the surface size actually
+    //changed or we haven't already tried. On macOS/MoltenVK, SUBOPTIMAL
+    //can persist after recreation which would cause an infinite loop.
+    if (!needs_recreate && result == VK_SUBOPTIMAL_KHR) {
+        int fb_w = 0, fb_h = 0, win_w = 0, win_h = 0;
+        context->window_data.window_sizes_callback(&context->window_data, &fb_w, &fb_h, &win_w, &win_h);
+        if ((zest_uint)fb_w != swapchain->size.width || (zest_uint)fb_h != swapchain->size.height) {
+            needs_recreate = ZEST_TRUE;
+        }
+    }
+    if (needs_recreate) {
         swapchain->framebuffer_resized = ZEST_FALSE;
 		if (ZEST__FLAGGED(context->flags, zest_context_flag_schedule_change_vsync)) {
 			if (ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled)) {
@@ -1404,7 +1419,6 @@ zest_bool zest__vk_present_frame(zest_context context) {
 
 		status = ZEST_FALSE;
     }
-
     return status;
 }
 
@@ -1416,9 +1430,14 @@ zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
 	
     context->device->backend->last_result = result;
     //Has the window been resized? if so rebuild the swap chain.
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         return ZEST_FALSE;
     }
+    //VK_SUBOPTIMAL_KHR means the image was successfully acquired but the
+    //swapchain no longer matches the surface properties exactly. This is
+    //common on macOS/MoltenVK after toggling vsync. The image is still
+    //usable so we treat it as success here. Recreation is already handled
+    //by the present path when needed.
     return ZEST_TRUE;
 }
 // -- End Swapchain_presenting
@@ -2888,7 +2907,23 @@ zest_bool zest__vk_initialise_context_backend(zest_context context) {
 }
 
 void zest__vk_wait_for_idle_device(zest_device device) {
-	vkDeviceWaitIdle(device->backend->logical_device); 
+	vkDeviceWaitIdle(device->backend->logical_device);
+}
+
+void zest__vk_wait_for_fif_semaphore(zest_context context, int fif) {
+	if (!context->frame_sync_timeline[fif]) return;
+	VkSemaphoreWaitInfo info = ZEST__ZERO_INIT(VkSemaphoreWaitInfo);
+	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+	info.semaphoreCount = 1;
+	info.pSemaphores = &context->frame_sync_timeline[fif]->backend->semaphore;
+	info.pValues = &context->frame_sync_timeline[fif]->current_value;
+	vkWaitSemaphores(context->device->backend->logical_device, &info, UINT64_MAX);
+}
+
+void zest__vk_queue_wait_idle(zest_context context, zest_context_queue context_queue) {
+    if(context_queue->queue) {
+        vkQueueWaitIdle(context_queue->queue->backend->vk_queue);
+    }
 }
 
 zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context) {
@@ -4339,9 +4374,9 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	submit_info2.signalSemaphoreInfoCount = zest_vec_size(signal_semaphore_infos);
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
-	if (!batch->queue->queue) {
-		batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
-	}
+    while(!batch->queue->queue) {
+        batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
+    }
 
 	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
     ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
