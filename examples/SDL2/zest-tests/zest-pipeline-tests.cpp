@@ -177,7 +177,7 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 		zest_topology_triangle_list,
 #if !defined(__APPLE__)
 		zest_topology_line_strip,
-		zest_topology_triangle_fan
+		zest_topology_triangle_fan,
 		zest_topology_triangle_strip,
 #endif
 		// Note: adjacency topologies require geometry shaders
