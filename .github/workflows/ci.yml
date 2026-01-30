@@ -16,6 +16,8 @@ jobs:
             generator: "Visual Studio 17 2022"
           - os: ubuntu-latest
             generator: "Unix Makefiles"
+          - os: macos-latest
+            generator: "Unix Makefiles"
 
     runs-on: ${{ matrix.os }}
 
@@ -37,6 +39,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev libsdl2-dev libshaderc-dev glslang-dev spirv-tools
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sdl2 vulkan-loader vulkan-headers molten-vk shaderc glslang spirv-tools
 
       - name: Configure
         run: cmake -B build -G "${{ matrix.generator }}"
