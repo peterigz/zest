@@ -174,33 +174,43 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 	zest_topology topologies[] = {
 		zest_topology_point_list,
 		zest_topology_line_list,
-		zest_topology_line_strip,
 		zest_topology_triangle_list,
-		zest_topology_triangle_strip,
+#if !defined(__APPLE__)
+		zest_topology_line_strip,
 		zest_topology_triangle_fan
+		zest_topology_triangle_strip,
+#endif
 		// Note: adjacency topologies require geometry shaders
 		// Note: patch topology requires tessellation shaders
 	};
-	
+
 	const char* topology_names[] = {
 		"Point List",
 		"Line List",
-		"Line Strip", 
 		"Triangle List",
-		"Triangle Strip",
+#if !defined(__APPLE__)
+		"Line Strip",
 		"Triangle Fan"
+		"Triangle Strip",
+#endif
 	};
-	
+
+#if defined(__APPLE__)
+	const int topology_count = 3; // Strips and Fans not available on MoltenVK
+#else
+	const int topology_count = 6;
+#endif
+
 	zest_pipeline pipelines[6];
 	int failed_count = 0;
 	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
 	command_list.context = tests->context;
-	
-	for (int i = 0; i < 6; i++) {
+
+	for (int i = 0; i < topology_count; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, topology_names[i]);
 		zest_SetPipelineTopology(pipeline, topologies[i]);
 		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
-		
+
 		if (pipelines[i] == NULL) {
 			failed_count++;
 		}

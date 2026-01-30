@@ -1540,12 +1540,18 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		zest_sampler_info_t info = zest_CreateSamplerInfo();
 		info.min_lod = 0.0f;
 		info.max_lod = 8.0f;
-		info.mip_lod_bias = 0.5f;
+#if !defined(__APPLE__)
+		info.mip_lod_bias = 0.5f; // mipLodBias not supported on Metal/MoltenVK
+#endif
 
 		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
 		if (sampler.value != 0) {
 			zest_sampler s = zest_GetSampler(sampler);
+#if defined(__APPLE__)
+			if (s && s->create_info.max_lod == 8.0f) {
+#else
 			if (s && s->create_info.max_lod == 8.0f && s->create_info.mip_lod_bias == 0.5f) {
+#endif
 				passed_tests++;
 			}
 			total_tests++;
@@ -1620,7 +1626,9 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		info.max_anisotropy = 8.0f;
 		info.min_lod = 0.0f;
 		info.max_lod = 12.0f;
-		info.mip_lod_bias = -0.5f;
+#if !defined(__APPLE__)
+		info.mip_lod_bias = -0.5f; // mipLodBias not supported on Metal/MoltenVK
+#endif
 
 		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
 		if (sampler.value != 0) {
