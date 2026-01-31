@@ -132,11 +132,22 @@ else()
 		set(MACOS_FRAMEWORKS "")
 	endif()
 
-	# On Linux, shaderc_combined from system packages needs its transitive dependencies linked explicitly
+	# On Linux, shaderc_combined from system packages needs its transitive dependencies linked explicitly.
+	# When using the Vulkan SDK's bundled shaderc_combined (a fully static archive), these are not needed.
+	set(SHADERC_EXTRA_LIBS "")
 	if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-		set(SHADERC_EXTRA_LIBS glslang SPIRV glslang-default-resource-limits SPVRemapper SPIRV-Tools-opt SPIRV-Tools)
-	else()
-		set(SHADERC_EXTRA_LIBS "")
+		set(_shaderc_transitive_libs glslang SPIRV glslang-default-resource-limits SPVRemapper SPIRV-Tools-opt SPIRV-Tools)
+		set(_all_found TRUE)
+		foreach(_lib IN LISTS _shaderc_transitive_libs)
+			find_library(_found_${_lib} NAMES ${_lib})
+			if(NOT _found_${_lib})
+				set(_all_found FALSE)
+				break()
+			endif()
+		endforeach()
+		if(_all_found)
+			set(SHADERC_EXTRA_LIBS ${_shaderc_transitive_libs})
+		endif()
 	endif()
 
 	# Try Vulkan SDK's shaderc first (works on macOS and Linux with Vulkan SDK)
