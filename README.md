@@ -220,7 +220,7 @@ Application
 
 ## Links
 
-Full documentation, tutorials, and API reference at **[peterigz.github.io/zest](https://peterigz.github.io/zest/)**
+There's an initial first draft of documentation here but it still needs a lot of work: **[peterigz.github.io/zest](https://peterigz.github.io/zest/)**
 
 ## License
 
