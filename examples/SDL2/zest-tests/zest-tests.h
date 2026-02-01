@@ -52,6 +52,7 @@ struct ZestTests {
 	zest_device device;
 	zest_context context;
 	Test tests[TEST_COUNT];
+	int test_count;
 	int current_test;
 	zest_sampler_info_t sampler_info;
 	zest_image_handle texture;
@@ -73,6 +74,8 @@ struct ZestTests {
 };
 
 void InitialiseTests(ZestTests *tests);
+void InitialiseSpecificTests(ZestTests *tests);
+void RegisterTest(ZestTests *tests, Test test);
 void ResetTests(ZestTests *tests);
 void RunTests(ZestTests *tests);
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);

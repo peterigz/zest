@@ -190,7 +190,7 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 		"Triangle List",
 #if !defined(__APPLE__)
 		"Line Strip",
-		"Triangle Fan"
+		"Triangle Fan",
 		"Triangle Strip",
 #endif
 	};
