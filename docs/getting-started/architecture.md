@@ -9,8 +9,9 @@ Zest is built around two core objects and one execution model. Understanding the
 The **device** is a singleton that represents your GPU and manages global resources:
 
 ```cpp
-// Currently using the Vulkan backend with GLFW
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
+// Currently using the Vulkan backend with SDL2
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 ```
 
 **What it owns:**
@@ -30,7 +31,6 @@ The **context** represents a render target (window) and manages per-frame resour
 
 ```cpp
 zest_create_context_info_t create_info = zest_CreateContextInfo();
-zest_window_data_t window_data = zest_implglfw_CreateWindow(0, 0, 1280, 768, 0, "Window Title");
 zest_context context = zest_CreateContext(device, &window_data, &create_info);
 ```
 

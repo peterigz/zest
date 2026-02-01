@@ -16,7 +16,7 @@ Zest is a C11-compatible rendering library with a clean, modern API designed for
 ## Requirements
 
 - GPU with bindless descriptor support
-- GLFW or SDL2 for windowing or you can just use anything else that you want.
+- SDL2 for windowing (or any other windowing library of your choice)
 - C11 compiler (also compiles as C++)
 
 **Vulkan backend:** Requires Vulkan 1.2+ capable GPU
@@ -29,11 +29,11 @@ Zest is a C11-compatible rendering library with a clean, modern API designed for
 #include <zest.h>
 
 int main() {
-    // Create device (one per application)
-    zest_device device = zest_implglfw_CreateVulkanDevice(false);
+    // Create window and device (one per application)
+    zest_window_data_t window = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+    zest_device device = zest_implsdl2_CreateVulkanDevice(&window, false);
 
-    // Create window and context
-    zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "My App");
+    // Create context
     zest_create_context_info_t info = zest_CreateContextInfo();
     zest_context context = zest_CreateContext(device, &window, &info);
 

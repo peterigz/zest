@@ -4,18 +4,19 @@ Functions for device creation, configuration, and management. The device is the 
 
 ## Creation
 
-### zest_implglfw_CreateVulkanDevice
+### zest_implsdl2_CreateVulkanDevice
 
-Creates a Zest device with GLFW window support.
+Creates a Zest device with SDL2 window support.
 
 ```cpp
-zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation);
+zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_bool enable_validation);
 ```
 
-This is a convenience function that handles graphics backend initialization, GPU selection, and command queue setup for GLFW-based applications. Use validation layers during development to catch API misuse and bugs.
+This is a convenience function that handles graphics backend initialization, GPU selection, and command queue setup for SDL2-based applications. The window must be created first with `zest_implsdl2_CreateWindow` so that the required Vulkan extensions can be queried. Use validation layers during development to catch API misuse and bugs.
 
 **Parameters:**
 
+- `window_data` - Pointer to window data returned by `zest_implsdl2_CreateWindow`
 - `enable_validation` - Enable validation layers (`ZEST_TRUE` for development, `ZEST_FALSE` for release)
 
 **Returns:** Device handle
@@ -23,11 +24,13 @@ This is a convenience function that handles graphics backend initialization, GPU
 **Example:**
 
 ```cpp
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+
 // Development build with validation
-zest_device device = zest_implglfw_CreateVulkanDevice(true);
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 // Release build without validation overhead
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 ```
 
 ---
@@ -106,7 +109,8 @@ Configures the memory pool used for GPU-only buffers (vertex buffers, index buff
 **Example:**
 
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(ZEST_FALSE);
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, ZEST_FALSE);
 
 // Increase GPU buffer pool for a mesh-heavy application
 zest_SetGPUBufferPoolSize(device, zloc__KILOBYTE(64), zloc__MEGABYTE(256));
@@ -139,7 +143,8 @@ Staging buffers are CPU-visible memory used to upload data to the GPU (textures,
 **Example:**
 
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(ZEST_FALSE);
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, ZEST_FALSE);
 
 // Larger staging pool for texture-heavy applications
 zest_SetStagingBufferPoolSize(device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
@@ -257,9 +262,11 @@ Performs maintenance tasks including:
 **Example:**
 
 ```cpp
-while (!glfwWindowShouldClose(window)) {
+while (running) {
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_QUIT) running = 0;
+    }
     zest_UpdateDevice(device);  // Must come before BeginFrame
-    glfwPollEvents();
 
     if (zest_BeginFrame(context)) {
         // ... render ...

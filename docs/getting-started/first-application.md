@@ -9,7 +9,7 @@ Here's the full example (from `zest-minimal-template`):
 ```cpp
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <GLFW/glfw3.h>
+#include <SDL.h>
 #include <zest.h>
 
 struct minimal_app_t {
@@ -22,9 +22,15 @@ void BlankScreen(const zest_command_list command_list, void *user_data) {
 }
 
 void MainLoop(minimal_app_t *app) {
-    while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+    int running = 1;
+    SDL_Event event;
+
+    while (running) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) running = 0;
+        }
+
         zest_UpdateDevice(app->device);
-        glfwPollEvents();
 
         zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
         if (zest_BeginFrame(app->context)) {
@@ -45,15 +51,13 @@ void MainLoop(minimal_app_t *app) {
     }
 }
 
-int main(void) {
-    zest_create_context_info_t create_info = zest_CreateContextInfo();
-
-    if (!glfwInit()) return 0;
-
+int main(int argc, char *argv[]) {
     minimal_app_t app = {};
-    app.device = zest_implglfw_CreateVulkanDevice(false);
 
-    zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
+    zest_window_data_t window = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
+    app.device = zest_implsdl2_CreateVulkanDevice(&window, false);
+
+    zest_create_context_info_t create_info = zest_CreateContextInfo();
     app.context = zest_CreateContext(app.device, &window, &create_info);
 
     MainLoop(&app);
@@ -70,7 +74,7 @@ int main(void) {
 ```cpp
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <GLFW/glfw3.h>
+#include <SDL.h>
 #include <zest.h>
 ```
 
@@ -79,7 +83,8 @@ The `ZEST_IMPLEMENTATION` macros tell Zest to include the actual implementation,
 ### 2. Create the Device
 
 ```cpp
-app.device = zest_implglfw_CreateVulkanDevice(false);
+zest_window_data_t window = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
+app.device = zest_implsdl2_CreateVulkanDevice(&window, false);
 ```
 
 The **device** is a singleton that manages:
@@ -91,10 +96,10 @@ The **device** is a singleton that manages:
 
 The `false` parameter disables validation layers (use `true` during development).
 
-### 3. Create Window and Context
+### 3. Create the Context
 
 ```cpp
-zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
+zest_create_context_info_t create_info = zest_CreateContextInfo();
 app.context = zest_CreateContext(app.device, &window, &create_info);
 ```
 
@@ -109,9 +114,12 @@ One device can serve multiple contexts (multiple windows).
 ### 4. The Main Loop
 
 ```cpp
-while (!glfwWindowShouldClose(...)) {
-    zest_UpdateDevice(app.device);   // Update device state
-    glfwPollEvents();                // Handle window events
+while (running) {
+    while (SDL_PollEvent(&event)) {          // Handle window events
+        if (event.type == SDL_QUIT) running = 0;
+    }
+
+    zest_UpdateDevice(app.device);           // Update device state
 
     if (zest_BeginFrame(app.context)) {
         // Build or get cached frame graph...

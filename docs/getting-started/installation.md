@@ -7,7 +7,7 @@ This guide covers building Zest from source and running the examples.
 - **Vulkan SDK** - Although Zest has a separate platform layer, only Vulkan is implemented currently. Download from [LunarG](https://vulkan.lunarg.com/)
 - **CMake 3.8+** - Build system (if you want to create projects for the examples)
 - **C++17 compiler (for the examples, C11 for the library only)** - MSVC 2019+, GCC 9+, or Clang 10+
-- **GLFW** or **SDL2** - For convenience although you can use anything else if you want. Most examples use SDL2. Windowing library (included as submodule)
+- **SDL2** - For convenience although you can use anything else if you want (including GLFW). Windowing library (included as submodule)
 
 ### Linux-Specific Prerequisites
 
@@ -45,7 +45,7 @@ cd zest
 ```
 
 !!! note "Submodules"
-    The `--recursive` flag is important - Zest uses submodules for GLFW, ImGui, and other dependencies used by the examples.
+    The `--recursive` flag is important - Zest uses submodules for SDL2, ImGui, and other dependencies used by the examples.
 
 ## Build with CMake
 
@@ -65,16 +65,11 @@ cd zest
 
 ## Run the Examples
 
-After building, you'll find the executables in the build directory. Examples are available for both GLFW and SDL2:
+After building, you'll find the executables in the build directory:
 
 === "Windows"
 
     ```bash
-    # GLFW examples
-    build\examples\GLFW\Release\zest-minimal-template.exe
-    build\examples\GLFW\Release\zest-imgui-template.exe
-
-    # SDL2 examples
     build\examples\SDL2\Release\zest-minimal-template.exe
     build\examples\SDL2\Release\zest-imgui-template.exe
     ```
@@ -82,7 +77,6 @@ After building, you'll find the executables in the build directory. Examples are
 === "Linux/macOS"
 
     ```bash
-    # SDL2 examples (recommended on Linux)
     ./build/examples/SDL2/zest-minimal-template
     ./build/examples/SDL2/zest-imgui-template
     ./build/examples/SDL2/zest-vaders
@@ -113,7 +107,7 @@ This enables the `zest-compute-example` which demonstrates Slang integration wit
 === "Windows"
 
     ```bash
-    build\examples\GLFW\Release\zest-tests.exe
+    build\examples\SDL2\Release\zest-tests.exe
     ```
 
 === "Linux/macOS"
@@ -164,7 +158,8 @@ All other files just include the header normally:
 Enable validation layers during development:
 
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(true);  // true = enable validation
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, true);  // true = enable validation
 ```
 
 ### Missing Submodules

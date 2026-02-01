@@ -2,7 +2,7 @@
 
 Learn to render thousands of objects efficiently using Zest's layer system.
 
-**Example:** `examples/GLFW/zest-instancing`
+**Example:** `examples/SDL2/zest-instancing`
 
 ## What You'll Learn
 
@@ -145,7 +145,7 @@ void RenderCallback(zest_command_list command_list, void* user_data) {
 
 ## Full Example
 
-See `examples/GLFW/zest-instancing/zest-instancing.cpp` for the complete implementation.
+See `examples/SDL2/zest-instancing/zest-instancing.cpp` for the complete implementation.
 
 ## Next Steps
 

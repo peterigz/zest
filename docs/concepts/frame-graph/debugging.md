@@ -245,7 +245,8 @@ Enable Vulkan validation layers during development:
 
 ```cpp
 zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+// Add your required extensions
+zest_AddDeviceBuilderExtensions(device_builder, extensions, count);
 zest_AddDeviceBuilderValidation(device_builder);
 zest_DeviceBuilderLogToConsole(device_builder);
 zest_device device = zest_EndDeviceBuilder(device_builder);
@@ -254,7 +255,8 @@ zest_device device = zest_EndDeviceBuilder(device_builder);
 Or using the helper functions:
 
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(true);
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 ```
 
 

@@ -18,7 +18,7 @@ Zest uses consistent naming conventions to make the API predictable and discover
 | `zest_End*` | End a scope, pass, or builder pattern | `zest_EndFrameGraph`, `zest_EndPass` |
 | `zest_cmd_*` | Command recorded into frame graph | `zest_cmd_Draw`, `zest_cmd_BindPipeline` |
 | `zest_imm_*` | Immediate/one-off command (outside frame graph) | `zest_imm_CopyBuffer` |
-| `zest_impl*_` | Platform-specific implementation | `zest_implglfw_CreateVulkanDevice` |
+| `zest_impl*_` | Platform-specific implementation | `zest_implsdl2_CreateVulkanDevice` |
 
 ### Function Markers
 
@@ -105,10 +105,11 @@ Helper APIs for common tasks that you can take or leave, these are added to help
 ### Application Setup
 
 ```cpp
-// Create device using GLFW as a basis for window creation. (initializes graphics backend, creates logical device)
-zest_device device = zest_implglfw_CreateVulkanDevice(ZEST_FALSE);  // ZEST_TRUE for validation
+// Create window and device using SDL2 (initializes graphics backend, creates logical device)
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, ZEST_FALSE);  // ZEST_TRUE for validation
 
-// Create context (window and swapchain)
+// Create context (swapchain and frame resources)
 zest_create_context_info_t context_info = zest_CreateContextInfo();
 zest_context context = zest_CreateContext(device, &window_data, &context_info);
 ```
@@ -237,7 +238,7 @@ Zest uses a combination of return values and assertions:
 
 - Functions that can fail return `zest_bool` or a handle (check for `handle.value == 0` for null handle return)
 - Debug builds include assertions for invalid parameters
-- Enable validation/debug layers during development: `zest_implglfw_CreateVulkanDevice(ZEST_TRUE)`
+- Enable validation/debug layers during development: `zest_implsdl2_CreateVulkanDevice(&window_data, ZEST_TRUE)`
 
 ```cpp
 zest_image_handle image = zest_CreateImage(device, &info);

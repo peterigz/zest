@@ -2,7 +2,7 @@
 
 This tutorial shows how to integrate Dear ImGui with Zest for immediate-mode UI rendering.
 
-**Example:** `examples/GLFW/zest-imgui-template`
+**Example:** `examples/SDL2/zest-imgui-template`
 
 ## What You'll Learn
 
@@ -21,13 +21,13 @@ This tutorial shows how to integrate Dear ImGui with Zest for immediate-mode UI 
 ```cpp
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <GLFW/glfw3.h>
+#include <SDL.h>
 #include <zest.h>
 
 // ImGui implementation
 #include <imgui.h>
 #include <impl_imgui.h>
-#include <imgui_impl_glfw.h>
+#include <imgui_impl_sdl2.h>
 ```
 
 ## Application Structure
@@ -46,10 +46,10 @@ struct app_t {
 ```cpp
 void InitImGui(app_t *app) {
     // Initialize Zest's ImGui integration
-    zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
+    zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
 
-    // Initialize ImGui for GLFW
-    ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)zest_Window(app->context), true);
+    // Initialize ImGui for SDL2
+    ImGui_ImplSDL2_InitForVulkan((SDL_Window*)zest_Window(app->context));
 
     // Apply dark style, you can copy this function and setup your own colors
     zest_imgui_DarkStyle(&app->imgui);
@@ -80,15 +80,22 @@ void SetupFonts(app_t *app) {
 
 ```cpp
 void MainLoop(app_t *app) {
-    while (!glfwWindowShouldClose(...)) {
+    int running = 1;
+    SDL_Event event;
+
+    while (running) {
+        while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL2_ProcessEvent(&event);
+            if (event.type == SDL_QUIT) running = 0;
+        }
+
         zest_UpdateDevice(app->device);
-        glfwPollEvents();
 
         // Fixed timestep loop for game logic
 	// This is optional and just shows that you can use a timer to only update imgui a maximum number of times per second
         zest_StartTimerLoop(app->timer) {
             // Start ImGui frame
-            ImGui_ImplGlfw_NewFrame();
+            ImGui_ImplSDL2_NewFrame();
             ImGui::NewFrame();
 
             // Your UI code
@@ -171,8 +178,8 @@ Enable docking for advanced layouts:
 
 ```cpp
 void InitImGui(app_t *app) {
-    zest_imgui_Initialise(app->context, &app->imgui, zest_implglfw_DestroyWindow);
-    ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)zest_Window(app->context), true);
+    zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
+    ImGui_ImplSDL2_InitForVulkan((SDL_Window*)zest_Window(app->context));
 
     // Enable docking
     ImGuiIO& io = ImGui::GetIO();
@@ -196,7 +203,7 @@ void DrawUI(app_t *app) {
 
 ## Handling Input
 
-ImGui automatically captures input via `ImGui_ImplGlfw_InitForVulkan`. Check if ImGui wants input:
+ImGui automatically captures input via `ImGui_ImplSDL2_InitForVulkan`. Check if ImGui wants input:
 
 ```cpp
 void HandleInput(app_t *app) {
@@ -207,8 +214,10 @@ void HandleInput(app_t *app) {
         return;
     }
 
-    // Your game input handling
-    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+    // Your game input handling using SDL2
+    int mouse_x, mouse_y;
+    Uint32 buttons = SDL_GetMouseState(&mouse_x, &mouse_y);
+    if (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) {
         // Handle click
     }
 }
@@ -216,7 +225,7 @@ void HandleInput(app_t *app) {
 
 ## Complete Example
 
-See the full source at `examples/GLFW/zest-imgui-template/zest-imgui-template.cpp`.
+See the full source at `examples/SDL2/zest-imgui-template/zest-imgui-template.cpp`.
 
 ## Next Steps
 

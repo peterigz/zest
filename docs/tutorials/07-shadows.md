@@ -2,7 +2,7 @@
 
 Learn to implement shadow mapping with depth render targets.
 
-**Example:** `examples/GLFW/zest-shadow-mapping`
+**Example:** `examples/SDL2/zest-shadow-mapping`
 
 ## What You'll Learn
 
@@ -88,9 +88,9 @@ float ShadowCalculation(vec4 light_space_pos) {
 
 ## Full Example
 
-See `examples/GLFW/zest-shadow-mapping/zest-shadow-mapping.cpp` for complete implementation.
+See `examples/SDL2/zest-shadow-mapping/zest-shadow-mapping.cpp` for complete implementation.
 
-Also check `examples/GLFW/zest-cascading-shadows/` for cascaded shadow maps.
+Also check `examples/SDL2/zest-cascading-shadows/` for cascaded shadow maps.
 
 ## Next Steps
 

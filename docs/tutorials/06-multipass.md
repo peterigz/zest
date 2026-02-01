@@ -2,7 +2,7 @@
 
 Learn to create complex rendering pipelines with multiple passes and transient resources.
 
-**Example:** `examples/GLFW/zest-render-targets`
+**Example:** `examples/SDL2/zest-render-targets`
 
 ## What You'll Learn
 
@@ -90,7 +90,7 @@ if (zest_BeginFrameGraph(context, "Bloom Pipeline", &cache_key)) {
 
 ## Full Example
 
-See `examples/GLFW/zest-render-targets/zest-render-targets.cpp` for complete bloom implementation.
+See `examples/SDL2/zest-render-targets/zest-render-targets.cpp` for complete bloom implementation.
 
 ## Next Steps
 

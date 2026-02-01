@@ -2,7 +2,7 @@
 
 Learn to use compute shaders for GPU-accelerated processing.
 
-**Example:** `examples/GLFW/zest-compute-example`
+**Example:** `examples/SDL2/zest-compute-example`
 
 ## What You'll Learn
 
@@ -113,7 +113,7 @@ void main() {
 
 ## Full Example
 
-See `examples/GLFW/zest-compute-example/zest-compute-example.cpp` for complete particle simulation.
+See `examples/SDL2/zest-compute-example/zest-compute-example.cpp` for complete particle simulation.
 
 ## Next Steps
 

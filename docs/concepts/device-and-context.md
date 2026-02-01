@@ -8,20 +8,21 @@ The device is a singleton that represents your GPU and all shared resources.
 
 ### Creation
 
-An example of creating a device with GLFW:
+An example of creating a device with SDL2:
 
 ```cpp
-if (!glfwInit()) {
-	return 0;
-}
+// Create a window first - the device needs it to query required Vulkan extensions
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My Window");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+```
 
-//The device needs to know the required instance extensions to open a window
-zest_uint count;
-const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+If you need more control, you can use the device builder directly:
 
-//Create the device using Vulkan as the platform layer
+```cpp
+// Create the device using Vulkan as the platform layer
 zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+// Add your required extensions here
+zest_AddDeviceBuilderExtensions(device_builder, extensions, count);
 if (enable_validation) {
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
@@ -29,22 +30,7 @@ if (enable_validation) {
 zest_device device = zest_EndDeviceBuilder(device_builder);
 ```
 
-If using SDL2 or GLFW you can use helper functions aswell, just ensure that you include sdl/glfw library headers before zest.h.
-
-**GLFW:**
-```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
-```
-
-**SDL2:**
-```cpp
-	/*
-	Create a window using SDL2. We must do this before setting up the 
-	device as it's needed to get the extensions info.
-	*/
-	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My Window");
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
-```
+Ensure that you include the SDL2 header before zest.h when using the SDL2 helper functions.
 
 ### What the Device Manages
 
@@ -65,7 +51,8 @@ zest_device device = zest_implglfw_CreateVulkanDevice(false);
 ```cpp
 int main() {
     // Create once at startup
-    zest_device device = zest_implglfw_CreateVulkanDevice(false);
+    zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My Window");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
     // ... create contexts, run application ...
 
@@ -96,7 +83,7 @@ A context represents a render target - typically a window with its swapchain.
 
 ```cpp
 // Create window handles (platform-specific)
-zest_window_data_t window = zest_implglfw_CreateWindow(
+zest_window_data_t window = zest_implsdl2_CreateWindow(
     50, 50,        // Position
     1280, 768,     // Size
     0,             // Maximised (0 = false)
@@ -165,14 +152,15 @@ if (zest_BeginFrame(context)) {
 One device can serve multiple contexts:
 
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
+zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My Window");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 // Main window
-zest_window_data_t main_window = zest_implglfw_CreateWindow(...);
+zest_window_data_t main_window = zest_implsdl2_CreateWindow(...);
 zest_context main_context = zest_CreateContext(device, &main_window, &info);
 
 // Secondary window
-zest_window_data_t debug_window = zest_implglfw_CreateWindow(...);
+zest_window_data_t debug_window = zest_implsdl2_CreateWindow(...);
 zest_context debug_context = zest_CreateContext(device, &debug_window, &info);
 
 while (running) {
@@ -230,7 +218,7 @@ float dpi = zest_DPIScale(context);
 
 // Native window handle (for platform APIs)
 void* native = zest_NativeWindow(context);
-GLFWwindow* glfw = (GLFWwindow*)zest_Window(context);
+SDL_Window* sdl_window = (SDL_Window*)zest_Window(context);
 ```
 
 ### Swapchain Information

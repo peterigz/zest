@@ -38,12 +38,12 @@ zest_context zest_CreateContext(
 );
 ```
 
-Call this after creating a device and window. The window data is typically obtained from helper functions like `zest_implglfw_CreateWindow` or `zest_implsdl_CreateWindow` but you can also create your own window data if you're using any other library or native OS commands to open a window.
+Call this after creating a device and window. The window data is typically obtained from helper functions like `zest_implsdl2_CreateWindow` or `zest_implglfw_CreateWindow` but you can also create your own window data if you're using any other library or native OS commands to open a window.
 
 **Example:**
 ```cpp
-zest_device device = zest_implglfw_CreateVulkanDevice(false);
-zest_window_data_t window = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_window_data_t window = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "My App");
+zest_device device = zest_implsdl2_CreateVulkanDevice(&window, false);
 zest_create_context_info_t info = zest_CreateContextInfo();
 zest_context context = zest_CreateContext(device, &window, &info);
 ```
@@ -136,7 +136,7 @@ float aspect = zest_ScreenWidthf(context) / zest_ScreenHeightf(context);
 
 ### zest_Window
 
-Gets the native window handle (GLFW, SDL, etc.).
+Gets the native window handle (SDL2, GLFW, etc.).
 
 ```cpp
 void* zest_Window(zest_context context);
@@ -146,14 +146,7 @@ Cast the result to your windowing library's handle type. Useful for input handli
 
 **Example:**
 ```cpp
-// With GLFW
-GLFWwindow *window = (GLFWwindow*)zest_Window(context);
-while (!glfwWindowShouldClose(window)) {
-    glfwPollEvents();
-    // render...
-}
-
-// With SDL
+// With SDL2
 SDL_Window *window = (SDL_Window*)zest_Window(context);
 ```
 

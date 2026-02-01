@@ -2,7 +2,7 @@
 
 Learn to load and use textures with Zest's bindless descriptor system.
 
-**Example:** `examples/GLFW/zest-pbr-texture`
+**Example:** `examples/SDL2/zest-pbr-texture`
 
 ## What You'll Learn
 
@@ -81,7 +81,7 @@ void main() {
 
 ## Full Example
 
-See `examples/GLFW/zest-pbr-texture/zest-pbr-texture.cpp` for complete implementation with PBR textures.
+See `examples/SDL2/zest-pbr-texture/zest-pbr-texture.cpp` for complete implementation with PBR textures.
 
 ## Next Steps
 

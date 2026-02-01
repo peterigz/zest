@@ -9,9 +9,9 @@ cmake -B build -G "Visual Studio 17 2022"
 cmake --build build --config Release
 ```
 
-Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/GLFW/` (Linux/macOS).
+Executables are in `build/examples/SDL2/Release/` (Windows) or `build/examples/SDL2/` (Linux/macOS).
 
-## GLFW Examples
+## Examples
 
 ### Basic Setup
 
@@ -23,7 +23,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Frame graph caching
 - Minimal render pass
 
-**Source:** `examples/GLFW/zest-minimal-template/`
+**Source:** `examples/SDL2/zest-minimal-template/`
 
 ---
 
@@ -35,7 +35,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Custom fonts
 - Docking workspace
 
-**Source:** `examples/GLFW/zest-imgui-template/`
+**Source:** `examples/SDL2/zest-imgui-template/`
 
 ---
 
@@ -50,7 +50,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Per-instance data
 - Efficient batched drawing
 
-**Source:** `examples/GLFW/zest-instancing/`
+**Source:** `examples/SDL2/zest-instancing/`
 
 ---
 
@@ -63,7 +63,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Environment cubemaps
 - BRDF lookup tables
 
-**Source:** `examples/GLFW/zest-pbr-forward/`
+**Source:** `examples/SDL2/zest-pbr-forward/`
 
 ---
 
@@ -75,7 +75,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Deferred lighting pass
 - Multiple render targets
 
-**Source:** `examples/GLFW/zest-pbr-deferred/`
+**Source:** `examples/SDL2/zest-pbr-deferred/`
 
 ---
 
@@ -87,7 +87,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - KTX texture loading
 - Bindless texture arrays
 
-**Source:** `examples/GLFW/zest-pbr-texture/`
+**Source:** `examples/SDL2/zest-pbr-texture/`
 
 ---
 
@@ -99,7 +99,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Shadow map sampling
 - Bias and PCF basics
 
-**Source:** `examples/GLFW/zest-shadow-mapping/`
+**Source:** `examples/SDL2/zest-shadow-mapping/`
 
 ---
 
@@ -111,7 +111,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Cascade selection
 - Large scene shadows
 
-**Source:** `examples/GLFW/zest-cascading-shadows/`
+**Source:** `examples/SDL2/zest-cascading-shadows/`
 
 ---
 
@@ -123,7 +123,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Compute-based post-processing
 - HDR pipeline
 
-**Source:** `examples/GLFW/zest-render-targets/`
+**Source:** `examples/SDL2/zest-render-targets/`
 
 ---
 
@@ -138,7 +138,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Frame graph compute passes
 - Slang shader support
 
-**Source:** `examples/GLFW/zest-compute-example/`
+**Source:** `examples/SDL2/zest-compute-example/`
 
 ---
 
@@ -152,7 +152,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - High-quality text at any scale
 - Font layers
 
-**Source:** `examples/GLFW/zest-fonts/`
+**Source:** `examples/SDL2/zest-fonts/`
 
 ---
 
@@ -164,7 +164,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Trail rendering
 - Smooth curves
 
-**Source:** `examples/GLFW/zest-ribbons/`
+**Source:** `examples/SDL2/zest-ribbons/`
 
 ---
 
@@ -178,7 +178,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Effect playback
 - Shape loaders
 
-**Source:** `examples/GLFW/zest-timelinefx/`
+**Source:** `examples/SDL2/zest-timelinefx/`
 
 ---
 
@@ -190,7 +190,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Multiple chart types
 - ImGui integration
 
-**Source:** `examples/GLFW/zest-implot/`
+**Source:** `examples/SDL2/zest-implot/`
 
 ---
 
@@ -205,7 +205,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Game state management
 - TimelineFX effects
 
-**Source:** `examples/GLFW/zest-vaders/`
+**Source:** `examples/SDL2/zest-vaders/`
 
 ---
 
@@ -220,19 +220,7 @@ Executables are in `build/examples/GLFW/Release/` (Windows) or `build/examples/G
 - Resource management tests
 - 36+ unit tests
 
-**Source:** `examples/GLFW/zest-tests/`
-
----
-
-## SDL2 Examples
-
-#### zest-sdl2-imgui-template
-
-**SDL2 with ImGui integration.**
-
-Same as GLFW ImGui template but using SDL2 for windowing.
-
-**Source:** `examples/SDL2/zest-sdl2-imgui-template/`
+**Source:** `examples/SDL2/zest-tests/`
 
 ---
 
@@ -276,7 +264,7 @@ Examples expect to be run from the repository root (for asset paths):
 
 ```bash
 cd /path/to/zest
-./build/examples/GLFW/Release/zest-pbr-forward.exe
+./build/examples/SDL2/Release/zest-pbr-forward.exe
 ```
 
 Or set the working directory in your IDE to the repository root.

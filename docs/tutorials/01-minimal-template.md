@@ -2,9 +2,9 @@
 
 This tutorial walks through the simplest possible Zest application - displaying a blank screen using a frame graph.
 
-For all the tutorials to keeps things simple we will use GLFW as the library to provide window management.
+For all the tutorials we use SDL2 as the windowing library.
 
-**Example:** `examples/GLFW/zest-minimal-template`
+**Example:** `examples/SDL2/zest-minimal-template`
 
 ## What You'll Learn
 
@@ -29,7 +29,7 @@ struct app_t {
 ```cpp
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <GLFW/glfw3.h>
+#include <SDL.h>
 #include <zest.h>
 ```
 
@@ -39,22 +39,19 @@ struct app_t {
 ## Step 2: Initialize Device and Context
 
 ```cpp
-int main(void) {
-    // Initialize GLFW
-    if (!glfwInit()) return 0;
-
+int main(int argc, char *argv[]) {
     app_t app = {};
 
-    // Create device (Vulkan instance, GPU selection, resource pools)
-    app.device = zest_implglfw_CreateVulkanDevice(false);
-
     // Create window
-    zest_window_data_t window = zest_implglfw_CreateWindow(
+    zest_window_data_t window = zest_implsdl2_CreateWindow(
         50, 50,       // Position
         1280, 768,    // Size
-        0,            // Flags
+        0,            // Maximised
         "Minimal Example"
     );
+
+    // Create device (Vulkan instance, GPU selection, resource pools)
+    app.device = zest_implsdl2_CreateVulkanDevice(&window, false);
 
     // Configure context options
     zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -74,12 +71,17 @@ int main(void) {
 
 ```cpp
 void MainLoop(app_t *app) {
-    while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+    int running = 1;
+    SDL_Event event;
+
+    while (running) {
+        // Process window events
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) running = 0;
+        }
+
         // Update device state (deferred cleanup, etc.)
         zest_UpdateDevice(app->device);
-
-        // Process window events
-        glfwPollEvents();
 
         // Generate cache key for frame graph
         zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
@@ -184,7 +186,7 @@ zest_frame_graph_cache_key_t key = zest_InitialiseCacheKey(context, &config, siz
 
 ## Complete Code
 
-See the full source at `examples/GLFW/zest-minimal-template/zest-minimal-template.cpp`.
+See the full source at `examples/SDL2/zest-minimal-template/zest-minimal-template.cpp`.
 
 
 ## Next Steps
