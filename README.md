@@ -39,16 +39,14 @@ The current requirements will change overtime as I add more platform layers like
 
 Supported windowing libraries in the API (But it's easy to add anything else you want): **GLFW** and **SDL2**
 
-<!--
 ### Screenshots
 
 | | |
 |:---:|:---:|
 | ![PBR Forward](docs/screenshots/pbr-forward.png) | ![Shadow Mapping](docs/screenshots/shadow-mapping.png) |
-| PBR Forward Rendering | Cascaded Shadow Maps |
+| PBR Forward Rendering | Shadow Mapping |
 | ![Particle Effects](docs/screenshots/render-targets.png) | ![Deferred Rendering](docs/screenshots/dear-imgui.png) |
-| TimelineVFX Particles | PBR Deferred Rendering |
--->
+| Down/Upsample Bloom | Dear Imgui Implementation |
 
 ## Getting Started
 
