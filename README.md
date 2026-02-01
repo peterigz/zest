@@ -204,14 +204,14 @@ For convenience all examples use SDL2 for the windowing, but you can use whateve
 Application
     │
     ▼
-┌─────────┐      ┌───────────┐     ┌───────────┐
-│  Device  │─────▶│ Context A │     │ Context B │
-│          │      │(Window 1) │     │(Window 2) │
-│ Shaders  │      │           │     │           │
-│ Pipelines│      │ FrameGraph│     │ FrameGraph│
-│ Bindless │      │ Allocators│     │ Allocators│
-│ Resources│      └───────────┘     └───────────┘
-└─────────┘
+┌───────────┐      ┌────────────┐     ┌────────────┐
+│  Device   │ ---> │ Context A  │     │ Context B  │
+│           │      │ (Window 1) │     │ (Window 2) │
+│ Shaders   │      │            │     │            │
+│ Pipelines │      │ FrameGraph │     │ FrameGraph │
+│ Bindless  │      │ Swapchain  │     │ Swapshain  │
+│ Resources │      └────────────┘     └────────────┘
+└───────────┘
 ```
 
 **Device** -- One per application. Owns the Vulkan instance, GPU resources, shader library, pipeline templates, and the global bindless descriptor set.
