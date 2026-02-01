@@ -1877,6 +1877,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_building_frame_graph = 1 << 11,
 	zest_context_flag_enable_multisampling = 1 << 12,
 	zest_context_flag_critical_error = 1 << 13,
+	zest_context_flag_frame_started = 1 << 14,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -7974,6 +7975,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 		return ZEST_FALSE;
 	}
 	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
+	ZEST__FLAG(context->flags, zest_context_flag_frame_started);
 	ZEST__UNFLAG(context->swapchain->flags, zest_swapchain_flag_was_recreated);
 
 	return semaphore_wait_result == zest_semaphore_status_success;
@@ -7991,6 +7993,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	}
 	zest_frame_graph_flags flags = 0;
 	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
+	ZEST__UNFLAG(context->flags, zest_context_flag_frame_started);
     if (ZEST_VALID_HANDLE(frame_graph, zest_struct_type_frame_graph)) {
 		if (frame_graph->error_status != zest_fgs_success) {
 			ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
