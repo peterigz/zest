@@ -6278,6 +6278,8 @@ typedef struct zest_pass_group_t {
 
 zest_hash_map(zest_pass_group_t) zest_map_passes;
 zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
+zest_hash_map(zest_resource_node) zest_map_resources;
+zest_hash_map(zest_key) zest_map_imported_resource;
 
 typedef struct zest_frame_graph_semaphores_t {
 	int magic;
@@ -6296,6 +6298,11 @@ typedef struct zest_frame_graph_t {
 	zest_bucket_array_t potential_passes;
 	zest_map_passes final_passes;
 	zest_bucket_array_t resources;
+#ifdef ZEST_DEBUGGING
+	//For detecting resources with the same name
+	zest_map_resources resource_names;
+	zest_map_imported_resource imported_resources;
+#endif
 	zest_map_resource_versions resource_versions;
 	zest_resource_node *resources_to_update;
 	zest_pass_group_t **pass_execution_order;
@@ -6312,7 +6319,7 @@ typedef struct zest_frame_graph_t {
 	zest_execution_wave_t *execution_waves;         // Execution order after compilation
 
 	zest_resource_node swapchain_resource;          // Handle to the current swapchain image resource
-	zest_swapchain swapchain;                       // Handle to the current swapchain image resource
+	zest_swapchain swapchain;                       // Handle to the actual swapchain
 	zest_uint id_counter;
 	zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
 	zest_set_layout bindless_layout;				//Todo: remove as this will always be in the device.
@@ -14349,6 +14356,12 @@ zest_resource_node zest_ImportImageResource(const char *name, zest_image image, 
 	ZEST_ASSERT_HANDLE(image);		//Not a valid image handle
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
+	#ifdef ZEST_DEBUGGING
+	zest_context context = zest__frame_graph_builder->context;
+	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_key(frame_graph->imported_resources, (zest_key)image), context->device,
+							"Error: Trying to import an image resource that was already imported. Each resource that's imported should be unique.", NULL);
+	zest_map_insert_linear_key(&context->frame_graph_allocator[context->current_fif], frame_graph->imported_resources, (zest_key)image, (zest_key)image);
+	#endif
     zest_resource_node_t resource = zest__create_import_image_resource_node(name, image);
 	ZEST__FLAG(resource.flags, zest_resource_node_flag_imported);
     resource.image_provider = provider;
@@ -14362,6 +14375,11 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
+	#ifdef ZEST_DEBUGGING
+	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_key(frame_graph->imported_resources, (zest_key)buffer), context->device,
+							"Error: Trying to import a buffer resource that was already imported. Each resource that's imported should be unique.", NULL);
+	zest_map_insert_linear_key(&context->frame_graph_allocator[context->current_fif], frame_graph->imported_resources, (zest_key)buffer, (zest_key)buffer);
+	#endif
     zest_resource_node_t resource = zest__create_import_buffer_resource_node(name, buffer);
     resource.buffer_provider = provider;
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
@@ -14471,6 +14489,11 @@ zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource) {
     zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
     zest_resource_node node = zest_bucket_array_linear_add(allocator, &frame_graph->resources, zest_resource_node_t);
     *node = *resource;
+#ifdef ZEST_DEBUGGING
+	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_name(frame_graph->resource_names, node->name), context->device,
+							"Error: You have tried to add a resource to the graph with the same name as another resource. All resources must have unique names.", node);
+	zest_map_linear_insert(allocator, frame_graph->resource_names, node->name, node);
+#endif
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         node->bindless_index[i] = ZEST_INVALID;
     }
