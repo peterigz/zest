@@ -608,3 +608,82 @@ int test__invalid_compute_handle(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+int test__resources_with_same_name(ZestTests *tests, Test *test) {
+	int passed_tests = 0;
+	int total_tests = 0;
+
+	{
+		zest_buffer_resource_info_t buffer_info = {};
+		buffer_info.size = sizeof(float) * 1024;
+		zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
+		image_info.width = 256;
+		image_info.height = 256;
+		zest_UpdateDevice(tests->device);
+		if (zest_BeginFrame(tests->context)) {
+			zest_frame_graph frame_graph = NULL;
+			if (zest_BeginFrameGraph(tests->context, "Multiple Resources with the same name test", 0)) {
+				zest_ImportSwapchainResource();
+				zest_resource_node buffer_a = zest_AddTransientBufferResource("Buffer", &buffer_info);
+				zest_resource_node buffer_b = zest_AddTransientBufferResource("Buffer", &buffer_info);
+				zest_resource_node image_a = zest_AddTransientImageResource("Image", &image_info);
+				zest_resource_node image_b = zest_AddTransientImageResource("Image", &image_info);
+
+				if (buffer_b == NULL && image_b == NULL) {
+					passed_tests++;
+				}
+
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+		}
+		total_tests += 1;
+	}
+
+	test->result |= (passed_tests != total_tests);
+	test->frame_count++;
+	return test->result;
+}
+
+int test__add_2_resources_the_same(ZestTests *tests, Test *test) {
+	if (!zest_IsValidHandle((void*)&tests->texture)) {
+		zest_image_info_t image_info = zest_CreateImageInfo(256, 256);
+		image_info.flags = zest_image_preset_storage;
+		tests->texture = zest_CreateImage(tests->device, &image_info);
+	}
+
+	int passed_tests = 0;
+	int total_tests = 0;
+
+	{
+		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
+		zest_buffer buffer = zest_CreateBuffer(tests->device, 1024, &buffer_info);
+		zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
+		image_info.width = 256;
+		image_info.height = 256;
+		zest_UpdateDevice(tests->device);
+		zest_image image = zest_GetImage(tests->texture);
+		if (zest_BeginFrame(tests->context)) {
+			zest_frame_graph frame_graph = NULL;
+			if (zest_BeginFrameGraph(tests->context, "2 Resources the same test", 0)) {
+				zest_ImportSwapchainResource();
+				zest_resource_node buffer_a = zest_ImportBufferResource("Buffer a", buffer, 0);
+				zest_resource_node buffer_b = zest_ImportBufferResource("Buffer b", buffer, 0);
+				zest_resource_node image_a = zest_ImportImageResource("Image a", image, 0);
+				zest_resource_node image_b = zest_ImportImageResource("Image b", image, 0);
+
+				if (buffer_b == NULL && image_b == NULL) {
+					passed_tests++;
+				}
+
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+		}
+		total_tests += 1;
+	}
+
+	test->result |= (passed_tests != total_tests);
+	test->frame_count++;
+	return test->result;
+}
