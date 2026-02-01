@@ -10,7 +10,7 @@ This is a more forward looking renderer currently in that it supports bindless d
 
 ### Features
 
-- **Minimal Setup**: drop `zest.h` and `zest_[platform]' (currently vulkan only)  into your project and go
+- **Minimal Setup**: drop `zest.h` and `zest_[platform]` (currently vulkan only)  into your project and go
 - **Frame graph compiler**: declare passes and resources; Zest handles barriers, semaphores, pass culling, async queue scheduling, and transient memory automatically
 - **Bindless descriptors**: one global descriptor layout, resources indexed by handle
 - **Dynamic rendering**: Vulkan 1.3 dynamic render passes, no baked render pass objects
