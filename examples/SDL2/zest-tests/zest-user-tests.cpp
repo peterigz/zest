@@ -687,3 +687,37 @@ int test__add_2_resources_the_same(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+int test__acquire_release_resources(ZestTests *tests, Test *test) {
+	if (!zest_IsValidHandle((void*)&tests->texture)) {
+		zest_image_info_t image_info = zest_CreateImageInfo(256, 256);
+		image_info.flags = zest_image_preset_storage;
+		tests->texture = zest_CreateImage(tests->device, &image_info);
+	}
+
+	zest_image image = zest_GetImage(tests->texture);
+
+	zest_uint indexes[2];
+	indexes[0] = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_2d_binding);
+	indexes[1] = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_array_binding);
+
+	zest_ReleaseImageIndex(tests->device, image, zest_texture_2d_binding);
+	zest_ReleaseImageIndex(tests->device, image, zest_texture_array_binding);
+	zest_ReleaseImageIndex(tests->device, image, zest_texture_2d_binding);
+	zest_ReleaseImageIndex(tests->device, image, zest_texture_array_binding);
+
+	zest_ReleaseBindlessIndex(tests->device, indexes[0], zest_texture_2d_binding);
+	zest_ReleaseBindlessIndex(tests->device, indexes[1], zest_texture_array_binding);
+
+	zest_ReleaseBindlessIndex(tests->device, 10, zest_texture_2d_binding);
+	zest_ReleaseBindlessIndex(tests->device, 11, zest_texture_array_binding);
+
+	zest_ReleaseBindlessIndex(tests->device, 10, zest_texture_2d_binding);
+	zest_ReleaseBindlessIndex(tests->device, 11, zest_texture_array_binding);
+
+	zest_uint report_count = zest_ReportCount(tests->context);
+
+	test->result |= (report_count != 4);
+	test->frame_count++;
+	return test->result;
+}

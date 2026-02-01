@@ -74,6 +74,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "User Test Invalid Compute Handle", test__invalid_compute_handle, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "User Test Resources Named the Same", test__resources_with_same_name, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "User Test Add the same resource twice", test__add_2_resources_the_same, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Acquire/Release Indexes", test__acquire_release_resources, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Compute Test Timeline Wait External", test__timeline_wait_external, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Compute Test Timeline Timeout", test__timeline_timeout, 0, 1, 0, 0, tests->simple_create_info });
@@ -83,17 +84,16 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->simple_create_info });
-	// Can we test for push constant values being suspiciously out of range?
-	// Test for functions not being encapsulated within a begin/end frame.
 	// Try to release descriptor indexes that are already released or don't exist for a certain binding
 
+	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "User Test Add the same resource twice", test__add_2_resources_the_same, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Acquire/Release Indexes", test__acquire_release_resources, 0, 1, 0, 0, tests->simple_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
@@ -182,8 +182,8 @@ int main(int argc, char *argv[]) {
 	//Initialise Zest
 	tests.context = zest_CreateContext(tests.device, &window_data, &create_info);
 
-	//InitialiseTests(&tests);
-	InitialiseSpecificTests(&tests);
+	InitialiseTests(&tests);
+	//InitialiseSpecificTests(&tests);
 
 	RunTests(&tests);
 	
