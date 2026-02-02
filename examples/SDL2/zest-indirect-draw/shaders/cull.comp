@@ -1,0 +1,151 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 256) in;
+
+// Layout must match C++ mesh_instance_t exactly (44 bytes, tightly packed).
+// vec3 has 16-byte alignment in std430 which would insert padding, so we
+// use individual floats to get the correct offsets.
+struct Instance {
+	float pos_x, pos_y, pos_z;
+	uint color;
+	float rot_x, rot_y, rot_z;
+	float scale_x, scale_y, scale_z;
+	uint texture_layer_index;
+};
+
+struct DrawCommand {
+	uint indexCount;
+	uint instanceCount;
+	uint firstIndex;
+	int vertexOffset;
+	uint firstInstance;
+};
+
+// Bindless storage buffer arrays
+layout(std430, set = 0, binding = 5) buffer InstanceSSBO {
+	Instance data[];
+} instance_buffers[];
+
+layout(std430, set = 0, binding = 5) buffer VisibleSSBO {
+	Instance data[];
+} visible_buffers[];
+
+layout(std430, set = 0, binding = 5) buffer IndirectSSBO {
+	DrawCommand cmd;
+} indirect_buffers[];
+
+// Bindless uniform buffer
+layout(binding = 7) uniform UboView {
+	mat4 proj;
+	mat4 view;
+	vec4 planes[6];
+	vec4 light_pos;
+	float locSpeed;
+	float globSpeed;
+	uint visible;
+} ubo[];
+
+layout(push_constant) uniform Push {
+	uint all_instances_index;
+	uint visible_instances_index;
+	uint indirect_cmd_index;
+	uint ubo_index;
+	uint total_count;
+	uint index_count;
+	uint first_index;
+	int vertex_offset;
+	uint cull_enabled;
+	float contract_frustum;
+} pc;
+
+// Extract frustum planes from view-projection matrix using Griess-Hartmann method.
+// In GLSL, mat4 is column-major: vp[col][row].
+// The formula needs rows of the VP matrix. Row i of VP = vec4(vp[0][i], vp[1][i], vp[2][i], vp[3][i]).
+void extractFrustumPlanes(mat4 vp, out vec4 planes[6]) {
+	vec4 row0 = vec4(vp[0][0], vp[1][0], vp[2][0], vp[3][0]);
+	vec4 row1 = vec4(vp[0][1], vp[1][1], vp[2][1], vp[3][1]);
+	vec4 row2 = vec4(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
+	vec4 row3 = vec4(vp[0][3], vp[1][3], vp[2][3], vp[3][3]);
+
+	planes[0] = row3 + row0;  // Left
+	planes[1] = row3 - row0;  // Right
+	planes[2] = row3 + row1;  // Bottom
+	planes[3] = row3 - row1;  // Top
+	planes[4] = row3 + row2;  // Near
+	planes[5] = row3 - row2;  // Far
+
+	// Normalize planes
+	for (int i = 0; i < 6; i++) {
+		float len = length(planes[i].xyz);
+		planes[i] /= len;
+	}
+}
+
+vec4 contractPlane(vec4 plane, float distance) {
+    return vec4(plane.xyz, plane.w - distance);
+}
+
+void contractFrustum(inout vec4 planes[6], float distance) {
+    for (int i = 0; i < 2; i++) {
+        planes[i] = contractPlane(planes[i], distance);
+    }
+}
+
+bool frustumCheck(vec4 pos, float radius) {
+	// Check sphere against frustum planes
+
+	vec4 planes[6] = ubo[pc.ubo_index].planes;
+	contractFrustum(planes, pc.contract_frustum);
+
+	for (int i = 0; i < 6; i++) 
+	{
+		if (dot(pos, planes[i]) + radius < 0.0)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void main() {
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= pc.total_count) return;
+
+	// Reset draw command on first invocation
+	if (index == 0) {
+		indirect_buffers[pc.indirect_cmd_index].cmd.indexCount = pc.index_count;
+		indirect_buffers[pc.indirect_cmd_index].cmd.instanceCount = 0;
+		indirect_buffers[pc.indirect_cmd_index].cmd.firstIndex = pc.first_index;
+		indirect_buffers[pc.indirect_cmd_index].cmd.vertexOffset = pc.vertex_offset;
+		indirect_buffers[pc.indirect_cmd_index].cmd.firstInstance = 0;
+	}
+
+	// Ensure the reset is visible to all invocations
+	memoryBarrierBuffer();
+	barrier();
+
+	Instance inst = instance_buffers[pc.all_instances_index].data[index];
+
+	// Apply the same global orbital rotation as the vertex shader
+	/*
+	float s = sin(inst.rot_y + ubo[pc.ubo_index].globSpeed);
+	float c = cos(inst.rot_y + ubo[pc.ubo_index].globSpeed);
+	vec4 worldPos = vec4(
+		c * inst.pos_x + s * inst.pos_z,
+		inst.pos_y,
+		-s * inst.pos_x + c * inst.pos_z, 1
+	);
+	*/
+
+	// Bounding sphere radius based on max scale component
+	float radius = max(max(inst.scale_x, inst.scale_y), inst.scale_z) * 2.0;
+
+	mat4 vp = ubo[pc.ubo_index].proj * ubo[pc.ubo_index].view;
+
+	bool visible = (pc.cull_enabled == 0) || frustumCheck(vec4(inst.pos_x, inst.pos_y, inst.pos_z, 1), radius);
+	if (visible) {
+		uint visibleIndex = atomicAdd(indirect_buffers[pc.indirect_cmd_index].cmd.instanceCount, 1);
+		visible_buffers[pc.visible_instances_index].data[visibleIndex] = inst;
+	}
+}

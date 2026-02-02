@@ -98,6 +98,7 @@ function(buildExample EXAMPLE_NAME)
 		${EXAMPLE_NAME} STREQUAL "zest-shadow-mapping" OR
 		${EXAMPLE_NAME} STREQUAL "zest-cascading-shadows" OR
 		${EXAMPLE_NAME} STREQUAL "zest-instancing" OR
+		${EXAMPLE_NAME} STREQUAL "zest-indirect-draw" OR
 		${EXAMPLE_NAME} STREQUAL "zest-sdl2-imgui-template" OR
 		${EXAMPLE_NAME} STREQUAL "zest-pbr-deferred")
 		SET(TIMELINEFX_SOURCE "")
@@ -188,6 +189,7 @@ set(EXAMPLES
 	zest-pbr-forward
 	zest-pbr-texture
 	zest-instancing
+	zest-indirect-draw
 	zest-shadow-mapping
 	zest-cascading-shadows
 	zest-fonts
