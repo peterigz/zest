@@ -3335,6 +3335,21 @@ typedef struct zest_buffer_copy_t {
 	zest_size size;
 } zest_buffer_copy_t;
 
+typedef struct zest_draw_indexed_indirect_command_t {
+    uint32_t    index_count;
+    uint32_t    instance_count;
+    uint32_t    first_index;
+    int32_t     vertex_offset;
+    uint32_t    first_instance;
+} zest_draw_indexed_indirect_command_t;
+
+typedef struct zest_draw_indirect_command_t {
+    uint32_t    vertex_count;
+    uint32_t    instance_count;
+    uint32_t    first_vertex;
+    uint32_t    first_instance;
+} zest_draw_indirect_command_t;
+
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
 typedef struct zest_buffer_uploader_t {
 	zest_buffer_upload_flags flags;
@@ -4046,6 +4061,8 @@ typedef struct zest_platform_t {
 	void                       (*draw)(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 	void                       (*draw_layer_instruction)(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction);
 	void                       (*draw_indexed)(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+	void                       (*draw_indexed_indirect)(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
+	void                       (*draw_indirect)(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 	void                       (*set_depth_bias)(const zest_command_list command_list, float factor, float clamp, float slope);
 } zest_platform_t;
 
@@ -5352,6 +5369,9 @@ ZEST_API void zest_cmd_DrawLayerInstruction(const zest_command_list command_list
 //Helper function to record the command to draw indexed vertex data. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+//Send a draw indirect commands
+ZEST_API void zest_cmd_DrawIndexedIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
+ZEST_API void zest_cmd_DrawIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 //Set the depth bias for when depth bias is enabled in the pipeline
 ZEST_API void zest_cmd_SetDepthBias(const zest_command_list command_list, float factor, float clamp, float slope);
 
@@ -9184,7 +9204,7 @@ zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usag
 		case zest_buffer_type_index: buffer_info.buffer_usage_flags |= zest_buffer_usage_index_buffer_bit; break;
 		case zest_buffer_type_uniform: buffer_info.buffer_usage_flags |= zest_buffer_usage_uniform_buffer_bit; break;
 		case zest_buffer_type_storage: buffer_info.buffer_usage_flags |= zest_buffer_usage_storage_buffer_bit; break;
-		case zest_buffer_type_indirect: buffer_info.buffer_usage_flags |= zest_buffer_usage_indirect_buffer_bit; break;
+		case zest_buffer_type_indirect: buffer_info.buffer_usage_flags |= zest_buffer_usage_indirect_buffer_bit | zest_buffer_usage_storage_buffer_bit; break;
 		case zest_buffer_type_vertex_storage: buffer_info.buffer_usage_flags |= zest_buffer_usage_storage_buffer_bit | zest_buffer_usage_vertex_buffer_bit; break;
 		case zest_buffer_type_index_storage: buffer_info.buffer_usage_flags |= zest_buffer_usage_storage_buffer_bit | zest_buffer_usage_index_buffer_bit; break;
 		default: break;
@@ -17395,6 +17415,16 @@ zest_bool zest_cmd_UploadBuffer(const zest_command_list command_list, zest_buffe
 void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->draw_indexed(command_list, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest_cmd_DrawIndexedIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->draw_indexed_indirect(command_list, buffer, offset, draw_count, stride);
+}
+
+void zest_cmd_DrawIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->draw_indirect(command_list, buffer, offset, draw_count, stride);
 }
 
 void zest_cmd_SetDepthBias(const zest_command_list command_list, float factor, float clamp, float slope) {

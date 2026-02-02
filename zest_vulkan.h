@@ -269,6 +269,8 @@ ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapch
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+void zest__vk_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
+void zest__vk_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 void zest__vk_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope);
 void zest__vk_copy_buffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 void zest__vk_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set);
@@ -583,6 +585,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	//Command buffer recording
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
 	platform->draw_indexed                                  = zest__vk_draw_indexed;
+	platform->draw_indexed_indirect                         = zest__vk_draw_indexed_indirect;
+	platform->draw_indirect			                        = zest__vk_draw_indirect;
 	platform->set_depth_bias                                = zest__vk_set_depth_bias;
 	platform->copy_buffer                                   = zest__vk_copy_buffer;
 	platform->bind_descriptor_sets                          = zest__vk_bind_descriptor_sets;
@@ -4465,6 +4469,16 @@ zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buff
 
 void zest__vk_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     vkCmdDrawIndexed(command_list->backend->command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest__vk_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest_size draw_offset = offset * stride;
+    vkCmdDrawIndexedIndirect(command_list->backend->command_buffer, buffer->memory_pool->backend->vk_buffer, buffer->memory_offset + draw_offset, draw_count, stride);
+}
+
+void zest__vk_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest_size draw_offset = offset * stride;
+    vkCmdDrawIndirect(command_list->backend->command_buffer, buffer->memory_pool->backend->vk_buffer, buffer->memory_offset + draw_offset, draw_count, stride);
 }
 
 void zest__vk_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) {
