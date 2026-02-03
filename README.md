@@ -195,6 +195,7 @@ For convenience all examples use SDL2 for the windowing, but you can use whateve
 | `zest-compute-example` | Compute shaders with Slang |
 | `zest-fonts` | MSDF font rendering |
 | `zest-instancing` | Instanced draw calls |
+| `zest-indirect-draw` | Indirect drawing with compute culling |
 | `zest-render-targets` | Off-screen render targets |
 | `zest-timelinefx` | Particle effects |
 | `zest-vaders` | Space Invaders demo |
