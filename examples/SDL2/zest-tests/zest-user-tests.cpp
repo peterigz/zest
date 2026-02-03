@@ -629,10 +629,6 @@ int test__resources_with_same_name(ZestTests *tests, Test *test) {
 				zest_resource_node image_a = zest_AddTransientImageResource("Image", &image_info);
 				zest_resource_node image_b = zest_AddTransientImageResource("Image", &image_info);
 
-				if (buffer_b == NULL && image_b == NULL) {
-					passed_tests++;
-				}
-
 				frame_graph = zest_EndFrameGraph();
 			}
 			zest_EndFrame(tests->context, frame_graph);
@@ -640,7 +636,8 @@ int test__resources_with_same_name(ZestTests *tests, Test *test) {
 		total_tests += 1;
 	}
 
-	test->result |= (passed_tests != total_tests);
+	zest_uint validation_count = zest_GetValidationErrorCount(tests->context);
+	test->result |= (validation_count == 0);
 	test->frame_count++;
 	return test->result;
 }
