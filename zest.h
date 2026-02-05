@@ -10921,6 +10921,7 @@ zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const z
 }
 
 zest_extent2d_t zest_GetSwapChainExtent(zest_context context) { return context->swapchain->size; }
+zest_extent2d_t zest_GetWindowExtent(zest_context context) { return context->window_extent; }
 zest_uint zest_ScreenWidth(zest_context context) { return (zest_uint)context->swapchain->size.width; }
 zest_uint zest_ScreenHeight(zest_context context) { return (zest_uint)context->swapchain->size.height; }
 float zest_ScreenWidthf(zest_context context) { return (float)context->swapchain->size.width; }
