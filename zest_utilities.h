@@ -257,6 +257,7 @@ ZEST_API zest_bitmap_meta_t zest_ImageCollectionBitmapArrayMeta(zest_image_colle
 ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection_t *image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
 ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_t *image_collection);
 ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_t *image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size);
+ZEST_API void zest_BindImageCollectionToImage(zest_image_collection_t *collection, zest_uint sampler_index, zest_image image, zest_binding_number_type binding_number);
 
 ZEST_API zest_atlas_region_t zest_NewAtlasRegion();
 
@@ -2225,6 +2226,13 @@ zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_t *image_c
 	zest_byte *raw_bitmap_data = zest_GetImageCollectionRawBitmap(image_collection, bitmap_index);
 	memcpy(raw_bitmap_data, src_data, src_size);
 	return ZEST_TRUE;
+}
+
+void zest_BindImageCollectionToImage(zest_image_collection_t *collection, zest_uint sampler_index, zest_image image, zest_binding_number_type binding_number) {
+	for (int i = 0; i != collection->image_count; i++) {
+		zest_atlas_region_t *region = &collection->regions[i];
+		zest_BindAtlasRegionToImage(region, sampler_index, image, binding_number);
+	}
 }
 
 // End Image_collections

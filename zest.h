@@ -16073,6 +16073,7 @@ void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint sampler_
 	region->sampler_index = sampler_index;
 	region->binding_number = binding_number;
 }
+
 //-- End Texture and Image Functions
 
 void zest_UploadInstanceLayerData(const zest_command_list command_list, void *user_data) {

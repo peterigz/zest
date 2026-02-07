@@ -135,6 +135,11 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_render_res
 	//End of render specific code
 }
 
+void zest_tfx_FreeLibraryImages(tfx_render_resources_t *resources) {
+	zest_FreeImageCollection(&resources->particle_images);
+	zest_FreeImageCollection(&resources->color_ramps_collection);
+}
+
 void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_library library) {
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
