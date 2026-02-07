@@ -57,10 +57,14 @@ tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset,
 }
 
 void TimelineFXExample::Init() {
-	zest_tfx_InitTimelineFXRenderResources(device, context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
+	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
+
+	const char *library_path = "examples/assets/vaders/vadereffects.tfx";
+	int shape_count = tfx_GetShapeCountInLibrary(library_path);
+	tfx_rendering.particle_images = zest_tfx_CreateImageCollection(shape_count);
 
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	library = tfx_LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
+	library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
 	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);

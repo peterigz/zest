@@ -69,7 +69,12 @@ void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	image_data->uv_packed = region->uv_packed;
 }
 
-void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context context, tfx_render_resources_t *resources, const char *library_path) {
+zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count) {
+	return zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, shape_count);
+}
+
+void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_render_resources_t *resources, const char *vert_shader, const char *frag_shader) {
+	zest_device device = zest_GetContextDevice(context);
 	resources->uniform_buffer = zest_CreateUniformBuffer(context, "tfx uniform", sizeof(tfx_uniform_buffer_data_t));
 
 	resources->timer = zest_CreateTimer(60);
@@ -82,12 +87,9 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 
 	zest_tfx_UpdateUniformBuffer(context, resources);
 
-	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	resources->particle_images = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, shape_count);
-
 	//Compile the shaders we will use to render the particles
-	resources->fragment_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", zest_fragment_shader, true);
-	resources->vertex_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", zest_vertex_shader, true);
+	resources->fragment_shader = zest_CreateShaderFromFile(device, frag_shader, "tfx_frag.spv", zest_fragment_shader, true);
+	resources->vertex_shader = zest_CreateShaderFromFile(device, vert_shader, "tfx_vertex.spv", zest_vertex_shader, true);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps

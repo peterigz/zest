@@ -294,7 +294,12 @@ void CreateSDLViewport(ImGuiViewport *viewport) {
 
 //Initialise the game and set up the renderer
 void VadersGame::Init() {
-	zest_tfx_InitTimelineFXRenderResources(device, context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
+	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
+
+	const char *library_path = "examples/assets/vaders/vadereffects.tfx";
+	int shape_count = tfx_GetShapeCountInLibrary(library_path);
+	tfx_rendering.particle_images = zest_tfx_CreateImageCollection(shape_count);
+
 	//Renderer specific - initialise the texture
 	float max_radius = 0;
 	//Add all of the images and animations into the texture
@@ -1378,7 +1383,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Vaders");
 
 	//Create the device that serves all vulkan based contexts
-	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
+	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 	//Initialise Zest
 	game.context = zest_CreateContext(game.device, &window_data, &create_info);
