@@ -485,10 +485,10 @@ bool zest_imgui_DrawButton(zest_atlas_region_t *region, const char *user_texture
 
     ImVec2 size(width, height);
     ImVec2 image_size((float)image_dimensions.width, (float)image_dimensions.height);
-    float ratio = (float)image_dimensions.width / (float)image_dimensions.height;
-    image_dimensions.width = (zest_uint)(ratio > 1.f ? width : width * ratio);
-    image_dimensions.height = (zest_uint)(ratio > 1.f ? height / ratio : height);
-    ImVec2 image_offset((width - image_dimensions.width) * .5f, (height - image_dimensions.height) * .5f);
+    float ratio = image_size.x / image_size.y;
+    image_size.x = ratio > 1.f ? width : width * ratio;
+    image_size.y = ratio > 1.f ? height / ratio : height;
+    ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
     ImVec4 bg_col(0.f, 0.f, 0.f, 0.f);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
     ImVec2 uv0(uv.x, uv.y);
