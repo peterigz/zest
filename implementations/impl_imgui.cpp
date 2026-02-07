@@ -283,6 +283,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 				push_constants->font_texture_index = current_image->image_index;
 				push_constants->font_sampler_index = current_image->sampler_index;
 				push_constants->image_layer = zest_RegionLayerIndex(current_image);
+				push_constants->texture_binding = current_image->binding_number;
 
                 zest_cmd_SendPushConstants(command_list, push_constants, sizeof(zest_imgui_push_t));
 

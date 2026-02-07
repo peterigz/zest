@@ -12,6 +12,7 @@ typedef struct zest_imgui_push_t {
 	zest_uint font_texture_index;
 	zest_uint font_sampler_index;
 	zest_uint image_layer;
+	zest_uint texture_binding;
 } zest_imgui_push_t;
 
 typedef struct zest_imgui_render_state_t {
@@ -119,6 +120,7 @@ layout(location = 1) in vec3 in_uv;
 layout(location = 0) out vec4 out_color;
 layout(set = 0, binding = 0) uniform sampler samplers[];
 layout(set = 0, binding = 1) uniform texture2D textures[];
+layout(set = 0, binding = 3) uniform texture2DArray texture_arrays[];
 
 //Not used by default by can be used in custom imgui image shaders
 layout(push_constant) uniform imgui_push
@@ -127,11 +129,16 @@ layout(push_constant) uniform imgui_push
 	uint texture_index;
 	uint sampler_index;
 	uint image_layer;
+	uint binding_number;
 } pc;
 
 void main()
 {
-	out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
+	if (pc.binding_number == 3) {
+		out_color = in_color * texture(sampler2DArray(texture_arrays[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv);
+	} else {
+		out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
+	}
 }
 
 );
