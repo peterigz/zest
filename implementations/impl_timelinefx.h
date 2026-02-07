@@ -1,7 +1,7 @@
 #pragma once
 
 #include <zest.h>
-#include <timelinefxlib/timelinefx.h>
+#include <timelinefx.h>
 
 typedef struct tfx_push_constants_s {
 	tfxU32 particle_texture_index;
