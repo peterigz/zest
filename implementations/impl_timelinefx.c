@@ -165,7 +165,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 	zest_layer_instruction_t *current = zest_NextLayerInstruction(layer);
 	while(current) {
 
-		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+		zest_cmd_LayerViewport(command_list, layer);
 
 		zest_pipeline pipeline = zest_GetPipeline(current->pipeline_template, command_list);
 		if (pipeline && current_pipeline != pipeline) {
