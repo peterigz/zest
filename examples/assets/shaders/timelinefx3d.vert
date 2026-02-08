@@ -54,6 +54,7 @@ layout(binding = 7) uniform UboView
     mat4 view;
     mat4 proj;
     vec2 screen_size;
+	uint millisecs;
     float timer_lerp;
     float update_time;
 } ub[];

@@ -17,6 +17,7 @@ typedef struct tfx_uniform_buffer_data_t {
     zest_matrix4 view;
     zest_matrix4 proj;
     zest_vec2 screen_size;
+	zest_uint millisecs;
     float timer_lerp;
     float update_time;
 } tfx_uniform_buffer_data_t;

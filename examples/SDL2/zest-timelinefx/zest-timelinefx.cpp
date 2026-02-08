@@ -245,7 +245,6 @@ void MainLoop(TimelineFXExample *game) {
 					//Import our test texture with the Bunny sprite
 					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", tfx_layer, false);
 					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", tfx_layer, true);
-					zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
 					zest_ImportSwapchainResource();
 
 					//Connect buffers and textures
