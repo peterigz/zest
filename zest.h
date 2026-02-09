@@ -14612,27 +14612,35 @@ void zest_EndPass() {
 }
 
 zest_resource_node zest_GetPassInputResource(const zest_command_list command_list, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(command_list->pass_node->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
+	if (!zest_map_valid_name(command_list->pass_node->inputs, name)) {
+		return NULL;
+	}
     zest_resource_usage_t *usage = zest_map_at(command_list->pass_node->inputs, name);
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource, zest_struct_type_resource_node) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
 zest_buffer zest_GetPassInputBuffer(const zest_command_list command_list, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(command_list->pass_node->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
+	if (!zest_map_valid_name(command_list->pass_node->inputs, name)) {
+		return NULL;
+	}
     zest_resource_usage_t *usage = zest_map_at(command_list->pass_node->inputs, name);
     zest_resource_node resource = ZEST_VALID_HANDLE(usage->resource_node->aliased_resource, zest_struct_type_resource_node) ? usage->resource_node->aliased_resource : usage->resource_node;
     return resource->storage_buffer;
 }
 
 zest_buffer zest_GetPassOutputBuffer(const zest_command_list command_list, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(command_list->pass_node->outputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from inputs?
+	if (!zest_map_valid_name(command_list->pass_node->outputs, name)) {
+		return NULL;
+	}
     zest_resource_usage_t *usage = zest_map_at(command_list->pass_node->outputs, name);
     zest_resource_node resource = ZEST_VALID_HANDLE(usage->resource_node->aliased_resource, zest_struct_type_resource_node) ? usage->resource_node->aliased_resource : usage->resource_node;
     return resource->storage_buffer;
 }
 
 zest_resource_node zest_GetPassOutputResource(const zest_command_list command_list, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(command_list->pass_node->outputs, name));  //Not a valid output resource name. Check the name and also maybe you meant to get from inputs?
+	if (!zest_map_valid_name(command_list->pass_node->outputs, name)) {
+		return NULL;
+	}
     zest_resource_usage_t *usage = zest_map_at(command_list->pass_node->outputs, name);
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource, zest_struct_type_resource_node) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
@@ -16559,7 +16567,7 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
     zest_layer layer = (zest_layer)user_data;
 
     ZEST_MAYBE_REPORT(command_list->device, !ZEST_VALID_HANDLE(layer, zest_struct_type_layer), zest_report_invalid_layer, "Error in [%s] The zest_DrawInstanceLayer was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
-    ZEST_MAYBE_REPORT(command_list->device, !layer->vertex_buffer_node, zest_struct_type_layer), zest_report_no_buffer_found_in_layer, "When called zest_DrawInstanceLayer, no resource buffer was found in the layer. Make sure you're calling zest_AddTransientLayerResources in the frame graph.", zest__frame_graph_builder->frame_graph->name);
+	ZEST_MAYBE_REPORT(command_list->device, !layer->vertex_buffer_node, zest_report_no_buffer_found_in_layer, "Error in [%s] When called zest_DrawInstanceLayer, no resource buffer was found in the layer. Make sure you're calling zest_AddTransientLayerResources in the frame graph.", zest__frame_graph_builder->frame_graph->name);
     if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
     if (!layer->vertex_buffer_node->storage_buffer) return;
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
