@@ -2302,6 +2302,7 @@ typedef enum zest_report_category {
 	zest_report_pass_culled,
 	zest_report_resource_culled,
 	zest_report_invalid_layer,
+	zest_report_no_buffer_found_in_layer,
 	zest_report_cyclic_dependency,
 	zest_report_invalid_render_pass,
 	zest_report_render_pass_skipped,
@@ -16558,7 +16559,7 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
     zest_layer layer = (zest_layer)user_data;
 
     ZEST_MAYBE_REPORT(command_list->device, !ZEST_VALID_HANDLE(layer, zest_struct_type_layer), zest_report_invalid_layer, "Error in [%s] The zest_DrawInstanceLayer was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
-
+    ZEST_MAYBE_REPORT(command_list->device, !layer->vertex_buffer_node, zest_struct_type_layer), zest_report_no_buffer_found_in_layer, "When called zest_DrawInstanceLayer, no resource buffer was found in the layer. Make sure you're calling zest_AddTransientLayerResources in the frame graph.", zest__frame_graph_builder->frame_graph->name);
     if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
     if (!layer->vertex_buffer_node->storage_buffer) return;
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
