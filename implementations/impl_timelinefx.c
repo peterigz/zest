@@ -111,7 +111,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_render_res
 	zest_AddVertexAttribute(resources->pipeline, 0, 7, zest_format_r32_uint, offsetof(tfx_instance_t, captured_index));   				    // Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineShaders(resources->pipeline, resources->vertex_shader, resources->fragment_shader);
-	zest_SetPipelineDepthTest(resources->pipeline, false, true);
+	zest_SetPipelineDepthTest(resources->pipeline, true, false);
 	zest_SetPipelineBlend(resources->pipeline, zest_PreMultiplyBlendState());
 
 	//We want to be able to manually change the current frame in flight in the layer that we use to draw all the billboards.
