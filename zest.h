@@ -4676,6 +4676,7 @@ ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size);
 ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
+ZEST_API zest_buffer zest_GetResourceBuffer(zest_resource_node resource_node);
 ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
 ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
 ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
@@ -14747,6 +14748,14 @@ zest_image zest_GetResourceImage(zest_resource_node resource) {
 	ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
 	if (resource->type & zest_resource_type_is_image_or_depth) {
         return &resource->image;
+	}
+	return NULL;
+}
+
+zest_buffer zest_GetResourceBuffer(zest_resource_node resource) {
+	ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
+	if (resource->type & zest_resource_type_buffer) {
+        return resource->storage_buffer;
 	}
 	return NULL;
 }
