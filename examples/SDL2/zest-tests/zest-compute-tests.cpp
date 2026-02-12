@@ -43,7 +43,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
 	zest_compute compute = zest_GetCompute(tests->brd_compute);
-	zest_BeginComputePass(compute, "Brd compute");
+	zest_BeginComputePass("Brd compute");
 	zest_ConnectOutput(texture_resource);
 	zest_SetPassTask(zest_DispatchBRDSetup, tests);
 	zest_EndPass();
@@ -99,7 +99,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_BeginComputePass(compute_write, "Write Pass");
+		zest_BeginComputePass("Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
@@ -117,7 +117,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 
 		zest_WaitOnTimeline(timeline);
 
-		zest_BeginComputePass(compute_write, "Second Write Pass");
+		zest_BeginComputePass("Second Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
@@ -202,7 +202,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 			zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
 			zest_compute compute = zest_GetCompute(tests->brd_compute);
-			zest_BeginComputePass(compute, "Brd compute");
+			zest_BeginComputePass("Brd compute");
 			zest_ConnectOutput(texture_resource);
 			zest_SetPassTask(zest_DispatchBRDSetup, tests);
 			zest_EndPass();
@@ -293,7 +293,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 		zest_FlagResourceAsEssential(mipmap_image);
 
 		zest_compute compute = zest_GetCompute(tests->brd_compute);
-		zest_BeginComputePass(compute, "Mipmap Generation");
+		zest_BeginComputePass("Mipmap Generation");
 		zest_ConnectOutput(mipmap_image);
 		zest_SetPassTask(zest_DispatchMipmapCompute, tests);
 		zest_EndPass();
@@ -346,7 +346,7 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_BeginComputePass(compute_write, "Write Pass");
+		zest_BeginComputePass("Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
@@ -421,13 +421,13 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
 		// First pass: Initialize buffer
-		zest_BeginComputePass(compute_write, "Init Pass");
+		zest_BeginComputePass("Init Pass");
 		zest_ConnectOutput(rmw_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
 		// Second pass: Read and modify same buffer (read-modify-write pattern)
-		zest_BeginComputePass(compute_write, "RMW Pass");
+		zest_BeginComputePass("RMW Pass");
 		zest_ConnectInput(rmw_buffer);
 		zest_ConnectOutput(rmw_buffer);
 		zest_SetPassTask(zest_ReadModifyWriteCompute, tests);
@@ -494,19 +494,19 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 		zest_compute compute_verify = zest_GetCompute(tests->compute_verify);
 
 		// Pass 1: Write to buffer A
-		zest_BeginComputePass(compute_write, "Write A");
+		zest_BeginComputePass("Write A");
 		zest_ConnectOutput(buffer_a);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
 		// Pass 2: Write to buffer B (This should get culled)
-		zest_BeginComputePass(compute_write, "Write B");
+		zest_BeginComputePass("Write B");
 		zest_ConnectOutput(buffer_b);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
 		// Pass 3: Verify buffer A
-		zest_BeginComputePass(compute_verify, "Verify Pass");
+		zest_BeginComputePass("Verify Pass");
 		zest_ConnectInput(buffer_a);
 		zest_ConnectOutput(verify_buffer);
 		zest_SetPassTask(zest_VerifyBufferCompute, tests);
@@ -568,7 +568,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_BeginComputePass(compute_write, "Write Pass 1");
+		zest_BeginComputePass("Write Pass 1");
 		zest_ConnectOutput(buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
@@ -585,7 +585,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_BeginComputePass(compute_write, "Write Pass 2");
+		zest_BeginComputePass("Write Pass 2");
 		zest_ConnectOutput(buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
@@ -602,7 +602,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_BeginComputePass(compute_write, "Write Pass 3");
+		zest_BeginComputePass("Write Pass 3");
 		zest_ConnectOutput(buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();

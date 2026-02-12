@@ -414,8 +414,6 @@ void MainLoop(IndirectDrawExample *app) {
 					1, 1
 				};
 
-				zest_compute compute = zest_GetCompute(app->cull_compute);
-
 				if (zest_BeginFrameGraph(app->context, "Indirect Draw", &cache_key)) {
 					// Import buffer resources for compute
 					zest_resource_node all_instances_node = zest_ImportBufferResource("all instances", app->all_instances_ssbo, 0);
@@ -429,7 +427,7 @@ void MainLoop(IndirectDrawExample *app) {
 					zest_AddResourceToGroup(group, depth_buffer);
 
 					// Compute pass: frustum cull
-					zest_BeginComputePass(compute, "Frustum Cull"); {
+					zest_BeginComputePass("Frustum Cull"); {
 						zest_ConnectInput(all_instances_node);
 						zest_ConnectOutput(visible_node);
 						zest_ConnectOutput(indirect_node);

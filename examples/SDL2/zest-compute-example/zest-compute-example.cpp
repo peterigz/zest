@@ -207,8 +207,8 @@ void UpdateComputeUniformBuffers(ComputeExample *app) {
 		uniform->dest_x = sinf(Radians(app->timer * 360.0f)) * 0.75f;
 		uniform->dest_y = 0.0f;
 	} else {
-		float normalizedMx = (app->mouse_x - static_cast<float>(zest_ScreenWidthf(app->context) / 2)) / static_cast<float>(zest_ScreenWidthf(app->context) / 2);
-		float normalizedMy = (app->mouse_y - static_cast<float>(zest_ScreenHeightf(app->context) / 2)) / static_cast<float>(zest_ScreenHeightf(app->context) / 2);
+		float normalizedMx = ((float)app->mouse_x - (zest_ScreenWidthf(app->context) / 2)) / (zest_ScreenWidthf(app->context) / 2);
+		float normalizedMy = ((float)app->mouse_y - (zest_ScreenHeightf(app->context) / 2)) / (zest_ScreenHeightf(app->context) / 2);
 		uniform->dest_x = normalizedMx;
 		uniform->dest_y = normalizedMy;
 	}
@@ -320,7 +320,7 @@ void MainLoop(ComputeExample *app) {
 					zest_compute compute = zest_GetCompute(app->compute);
 
 					//---------------------------------Compute Pass-----------------------------------------------------
-					zest_BeginComputePass(compute, "Compute Particles"); {
+					zest_BeginComputePass("Compute Particles"); {
 						//Connect the particle buffer as input and output as the compute shader will read and write
 						//from/to it
 						zest_ConnectInput(particle_buffer);

@@ -4643,6 +4643,8 @@ ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context conte
 ZEST_API zest_frame_graph zest_EndFrameGraph();
 ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
+ZEST_API void zest_SetFrameGraphUserData(void *user_data);
+ZEST_API void *zest_GetFrameGraphUserData(const zest_command_list command_list);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
@@ -4656,7 +4658,7 @@ ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buf
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
-ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_BeginComputePass(const char *name);
 ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
@@ -6412,7 +6414,6 @@ typedef struct zest_pass_node_t {
 	zest_map_resource_usages outputs;
 	zest_key output_key;
 	zest_pass_execution_callback_t execution_callback;
-	zest_compute compute;
 	zest_pass_flags flags;
 	zest_pass_type type;
 	zest_pipeline_bind_point bind_point;
@@ -13313,6 +13314,17 @@ zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_
 	return timeline->device->platform->wait_for_timeline(timeline, timeout);
 }
 
+void zest_SetFrameGraphUserData(void *user_data) {
+	zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+	frame_graph->user_data = user_data;
+}
+
+void *zest_GetFrameGraphUserData(const zest_command_list command_list) {
+	ZEST_ASSERT_HANDLE(command_list);	//Not a valid command list handle
+	return command_list->frame_graph->user_data;
+}
+
 zest_frame_graph zest_EndFrameGraphAndExecute() {
     zest_frame_graph frame_graph = zest__compile_frame_graph();
 
@@ -14577,15 +14589,13 @@ zest_pass_node zest_BeginRenderPass(const char *name) {
     return pass;
 }
 
-zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
+zest_pass_node zest_BeginComputePass(const char *name) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_OR_VALIDATE(compute, context->device, "Invalid compute object passed into zest_BeingComputePass.", NULL);        //Not a valid compute handle
 	if (zest__frame_graph_builder->current_pass) {
 		zest_EndPass();
 	}
     zest_pass_node node = zest__add_pass_node(name, zest_queue_compute);
-    node->compute = compute;
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_compute_shader_bit;
     zest__frame_graph_builder->current_pass = node;
 	node->bind_point = zest_bind_point_compute;

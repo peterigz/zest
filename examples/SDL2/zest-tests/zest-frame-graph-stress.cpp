@@ -165,6 +165,8 @@ int test__stress_pass_dependency_chain(ZestTests *tests, Test *test) {
 
 void zest_WriteBufferStressCompute(const zest_command_list command_list, void *user_data) {
 	zest_resource_node write_buffer = (zest_resource_node)user_data;
+
+	zest_compute compute = (zest_compute)zest_GetFrameGraphUserData(command_list);
 	ZEST_ASSERT_HANDLE(write_buffer);
 
 	const zest_uint local_size_x = 8;
@@ -173,8 +175,6 @@ void zest_WriteBufferStressCompute(const zest_command_list command_list, void *u
 	zest_descriptor_set sets[] = {
 		zest_GetBindlessSet(command_list->device)
 	};
-
-	zest_compute compute = zest_GetCompute(command_list->pass_node->compute->handle);
 
 	// Bind the pipeline once before the loop
 	zest_cmd_BindComputePipeline(command_list, compute);
@@ -229,16 +229,17 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 
 			int mid_point = MAX_TEST_RESOURCES / 2;
 
-		zest_compute compute_write = zest_GetCompute(tests->compute_write);
+			zest_compute compute_write = zest_GetCompute(tests->compute_write);
+			zest_SetFrameGraphUserData(compute_write);
 
 			for (int i = 0; i != MAX_TEST_RESOURCES; i += 2) {
-				zest_BeginComputePass(compute_write, "Pass A");
+				zest_BeginComputePass("Pass A");
 				zest_ConnectInput(buffer_resources[i]);
 				zest_ConnectOutput(transient_resources[i]);
 				zest_SetPassTask(zest_WriteBufferStressCompute, transient_resources[i]);
 				zest_EndPass();
 
-				zest_BeginComputePass(compute_write, "Pass B");
+				zest_BeginComputePass("Pass B");
 				zest_ConnectInput(transient_resources[i]);
 				zest_ConnectOutput(transient_resources[i + 1]);
 				zest_SetPassTask(zest_WriteBufferStressCompute, transient_resources[i + 1]);
@@ -441,7 +442,7 @@ void zest_StressWriteImageCompute(const zest_command_list command_list, void *us
 		zest_GetBindlessSet(command_list->device)
 	};
 
-	zest_compute compute = zest_GetCompute(command_list->pass_node->compute->handle);
+	zest_compute compute = (zest_compute)zest_GetFrameGraphUserData(command_list);
 
 	// Bind the pipeline once before the loop
 	zest_cmd_BindComputePipeline(command_list, compute);
@@ -510,9 +511,10 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 			}
 
 			zest_compute compute_write = zest_GetCompute(tests->compute_write);
+			zest_SetFrameGraphUserData(compute_write);
 
 			for (int i = 0; i != MAX_TEST_RESOURCES; i += 2) {
-				zest_BeginComputePass(compute_write, "Pass A");
+				zest_BeginComputePass("Pass A");
 				zest_ConnectOutput(transient_images[i]);
 				zest_SetPassTask(zest_StressWriteImageCompute, transient_images[i]);
 				zest_EndPass();
@@ -522,7 +524,7 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 				zest_SetPassTask(zest_StressTransferBuffer, transient_buffers[i]);
 				zest_EndPass();
 
-				zest_BeginComputePass(compute_write, "Pass C");
+				zest_BeginComputePass("Pass C");
 				zest_ConnectOutput(transient_buffers[i + 1]);
 				zest_SetPassTask(zest_EmptyRenderPass, 0);
 				zest_EndPass();

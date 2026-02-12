@@ -568,47 +568,6 @@ int test__transient_dependency_ordering(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-//Test passing an invalid compute pointer to zest_BeginComputePass
-int test__invalid_compute_handle(ZestTests *tests, Test *test) {
-	int passed_tests = 0;
-	int total_tests = 0;
-
-	{
-		int phase_total = 0;
-		int phase_passed = 0;
-		zest_UpdateDevice(tests->device);
-		if (zest_BeginFrame(tests->context)) {
-			zest_frame_graph frame_graph = NULL;
-			if (zest_BeginFrameGraph(tests->context, "Invalid Compute Handle Test", 0)) {
-				zest_ImportSwapchainResource();
-
-				//Pass a null compute pointer
-				zest_compute invalid_compute = NULL;
-				zest_BeginComputePass(invalid_compute, "Bad Compute Pass"); {
-					zest_SetPassTask(zest_EmptyRenderPass, 0);
-					zest_EndPass();
-				}
-
-				zest_BeginRenderPass("Draw Pass"); {
-					zest_ConnectSwapChainOutput();
-					zest_SetPassTask(zest_EmptyRenderPass, 0);
-					zest_EndPass();
-				}
-				frame_graph = zest_EndFrameGraph();
-			}
-			zest_EndFrame(tests->context, frame_graph);
-		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
-		phase_total += 1;
-		passed_tests += phase_passed;
-		total_tests += phase_total;
-	}
-
-	test->result |= (passed_tests != total_tests);
-	test->frame_count++;
-	return test->result;
-}
-
 int test__resources_with_same_name(ZestTests *tests, Test *test) {
 	int passed_tests = 0;
 	int total_tests = 0;

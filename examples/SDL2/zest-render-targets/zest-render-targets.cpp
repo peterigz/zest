@@ -299,7 +299,7 @@ void Mainloop(render_target_app_t *example) {
 
 					//---------------------------------Downsample Pass--------------------------------------------------
 					//Progressively blur by downsampling through mip chain
-					zest_BeginComputePass(downsampler_compute, "Downsampler Pass"); {
+					zest_BeginComputePass("Downsampler Pass"); {
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(downsampler);
 						zest_SetPassTask(zest_DownsampleCompute, example);
@@ -309,7 +309,7 @@ void Mainloop(render_target_app_t *example) {
 
 					//---------------------------------Upsample Pass----------------------------------------------------
 					//Reconstruct bloom by upsampling back through mip chain
-					zest_BeginComputePass(upsampler_compute, "Upsampler Pass"); {
+					zest_BeginComputePass("Upsampler Pass"); {
 						zest_ConnectInput(downsampler);
 						zest_ConnectOutput(upsampler);
 						zest_SetPassTask(zest_UpsampleCompute, example);

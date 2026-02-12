@@ -386,12 +386,12 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 		zest_compute compute_verify = zest_GetCompute(tests->compute_verify);
 
-		zest_BeginComputePass(compute_write, "Write Pass");
+		zest_BeginComputePass("Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
-		zest_BeginComputePass(compute_verify, "Verify Pass");
+		zest_BeginComputePass("Verify Pass");
 		zest_ConnectInput(write_buffer);
 		zest_ConnectOutput(verify_buffer);
 		zest_SetPassTask(zest_VerifyBufferCompute, tests);
@@ -550,7 +550,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_SetPassTask(zest_EmptyRenderPass, NULL);
 		zest_EndPass();
 
-		zest_pass_node verify_pass = zest_BeginComputePass(compute_verify, "Pass B");
+		zest_pass_node verify_pass = zest_BeginComputePass("Pass B");
 		zest_ConnectInput(write_buffer);
 		zest_ConnectOutput(verify_buffer);
 		zest_SetPassTask(zest_VerifyImageCompute, tests);
@@ -703,7 +703,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 
 			zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-			zest_BeginComputePass(compute_write, "Pass A");
+			zest_BeginComputePass("Pass A");
 			zest_ConnectOutput(output_a);
 			zest_SetPassTask(zest_WriteImageCompute, tests);
 			zest_EndPass();

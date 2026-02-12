@@ -522,8 +522,7 @@ void MainLoop(Ribbons *app) {
 
 					// Pass 2: Compute - Generate vertex/index geometry from segments
 					// The frame graph automatically inserts barriers between transfer and compute
-					zest_compute ribbon_compute = zest_GetCompute(app->ribbon_compute);
-					zest_BeginComputePass(ribbon_compute, "Compute Ribbons"); {
+					zest_BeginComputePass("Compute Ribbons"); {
 						zest_ConnectInput(ribbon_segment_buffer);
 						zest_ConnectInput(ribbon_instance_buffer);
 						zest_ConnectOutput(ribbon_vertex_buffer);
