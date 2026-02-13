@@ -12,7 +12,6 @@ typedef struct zest_imgui_push_t {
 	zest_uint font_texture_index;
 	zest_uint font_sampler_index;
 	zest_uint image_layer;
-	zest_uint texture_binding;
 } zest_imgui_push_t;
 
 typedef struct zest_imgui_render_state_t {
@@ -89,6 +88,7 @@ layout(push_constant) uniform imgui_push
 {
 	vec4 transform;
 	uint font_index;
+	uint sampler_index;
 	uint image_layer;
 } pc;
 
@@ -129,16 +129,11 @@ layout(push_constant) uniform imgui_push
 	uint texture_index;
 	uint sampler_index;
 	uint image_layer;
-	uint binding_number;
 } pc;
 
 void main()
 {
-	if (pc.binding_number == 3) {
-		out_color = in_color * texture(sampler2DArray(texture_arrays[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv);
-	} else {
-		out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
-	}
+	out_color = in_color * texture(sampler2DArray(texture_arrays[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv);
 }
 
 );

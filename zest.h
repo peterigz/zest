@@ -3377,7 +3377,6 @@ typedef struct zest_atlas_region_t {
 	zest_u64 uv_packed;          //UV coords packed into 16bit floats
 	zest_uint layer_index;      //the layer index of the image when it's packed into an image/texture array
 	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
-	zest_binding_number_type binding_number;
 	zest_uint atlas_index;		 //The index with an image collection where the region might be stored
 	zest_uint image_index;       //Index of the image to lookup in the shader
 	zest_uint sampler_index;     //Index of the sampler to lookup in the shader
@@ -16099,7 +16098,6 @@ void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint sampler_
 	ZEST_ASSERT_HANDLE(image);	//Not a valid image handle
 	region->image_index = zest_ImageDescriptorIndex(image, binding_number);
 	region->sampler_index = sampler_index;
-	region->binding_number = binding_number;
 }
 
 //-- End Texture and Image Functions
