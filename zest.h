@@ -2163,7 +2163,8 @@ typedef enum zest_resource_usage_hint_bits {
 	zest_resource_usage_hint_cpu_write = (1 << 3),
 	zest_resource_usage_hint_vertex_buffer = 1 << 4,
 	zest_resource_usage_hint_index_buffer = 1 << 5,
-	zest_resource_usage_hint_msaa = 1 << 6,
+	zest_resource_usage_hint_texture_array = 1 << 6,
+	zest_resource_usage_hint_msaa = 1 << 7,
 	zest_resource_usage_hint_copyable = zest_resource_usage_hint_copy_src | zest_resource_usage_hint_copy_dst,
 	zest_resource_usage_hint_cpu_transfer = zest_resource_usage_hint_cpu_read | zest_resource_usage_hint_cpu_write
 } zest_resource_usage_hint_bits;
@@ -13404,6 +13405,9 @@ void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint
         resource->image.info.flags |= zest_image_flag_host_visible | zest_image_flag_host_coherent;
         resource->image.info.flags |= zest_image_flag_transfer_src | zest_image_flag_transfer_dst;
     }
+	if (usage_hints & zest_resource_usage_hint_texture_array) {
+		resource->image.info.flags |= zest_image_flag_force_image_array;
+	}
 }
 
 zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage) {
