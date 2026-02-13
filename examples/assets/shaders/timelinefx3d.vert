@@ -27,15 +27,18 @@ struct ImageData {
     float max_radius;
 };
 
-struct BillboardInstance {					//56 bytes + padding to 64
+struct BillboardInstance {					//52 bytes + padding to 64
 	vec4 position;							//The position of the sprite, x, y - world, z, w = captured for interpolating
-	uint quaternion;			            //Rotations of the sprite packed into a quaternion
-	uint alignment;	    					//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
+	uvec2 quaternion;			            //Rotations of the sprite packed into a 16-bit snorm quaternion: .x = X|Y, .y = Z|W
 	ivec2 size_handle;						//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint alignment;	    					//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
 	uint intensity_gradient_map;			//Multiplier for the color and the gradient map value packed into 16bit scaled floats
 	uint curved_alpha_life;					//Sharpness and dissolve amount value for fading the image plus the life of the partile packed into 3 unorms
 	uint indexes;							//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
 	uint captured_index;					//Index to the sprite in the buffer from the previous frame for interpolation
+	uint p0;
+	uint p1;
+	uint p2;
 };
 
 layout(push_constant) uniform quad_index
@@ -73,8 +76,8 @@ layout (std430, set = 0, binding = 5) readonly buffer InImageData {
 //Instance
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec4 in_quaternion;
-layout(location = 2) in vec3 alignment;
-layout(location = 3) in vec4 size_handle;
+layout(location = 2) in vec4 size_handle;
+layout(location = 3) in vec3 alignment;
 layout(location = 4) in vec2 intensity_gradient_map;
 layout(location = 5) in vec3 curved_alpha_life;
 layout(location = 6) in uint texture_indexes;
@@ -118,14 +121,14 @@ void main() {
 	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
 	lerped_size = mix(lerped_size, size, ub[pc.uniform_index].timer_lerp.x);
 	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp.x) : position.xyz;
-	vec4 lerped_quaternion = interpolate_is_active == 1 ? mix(normalize(unpackSnorm4x8(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion)), quaternion, ub[pc.uniform_index].timer_lerp.x) : quaternion;
+	vec4 lerped_quaternion = interpolate_is_active == 1 ? mix(normalize(vec4(unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.x), unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.y))), quaternion, ub[pc.uniform_index].timer_lerp.x) : quaternion;
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
 	lerped_size = mix(lerped_size, size, ub[pc.uniform_index].timer_lerp.x) * interpolate_is_active;
 	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp.x);
     //(peviously lerped_rotation)
-	vec4 lerped_quaternion = mix(normalize(unpackSnorm4x8(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion)), quaternion, ub[pc.uniform_index].timer_lerp.x);
+	vec4 lerped_quaternion = mix(normalize(vec4(unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.x), unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.y))), quaternion, ub[pc.uniform_index].timer_lerp.x);
     #endif
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
     motion.z += 0.000001;
