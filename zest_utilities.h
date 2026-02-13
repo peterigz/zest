@@ -1783,7 +1783,7 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.height, "Height has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.format, "Format has not been set in the bitmap");		//Not a valid bitmap handle
-	ZEST_ASSERT(image_collection->image_count < image_collection->max_images);		//Run out of room in the image collection!
+	ZEST_ASSERT(image_collection->image_count <= image_collection->max_images);		//Run out of room in the image collection!
 	if (bitmap) {
 		if (bitmap->meta.format != image_collection->format) {
 			zest_ConvertBitmap(bitmap, image_collection->format, 255);
@@ -1802,7 +1802,7 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 
 zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format) {
     ZEST_ASSERT(pixels, "No pixels passed in to the function");
-	ZEST_ASSERT(image_collection->image_count < image_collection->max_images, "No more room for new images in the image collection");
+	ZEST_ASSERT(image_collection->image_count <= image_collection->max_images, "No more room for new images in the image collection");
 	int channels, bytes_per_pixel;
 	int block_width, block_height, bytes_per_block;
 	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
@@ -1831,7 +1831,7 @@ zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_col
 }
 
 zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, int frame_width, int frame_height, int frames, zest_format format) {
-	ZEST_ASSERT(image_collection->image_count + frames < image_collection->max_images, "No more room for new images in the image collection");
+	ZEST_ASSERT(image_collection->image_count + frames <= image_collection->max_images, "No more room for new images in the image collection");
 	int channels, bytes_per_pixel;
 	int block_width, block_height, bytes_per_block;
 	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
@@ -1998,7 +1998,8 @@ zest_byte zest__calculate_texture_layers(stbrp_rect* rects, zest_uint image_coun
         stbrp_pack_rects(&context, rects_copy, (int)copy_count);
 
         for(zest_uint i = 0; i != copy_count; ++i) {
-			current_rects[current_rects_count++] = rects_copy[i];
+			current_rects[current_rects_count] = rects_copy[i];
+			current_rects_count++;
         }
 
 		copy_count = 0;
@@ -2006,6 +2007,7 @@ zest_byte zest__calculate_texture_layers(stbrp_rect* rects, zest_uint image_coun
         for(zest_uint i = 0; i != current_rects_count; ++i) {
             if (!current_rects[i].was_packed) {
 				rects_copy[i] = current_rects[i];
+				copy_count++;
             }
         }
 
