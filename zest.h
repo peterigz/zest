@@ -15975,6 +15975,7 @@ zest_image zest_GetImage(zest_image_handle handle) {
 void zest_FreeImage(zest_image_handle handle) {
 	if (!handle.value) return;
     zest_image image = (zest_image)zest__get_store_resource_checked(handle.store, handle.value);
+	if (!image) return;
 	zest_device device = (zest_device)handle.store->origin;
 	zest_uint index = device->frame_counter % ZEST_MAX_FIF;
     zest_vec_push(device->allocator, device->deferred_resource_freeing_list.resources[index], image);
