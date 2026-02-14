@@ -1769,6 +1769,7 @@ void zest_FreeImageCollection(zest_image_collection_t *image_collection) {
 	if(image_collection->image_bitmaps) ZEST_UTILITIES_FREE(image_collection->image_bitmaps);
     if(image_collection->buffer_copy_regions) ZEST_UTILITIES_FREE(image_collection->buffer_copy_regions);
     if(image_collection->bitmap_array.data) ZEST_UTILITIES_FREE(image_collection->bitmap_array.data);
+	*image_collection = ZEST__ZERO_INIT(zest_image_collection_t);
 }
 
 zest_bitmap_meta_t zest_ImageCollectionBitmapArrayMeta(zest_image_collection_t *image_collection) {
