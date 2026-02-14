@@ -2075,6 +2075,7 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
 	zest_bitmap_t tmp_bitmap = { 0 };
 	zest_AllocateBitmap(&tmp_bitmap, layer_width, layer_height, format);
     while (rect_count > 0 && current_layer < layer_count) {
+        memset(tmp_bitmap.data, 0, tmp_bitmap.meta.size);
         stbrp_context rp_context;
         stbrp_init_target(&rp_context, layer_width, layer_height, nodes, node_count);
         stbrp_pack_rects(&rp_context, rects, (int)rect_count);
