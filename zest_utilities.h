@@ -1766,6 +1766,9 @@ zest_bool zest_AllocateImageCollectionCopyRegions(zest_image_collection_t *image
 
 void zest_FreeImageCollection(zest_image_collection_t *image_collection) {
     if(image_collection->regions) ZEST_UTILITIES_FREE(image_collection->regions);
+	for (int i = 0; i != image_collection->image_count; i++) {
+		zest_FreeBitmap(&image_collection->image_bitmaps[i]);
+	}
 	if(image_collection->image_bitmaps) ZEST_UTILITIES_FREE(image_collection->image_bitmaps);
     if(image_collection->buffer_copy_regions) ZEST_UTILITIES_FREE(image_collection->buffer_copy_regions);
     if(image_collection->bitmap_array.data) ZEST_UTILITIES_FREE(image_collection->bitmap_array.data);
@@ -2069,6 +2072,8 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
 
     stbrp_rect* current_rects = (stbrp_rect*)ZEST_UTILITIES_MALLOC(sizeof(stbrp_rect) * image_count);
 	zest_uint rect_count = image_count;
+	zest_bitmap_t tmp_bitmap = { 0 };
+	zest_AllocateBitmap(&tmp_bitmap, layer_width, layer_height, format);
     while (rect_count > 0 && current_layer < layer_count) {
         stbrp_context rp_context;
         stbrp_init_target(&rp_context, layer_width, layer_height, nodes, node_count);
@@ -2078,8 +2083,6 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
 
         rect_count = 0;
 
-        zest_bitmap_t tmp_image = { 0 };
-        zest_AllocateBitmap(&tmp_image, layer_width, layer_height, format);
         int count = 0;
 
         for(zest_uint i = 0; i != image_count; ++i) {
@@ -2100,7 +2103,7 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
                 region->top = (zest_uint)rect_y;
                 region->layer_index = current_layer;
 
-                zest_CopyBitmap(&atlas->image_bitmaps[rect->id], 0, 0, region->width, region->height, &tmp_image, region->left, region->top);
+                zest_CopyBitmap(&atlas->image_bitmaps[rect->id], 0, 0, region->width, region->height, &tmp_bitmap, region->left, region->top);
 
                 count++;
             }
@@ -2110,7 +2113,7 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
         }
 		image_count = rect_count;
 
-        memcpy(zest_BitmapArrayLookUp(&atlas->bitmap_array, current_layer), tmp_image.data, atlas->bitmap_array.meta[current_layer].size);
+        memcpy(zest_BitmapArrayLookUp(&atlas->bitmap_array, current_layer), tmp_bitmap.data, atlas->bitmap_array.meta[current_layer].size);
 
         current_layer++;
     }
@@ -2132,6 +2135,7 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
 		atlas->buffer_copy_regions[i] = buffer_copy_region;
     }
 
+	zest_FreeBitmap(&tmp_bitmap);
 	ZEST_UTILITIES_FREE(nodes);
 	ZEST_UTILITIES_FREE(rects);
 	ZEST_UTILITIES_FREE(rects_to_process);
