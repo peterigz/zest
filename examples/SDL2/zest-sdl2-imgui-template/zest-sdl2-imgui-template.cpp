@@ -34,8 +34,8 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
             zest_atlas_region_t sprite = zest_NewAtlasRegion();
             sprite.width = width;
             sprite.height = height;
-            zest_AcquireSampledImageIndex(app->device, image, zest_texture_2d_binding);
-            zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_2d_binding);
+            zest_AcquireSampledImageIndex(app->device, image, zest_texture_array_binding);
+            zest_BindAtlasRegionToImage(&sprite, app->sampler_index, image, zest_texture_array_binding);
             app->sprite_state.staging_image_handle = image_handle;
             app->sprite_state.staging_sprite = sprite;
             app->sprite_state.update_ready.store(true);
