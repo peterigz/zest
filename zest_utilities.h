@@ -1678,7 +1678,7 @@ zest_bool zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, zest
 	ZEST_ASSERT(width && height);
 	int block_width, block_height, bytes_per_block;
 	zest_GetFormatPixelData(format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
-    bitmap->meta.size = width * height * bitmap->meta.channels * bitmap->meta.bytes_per_pixel;
+    bitmap->meta.size = width * height * bitmap->meta.bytes_per_pixel;
     if (bitmap->meta.size > 0) {
         bitmap->data = (zest_byte*)ZEST_UTILITIES_MALLOC(bitmap->meta.size);
         bitmap->meta.width = width;
