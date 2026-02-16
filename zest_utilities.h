@@ -228,6 +228,7 @@ ZEST_API void zest_SetMSDFFontDrawing(zest_layer layer, zest_msdf_font_t *font, 
 ZEST_API float zest_DrawMSDFText(zest_layer layer, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...);
 
 //Bitmaps and images
+ZEST_API zest_bitmap_t zest_CreateBitmap(int width, int height, zest_format format);
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(void *pixels, int size, int width, int height, zest_format format);
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_format format, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
@@ -1498,9 +1499,26 @@ void zest_FreeAtlasRegion(zest_atlas_region region) {
 }
 
 */
-#endif 
+#endif
 
 #if defined(ZEST_MSDF_IMPLEMENTATION) || defined(ZEST_IMAGES_IMPLEMENTATION)
+
+zest_bitmap_t zest_CreateBitmap(int width, int height, zest_format format) {
+    zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
+    bitmap.is_imported = 1;
+	int block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &bitmap.meta.channels, &bitmap.meta.bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
+	int size = width * height * bitmap.meta.bytes_per_pixel;
+    bitmap.data = (zest_byte*)ZEST_UTILITIES_MALLOC(size);
+    bitmap.meta.width = width;
+    bitmap.meta.height = height;
+    bitmap.meta.size = size;
+    bitmap.meta.stride = width * bitmap.meta.bytes_per_pixel;
+    bitmap.meta.format = format;
+	zest_size expected_size = height * bitmap.meta.stride;
+	ZEST_ASSERT(expected_size == size, "The size of the allocated bitmap is not the same size as the raw pixel data, check to make sure you're passing in the correct format.");
+    return bitmap;
+}
 
 zest_bitmap_t zest_CreateBitmapFromRawBuffer(void* pixels, int size, int width, int height, zest_format format) {
     zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
