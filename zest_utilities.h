@@ -240,6 +240,7 @@ ZEST_API void zest_FreeBitmapData(zest_bitmap_t *image);
 ZEST_API zest_bool zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, zest_format format);
 ZEST_API void zest_AllocateBitmapMemory(zest_bitmap_t *bitmap, zest_size size_in_bytes);
 ZEST_API void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int width, int height, zest_bitmap_t *dst, int to_x, int to_y);
+ZEST_API void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst);
 
 // Image_collection_header
 ZEST_API zest_image_collection_t zest_CreateImageCollection(zest_format format, zest_uint max_images, zest_uint array_count, zest_image_collection_flags flags);
@@ -1293,25 +1294,6 @@ void zest_ConvertBGRAToRGBA(zest_bitmap_t * src) {
     }
 }
 
-void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst) {
-	ZEST_ASSERT_HANDLE(src);		//Not a valid src bitmap handle
-	ZEST_ASSERT_HANDLE(dst);		//Not a valid dst bitmap handle
-    ZEST_ASSERT(src->data && src->meta.size);
-
-    zest_FreeBitmapData(dst);
-    zest_SetText(dst->allocator, &dst->name, src->name.str);
-    dst->meta.channels = src->meta.channels;
-    dst->meta.height = src->meta.height;
-    dst->meta.width = src->meta.width;
-    dst->meta.size = src->meta.size;
-    dst->meta.stride = src->meta.stride;
-    dst->data = 0;
-    dst->data = (zest_byte*)ZEST_UTILITIES_MALLOC(src->allocator, src->meta.size);
-    ZEST_ASSERT(dst->data);    //out of memory;
-    memcpy(dst->data, src->data, src->meta.size);
-
-}
-
 zest_color_t zest_SampleBitmap(zest_bitmap_t *image, int x, int y) {
     ZEST_ASSERT(image->data);
 
@@ -1914,6 +1896,20 @@ void zest_FreeBitmap(zest_bitmap_t *bitmap) {
         ZEST_UTILITIES_FREE(bitmap->data);
     }
     bitmap->data = ZEST_NULL;
+}
+
+void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst) {
+	ZEST_ASSERT_HANDLE(src);		//Not a valid src bitmap handle
+	ZEST_ASSERT_HANDLE(dst);		//Not a valid dst bitmap handle
+    ZEST_ASSERT(src->data && src->meta.size);
+
+    zest_FreeBitmapData(dst);
+    dst->meta = src->meta;
+	dst->is_imported = 0;
+    dst->data = (zest_byte*)ZEST_UTILITIES_MALLOC(src->meta.size);
+    ZEST_ASSERT(dst->data);    //out of memory;
+    memcpy(dst->data, src->data, src->meta.size);
+
 }
 
 void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int width, int height, zest_bitmap_t *dst, int to_x, int to_y) {
