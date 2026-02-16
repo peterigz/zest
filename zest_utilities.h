@@ -1487,18 +1487,7 @@ void zest_FreeAtlasRegion(zest_atlas_region region) {
 
 zest_bitmap_t zest_CreateBitmap(int width, int height, zest_format format) {
     zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
-    bitmap.is_imported = 1;
-	int block_width, block_height, bytes_per_block;
-	zest_GetFormatPixelData(format, &bitmap.meta.channels, &bitmap.meta.bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
-	int size = width * height * bitmap.meta.bytes_per_pixel;
-    bitmap.data = (zest_byte*)ZEST_UTILITIES_MALLOC(size);
-    bitmap.meta.width = width;
-    bitmap.meta.height = height;
-    bitmap.meta.size = size;
-    bitmap.meta.stride = width * bitmap.meta.bytes_per_pixel;
-    bitmap.meta.format = format;
-	zest_size expected_size = height * bitmap.meta.stride;
-	ZEST_ASSERT(expected_size == size, "The size of the allocated bitmap is not the same size as the raw pixel data, check to make sure you're passing in the correct format.");
+	zest_AllocateBitmap(&bitmap, width, height, format);
     return bitmap;
 }
 
@@ -1899,8 +1888,6 @@ void zest_FreeBitmap(zest_bitmap_t *bitmap) {
 }
 
 void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst) {
-	ZEST_ASSERT_HANDLE(src);		//Not a valid src bitmap handle
-	ZEST_ASSERT_HANDLE(dst);		//Not a valid dst bitmap handle
     ZEST_ASSERT(src->data && src->meta.size);
 
     zest_FreeBitmapData(dst);
