@@ -17675,6 +17675,16 @@ void zest_implglfw_GetWindowSizeCallback(zest_window_data_t *window_data, int *f
 	GLFWwindow *handle = (GLFWwindow *)window_data->window_handle;
     glfwGetFramebufferSize(handle, fb_width, fb_height);
 	glfwGetWindowSize(handle, window_width, window_height);
+	//When the window is minimised, GLFW returns 0 for both dimensions which would cause
+	//Vulkan validation errors during swapchain recreation. Cache the last valid size and
+	//fall back to it when this happens.
+	if (*fb_width > 0 && *fb_height > 0) {
+		window_data->fb_width = *fb_width;
+		window_data->fb_height = *fb_height;
+	} else if (window_data->fb_width > 0 && window_data->fb_height > 0) {
+		*fb_width = window_data->fb_width;
+		*fb_height = window_data->fb_height;
+	}
 }
 
 zest_bool zest_implglfw_WindowIsFocused(void *window_handle) {
