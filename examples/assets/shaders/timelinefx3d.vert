@@ -199,8 +199,7 @@ void main() {
 									  -final_s_roll, final_c_roll, 0.0,
 									   0.0,          0.0,           1.0);
 
-	final_rot_mat = align_type ? align_mat * base_spin_mat : vector_align_roll_mat; 
-	final_rot_mat = vector_align ? base_spin_mat : final_rot_mat;
+	final_rot_mat = align_type ? align_mat * base_spin_mat : base_spin_mat;
 	// --- Final Rotation ---
 
     const vec3 identity_bounds[4] = vec3[4](
