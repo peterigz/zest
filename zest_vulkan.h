@@ -117,7 +117,7 @@ ZEST_PRIVATE zest_bool zest__vk_begin_render_pass(const zest_command_list comman
 ZEST_PRIVATE void zest__vk_end_render_pass(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_context context);
+ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_context context, zest_context_queue present_queue);
 ZEST_PRIVATE zest_bool zest__vk_dummy_submit_for_present_only(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
 // --End_Frame_graph_platform_functions
@@ -1295,8 +1295,8 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context co
 zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetCommandPool(context->device->backend->logical_device, context->backend->utility_command_pool[context->current_fif], 0));
 
-	if (!context->queues[context->graphics_family_index]->queue) {
-		context->queues[context->graphics_family_index]->queue = zest__acquire_queue(context->device, zest_queue_graphics);
+	if (!context->queues[context->graphics_queue_index]->queue) {
+		context->queues[context->graphics_queue_index]->queue = zest__acquire_queue(context->device, zest_queue_graphics);
 	}
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -1377,7 +1377,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_present_frame(zest_context context) {
+zest_bool zest__vk_present_frame(zest_context context, zest_context_queue present_queue) {
 	zest_swapchain swapchain = context->swapchain;
 
     VkPresentInfoKHR presentInfo = ZEST__ZERO_INIT(VkPresentInfoKHR);
@@ -1392,9 +1392,9 @@ zest_bool zest__vk_present_frame(zest_context context) {
     presentInfo.pImageIndices = image_index;
     presentInfo.pResults = ZEST_NULL;
 
-	ZEST_ASSERT(context->queues[context->graphics_family_index]->queue, "Trying to present but the frame graph did not acquire a graphics queue!");
+	ZEST_ASSERT(present_queue->queue, "Trying to present but the frame graph did not acquire a graphics queue!");
 
-	VkResult result = vkQueuePresentKHR(context->queues[context->graphics_family_index]->queue->backend->vk_queue, &presentInfo);
+	VkResult result = vkQueuePresentKHR(present_queue->queue->backend->vk_queue, &presentInfo);
     context->device->backend->last_result = result;
 
 	zest_bool status = ZEST_TRUE;
@@ -1497,7 +1497,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == 559874765) {
 		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
-    if (pCallbackData->messageIdNumber == 1544472022) {
+    if (pCallbackData->messageIdNumber == -1254218959) {
         int d = 0;
     }
     if (pCallbackData->messageIdNumber == -1575303641) {

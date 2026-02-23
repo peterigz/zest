@@ -3558,6 +3558,7 @@ zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
 zest_hash_map(zest_frame_graph_semaphores) zest_map_frame_graph_semaphores;
+zest_hash_map(zest_context_queue) zest_map_frame_graph_queues;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 
 typedef struct zest_descriptor_binding_desc_t {
@@ -3933,7 +3934,7 @@ typedef struct zest_platform_t {
 	void                       (*add_frame_graph_image_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire,
 		zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
 		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
-	zest_bool                  (*present_frame)(zest_context context);
+	zest_bool                  (*present_frame)(zest_context context, zest_context_queue present_queue);
 	zest_bool                  (*dummy_submit_for_present_only)(zest_context context);
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
@@ -4165,6 +4166,7 @@ ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execut
 //Context_functions
 ZEST_PRIVATE zest_bool zest__initialise_context(zest_context context, zest_create_context_info_t *create_info);
 ZEST_PRIVATE zest_context_queue zest__create_context_queue(zest_context context, zest_uint family_index);
+ZEST_PRIVATE zest_context_queue zest__get_frame_graph_queue(zest_context context, const char *name, zest_uint queue_index);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
 ZEST_PRIVATE void zest__get_window_size_callback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_data);
@@ -6065,6 +6067,7 @@ typedef struct zest_context_queue_t {
 	zest_u64 current_count[ZEST_MAX_FIF];
 	zest_u64 signal_value;
 	zest_uint next_buffer;
+	zest_uint last_reset_frame;
 	zest_queue_manager_t *queue_manager;
 	zest_queue queue;
 	zest_context_queue_backend backend;
@@ -6215,6 +6218,7 @@ typedef struct zest_context_t {
 	//Frame Graph Cache Storage
 	zest_map_cached_frame_graphs cached_frame_graphs;
 	zest_map_frame_graph_semaphores cached_frame_graph_semaphores;
+	zest_map_frame_graph_queues cached_frame_graph_queues[ZEST_QUEUE_COUNT];
  
 	//Flags
 	zest_context_flags flags;
@@ -8036,7 +8040,8 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
     }
 	
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
-		zest_bool presented = context->device->platform->present_frame(context);
+		zest_context_queue present_queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
+		zest_bool presented = context->device->platform->present_frame(context, present_queue);
 		if(!presented) {
 			zest__recreate_swapchain(context);
 			zest_FlushCachedFrameGraphs(context);
@@ -8048,7 +8053,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	if (ZEST__NOT_FLAGGED(flags, zest_frame_graph_present_after_execute) && ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
 		if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
 			if (context->device->platform->dummy_submit_for_present_only(context)) {
-				zest_bool presented = context->device->platform->present_frame(context);
+				zest_bool presented = context->device->platform->present_frame(context, context->queues[context->graphics_queue_index]);
 				if (!presented) {
 					zest__recreate_swapchain(context);
 					zest_FlushCachedFrameGraphs(context);
@@ -8063,6 +8068,13 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 		if (context_queue->queue) {
 			zest__release_queue(context_queue->queue);
 			context_queue->queue = NULL;
+		}
+		zest_map_foreach(j, context->cached_frame_graph_queues[i]) {
+			zest_context_queue fg_queue = context->cached_frame_graph_queues[i].data[j];
+			if (fg_queue->queue) {
+				zest__release_queue(fg_queue->queue);
+				fg_queue->queue = NULL;
+			}
 		}
 	}
 }
@@ -8261,13 +8273,6 @@ int zest_UpdateDevice(zest_device device) {
 }
 
 void zest__do_context_scheduled_tasks(zest_context context) {
-    for(int i = 0; i != context->active_queue_count; ++i) {
-        zest_uint queue_index = context->active_queue_indexes[i];
-		zest_context_queue queue = context->queues[i];
-		context->device->platform->reset_queue_command_pool(context, queue);
-		queue->next_buffer = 0;
-    }
-
     if (zest_vec_size(context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif])) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif]) {
             zest_binding_index_for_release_t index = context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif][i];
@@ -9421,6 +9426,23 @@ zest_context_queue zest__create_context_queue(zest_context context, zest_uint fa
 	return context_queue;
 }
 
+zest_context_queue zest__get_frame_graph_queue(zest_context context, const char *name, zest_uint queue_index) {
+	if (!zest_map_valid_name(context->cached_frame_graph_queues[queue_index], name)) {
+		zest_uint family_index = context->queues[queue_index]->queue_manager->family_index;
+		zest_context_queue queue = zest__create_context_queue(context, family_index);
+		queue->last_reset_frame = context->device_frame_counter;
+		zest_map_insert(context->allocator, context->cached_frame_graph_queues[queue_index], name, queue);
+		return queue;
+	}
+	zest_context_queue queue = *zest_map_at(context->cached_frame_graph_queues[queue_index], name);
+	if (queue->last_reset_frame != context->device_frame_counter) {
+		context->device->platform->reset_queue_command_pool(context, queue);
+		queue->next_buffer = 0;
+		queue->last_reset_frame = context->device_frame_counter;
+	}
+	return queue;
+}
+
 zest_swapchain zest__create_swapchain(zest_context context, const char *name) {
     zest_swapchain swapchain = (zest_swapchain)ZEST__NEW_ALIGNED(context->allocator, zest_swapchain, 16);
     *swapchain = ZEST__ZERO_INIT(zest_swapchain_t);
@@ -9878,7 +9900,16 @@ void zest__cleanup_context(zest_context context) {
         context->device->platform->cleanup_frame_graph_semaphore(context, semaphores);
         ZEST__FREE(context->allocator, semaphores);
     }
-	
+
+	for (int qi = 0; qi < ZEST_QUEUE_COUNT; ++qi) {
+		zest_map_foreach(i, context->cached_frame_graph_queues[qi]) {
+			zest_context_queue queue = context->cached_frame_graph_queues[qi].data[i];
+			context->device->platform->cleanup_context_queue_backend(context, queue);
+			ZEST__FREE(context->allocator, queue);
+		}
+		zest_map_free(context->allocator, context->cached_frame_graph_queues[qi]);
+	}
+
     for(int i = 0; i != context->active_queue_count; ++i) {
         zest_uint queue_index = context->active_queue_indexes[i];
 		zest_context_queue queue = context->queues[i];
@@ -12498,15 +12529,15 @@ zest_frame_graph zest__compile_frame_graph() {
 
         switch (pass_node->queue_info.queue_type) {
 			case zest_queue_graphics:
-				pass_node->queue_info.queue = context->queues[context->graphics_queue_index];
+				pass_node->queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
 				pass_node->queue_info.queue_family_index = context->graphics_family_index;
 				break;
 			case zest_queue_compute:
-				pass_node->queue_info.queue = context->queues[context->compute_queue_index];
+				pass_node->queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->compute_queue_index);
 				pass_node->queue_info.queue_family_index = context->compute_family_index;
 				break;
 			case zest_queue_transfer:
-				pass_node->queue_info.queue = context->queues[context->transfer_queue_index];
+				pass_node->queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->transfer_queue_index);
 				pass_node->queue_info.queue_family_index = context->transfer_family_index;
 				break;
         }
@@ -12627,7 +12658,7 @@ zest_frame_graph zest__compile_frame_graph() {
 			zest_vec_foreach(i, first_wave.pass_indices) {
 				zest_pass_group_t *pass = &frame_graph->final_passes.data[first_wave.pass_indices[i]];
 				if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-					pass->compiled_queue_info.queue = context->queues[context->graphics_queue_index];
+					pass->compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
 					pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
 					pass->compiled_queue_info.queue_type = zest_queue_graphics;
 				}
@@ -12662,8 +12693,8 @@ zest_frame_graph zest__compile_frame_graph() {
 				zest_vec_foreach(i, next_wave.pass_indices) {
 					zest_pass_group_t *pass = &frame_graph->final_passes.data[next_wave.pass_indices[i]];
 					if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-						pass->compiled_queue_info.queue = context->queues[context->graphics_family_index];
-						pass->compiled_queue_info.queue_family_index = context->graphics_queue_index;
+						pass->compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
+						pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
 						pass->compiled_queue_info.queue_type = zest_queue_graphics;
 					}
 				}
@@ -12796,8 +12827,8 @@ zest_frame_graph zest__compile_frame_graph() {
 	zest_execution_wave_t *last_execution_wave = &frame_graph->execution_waves[zest_vec_last_index(frame_graph->execution_waves)];
     if (zloc__count_bits(last_execution_wave->queue_bits) > 1) {
 		zest_pass_group_t sync_pass = ZEST__ZERO_INIT(zest_pass_group_t);
-		sync_pass.compiled_queue_info.queue = context->queues[context->graphics_family_index];
-		sync_pass.compiled_queue_info.queue_family_index = context->graphics_queue_index;
+		sync_pass.compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
+		sync_pass.compiled_queue_info.queue_family_index = context->graphics_family_index;
 		sync_pass.compiled_queue_info.queue_type = zest_queue_graphics;
 		sync_pass.compiled_queue_info.timeline_wait_stage = zest_pipeline_stage_bottom_of_pipe_bit;
 		sync_pass.flags = zest_pass_flag_sync_only;
@@ -13466,6 +13497,12 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             zest_submission_batch_t *batch = &wave_submission->batches[queue_index];
             if (!batch->magic) continue;
             ZEST_ASSERT(zest_vec_size(batch->pass_indices));    //A batch was created without any pass indices. Bug in the Compile stage!
+
+            if (batch->queue->last_reset_frame != context->device_frame_counter) {
+                context->device->platform->reset_queue_command_pool(context, batch->queue);
+                batch->queue->next_buffer = 0;
+                batch->queue->last_reset_frame = context->device_frame_counter;
+            }
 
             zest_pipeline_stage_flags timeline_wait_stage;
 

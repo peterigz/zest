@@ -397,7 +397,7 @@ void MainLoop(SimplePBRExample *app) {
 			if (!frame_graph) {
 				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 				zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
-				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "PBR Forward Renderer", &cache_key)) {
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
@@ -472,7 +472,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Forward");
 
 	//Create Vulkan device, window, and context
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);
 
