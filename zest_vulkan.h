@@ -5361,6 +5361,67 @@ cleanup:
     return ZEST_FALSE;
 }
 
+zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void *pixels) {
+	ZEST_ASSERT_HANDLE(src_image);
+	ZEST_ASSERT(pixels, "Pixel buffer must not be null");
+
+	int channels, bytes_per_pixel, block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(src_image->info.format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
+	zest_size blocks_x = (src_image->info.extent.width + block_width - 1) / block_width;
+	zest_size blocks_y = (src_image->info.extent.height + block_height - 1) / block_height;
+	zest_size image_size = blocks_x * blocks_y * bytes_per_block;
+
+	zest_buffer staging_buffer = 0;
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	staging_buffer = zest_CreateBuffer(device, image_size, &buffer_info);
+	if (!staging_buffer) {
+		return ZEST_FALSE;
+	}
+
+	zest_image_layout original_layout = src_image->info.layout;
+
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) {
+		zest_FreeBuffer(staging_buffer);
+		return ZEST_FALSE;
+	}
+
+	VkBufferImageCopy region = ZEST__ZERO_INIT(VkBufferImageCopy);
+
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, src_image, zest_image_layout_transfer_src_optimal, 0, 1, 0, 1));
+
+	region.bufferOffset = staging_buffer->memory_offset;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageOffset.x = 0;
+	region.imageOffset.y = 0;
+	region.imageOffset.z = 0;
+	region.imageExtent.width = src_image->info.extent.width;
+	region.imageExtent.height = src_image->info.extent.height;
+	region.imageExtent.depth = 1;
+
+	vkCmdCopyImageToBuffer(queue->backend->command_buffer, src_image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer->memory_pool->backend->vk_buffer, 1, &region);
+
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, src_image, original_layout, 0, 1, 0, 1));
+
+	ZEST_CLEANUP_ON_FALSE(zest_imm_EndCommandBuffer(queue));
+
+	memcpy(pixels, zest_BufferData(staging_buffer), image_size);
+	zest_FreeBuffer(staging_buffer);
+
+	return ZEST_TRUE;
+
+cleanup:
+	if (staging_buffer) {
+		zest_FreeBuffer(staging_buffer);
+	}
+	return ZEST_FALSE;
+}
+
 // -- End Frame graph command_list functions
 
 // -- Shader_compiling

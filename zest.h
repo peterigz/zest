@@ -4948,6 +4948,7 @@ ZEST_API void zest_FreeImageViewArray(zest_image_view_array_handle view_handle);
 ZEST_API void zest_FreeImageViewArrayNow(zest_image_view_array_handle view_handle);
 ZEST_API void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel, int *block_width, int *block_height, int *bytes_per_block);
 ZEST_API zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height);
+ZEST_API zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void *pixels);
 //Get the extent of the image
 ZEST_API const zest_image_info_t *zest_ImageInfo(zest_image image);
 //Get a descriptor index from an image for a specific binding number. You must have already acquired the index
