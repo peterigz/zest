@@ -5372,8 +5372,7 @@ zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void 
 	zest_size image_size = blocks_x * blocks_y * bytes_per_block;
 
 	zest_buffer staging_buffer = 0;
-	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
-	staging_buffer = zest_CreateBuffer(device, image_size, &buffer_info);
+	staging_buffer = zest_CreateStagingBuffer(device, image_size, 0);
 	if (!staging_buffer) {
 		return ZEST_FALSE;
 	}
