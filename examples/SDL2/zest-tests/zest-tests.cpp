@@ -92,7 +92,26 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Simple Graph Cache", test__simple_caching, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Bad Frame Graph Ordering", test__bad_frame_graph_ordering, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Frame Graph State Errors", test__frame_graph_state_errors, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Pass Without Task", test__pass_without_task, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Unused Imported Resource", test__unused_imported_resource, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Unused Swapchain", test__unused_swapchain, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Buffer Output In Render Pass", test__buffer_output_in_render_pass, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Multiple Swapchain Imports", test__multiple_swapchain_imports, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Transient Dependency Ordering", test__transient_dependency_ordering, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Resources Named the Same", test__resources_with_same_name, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Add the same resource twice", test__add_2_resources_the_same, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Acquire/Release Indexes", test__acquire_release_resources, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Timeline Wait External", test__timeline_wait_external, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Timeline Timeout", test__timeline_timeout, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Immediate Execute Cached", test__immediate_execute_cached, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Mipmap Chain", test__compute_mipmap_chain, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Multiple Timeline Signals", test__multiple_timeline_signals, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->simple_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);

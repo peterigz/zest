@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create a device using a helper function for GLFW.
-	compute_example.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	compute_example.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
 
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

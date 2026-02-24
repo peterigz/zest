@@ -1903,7 +1903,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 			queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 			queue_info.queueFamilyIndex = i;
 			queue_info.queueCount = properties.queueCount;
-			float *priorities = (float*)zloc_LinearAllocation(scratch_arena, sizeof(float) * properties.queueCount); 
+			float *priorities = (float*)zest__linear_allocate(scratch_arena, sizeof(float) * properties.queueCount); 
 			for(int i = 0; i != properties.queueCount; i++) {
 				priorities[i] = 1.f;
 			}
@@ -2083,7 +2083,7 @@ void *zest__vk_new_queue_backend(zest_device device, zest_uint family_index) {
 }
 
 void *zest__vk_new_submission_batch_backend(zest_context context) {
-    zest_submission_batch_backend backend = (zest_submission_batch_backend)zloc_LinearAllocation(&context->frame_graph_allocator[context->current_fif], sizeof(zest_submission_batch_backend_t));
+    zest_submission_batch_backend backend = (zest_submission_batch_backend)zest__linear_allocate(&context->frame_graph_allocator[context->current_fif], sizeof(zest_submission_batch_backend_t));
     *backend = ZEST__ZERO_INIT(zest_submission_batch_backend_t);
     return backend;
 }
@@ -2099,7 +2099,7 @@ void *zest__vk_new_context_backend(zest_context context) {
 }
 
 void *zest__vk_new_frame_graph_context_backend(zest_context context) {
-    zest_command_list_backend_t *backend_context = (zest_command_list_backend_t*)zloc_LinearAllocation( &context->frame_graph_allocator[context->current_fif], sizeof(zest_command_list_backend_t) );
+    zest_command_list_backend_t *backend_context = (zest_command_list_backend_t*)zest__linear_allocate( &context->frame_graph_allocator[context->current_fif], sizeof(zest_command_list_backend_t) );
     *backend_context = ZEST__ZERO_INIT(zest_command_list_backend_t);
     return backend_context;
 }
@@ -2123,7 +2123,7 @@ void *zest__vk_new_swapchain_image_backend(zest_context context) {
 }
 
 void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image) {
-    node_image->backend = (zest_image_backend)zloc_LinearAllocation(allocator, sizeof(zest_image_backend_t));
+    node_image->backend = (zest_image_backend)zest__linear_allocate(allocator, sizeof(zest_image_backend_t));
     *node_image->backend = ZEST__ZERO_INIT(zest_image_backend_t);
 	if (imported_image) {
 		node_image->backend->vk_format = (VkFormat)imported_image->info.format;
@@ -2204,7 +2204,7 @@ cleanup:
 }
 
 void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator) {
-    zest_execution_barriers_backend backend = (zest_execution_barriers_backend)zloc_LinearAllocation(allocator, sizeof(zest_execution_barriers_backend_t));
+    zest_execution_barriers_backend backend = (zest_execution_barriers_backend)zest__linear_allocate(allocator, sizeof(zest_execution_barriers_backend_t));
     *backend = ZEST__ZERO_INIT(zest_execution_barriers_backend_t);
     return backend;
 }
@@ -3566,7 +3566,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image ima
         memory = zest__allocate(device->allocator, total_size);
     } else {
         marker = zloc_GetMarker(linear_allocator);
-        memory = zloc_LinearAllocation(linear_allocator, total_size);
+        memory = zest__linear_allocate(linear_allocator, total_size);
     }
 
     zest_image_view_t *image_view = (zest_image_view_t *)memory;
@@ -3612,8 +3612,8 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_device device, ze
         view_array = (zest_image_view_array)ZEST__NEW(device->allocator, zest_image_view_array);
         *view_array = ZEST__ZERO_INIT(zest_image_view_array_t);
     } else {
-        memory = zloc_LinearAllocation(linear_allocator, total_size);
-        view_array = (zest_image_view_array)zloc_LinearAllocation(linear_allocator, sizeof(zest_image_view_array_t));
+        memory = zest__linear_allocate(linear_allocator, total_size);
+        view_array = (zest_image_view_array)zest__linear_allocate(linear_allocator, sizeof(zest_image_view_array_t));
         *view_array = ZEST__ZERO_INIT(zest_image_view_array_t);
     }
 
@@ -4048,7 +4048,7 @@ zest_bool zest__vk_set_next_command_buffer(zest_command_list command_list, zest_
 }
 
 void *zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator) {
-    zest_execution_backend backend = (zest_execution_backend)zloc_LinearAllocation(allocator, sizeof(zest_execution_backend_t));
+    zest_execution_backend backend = (zest_execution_backend)zest__linear_allocate(allocator, sizeof(zest_execution_backend_t));
     *backend = ZEST__ZERO_INIT(zest_execution_backend_t);
     return backend;
 }

@@ -1231,6 +1231,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_WHOLE_SIZE (~0ULL)
 #define ZEST_NOT_BINDLESS 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
+#define ZEST_U64_MAX_VALUE ((zest_u64)-1)
 
 //Enums_and_flags
 typedef enum zest_platform_type {
@@ -2178,6 +2179,7 @@ typedef enum zest_frame_graph_flag_bits {
 	zest_frame_graph_is_executed = 1 << 2,
 	zest_frame_graph_present_after_execute = 1 << 3,
 	zest_frame_graph_is_cached = 1 << 4,
+	zest_frame_graph_is_outside_begin_end_frame = 1 << 5,
 } zest_frame_graph_flag_bits;
 
 typedef zest_uint zest_frame_graph_flags;
@@ -3727,6 +3729,7 @@ typedef struct zest_frame_graph_cache_key_t {
 
 typedef struct zest_frame_graph_builder_t {
 	zest_context context;
+	zloc_linear_allocator_t *allocator;
 	zest_frame_graph frame_graph;
 	zest_pass_node current_pass;
 }zest_frame_graph_builder_t;
@@ -4304,8 +4307,8 @@ ZEST_PRIVATE zest_bool zest__is_depth_stencil_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_compressed_format(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
-ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_image image);
-ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_image_view_array view_array);
+ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_frame_graph frame_graph, zest_image image);
+ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
@@ -4319,6 +4322,7 @@ ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_reso
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
+ZEST_PRIVATE void zest__cleanup_frame_graph_builder();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
 										zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
@@ -4643,7 +4647,7 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph();
-ZEST_API zest_frame_graph zest_EndFrameGraphAndExecute();
+ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 ZEST_API void zest_SetFrameGraphUserData(void *user_data);
 ZEST_API void *zest_GetFrameGraphUserData(const zest_command_list command_list);
@@ -6369,6 +6373,9 @@ typedef struct zest_frame_graph_t {
 	zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
 	zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
 
+	//For frame graphs outside the BeginFrame/EndFrame we store transient resources for freeing
+	//here where it gets flushed in zest_FlushFrameGraphs
+	zest_context_destruction_queue_t *deferred_resource_freeing_list;
 } zest_frame_graph_t;
 
 typedef struct zest_descriptor_pool_t {
@@ -7978,8 +7985,8 @@ zest_bool zest_BeginFrame(zest_context context) {
 		//If extra memory was allocated to create a frame graph then consolidate it in to a single memory block.
 		//Frame graphs can only be cached if the frame graph is all contained in a single block of memory so that
 		//it can easily be promoted to persistent memory.
-		zest_size capacity = zloc_GetLinearAllocatorCapacity(&context->frame_graph_allocator[context->current_fif]);
 		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+		zest_size capacity = zloc_GetLinearAllocatorCapacity(allocator);
 		while (allocator) {
 			ZEST__FREE(context->allocator, allocator->data);
 			if (allocator != &context->frame_graph_allocator[context->current_fif]) {
@@ -8014,11 +8021,6 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 							context->device, 
 							"zest_EndFrame was called but a swap chain image was not acquired. Make sure that zest_BeginFrame was called to acquire a swap chain image.",
 							(void)0);
-	if (zest__frame_graph_builder) {
-		ZEST_ASSERT_OR_VALIDATE(!zest__frame_graph_builder, context->device, 
-							"If zest_EndFrame is called then the frame graph builder should be NULL. If it's not NULL then this indicates that zest_BeginFrameGraph was called but no zest_EndFrameGraph was called after to finish and compile the frame graph.",
-							(void)0);
-	}
 	zest_frame_graph_flags flags = 0;
 	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
 	ZEST__UNFLAG(context->flags, zest_context_flag_frame_started);
@@ -8026,19 +8028,23 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 		if (frame_graph->error_status != zest_fgs_success) {
 			ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
 		} else {
-			zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
-			zest__frame_graph_builder = &builder;
-			zest__frame_graph_builder->context = context;
-			zest__frame_graph_builder->frame_graph = frame_graph;
-			zest__frame_graph_builder->current_pass = 0;
+			if (!zest__frame_graph_builder) {
+				zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
+				zest__frame_graph_builder = &builder;
+				zest__frame_graph_builder->allocator = &context->frame_graph_allocator[context->current_fif];
+				zest__frame_graph_builder->context = context;
+				zest__frame_graph_builder->frame_graph = frame_graph;
+				zest__frame_graph_builder->current_pass = 0;
+			}
 			if (zest__execute_frame_graph(context, frame_graph, ZEST_FALSE)) {
 				flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
 			}
-			zest__frame_graph_builder = NULL;
 		}
     } else {
         ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. \n\nIt could just be that you have a condition (like if imgui doesn't return a pass because it has nothing to render yet), in which case this can be ignored.");
     }
+
+	zest__cleanup_frame_graph_builder();
 	
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
 		zest_context_queue present_queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
@@ -8567,7 +8573,7 @@ void zest__add_context_memory_pool(zest_context context, zest_size size) {
 void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 47604744) {
+	if (offset_from_allocator == 2079544) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -9264,7 +9270,7 @@ void zest_AddCopyCommand(zest_context context, zest_buffer_uploader_t *uploader,
     buffer_info.dst_offset = target_buffer->memory_offset;
     ZEST_ASSERT(size <= target_buffer->size);
     buffer_info.size = size;
-    zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], uploader->buffer_copies, buffer_info);
+    zest_vec_linear_push(zest__frame_graph_builder->allocator, uploader->buffer_copies, buffer_info);
 }
 
 void *zest_BufferData(zest_buffer buffer) {
@@ -11738,7 +11744,7 @@ zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int off
 zest_bool zest__create_transient_image(zest_context context, zest_resource_node resource) {
     zest_image image = &resource->image;
     image->magic = zest_INIT_MAGIC(zest_struct_type_image);
-    image->backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(&context->frame_graph_allocator[context->current_fif], image, NULL);
+    image->backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, image, NULL);
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         image->bindless_index[i] = ZEST_INVALID;
     }
@@ -11759,7 +11765,7 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
 	image->handle.store = &context->device->resource_stores[zest_handle_type_images];
     image->info.layout = resource->image_layout = zest_image_layout_undefined;
     zest_image_view_type view_type = zest__get_image_view_type(image);
-    image->default_view = context->device->platform->create_image_view(context->device, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, &context->frame_graph_allocator[context->current_fif]);
+    image->default_view = context->device->platform->create_image_view(context->device, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, zest__frame_graph_builder->allocator);
 	image->default_view->handle.store = &context->device->resource_stores[zest_handle_type_views];
     resource->view = image->default_view;
 	resource->linked_layout = &image->info.layout;
@@ -11843,7 +11849,8 @@ void zest_FreeFile(zest_device device, zest_file file) {
 
 // --frame graph functions
 zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
-    zest_frame_graph frame_graph = (zest_frame_graph)zest__linear_allocate(&context->frame_graph_allocator[context->current_fif], sizeof(zest_frame_graph_t));
+	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
+    zest_frame_graph frame_graph = (zest_frame_graph)zest__linear_allocate(allocator, sizeof(zest_frame_graph_t));
     *frame_graph = ZEST__ZERO_INIT(zest_frame_graph_t);
     frame_graph->magic = zest_INIT_MAGIC(zest_struct_type_frame_graph);
     frame_graph->command_list.magic = zest_INIT_MAGIC(zest_struct_type_frame_graph_context);
@@ -11852,6 +11859,11 @@ zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
     frame_graph->name = name;
     frame_graph->bindless_layout = context->device->bindless_set_layout;
     frame_graph->bindless_set = context->device->bindless_set;
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_frame_started)) {
+		ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame);
+	}
+	//Note: although the context allocator is passed in here it's not used, all pushes onto the resource
+	//and pass bucket arrays are actually done with a linear allocator for the frame graph.
     zest_bucket_array_init(context->allocator, &frame_graph->resources, zest_resource_node_t, 8);
     zest_bucket_array_init(context->allocator, &frame_graph->potential_passes, zest_pass_node_t, 8);
     return frame_graph;
@@ -11869,8 +11881,9 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
 	//Don't cache the frame graph if the frame graph allocator had to be increased in size.
-	if (context->frame_graph_allocator[context->current_fif].next) {
-		zest_size capacity = zloc_GetLinearAllocatorCapacity(&context->frame_graph_allocator[context->current_fif]);
+	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
+	if (allocator->next) {
+		zest_size capacity = zloc_GetLinearAllocatorCapacity(allocator);
 		ZEST_ALERT("Cannot cache the frame graph this frame as the frame graph allocator was not big enough. Consider increasing the size of the frame graph allocator by setting frame_graph_allocation_size in the create info of the context when you create it. The current capacity of the frame graph after being grown is %llu bytes.", capacity);
 		return;
 	}
@@ -11893,15 +11906,15 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	Aside from that caching is very fast as all we do is promote the linear memory space that the frame graph
 	used and promote it to persistent memory, then allocate a new linear allocator for other graphs to use.
 	*/
-	zest_size offset = context->frame_graph_allocator[context->current_fif].current_offset;
+	zest_size offset = allocator->current_offset;
 	frame_graph->cached_size = offset;
     zest_cached_frame_graph_t new_cached_graph = {
-        zloc_PromoteLinearBlock(context->allocator, context->frame_graph_allocator[context->current_fif].data, context->frame_graph_allocator[context->current_fif].current_offset),
+        zloc_PromoteLinearBlock(context->allocator, allocator->data, allocator->current_offset),
         frame_graph
     };
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_cached);
 	void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
-	int result = zloc_InitialiseLinearAllocator(&context->frame_graph_allocator[context->current_fif], frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
+	int result = zloc_InitialiseLinearAllocator(allocator, frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 	ZEST_ASSERT(result, "Unable to allocate a new frame graph allocator.");
     if (zest_map_valid_key(context->cached_frame_graphs, frame_graph->cache_key)) {
         zest_cached_frame_graph_t *cached_graph = zest_map_at_key(context->cached_frame_graphs, frame_graph->cache_key);
@@ -11975,14 +11988,26 @@ zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const
 
 zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
 	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph), 
-							context->device, "Frame graph already being built. You cannot build a frame graph within another begin frame graph process.",
+							context->device, "Frame graph already being built. You cannot build a frame graph within another begin frame graph process. If you're running a frame graph outside of Begin/EndFrame then make sure you call zest_FlushFrameGraph after calling zest_EndFrameGraph.",
 							ZEST_FALSE);  
 	
 	ZEST_ASSERT(zest__frame_graph_builder == NULL);		//The thread local frame graph builder must be null
 	//If it's not null then is there already a frame graph being set up, and 
 	//did you call EndFrameGraph?
 
-	zest__frame_graph_builder = (zest_frame_graph_builder)zest__linear_allocate(&context->frame_graph_allocator[context->current_fif], sizeof(zest_frame_graph_builder_t));
+	zest_device device = context->device;
+	if (ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
+		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+		zest__frame_graph_builder = (zest_frame_graph_builder)zest__linear_allocate(allocator, sizeof(zest_frame_graph_builder_t));
+		zest__frame_graph_builder->allocator = allocator;
+	} else {
+		void *linear_memory_block = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
+		zloc_linear_allocator_t *allocator = (zloc_linear_allocator_t*)ZEST__ALLOCATE(context->allocator, sizeof(zloc_linear_allocator_t));
+		*allocator = ZEST__ZERO_INIT(zloc_linear_allocator_t);
+		zloc_InitialiseLinearAllocator(allocator, linear_memory_block, context->create_info.frame_graph_allocator_size);
+		zest__frame_graph_builder = (zest_frame_graph_builder)zest__linear_allocate(allocator, sizeof(zest_frame_graph_builder_t));
+		zest__frame_graph_builder->allocator = allocator;
+	}
 	zest__frame_graph_builder->context = context;
 	zest__frame_graph_builder->current_pass = 0;
 
@@ -11993,7 +12018,13 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
     zest_frame_graph frame_graph = zest__new_frame_graph(context, name);
     frame_graph->cache_key = key;
 
-	zest_device device = context->device;
+	if (ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
+		frame_graph->deferred_resource_freeing_list = &context->deferred_resource_freeing_list;
+	} else {
+		frame_graph->deferred_resource_freeing_list = (zest_context_destruction_queue_t*)zest__linear_allocate(zest__frame_graph_builder->allocator, sizeof(zest_context_destruction_queue_t));
+		*frame_graph->deferred_resource_freeing_list = ZEST__ZERO_INIT(zest_context_destruction_queue_t);
+	}
+
     frame_graph->semaphores = device->platform->get_frame_graph_semaphores(context, name);
     frame_graph->command_list.backend = (zest_command_list_backend)device->platform->new_frame_graph_context_backend(context);
 
@@ -12101,7 +12132,7 @@ zest_bool zest__create_transient_resource(zest_context context, zest_resource_no
         resource->access_mask = 0;
         resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 		zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-		zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], frame_graph->deferred_image_destruction, resource);
+		zest_vec_linear_push(zest__frame_graph_builder->allocator, frame_graph->deferred_image_destruction, resource);
     } else if (ZEST__FLAGGED(resource->type, zest_resource_type_buffer) && resource->storage_buffer == NULL) {
 		resource->buffer_desc.buffer_info.frame_in_flight = context->current_fif;
 		resource->storage_buffer = zest__create_transient_buffer(context, resource->buffer_desc.size, &resource->buffer_desc.buffer_info);
@@ -12127,9 +12158,9 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
 		dst_family
 	};
     if (acquire) {
-        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->acquire_image_barriers, image_barrier);
+        zest_vec_linear_push(zest__frame_graph_builder->allocator, barriers->acquire_image_barriers, image_barrier);
     } else {
-        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->release_image_barriers, image_barrier);
+        zest_vec_linear_push(zest__frame_graph_builder->allocator, barriers->release_image_barriers, image_barrier);
     }
 }
 
@@ -12142,9 +12173,9 @@ void zest__add_buffer_barrier(zest_resource_node resource, zest_execution_barrie
 																src_family, dst_family
 																);
     if (acquire) {
-        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->acquire_buffer_barriers, buffer_barrier);
+        zest_vec_linear_push(zest__frame_graph_builder->allocator, barriers->acquire_buffer_barriers, buffer_barrier);
     } else {
-        zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->release_buffer_barriers, buffer_barrier);
+        zest_vec_linear_push(zest__frame_graph_builder->allocator, barriers->release_buffer_barriers, buffer_barrier);
     }
 }
 #endif
@@ -12343,8 +12374,7 @@ zest_frame_graph zest__compile_frame_graph() {
 		zest_SignalTimeline(timeline);
 	}
 
-    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
-
+	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_bucket_array_foreach(i, frame_graph->potential_passes) {
         zest_pass_node pass_node = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, i);
 		if (pass_node->visit_state == zest_pass_node_unvisited) {
@@ -12557,7 +12587,7 @@ zest_frame_graph zest__compile_frame_graph() {
             }
             input_usage->resource_node = latest_version;
 
-            zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->inputs, latest_version->name, *input_usage);
+            zest_map_linear_insert(allocator, pass_node->inputs, latest_version->name, *input_usage);
             zest_vec_linear_push(allocator, resource->consumer_pass_indices, i); // pass 'i' consumes this
         }
 
@@ -12574,7 +12604,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 }
 			    //Add the versioned alias to the outputs instead
                 output_usage->resource_node = latest_version;
-                zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, latest_version->name, *output_usage);
+                zest_map_linear_insert(allocator, pass_node->outputs, latest_version->name, *output_usage);
                 //Check if the user already added this as input:
                 if (!zest_map_valid_name(pass_node->inputs, resource->name)) {
                     //If not then add the resource as input for correct dependency chain with default usages
@@ -12598,7 +12628,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     input_usage.clear_value = output_usage->clear_value;
                     input_usage.purpose = output_usage->purpose;
                     resource->reference_count++;
-                    zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->inputs, resource->name, input_usage);
+                    zest_map_linear_insert(allocator, pass_node->inputs, resource->name, input_usage);
                 }
             }
 
@@ -13244,7 +13274,7 @@ zest_frame_graph zest__compile_frame_graph() {
 void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
 	if (exe_details->requires_dynamic_render_pass) {
 		zest_context context = zest__frame_graph_builder->context;
-		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+		zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
 		zest_uint color_attachment_index = 0;
 		//Determine attachments for color and depth (resolve can come later), first for outputs
 		exe_details->depth_attachment.image_view = 0;
@@ -13324,6 +13354,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 }
 
 zest_frame_graph zest_EndFrameGraph() {
+	if (!zest__frame_graph_builder) return NULL;
     zest_frame_graph frame_graph = zest__compile_frame_graph();
 	zest_context context = zest__frame_graph_builder->context;
 
@@ -13332,14 +13363,51 @@ zest_frame_graph zest_EndFrameGraph() {
 
     if (frame_graph->error_status != zest_fgs_critical_error) {
         zest__cache_frame_graph(frame_graph);
+		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame) && ZEST__NOT_FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
+			zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
+		}
     } else {
         ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     }
 
-    zest__frame_graph_builder = NULL;
-	ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);  
-
     return frame_graph;
+}
+
+zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
+	zest_context context = zest__frame_graph_builder->context;
+	zest_semaphore_status status = zest_semaphore_status_success;
+	if (frame_graph->signal_timeline) {
+		status = context->device->platform->wait_for_timeline(frame_graph->signal_timeline, ZEST_U64_MAX_VALUE);
+	}
+	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif])) {
+		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]) {
+			zest_binding_index_for_release_t index = frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif][i];
+            zest__release_bindless_index(index.layout, index.binding_number, index.binding_index);
+        }
+		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]);
+    }
+   
+	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif])) {
+		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif]) {
+			zest_image image = &frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif][i];
+            context->device->platform->cleanup_image_backend(image);
+            zest_FreeBufferNow((zest_buffer)image->buffer);
+            if (image->default_view) {
+				context->device->platform->cleanup_image_view_backend(image->default_view);
+            }
+        }
+		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif]);
+    }
+ 
+	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif])) {
+		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]) {
+			zest_image_view_array view_array = &frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif][i];
+            context->device->platform->cleanup_image_view_array_backend(view_array);
+        }
+		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]);
+    }
+	zest__cleanup_frame_graph_builder();
+	return status;
 }
 
 zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout) {
@@ -13355,24 +13423,6 @@ void zest_SetFrameGraphUserData(void *user_data) {
 void *zest_GetFrameGraphUserData(const zest_command_list command_list) {
 	ZEST_ASSERT_HANDLE(command_list);	//Not a valid command list handle
 	return command_list->frame_graph->user_data;
-}
-
-zest_frame_graph zest_EndFrameGraphAndExecute() {
-    zest_frame_graph frame_graph = zest__compile_frame_graph();
-
-	zest_context context = zest__frame_graph_builder->context;
-
-    if (frame_graph->error_status != zest_fgs_critical_error) {
-        zest__cache_frame_graph(frame_graph);
-        zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
-    } else {
-        ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
-    }
-
-    zest__frame_graph_builder = NULL;
-	ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);  
-
-    return frame_graph;
 }
 
 zest_image_aspect_flags zest__determine_aspect_flag(zest_format format) {
@@ -13466,18 +13516,39 @@ void zest__deferr_resource_destruction(zest_context context, void* handle) {
     zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.resources[context->current_fif], handle);
 }
 
-void zest__deferr_image_destruction(zest_context context, zest_image image) {
-    zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_images[context->current_fif], *image);
+void zest__deferr_image_destruction(zest_context context, zest_frame_graph frame_graph, zest_image image) {
+	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif], *image);
 }
 
-void zest__deferr_view_array_destruction(zest_context context, zest_image_view_array view_array) {
-    zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif], *view_array);
+void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array) {
+	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif], *view_array);
+}
+
+void zest__cleanup_frame_graph_builder() {
+	if (zest__frame_graph_builder) {
+		zest_context context = zest__frame_graph_builder->context;
+		zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
+		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame)) {
+			zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator->next;
+			while (allocator) {
+				zloc_linear_allocator_t *next_allocator = allocator->next;
+				ZEST__FREE(context->allocator, allocator->data);
+				ZEST__FREE(context->allocator, allocator);
+				allocator = next_allocator;
+			}
+			allocator = zest__frame_graph_builder->allocator;
+			ZEST__FREE(context->allocator, allocator->data);
+			ZEST__FREE(context->allocator, allocator);
+		}
+		zest__frame_graph_builder = NULL;
+		ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
+	}
 }
 
 zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_microsecs start_time = zest_Microsecs();
-    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+    zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_map_queue_value queues = ZEST__ZERO_INIT(zest_map_queue_value);
 
     zest_execution_backend backend = (zest_execution_backend)context->device->platform->new_execution_backend(allocator);
@@ -13645,8 +13716,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 	zest_vec_foreach(i, frame_graph->deferred_image_destruction) {
 		zest_resource_node resource = frame_graph->deferred_image_destruction[i];
-		zest__deferr_image_destruction(context, &resource->image);
-		if (resource->view_array) zest__deferr_view_array_destruction(context, resource->view_array);
+		zest__deferr_image_destruction(context, frame_graph, &resource->image);
+		if (resource->view_array) zest__deferr_view_array_destruction(context, frame_graph, resource->view_array);
 		resource->view_array = 0;
 		resource->view = 0;
 		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
@@ -14260,7 +14331,7 @@ zest_resource_node zest__add_transient_image_resource(const char *name, const ze
     resource.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     resource.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     resource.producer_pass_idx = -1;
-    resource.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(&context->frame_graph_allocator[context->current_fif], &resource.image, NULL);
+    resource.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, &resource.image, NULL);
 	ZEST__FLAG(resource.flags, zest_resource_node_flag_transient);
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
     node->image_layout = zest_image_layout_undefined;
@@ -14286,7 +14357,7 @@ void zest_AddSwapchainToGroup(zest_resource_group group) {
     ZEST_ASSERT_HANDLE(frame_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_ImportSwapchainResource to import the context swapchain to the render graph
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
 	zest_context context = zest__frame_graph_builder->context;
-    zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], group->resources, frame_graph->swapchain_resource);
+    zest_vec_linear_push(zest__frame_graph_builder->allocator, group->resources, frame_graph->swapchain_resource);
 }
 
 void zest_AddResourceToGroup(zest_resource_group group, zest_resource_node image) {
@@ -14296,14 +14367,14 @@ void zest_AddResourceToGroup(zest_resource_group group, zest_resource_node image
     ZEST_ASSERT(image->type & zest_resource_type_is_image_or_depth);  //Must be a depth or image resource type
 	zest_FlagResourceAsEssential(image);
 	zest_context context = zest__frame_graph_builder->context;
-    zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], group->resources, image);
+    zest_vec_linear_push(zest__frame_graph_builder->allocator, group->resources, image);
 }
 
 zest_resource_group zest_CreateResourceGroup() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-    zest_resource_group group = (zest_resource_group)zest__linear_allocate(&context->frame_graph_allocator[context->current_fif], sizeof(zest_resource_group_t));
+    zest_resource_group group = (zest_resource_group)zest__linear_allocate(zest__frame_graph_builder->allocator, sizeof(zest_resource_group_t));
     *group = ZEST__ZERO_INIT(zest_resource_group_t);
     group->magic = zest_INIT_MAGIC(zest_struct_type_render_target_group);
     return group;
@@ -14439,7 +14510,7 @@ zest_resource_node zest_ImportImageResource(const char *name, zest_image image, 
 	zest_context context = zest__frame_graph_builder->context;
 	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_key(frame_graph->imported_resources, (zest_key)image), context->device,
 							"Error: Trying to import an image resource that was already imported. Each resource that's imported should be unique.", NULL);
-	zest_map_insert_linear_key(&context->frame_graph_allocator[context->current_fif], frame_graph->imported_resources, (zest_key)image, (zest_key)image);
+	zest_map_insert_linear_key(zest__frame_graph_builder->allocator, frame_graph->imported_resources, (zest_key)image, (zest_key)image);
 	#endif
     zest_resource_node_t resource = zest__create_import_image_resource_node(name, image);
 	ZEST__FLAG(resource.flags, zest_resource_node_flag_imported);
@@ -14457,7 +14528,7 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
 	#ifdef ZEST_DEBUGGING
 	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_key(frame_graph->imported_resources, (zest_key)buffer), context->device,
 							"Error: Trying to import a buffer resource that was already imported. Each resource that's imported should be unique.", NULL);
-	zest_map_insert_linear_key(&context->frame_graph_allocator[context->current_fif], frame_graph->imported_resources, (zest_key)buffer, (zest_key)buffer);
+	zest_map_insert_linear_key(zest__frame_graph_builder->allocator, frame_graph->imported_resources, (zest_key)buffer, (zest_key)buffer);
 	#endif
     zest_resource_node_t resource = zest__create_import_buffer_resource_node(name, buffer);
     resource.buffer_provider = provider;
@@ -14487,7 +14558,7 @@ zest_resource_node zest_ImportSwapchainResource() {
 	node.type = zest_resource_type_swap_chain_image;
     node.frame_graph = frame_graph;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
-    node.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(&context->frame_graph_allocator[context->current_fif], &node.image, &swapchain->images[swapchain->current_image_frame]);
+    node.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, &node.image, &swapchain->images[swapchain->current_image_frame]);
     node.image.info = swapchain->images[0].info;
     node.view = swapchain->views[swapchain->current_image_frame];
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
@@ -14512,7 +14583,7 @@ void zest_SetDescriptorSets(zest_pipeline_layout layout, zest_descriptor_set *de
 	zest_context context = zest__frame_graph_builder->context;
 	ZEST_ASSERT_HANDLE(layout);	//Invalid layout handle
 	ZEST_ASSERT(set_count && set_count <= 64, "set_count must a value greater then 0 and less than 64 must match the number of descriptor sets that you pass in the array");
-	zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
 	zest_vec_linear_resize(allocator, frame_graph->descriptor_sets, set_count);
 	zest_vec_foreach(i, frame_graph->descriptor_sets) {
 		ZEST_ASSERT_HANDLE(descriptor_sets[i]);	//Not a valid descriptor set handle!
@@ -14556,7 +14627,7 @@ zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queu
 			node.type = zest_pass_type_transfer;
 			break;
     }
-    zest_pass_node pass_node = zest_bucket_array_linear_add(&context->frame_graph_allocator[context->current_fif], &frame_graph->potential_passes, zest_pass_node_t);
+    zest_pass_node pass_node = zest_bucket_array_linear_add(zest__frame_graph_builder->allocator, &frame_graph->potential_passes, zest_pass_node_t);
     *pass_node = node;
     return pass_node;
 }
@@ -14565,7 +14636,7 @@ zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource) {
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
-    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+    zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_resource_node node = zest_bucket_array_linear_add(allocator, &frame_graph->resources, zest_resource_node_t);
     *node = *resource;
 #ifdef ZEST_DEBUGGING
@@ -14606,7 +14677,7 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
         new_resource.producer_pass_idx = -1;
 		ZEST__FLAG(new_resource.flags, zest_resource_node_flag_aliased);
         ZEST__FLAG(new_resource.flags, zest_resource_node_flag_has_producer);
-		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+		zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
 		zest_resource_node node = zest_bucket_array_linear_add(allocator, &frame_graph->resources, zest_resource_node_t);
         *node = new_resource;
         zest_vec_linear_push(allocator, versions->resources, node);
@@ -14716,7 +14787,7 @@ zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list com
     device->platform->update_bindless_image_descriptor(device, binding_number, bindless_index, descriptor_type, &resource->image, resource->view, 0, frame_graph->bindless_set);
 
     zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
-    zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], binding_index);
+	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif], binding_index);
 
     return bindless_index;
 }
@@ -14733,7 +14804,7 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
 	zest_context context = zest__frame_graph_builder->context;
 	zest_device device = context->device;
 
-    zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+    zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     if (!resource->view_array) {
         resource->view_array = device->platform->create_image_views_per_mip(context->device, &resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
 		resource->view_array->handle.store = &context->device->resource_stores[zest_handle_type_view_arrays];
@@ -14751,7 +14822,7 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
         device->platform->update_bindless_image_descriptor(device, binding_number, bindless_index, descriptor_type, &resource->image, &resource->view_array->views[mip_index], 0, frame_graph->bindless_set);
 
 		zest_binding_index_for_release_t mip_binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
-		zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], mip_binding_index);
+		zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif], mip_binding_index);
 	}
 	return resource->mip_level_bindless_indexes[binding_number];
 }
@@ -14770,7 +14841,7 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_l
     device->platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, frame_graph->bindless_set);
 
 	zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, zest_storage_buffer_binding };
-	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], binding_index);
+	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif], binding_index);
     resource->bindless_index[0] = bindless_index;
     return bindless_index;
 }
@@ -14894,11 +14965,11 @@ void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node re
 
 	zest_context context = zest__frame_graph_builder->context;
     if (is_output) { // Or derive is_output from purpose (e.g. WRITE implies output)
-        zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, resource->name, usage);
+        zest_map_linear_insert(zest__frame_graph_builder->allocator, pass_node->outputs, resource->name, usage);
 		pass_node->output_key += resource->id + zest_Hash(&usage, offsetof(zest_resource_usage_t, access_mask), 0);
     } else {
 		resource->reference_count++;
-        zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->inputs, resource->name, usage);
+        zest_map_linear_insert(zest__frame_graph_builder->allocator, pass_node->inputs, resource->name, usage);
     }
 }
 
@@ -15082,14 +15153,14 @@ void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node ima
     if (usage.is_output) {
 		//This is the first time this resource has been used as output
 		usage.resource_node = image_resource;
-		zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->outputs, image_resource->name, usage);
+		zest_map_linear_insert(zest__frame_graph_builder->allocator, pass_node->outputs, image_resource->name, usage);
 		zest_size offset = offsetof(zest_resource_usage_t, load_op);
 		pass_node->output_key += image_resource->id + zest_Hash(&usage, offsetof(zest_resource_usage_t, access_mask), 0);
     } else {
         usage.resource_node = image_resource;
         ZEST_ASSERT(usage.resource_node);
 		image_resource->reference_count++;
-		zest_map_linear_insert(&context->frame_graph_allocator[context->current_fif], pass_node->inputs, image_resource->name, usage);
+		zest_map_linear_insert(zest__frame_graph_builder->allocator, pass_node->inputs, image_resource->name, usage);
     }
 }
 

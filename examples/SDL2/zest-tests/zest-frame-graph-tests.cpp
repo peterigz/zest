@@ -3,8 +3,9 @@
 //Empty Graph: Compile and execute an empty render graph. It should do nothing and not crash.
 int test__empty_graph(ZestTests *tests, Test *test) {
 	if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_FlushFrameGraph(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
@@ -15,8 +16,9 @@ int test__empty_graph(ZestTests *tests, Test *test) {
 int test__single_pass(ZestTests *tests, Test *test) {
 	if (zest_BeginFrameGraph(tests->context, "Single Pass Test", 0)) {
 		zest_pass_node clear_pass = zest_BeginRenderPass("Empty Pass");
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_FlushFrameGraph(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
 	test->frame_count++;
@@ -398,8 +400,8 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
-		zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		zest_semaphore_status status = zest_FlushFrameGraph(frame_graph);
 		if (status != zest_semaphore_status_success) {
 			test->result = 1;
 		}
@@ -557,8 +559,8 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
-		zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		zest_semaphore_status status = zest_FlushFrameGraph(frame_graph);
 		if (status != zest_semaphore_status_success) {
 			test->result = 1;
 		}

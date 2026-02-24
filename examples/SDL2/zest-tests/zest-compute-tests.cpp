@@ -49,8 +49,8 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_EndPass();
 
 	zest_SignalTimeline(timeline);
-	zest_EndFrameGraphAndExecute();
-	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	zest_semaphore_status status = zest_FlushFrameGraph(frame_graph);
 	zest_FreeExecutionTimeline(timeline);
 	
 	zest_FreeImageNow(tests->brd_texture);
@@ -93,6 +93,8 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	zest_buffer storage_buffer = zest_CreateBuffer(tests->device, 1024, &storage_buffer_info);
 
+	zest_semaphore_status semaphore_status = zest_semaphore_status_success;
+
 	// Graph A: Write to buffer and signal timeline
 	if (zest_BeginFrameGraph(tests->context, "Graph A - Write", 0)) {
 		zest_resource_node write_buffer = zest_ImportBufferResource("Write Buffer", storage_buffer, 0);
@@ -105,8 +107,13 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph_a = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph_a = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph_a);
+		semaphore_status = zest_FlushFrameGraph(frame_graph_a);
+	}
+
+	if (semaphore_status != zest_semaphore_status_success) {
+		test->result |= 1;
 	}
 
 	// Graph B: Wait on timeline then do more work (just verifies synchronization)
@@ -115,22 +122,19 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
 
-		zest_WaitOnTimeline(timeline);
-
 		zest_BeginComputePass("Second Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph_b = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph_b = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph_b);
+		semaphore_status = zest_FlushFrameGraph(frame_graph_b);
 	}
 
-	// Wait for everything to complete
-	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
-	if (status != zest_semaphore_status_success) {
-		test->result = 1;
+	if (semaphore_status != zest_semaphore_status_success) {
+		test->result |= 1;
 	}
 
 	zest_FreeBuffer(storage_buffer);
@@ -197,6 +201,8 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 			test->cache_count++;
 		}
 
+		zest_semaphore_status status = zest_semaphore_status_success;
+
 		// For immediate execute, we always build but verify cache is populated
 		if (zest_BeginFrameGraph(tests->context, "BRDFLUT Cached", &cache_key)) {
 			zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
@@ -208,11 +214,11 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 			zest_EndPass();
 
 			zest_SignalTimeline(timeline);
-			zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
 			test->result |= zest_GetFrameGraphResult(frame_graph);
+			status = zest_FlushFrameGraph(frame_graph);
 		}
 
-		zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 		if (status != zest_semaphore_status_success) {
 			test->result = 1;
 		}
@@ -288,6 +294,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 	image_info.height = 256;
 	image_info.mip_levels = 5; // 256 -> 128 -> 64 -> 32 -> 16
 
+	zest_semaphore_status status = zest_semaphore_status_success;
 	if (zest_BeginFrameGraph(tests->context, "Mipmap Chain", 0)) {
 		zest_resource_node mipmap_image = zest_AddTransientImageResource("Mipmap Image", &image_info);
 		zest_FlagResourceAsEssential(mipmap_image);
@@ -299,13 +306,13 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		status = zest_FlushFrameGraph(frame_graph);
 	}
 
 	zest_PrintReports(tests->context);
 
-	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 	if (status != zest_semaphore_status_success) {
 		test->result = 1;
 	}
@@ -339,6 +346,8 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 
 	zest_execution_timeline timeline_2 = zest_CreateExecutionTimeline(tests->device);
 
+	zest_semaphore_status status_1 = zest_semaphore_status_success;
+	zest_semaphore_status status_2 = zest_semaphore_status_success;
 	// Single graph that signals both timelines
 	if (zest_BeginFrameGraph(tests->context, "Multi Signal", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
@@ -355,13 +364,10 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 		zest_SignalTimeline(timeline_1);
 		zest_SignalTimeline(timeline_2);
 
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		status_2 = zest_FlushFrameGraph(frame_graph);
 	}
-
-	// Wait on both timelines
-	zest_semaphore_status status_1 = zest_WaitForSignal(timeline_1, ZEST_SECONDS_IN_MICROSECONDS(1));
-	zest_semaphore_status status_2 = zest_WaitForSignal(timeline_2, ZEST_SECONDS_IN_MICROSECONDS(1));
 
 	if (status_1 != zest_semaphore_status_success || status_2 != zest_semaphore_status_success) {
 		test->result = 1;
@@ -414,6 +420,7 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
+	zest_semaphore_status status = zest_semaphore_status_success;
 	if (zest_BeginFrameGraph(tests->context, "Read Modify Write", 0)) {
 		zest_resource_node rmw_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(rmw_buffer);
@@ -434,11 +441,11 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		status = zest_FlushFrameGraph(frame_graph);
 	}
 
-	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 	if (status != zest_semaphore_status_success) {
 		test->result = 1;
 	}
@@ -483,6 +490,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	info.size = sizeof(TestData) * 1000;
 
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
+	zest_semaphore_status status = zest_semaphore_status_success;
 
 	// Graph with ONLY compute passes - no render passes, no swapchain
 	if (zest_BeginFrameGraph(tests->context, "Compute Only", 0)) {
@@ -513,8 +521,9 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		status = zest_FlushFrameGraph(frame_graph);
 
 		// Verify we had multiple passes
 		if (zest_GetFrameGraphFinalPassCount(frame_graph) != 2) {
@@ -522,7 +531,6 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 		}
 	}
 
-	zest_semaphore_status status = zest_WaitForSignal(timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 	if (status != zest_semaphore_status_success) {
 		test->result = 1;
 	}
@@ -574,8 +582,9 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		// Don't wait - just execute
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_FlushFrameGraph(frame_graph);
 	}
 
 	// Immediately execute second graph
@@ -591,10 +600,12 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		// Don't wait here either
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_FlushFrameGraph(frame_graph);
 	}
 
+	zest_semaphore_status status = zest_semaphore_status_success;
 	// Execute third graph and wait for completion
 	if (zest_BeginFrameGraph(tests->context, "Final Graph", 0)) {
 		zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
@@ -608,14 +619,14 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_SignalTimeline(final_timeline);
-		zest_frame_graph frame_graph = zest_EndFrameGraphAndExecute();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		status = zest_FlushFrameGraph(frame_graph);
 	}
 
 	// Wait for final graph to complete. Note: this does NOT guarantee the first two graphs
 	// are complete since they don't signal any timeline. This test verifies that multiple
 	// immediate executions can be submitted without explicit waits and don't crash.
-	zest_semaphore_status status = zest_WaitForSignal(final_timeline, ZEST_SECONDS_IN_MICROSECONDS(2));
 	if (status != zest_semaphore_status_success) {
 		test->result = 1;
 	}
