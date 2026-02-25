@@ -5009,6 +5009,10 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
+//Reset and clear all of the layer instructions for a layer. Note that this is done automatically for layers when
+//zest_StartInstanceInstructions is called and the current frame in flight has changed. But for cases where you 
+//have a closed loop outside of a zest_Begin/EndFrame you can use this to manuall reset the layer instructions.
+ZEST_API void zest_ResetLayerInstructions(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //Callback that can be used to upload layer data to the gpu
@@ -16385,6 +16389,10 @@ void zest__end_instance_instructions(zest_layer layer) {
         layer->last_draw_mode = zest_draw_mode_none;
     }
     layer->memory_refs[layer->fif].vertex_memory_in_use = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
+}
+
+void zest_ResetLayerInstructions(zest_layer layer) {
+	zest__reset_instance_layer_drawing(layer);
 }
 
 void zest_EndInstanceInstructions(zest_layer layer) {
