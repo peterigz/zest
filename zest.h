@@ -10954,13 +10954,12 @@ zest_pipeline zest_GetPipeline(zest_pipeline_template pipeline_template, const z
 		ZEST_REPORT(context->device, zest_report_unused_pass, "You're trying to build a pipeline (%s) that has been marked as invalid. This means that the last time this pipeline was created it failed with errors. You can check for validation errors to see what they were.", pipeline_template->name);
 		return NULL;
 	}
-    zest_key pipeline_key = (zest_key)pipeline_template;
-	zest_key cached_pipeline_key = zest_Hash(&command_list->rendering_info, sizeof(zest_rendering_info_t), pipeline_key);
-    if (zest_map_valid_key(context->cached_pipelines, pipeline_key)) {
-		return *zest_map_at_key(context->cached_pipelines, pipeline_key); 
+	zest_key cached_pipeline_key = zest_Hash(&command_list->rendering_info, sizeof(zest_rendering_info_t), ZEST_HASH_SEED);
+    if (zest_map_valid_key(context->cached_pipelines, cached_pipeline_key)) {
+		return *zest_map_at_key(context->cached_pipelines, cached_pipeline_key); 
     }
     zest_pipeline pipeline = 0;
-	if (!zest__cache_pipeline(pipeline_template, command_list, pipeline_key, &pipeline)) {
+	if (!zest__cache_pipeline(pipeline_template, command_list, cached_pipeline_key, &pipeline)) {
 		ZEST_ALERT("ERROR: Unable to build and cache pipeline [%s]. Check the log and validation errors for the most recent errors.", pipeline_template->name);
 	}
 	return pipeline;
