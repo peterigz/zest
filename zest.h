@@ -11860,7 +11860,7 @@ zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, z
     frame_graph->name = name;
     frame_graph->bindless_layout = context->device->bindless_set_layout;
     frame_graph->bindless_set = context->device->bindless_set;
-	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_frame_started)) {
+	if (is_command_graph) {
 		ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_command_graph);
 	}
 	//Note: although the context allocator is passed in here it's not used, all pushes onto the resource
