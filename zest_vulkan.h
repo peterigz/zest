@@ -5363,6 +5363,7 @@ cleanup:
 
 zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void *pixels) {
 	ZEST_ASSERT_HANDLE(src_image);
+	ZEST_ASSERT(ZEST__FLAGGED(src_image->info.flags, zest_image_flag_transfer_src), "If you want to copy from an image then you must flag that image as transfer_src when creating the image.");
 	ZEST_ASSERT(pixels, "Pixel buffer must not be null");
 
 	int channels, bytes_per_pixel, block_width, block_height, bytes_per_block;
