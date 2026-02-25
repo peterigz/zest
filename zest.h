@@ -2179,7 +2179,7 @@ typedef enum zest_frame_graph_flag_bits {
 	zest_frame_graph_is_executed = 1 << 2,
 	zest_frame_graph_present_after_execute = 1 << 3,
 	zest_frame_graph_is_cached = 1 << 4,
-	zest_frame_graph_is_outside_begin_end_frame = 1 << 5,
+	zest_frame_graph_is_command_graph = 1 << 5,	//For one off frame graphs that can be flushed immediately
 } zest_frame_graph_flag_bits;
 
 typedef zest_uint zest_frame_graph_flags;
@@ -4319,7 +4319,7 @@ ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zes
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
-ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name);
+ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, zest_bool is_command_graph);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 ZEST_PRIVATE void zest__cleanup_frame_graph_builder();
@@ -4645,6 +4645,7 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest
 // --- Frame_graph_api
 // -- Creating and Executing the render graph
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph();
 ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
@@ -11848,7 +11849,7 @@ void zest_FreeFile(zest_device device, zest_file file) {
 // --End General Helper Functions
 
 // --frame graph functions
-zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
+zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, zest_bool is_command_graph) {
 	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_frame_graph frame_graph = (zest_frame_graph)zest__linear_allocate(allocator, sizeof(zest_frame_graph_t));
     *frame_graph = ZEST__ZERO_INIT(zest_frame_graph_t);
@@ -11860,7 +11861,7 @@ zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
     frame_graph->bindless_layout = context->device->bindless_set_layout;
     frame_graph->bindless_set = context->device->bindless_set;
 	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_frame_started)) {
-		ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame);
+		ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_command_graph);
 	}
 	//Note: although the context allocator is passed in here it's not used, all pushes onto the resource
 	//and pass bucket arrays are actually done with a linear allocator for the frame graph.
@@ -11986,17 +11987,17 @@ zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const
     return key;
 }
 
-zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
-	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph), 
+zest_bool zest__begin_graph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key, zest_bool is_command_graph) {
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph),
 							context->device, "Frame graph already being built. You cannot build a frame graph within another begin frame graph process. If you're running a frame graph outside of Begin/EndFrame then make sure you call zest_FlushFrameGraph after calling zest_EndFrameGraph.",
-							ZEST_FALSE);  
-	
+							ZEST_FALSE);
+
 	ZEST_ASSERT(zest__frame_graph_builder == NULL);		//The thread local frame graph builder must be null
-	//If it's not null then is there already a frame graph being set up, and 
+	//If it's not null then is there already a frame graph being set up, and
 	//did you call EndFrameGraph?
 
 	zest_device device = context->device;
-	if (ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
+	if (!is_command_graph && ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
 		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 		zest__frame_graph_builder = (zest_frame_graph_builder)zest__linear_allocate(allocator, sizeof(zest_frame_graph_builder_t));
 		zest__frame_graph_builder->allocator = allocator;
@@ -12015,10 +12016,10 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
     if (cache_key) {
         key = zest__hash_frame_graph_cache_key(cache_key);
     }
-    zest_frame_graph frame_graph = zest__new_frame_graph(context, name);
+    zest_frame_graph frame_graph = zest__new_frame_graph(context, name, is_command_graph);
     frame_graph->cache_key = key;
 
-	if (ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
+	if (!is_command_graph && ZEST__FLAGGED(context->flags, zest_context_flag_frame_started)) {
 		frame_graph->deferred_resource_freeing_list = &context->deferred_resource_freeing_list;
 	} else {
 		frame_graph->deferred_resource_freeing_list = (zest_context_destruction_queue_t*)zest__linear_allocate(zest__frame_graph_builder->allocator, sizeof(zest_context_destruction_queue_t));
@@ -12034,6 +12035,14 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
 
 	zest_SetDescriptorSets(device->pipeline_layout, &device->bindless_set, 1);
     return ZEST_TRUE;
+}
+
+zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
+	return zest__begin_graph(context, name, cache_key, ZEST_FALSE);
+}
+
+zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
+	return zest__begin_graph(context, name, cache_key, ZEST_TRUE);
 }
 
 zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities) {
@@ -13374,7 +13383,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	ZEST_ASSERT(zest__frame_graph_builder);	//This function must be called with zest_BeginFrameGraph
 	zest_context context = zest__frame_graph_builder->context;
 	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
-	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame), "zest_FlushFrameGraph should only be called for a frame graph that was made outside of a begin/endframe.");
+	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph), "zest_FlushCommandGraph should only be called for a command graph created with zest_BeginCommandGraph.");
 	if (ZEST__NOT_FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
 		zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
 	}
@@ -13531,7 +13540,7 @@ void zest__cleanup_frame_graph_builder() {
 	if (zest__frame_graph_builder) {
 		zest_context context = zest__frame_graph_builder->context;
 		zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame)) {
+		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph)) {
 			zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator->next;
 			while (allocator) {
 				zloc_linear_allocator_t *next_allocator = allocator->next;

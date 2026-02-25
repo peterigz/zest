@@ -2,7 +2,7 @@
 
 //Empty Graph: Compile and execute an empty render graph. It should do nothing and not crash.
 int test__empty_graph(ZestTests *tests, Test *test) {
-	if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Blank Screen", 0)) {
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		zest_FlushFrameGraph(frame_graph);
