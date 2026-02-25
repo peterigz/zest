@@ -13363,9 +13363,6 @@ zest_frame_graph zest_EndFrameGraph() {
 
     if (frame_graph->error_status != zest_fgs_critical_error) {
         zest__cache_frame_graph(frame_graph);
-		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame) && ZEST__NOT_FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
-			zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
-		}
     } else {
         ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     }
@@ -13374,7 +13371,13 @@ zest_frame_graph zest_EndFrameGraph() {
 }
 
 zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
+	ZEST_ASSERT(zest__frame_graph_builder);	//This function must be called with zest_BeginFrameGraph
 	zest_context context = zest__frame_graph_builder->context;
+	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
+	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_outside_begin_end_frame), "zest_FlushFrameGraph should only be called for a frame graph that was made outside of a begin/endframe.");
+	if (ZEST__NOT_FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
+		zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
+	}
 	zest_semaphore_status status = zest_semaphore_status_success;
 	if (frame_graph->signal_timeline) {
 		status = context->device->platform->wait_for_timeline(frame_graph->signal_timeline, ZEST_U64_MAX_VALUE);
