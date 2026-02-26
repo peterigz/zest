@@ -16829,8 +16829,13 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
         layer->memory_refs[fif].instance_ptr = zest_BufferData(layer->memory_refs[fif].staging_instance_data);
     }
 
-    layer->scissor = zest_CreateRect2D(zest_ScreenWidth(context), zest_ScreenHeight(context), 0, 0);
-    layer->viewport = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 0.f, 1.f);
+	if (context->swapchain) {
+		layer->scissor = zest_CreateRect2D(zest_ScreenWidth(context), zest_ScreenHeight(context), 0, 0);
+		layer->viewport = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 0.f, 1.f);
+	} else {
+		layer->scissor = zest_CreateRect2D(1, 1, 0, 0);
+		layer->viewport = zest_CreateViewport(0.f, 0.f, 1.f, 1.f, 0.f, 1.f);
+	}
 }
 
 //-- Start Instance Drawing API
