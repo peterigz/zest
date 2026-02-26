@@ -1879,6 +1879,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_enable_multisampling = 1 << 12,
 	zest_context_flag_critical_error = 1 << 13,
 	zest_context_flag_frame_started = 1 << 14,
+	zest_context_flag_headless = 1 << 15,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -1910,6 +1911,7 @@ typedef enum zest_context_init_flag_bits {
 	zest_context_init_flag_none = 0,
 	zest_context_init_flag_maximised = 1 << 1,
 	zest_context_init_flag_enable_vsync = 1 << 2,
+	zest_context_init_flag_headless = 1 << 3,
 } zest_context_init_flag_bits;
 
 typedef zest_uint zest_context_init_flags;
@@ -4359,6 +4361,8 @@ ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 ZEST_API zest_create_context_info_t zest_CreateContextInfo();
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateContextInfo() to set up some default values to initialise the renderer.
 ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_context_info_t* info);
+//Create a headless context that doesn't require a window or swapchain. Useful for compute-only workloads on worker threads.
+ZEST_API zest_context zest_CreateHeadlessContext(zest_device device, zest_create_context_info_t *info);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
@@ -7307,6 +7311,7 @@ zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float 
 
 //-- Events and States
 zest_bool zest_SwapchainWasRecreated(zest_context context) {
+    if (!context->swapchain) return ZEST_FALSE;
     return ZEST__FLAGGED(context->swapchain->flags, zest_swapchain_flag_was_recreated);
 }
 //-- End Events and States
@@ -7729,6 +7734,12 @@ zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_d
     return context;
 }
 
+zest_context zest_CreateHeadlessContext(zest_device device, zest_create_context_info_t *info) {
+	info->flags |= zest_context_init_flag_headless;
+	zest_window_data_t dummy_window = ZEST__ZERO_INIT(zest_window_data_t);
+	return zest_CreateContext(device, &dummy_window, info);
+}
+
 zest_device_builder zest__begin_device_builder() {
     void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
 	zloc_allocator *allocator = zloc_InitialiseAllocatorWithPool(memory_pool, zloc__MEGABYTE(1));
@@ -7965,7 +7976,10 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 }
 
 zest_bool zest_BeginFrame(zest_context context) {
-	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), context->device, 
+	ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(context->flags, zest_context_flag_headless), context->device,
+							"zest_BeginFrame cannot be used with a headless context. Use zest_BeginCommandGraph instead.",
+							ZEST_FALSE);
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), context->device,
 							"You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.",
 							ZEST_FALSE);
 	ZEST_ASSERT_OR_VALIDATE(context->device_frame_counter < context->device->frame_counter, context->device,
@@ -8022,8 +8036,11 @@ zest_bool zest_BeginFrame(zest_context context) {
 }
 
 void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
+	ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(context->flags, zest_context_flag_headless), context->device,
+							"zest_EndFrame cannot be used with a headless context. Use zest_FlushFrameGraph instead.",
+							(void)0);
     ZEST_ASSERT_OR_VALIDATE(ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired),
-							context->device, 
+							context->device,
 							"zest_EndFrame was called but a swap chain image was not acquired. Make sure that zest_BeginFrame was called to acquire a swap chain image.",
 							(void)0);
 	zest_frame_graph_flags flags = 0;
@@ -9350,12 +9367,18 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		}
 	}
 
-	if (!context->device->platform->create_window_surface(context)) {
-		ZEST_APPEND_LOG(context->device->log_path.str, "Unable to create window surface!");
-		ZEST_ALERT("Unable to create window surface!");
-		return ZEST_FALSE;
+	if (ZEST__NOT_FLAGGED(create_info->flags, zest_context_init_flag_headless)) {
+		if (!context->device->platform->create_window_surface(context)) {
+			ZEST_APPEND_LOG(context->device->log_path.str, "Unable to create window surface!");
+			ZEST_ALERT("Unable to create window surface!");
+			return ZEST_FALSE;
+		}
+		context->swapchain = zest__create_swapchain(context, create_info->title);
 	}
-    context->swapchain = zest__create_swapchain(context, create_info->title);
+
+	if (create_info->flags & zest_context_init_flag_headless) {
+		ZEST__FLAG(context->flags, zest_context_flag_headless);
+	}
 
     if (!context->device->platform->initialise_context_backend(context)) {
         return ZEST_FALSE;
@@ -9898,7 +9921,9 @@ void zest__cleanup_view_array_store(zest_device device) {
 void zest__cleanup_context(zest_context context) {
     zest__cleanup_uniform_buffer_store(context);
     zest__cleanup_layer_store(context);
-	zest__cleanup_swapchain(context->swapchain);
+	if (context->swapchain) {
+		zest__cleanup_swapchain(context->swapchain);
+	}
     zest__cleanup_pipelines(context);
 
 	for (int i = 0; i != zest_max_context_handle_type; ++i) {
@@ -11982,10 +12007,12 @@ void zest_FlushCachedFrameGraphs(zest_context context) {
 
 zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size) {
     zest_frame_graph_cache_key_t key = ZEST__ZERO_INIT(zest_frame_graph_cache_key_t);
-    key.auto_state.render_format = context->swapchain->format;
-    key.auto_state.render_width = (zest_uint)context->swapchain->size.width;
-    key.auto_state.render_height = (zest_uint)context->swapchain->size.height;
-	key.auto_state.vsync = ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled);
+	if (context->swapchain) {
+		key.auto_state.render_format = context->swapchain->format;
+		key.auto_state.render_width = (zest_uint)context->swapchain->size.width;
+		key.auto_state.render_height = (zest_uint)context->swapchain->size.height;
+		key.auto_state.vsync = ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled);
+	}
     key.user_state = user_state;
     key.user_state_size = user_state_size;
     return key;

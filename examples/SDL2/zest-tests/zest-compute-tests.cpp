@@ -39,7 +39,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	tests->brd_shader = zest_CreateShaderFromFile(tests->device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
 	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
 
-	zest_BeginFrameGraph(tests->context, "BRDFLUT", 0);
+	zest_BeginCommandGraph(tests->context, "BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
 	zest_compute compute = zest_GetCompute(tests->brd_compute);
@@ -96,7 +96,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	zest_semaphore_status semaphore_status = zest_semaphore_status_success;
 
 	// Graph A: Write to buffer and signal timeline
-	if (zest_BeginFrameGraph(tests->context, "Graph A - Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Graph A - Write", 0)) {
 		zest_resource_node write_buffer = zest_ImportBufferResource("Write Buffer", storage_buffer, 0);
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
@@ -117,7 +117,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	}
 
 	// Graph B: Wait on timeline then do more work (just verifies synchronization)
-	if (zest_BeginFrameGraph(tests->context, "Graph B - After Wait", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Graph B - After Wait", 0)) {
 		zest_resource_node write_buffer = zest_ImportBufferResource("Write Buffer", storage_buffer, 0);
 
 		zest_compute compute_write = zest_GetCompute(tests->compute_write);
@@ -204,7 +204,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 		zest_semaphore_status status = zest_semaphore_status_success;
 
 		// For immediate execute, we always build but verify cache is populated
-		if (zest_BeginFrameGraph(tests->context, "BRDFLUT Cached", &cache_key)) {
+		if (zest_BeginCommandGraph(tests->context, "BRDFLUT Cached", &cache_key)) {
 			zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", brd_image, 0);
 
 			zest_compute compute = zest_GetCompute(tests->brd_compute);
@@ -295,7 +295,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 	image_info.mip_levels = 5; // 256 -> 128 -> 64 -> 32 -> 16
 
 	zest_semaphore_status status = zest_semaphore_status_success;
-	if (zest_BeginFrameGraph(tests->context, "Mipmap Chain", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Mipmap Chain", 0)) {
 		zest_resource_node mipmap_image = zest_AddTransientImageResource("Mipmap Image", &image_info);
 		zest_FlagResourceAsEssential(mipmap_image);
 
@@ -349,7 +349,7 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 	zest_semaphore_status status_1 = zest_semaphore_status_success;
 	zest_semaphore_status status_2 = zest_semaphore_status_success;
 	// Single graph that signals both timelines
-	if (zest_BeginFrameGraph(tests->context, "Multi Signal", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Multi Signal", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(write_buffer);
 
@@ -421,7 +421,7 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	zest_semaphore_status status = zest_semaphore_status_success;
-	if (zest_BeginFrameGraph(tests->context, "Read Modify Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Read Modify Write", 0)) {
 		zest_resource_node rmw_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(rmw_buffer);
 
@@ -493,7 +493,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	zest_semaphore_status status = zest_semaphore_status_success;
 
 	// Graph with ONLY compute passes - no render passes, no swapchain
-	if (zest_BeginFrameGraph(tests->context, "Compute Only", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Compute Only", 0)) {
 		zest_resource_node buffer_a = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_resource_node buffer_b = zest_AddTransientBufferResource("Buffer B", &info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
@@ -570,7 +570,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	zest_execution_timeline final_timeline = zest_CreateExecutionTimeline(tests->device);
 
 	// Execute first graph without waiting
-	if (zest_BeginFrameGraph(tests->context, "Fire and Forget 1", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Fire and Forget 1", 0)) {
 		zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(buffer);
 
@@ -588,7 +588,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	}
 
 	// Immediately execute second graph
-	if (zest_BeginFrameGraph(tests->context, "Fire and Forget 2", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Fire and Forget 2", 0)) {
 		zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(buffer);
 
@@ -607,7 +607,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 	zest_semaphore_status status = zest_semaphore_status_success;
 	// Execute third graph and wait for completion
-	if (zest_BeginFrameGraph(tests->context, "Final Graph", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Final Graph", 0)) {
 		zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_FlagResourceAsEssential(buffer);
 

@@ -69,7 +69,7 @@ struct ZestTests {
 	zest_buffer cpu_buffer;
 	zest_uint cpu_buffer_index;
 	zest_create_context_info_t simple_create_info;
-	zest_create_context_info_t depth_create_info;
+	zest_create_context_info_t headless_create_info;
 	StressResources stress_resources;
 };
 

@@ -14,7 +14,7 @@ int test__empty_graph(ZestTests *tests, Test *test) {
 
 //Single Pass - No I/O: A graph with one pass that has no resource inputs or outputs. Should show status no work to do.
 int test__single_pass(ZestTests *tests, Test *test) {
-	if (zest_BeginFrameGraph(tests->context, "Single Pass Test", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Single Pass Test", 0)) {
 		zest_pass_node clear_pass = zest_BeginRenderPass("Empty Pass");
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
@@ -381,7 +381,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginFrameGraph(tests->context, "Buffer Read/Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Buffer Read/Write", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
 
@@ -540,7 +540,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 	}
 	zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginFrameGraph(tests->context, "Image Read Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Image Read Write", 0)) {
 		zest_resource_node write_buffer = zest_AddTransientImageResource("Write Buffer", &image_info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
 		zest_SetResourceClearColor(write_buffer, 0.0f, 1.0f, 1.0f, 1.0f);
