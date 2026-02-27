@@ -52,7 +52,7 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_render_resources_t *
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources);
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources);
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
-void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_library library);
+void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes);
 zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_render_resources_t *render_resources, const char *vert_shader, const char *frag_shader);
 void zest_tfx_FreeLibraryImages(tfx_render_resources_t *resources);

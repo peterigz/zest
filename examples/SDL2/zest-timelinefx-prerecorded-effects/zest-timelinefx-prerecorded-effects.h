@@ -1,6 +1,6 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
+#include <SDL.h>
 #include <zest.h>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
@@ -14,11 +14,32 @@ struct AnimationComputeConstants {
 	tfxU32 flags;
 };
 
+struct tfx_sprite_sheet_push_t {
+    zest_vec4 offset;
+	tfxU32 particle_texture_index;
+	tfxU32 color_ramp_texture_index;
+	tfxU32 image_data_index;
+	tfxU32 sampler_index;
+	tfxU32 prev_billboards_index;
+	tfxU32 index_offset;
+	tfxU32 uniform_index;
+};
+
 struct ComputePushConstants {
 	zest_uint instances_size;
 	zest_uint has_animated_shapes;
 	zest_uint total_sprites_to_draw;
 	zest_uint sprite_data_offset;
+};
+
+struct mouse_t {
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+};
+
+struct RenderCacheInfo {
+	bool draw_imgui;
+	bool draw_timeline_fx;
 };
 
 struct tfxPrerecordedExample {
@@ -37,6 +58,12 @@ struct tfxPrerecordedExample {
 	//We also need to store some additional emitter property data such as the sprite handle which is looked up by the 
 	//compute shader each frame
 	zest_buffer emitter_properties_buffer;
+
+	//We also need indexes for the descriptor array in the shader:
+	tfxU32 image_data_index;
+	tfxU32 sprite_data_index;
+	tfxU32 emitter_properties_index;
+
 	//This example we are building pre-recording the effects from an effects library as apposed to just loading in a
 	//sprite data file that has all the effects and sprite data pre-built. Therefore if we want bounding boxed for the 
 	//effects we will need to calculate those after recording the effects (this is optional). With the bounding boxes
@@ -56,20 +83,18 @@ struct tfxPrerecordedExample {
 	zest_imgui_t imgui;
 	tfx_gpu_shapes gpu_image_data;
 	zest_timer_t timer;
-	zest_camera_t camera;
 
 	zest_layer_handle mesh_layer;			//To draw the floor plain
 	zest_pipeline_template mesh_pipeline;
 	zest_atlas_region_t floor_image;
-	zest_image_handle floor_texture;
 	zest_sampler_handle sampler;
 	zest_uint sampler_index;
 	tfx_random_t random;
 
-	double mouse_x, mouse_y;
-	double mouse_delta_x, mouse_delta_y;
+	mouse_t mouse;
+	zest_vec3 old_camera_position;
+	zest_vec3 new_camera_position;
 
-	//Indexes for the compute shader pipeline_templates
 	zest_compute_handle compute_pipeline_3d;
 	zest_compute_handle bb_compute_pipeline_3d;
 
@@ -90,7 +115,7 @@ void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example);
 void UploadBuffers(tfxPrerecordedExample *example);
 void UpdateUniform3d(tfxPrerecordedExample *game);
 void Update(zest_microsecs elapsed, void *data);
-void BuildUI(tfxPrerecordedExample *example);
+void BuildUI(tfxPrerecordedExample *example, zest_uint fps);
 bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data);
 tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position);
 

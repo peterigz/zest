@@ -140,10 +140,9 @@ void zest_tfx_FreeLibraryImages(tfx_render_resources_t *resources) {
 	zest_FreeImageCollection(&resources->color_ramps_collection);
 }
 
-void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_library library) {
+void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes) {
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
-	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_device device = zest_GetContextDevice(context);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);

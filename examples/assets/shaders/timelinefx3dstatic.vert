@@ -1,6 +1,7 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 //This is an all in one billboard vertex shader which can handle both free align and align to camera.
-//If you have an effect with multiple emitters using both align methods then you can use this shader to 
+//If you have an effect with multiple emitters using both align methods then you can use this shader to
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
 //using the shaders that only handle whatever you need for the effect.
 
@@ -11,40 +12,43 @@ const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 const vec3 up = vec3( 0, 1, 0.00001 );
 const vec3 front = vec3( 0, 0, 1 );
 const vec3 left = vec3( 1, 0, 0 );
-const float size_max_value = 256.0 / 32767.0;
+const float size_max_value = 64.0 / 32767.0;
 const float handle_max_value = 128.0 / 32767.0;
 const float intensity_max_value = 128.0 / 32767.0;
 
 struct ImageData {
 	vec4 uv;
-	uvec2 uv_packed;
+	vec2 padding;
 	vec2 image_size;
 	uint texture_array_index;
 	float animation_frames;
 	float max_radius;
 };
 
-layout(set = 0, binding = 0) uniform UboView
+layout(binding = 7) uniform UboView
 {
     mat4 view;
     mat4 proj;
-    vec4 lerp;
-    vec4 parameters2;
-    vec2 res;
-    uint millisecs;
-} ub;
+    vec2 screen_size;
+	uint millisecs;
+    float timer_lerp;
+    float update_time;
+} ub[];
 
-layout(set = 1, binding = 0) readonly buffer InImageData {
-	ImageData image_data[];
-};
+layout(std430, binding = 5) readonly buffer InImageData {
+	ImageData data[];
+}in_image_data[];
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
+    vec4 offset;
+	uint particle_texture_index;
+	uint color_ramp_texture_index;
+	uint image_data_index;
+	uint sampler_index;
+	uint prev_billboards_index;
+	uint index_offset;
+	uint uniform_index;
 } pc;
 
 //Vertex
@@ -52,64 +56,84 @@ layout(push_constant) uniform quad_index
 
 //Instance
 layout(location = 0) in vec4 position;
-layout(location = 1) in vec3 rotations;
-layout(location = 2) in vec3 alignment;
-layout(location = 3) in vec4 size_handle;
-layout(location = 4) in vec2 intensity_life;
-layout(location = 5) in vec2 curved_alpha;
+layout(location = 1) in vec4 in_quaternion;
+layout(location = 2) in vec4 size_handle;
+layout(location = 3) in vec3 alignment;
+layout(location = 4) in vec2 intensity_gradient_map;
+layout(location = 5) in vec3 curved_alpha_life;
 layout(location = 6) in uint texture_indexes;
 layout(location = 7) in uint captured_index;
 
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out ivec3 out_texture_indexes;
-layout(location = 2) out vec3 out_intensity_curved_alpha;
+layout(location = 2) out vec4 out_intensity_curved_alpha_map;
 
-mat3 RotationMatrix(vec3 axis, float angle)
-{
-    axis = normalize(axis);
-    float s = sin(angle);
-    float c = cos(angle);
-    float oc = 1.0 - c;
-    return mat3(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s,
-        oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,
-        oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c);
+mat3 QuaternionToRotationMatrix(vec4 q) {
+    float xx = q.x * q.x; float xy = q.x * q.y; float xz = q.x * q.z; float xw = q.x * q.w;
+    float yy = q.y * q.y; float yz = q.y * q.z; float yw = q.y * q.w;
+    float zz = q.z * q.z; float zw = q.z * q.w;
+    mat3 m;
+    m[0][0] = 1.0 - 2.0 * (yy + zz); m[0][1] = 2.0 * (xy + zw);       m[0][2] = 2.0 * (xz - yw);
+    m[1][0] = 2.0 * (xy - zw);       m[1][1] = 1.0 - 2.0 * (xx + zz); m[1][2] = 2.0 * (yz + xw);
+    m[2][0] = 2.0 * (xz + yw);       m[2][1] = 2.0 * (yz - xw);       m[2][2] = 1.0 - 2.0 * (xx + yy);
+    return m;
 }
 
 void main() {
     vec2 size = size_handle.xy * size_max_value;
     vec2 handle = size_handle.zw * handle_max_value;
+    vec4 quaternion = normalize(in_quaternion);
 
     //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
 
-    //Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
+    //Billboarding determines whether the quad will align to the camera or not. 0 means that it will
     //align to the camera. This value is determined by the first bit: 01
-    float billboarding = float((texture_indexes & uint(0x2000)) >> 13);
+    bool billboarding = (texture_indexes & uint(0x2000)) > 0;
 
     //align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
     //no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
     //will be set: 11.
-    float align_type = float((texture_indexes & uint(0x6000)) == 0x6000);
+    bool align_type = (texture_indexes & uint(0x6000)) == 0x6000;
 
     //vector_align is set to 1 when we want the billboard to align to the camera and the vector
     //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
     //bit is the only bit set if this is the case: 10
-    float vector_align = float((texture_indexes & uint(0x6000)) == 0x4000);
+    bool vector_align = (texture_indexes & uint(0x6000)) == 0x4000;
 
-    //vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
-    vec3 alignment_up_cross = normalize(cross(alignment, up));
+    int index = indexes[gl_VertexIndex];
 
-    vec2 uvs[4];
-	uint image_index = texture_indexes & 0x00001FFF;
-	vec4 uv = image_data[image_index].uv;
-    uvs[0].x = uv.x; uvs[0].y = uv.y;
-    uvs[1].x = uv.z; uvs[1].y = uv.y;
-    uvs[2].x = uv.x; uvs[2].y = uv.w;
-    uvs[3].x = uv.z; uvs[3].y = uv.w;
+    mat3 final_rot_mat;
+    mat3 base_spin_mat = QuaternionToRotationMatrix(quaternion);
 
-    vec3 camera_relative_aligment = alignment * inverse(mat3(ub.view));
-    float dp_up = dot(camera_relative_aligment.xy, -up.xy);
-    float det = camera_relative_aligment.x * -up.y;
-    float dp_angle = vector_align * atan(-det, -dp_up) + rotations.z;
+    //align_type = true
+    //------------------------
+	vec3 normal = normalize(alignment);
+	vec3 tangent = normalize(cross(up, normal));
+	if (length(tangent) < 0.001) {
+		tangent = normalize(cross(vec3(1.0, 0.0, 0.0), normal));
+	}
+	vec3 bitangent = normalize(cross(normal, tangent));
+	mat3 align_mat = mat3(tangent, bitangent, normal);
+    //------------------------
+
+	//align to camera and vector
+    //------------------------
+	vec3 camera_relative_alignment = alignment * inverse(mat3(ub[pc.uniform_index].view));
+	vec2 align_xy = normalize(camera_relative_alignment.xy + vec2(0.00001));
+	vec2 view_up_xy = vec2(0, 1);
+
+	float c_vec = dot(align_xy, view_up_xy);
+	float s_vec = align_xy.x * view_up_xy.y - align_xy.y * view_up_xy.x;
+
+	float final_c_roll = c_vec;
+	float final_s_roll = s_vec;
+
+	mat3 vector_align_roll_mat = mat3(final_c_roll,  final_s_roll, 0.0,
+									  -final_s_roll, final_c_roll, 0.0,
+									   0.0,          0.0,           1.0);
+
+	final_rot_mat = align_type ? align_mat * base_spin_mat : base_spin_mat;
+	//------------------------
 
     const vec3 identity_bounds[4] = vec3[4](
         vec3( size.x * (0 - handle.x), -size.y * (0 - handle.y), 0),
@@ -118,52 +142,37 @@ void main() {
         vec3( size.x * (1 - handle.x), -size.y * (1 - handle.y), 0)
     );
 
-    vec3 bounds[4];
-    bounds[0] = align_type == 1 ? ((-size.y * alignment * (0 - handle.y)) + (size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
-    bounds[1] = align_type == 1 ? ((-size.y * alignment * (0 - handle.y)) + (size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
-    bounds[2] = align_type == 1 ? ((-size.y * alignment * (1 - handle.y)) + (size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
-    bounds[3] = align_type == 1 ? ((-size.y * alignment * (1 - handle.y)) + (size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
-
-    int index = indexes[gl_VertexIndex];
-
-    vec3 vertex_position = bounds[index];
-
-    vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[2] - bounds[0]);
-    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
-    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations.x * billboarding);
-    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations.y * billboarding);
+    vec3 pos = final_rot_mat * identity_bounds[index];
 
     mat4 model = mat4(1.0);
-    model[3][0] = position.x + pc.parameters1.x;
-    model[3][1] = position.y + pc.parameters1.y;
-    model[3][2] = position.z + pc.parameters1.z;
+    model[3].xyz = position.xyz + pc.offset.xyz;
 
-    mat3 rot_mat = matrix_pitch * matrix_yaw * matrix_roll;
+	mat4 modelView = ub[pc.uniform_index].view * model;
 
-    mat4 modelView = ub.view * model;
-    vec3 pos = rot_mat * vertex_position;
     //Stretch effect but negate if billboarding is not active
-    pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * position.w * (1 - billboarding);
-    pos += alignment * dot(pos, alignment) * position.w * billboarding;
+    pos += !billboarding ? camera_relative_alignment * dot(pos, camera_relative_alignment) * position.w : vec3(0);
+    pos += billboarding ? alignment * dot(pos, alignment) * position.w : vec3(0);
 
-    //Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera, 
+    //Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera,
     //otherwise the modelView matrix is used as it is.
-    modelView[0][0] = (billboarding * modelView[0][0]) + 1 * (1 - billboarding);
-    modelView[0][1] = (billboarding * modelView[0][1]);
-    modelView[0][2] = (billboarding * modelView[0][2]);
-    modelView[1][0] = (billboarding * modelView[1][0]);
-    modelView[1][1] = (billboarding * modelView[1][1]) + 1 * (1 - billboarding);
-    modelView[1][2] = (billboarding * modelView[1][2]);
-    modelView[2][0] = (billboarding * modelView[2][0]);
-    modelView[2][1] = (billboarding * modelView[2][1]);
-    modelView[2][2] = (billboarding * modelView[2][2]) + 1 * (1 - billboarding);
+    modelView[0].xyz = !billboarding ? vec3(1, 0, 0) : modelView[0].xyz;
+    modelView[1].xyz = !billboarding ? vec3(0, 1, 0) : modelView[1].xyz;
+    modelView[2].xyz = !billboarding ? vec3(0, 0, 1) : modelView[2].xyz;
+
+    vec2 uvs[4];
+	uint image_index = texture_indexes & 0x00001FFF;
+	vec4 uv = in_image_data[pc.image_data_index].data[image_index].uv;
+    uvs[0] = uv.xy;
+    uvs[1] = uv.zy;
+    uvs[2] = uv.xw;
+    uvs[3] = uv.zw;
 
     vec4 p = modelView * vec4(pos, 1.0);
-    gl_Position = ub.proj * p;
+	gl_Position = ub[pc.uniform_index].proj * p;
 
     //----------------
-	int life = int(intensity_life.y * intensity_max_value * 255);
+	int life = int(curved_alpha_life.z * 255);
 	out_texture_indexes = ivec3((texture_indexes & 0xFF000000) >> 24, (texture_indexes & 0x00FF0000) >> 16, life);
-	out_tex_coord = vec3(uvs[index], image_data[image_index].texture_array_index);
-	out_intensity_curved_alpha = vec3(intensity_life.x * intensity_max_value, curved_alpha.x, curved_alpha.y);
+	out_tex_coord = vec3(uvs[index], in_image_data[pc.image_data_index].data[image_index].texture_array_index);
+	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
 }

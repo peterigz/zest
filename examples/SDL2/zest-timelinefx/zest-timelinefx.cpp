@@ -101,7 +101,7 @@ void TimelineFXExample::Init() {
 	tfx_UpdateLibraryGPUImageData(library);
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
+	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, tfx_GetLibraryGPUShapes(library));
 
 	/*
 	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call tfx_CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
@@ -277,8 +277,8 @@ void MainLoop(TimelineFXExample *game) {
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&game->imgui, game->imgui.main_viewport); {
 						if (imgui_pass) {
 							zest_ConnectSwapChainOutput();
+							zest_EndPass();
 						}
-						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
 

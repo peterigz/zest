@@ -141,7 +141,7 @@ function(buildExample EXAMPLE_NAME)
 
     if(${EXAMPLE_NAME} STREQUAL "zest-timelinefx-c")
         set_target_properties(${EXAMPLE_NAME} PROPERTIES
-            C_STANDARD 11  # or whatever C standard you want to use
+            C_STANDARD 11  
             C_STANDARD_REQUIRED ON
             LINKER_LANGUAGE C
         )
@@ -160,7 +160,7 @@ function(buildExample EXAMPLE_NAME)
 	target_link_libraries(${EXAMPLE_NAME} freetype)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include)
 
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)
@@ -183,6 +183,7 @@ set(EXAMPLES
 	zest-tests
 	zest-vaders
 	zest-timelinefx
+	zest-timelinefx-prerecorded-effects
 	zest-ribbons
 	zest-implot
 	zest-pbr-deferred
