@@ -370,7 +370,7 @@ void VadersGame::Init() {
 	tfx_UpdateLibraryGPUImageData(library);
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
+	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, tfx_GetLibraryGPUShapes(library));
 
 	tfxU32 layer_max_values[tfxLAYERS];
 	memset(layer_max_values, 0, 16);
