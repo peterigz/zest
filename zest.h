@@ -13755,6 +13755,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
         } else {
             resource->current_state_index = 0;
         }
+		memset(resource->bindless_index, 0xFF, sizeof(zest_uint) * zest_max_global_binding_number);
 	}
 
 	zest_vec_foreach(i, frame_graph->deferred_image_destruction) {
