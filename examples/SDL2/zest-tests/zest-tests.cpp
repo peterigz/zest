@@ -92,20 +92,7 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
-	RegisterTest(tests, { "Single Pass", test__single_pass, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
-	RegisterTest(tests, { "Blank Screen", test__blank_screen, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pass Culling", test__pass_culling, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Culling", test__resource_culling, 0, ZEST_MAX_FIF, 0, 1, tests->simple_create_info });
-	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Timeline Wait External", test__timeline_wait_external, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Timeline Timeout", test__timeline_timeout, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Immediate Execute Cached", test__immediate_execute_cached, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Mipmap Chain", test__compute_mipmap_chain, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Multiple Timeline Signals", test__multiple_timeline_signals, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);

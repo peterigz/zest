@@ -122,7 +122,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	// Final validation
 	test->result = zest_GetValidationErrorCount(tests->context);
 	test->result |= resources_freed == 9 ? 0 : 1;
-	test->result |= image_count == 2 ? 0 : 1;	//Is is just the default images in the device
+	test->result |= image_count == 3 ? 0 : 1;	//There are 3 images in the device by default
 	test->frame_count++; 
 	return test->result;
 }

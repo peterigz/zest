@@ -151,7 +151,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		int phase_total = 0;
 		int phase_passed = 0;
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+		if (zest_BeginCommandGraph(tests->context, "Blank Screen", 0)) {
 			zest_resource_node output_a = zest_AddTransientBufferResource("Output A", &buffer_info);
 
 			zest_ConnectOutput(output_a);
@@ -177,7 +177,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		int phase_total = 0;
 		int phase_passed = 0;
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+		if (zest_BeginCommandGraph(tests->context, "Blank Screen", 0)) {
 			zest_ImportSwapchainResource();
 			zest_BeginRenderPass("Draw Nothing"); {
 				zest_SetPassTask(zest_EmptyRenderPass, 0);
@@ -239,7 +239,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		int phase_total = 0;
 		int phase_passed = 0;
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+		if (zest_BeginCommandGraph(tests->context, "Blank Screen", 0)) {
 			zest_BeginRenderPass("Draw Nothing"); {
 				zest_SetPassTask(zest_EmptyRenderPass, 0);
 				zest_ConnectInput((zest_resource_node)&phase_total);
