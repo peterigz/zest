@@ -323,7 +323,7 @@ void VadersGame::Init() {
 	particle_ds_index = 0;
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	sampler_handle = zest_CreateSampler(context, &sampler_info);
+	sampler_handle = zest_CreateSampler(device, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(sampler_handle);
 	sampler_index = zest_AcquireSamplerIndex(device, sampler);
 

@@ -30,7 +30,7 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     zest_CopyBitmapToImage(device, pixels, upload_size, font_image, width, height);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    imgui->font_sampler = zest_CreateSampler(context, &sampler_info);
+    imgui->font_sampler = zest_CreateSampler(device, &sampler_info);
 	zest_sampler font_sampler = zest_GetSampler(imgui->font_sampler);
     imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
     imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(device, font_sampler);

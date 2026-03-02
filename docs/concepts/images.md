@@ -88,7 +88,7 @@ Samplers define how textures are filtered and addressed.
 
 ```cpp
 zest_sampler_info_t info = zest_CreateSamplerInfo();
-zest_sampler_handle sampler = zest_CreateSampler(context, &info);
+zest_sampler_handle sampler = zest_CreateSampler(device, &info);
 ```
 
 ### Sampler Options

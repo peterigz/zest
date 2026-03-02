@@ -182,8 +182,8 @@ int main(int argc, char *argv[]) {
 	//Initialise Zest
 	tests.context = zest_CreateContext(tests.device, &window_data, &create_info);
 
-	//InitialiseTests(&tests);
-	InitialiseSpecificTests(&tests);
+	InitialiseTests(&tests);
+	//InitialiseSpecificTests(&tests);
 
 	RunTests(&tests);
 	

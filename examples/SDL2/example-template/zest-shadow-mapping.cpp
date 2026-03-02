@@ -44,7 +44,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 
 	//Compile the shaders we will use to render the particles
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 

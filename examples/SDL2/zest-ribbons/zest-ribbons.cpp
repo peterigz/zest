@@ -90,7 +90,7 @@ void InitImGuiApp(Ribbons *app) {
 
 	// Create sampler and load ribbon texture
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	app->sampler = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler = zest_CreateSampler(app->device, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(app->sampler);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, sampler);
 

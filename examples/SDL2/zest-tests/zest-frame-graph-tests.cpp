@@ -494,7 +494,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 	TestPushConstants push;
 
 	if (!tests->sampler.value) {
-		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
+		tests->sampler = zest_CreateSampler(tests->device, &tests->sampler_info);
 		zest_sampler sampler = zest_GetSampler(tests->sampler);
 		tests->sampler_index = zest_AcquireSamplerIndex(tests->device, sampler);
 	}
@@ -652,7 +652,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 	TestPushConstants push;
 
 	if (!tests->sampler.value) {
-		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
+		tests->sampler = zest_CreateSampler(tests->device, &tests->sampler_info);
 		zest_sampler sampler = zest_GetSampler(tests->sampler);
 		tests->sampler_index = zest_AcquireSamplerIndex(tests->device, sampler);
 	}

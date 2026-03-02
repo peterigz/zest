@@ -71,7 +71,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//LoadSprite(app, "examples/assets/wabbit_alpha.png");
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    zest_sampler_handle sampler_handle = zest_CreateSampler(app->context, &sampler_info);
+    zest_sampler_handle sampler_handle = zest_CreateSampler(app->device, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(sampler_handle);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, sampler);
 

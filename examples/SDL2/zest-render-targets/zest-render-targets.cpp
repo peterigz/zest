@@ -13,7 +13,7 @@ void InitExample(render_target_app_t *example) {
 
 	//Create a sampler for texture sampling in shaders
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	example->sampler = zest_CreateSampler(example->context, &sampler_info);
+	example->sampler = zest_CreateSampler(example->device, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(example->sampler);
 	example->sampler_index = zest_AcquireSamplerIndex(example->device, sampler);
 

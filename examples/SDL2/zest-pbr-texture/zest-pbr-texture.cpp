@@ -63,7 +63,7 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 	app->sampler_2d_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 

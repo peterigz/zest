@@ -66,9 +66,9 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 
 	//Create samplers - one for textures (mirror repeat) and one for shadow map sampling (default/clamp)
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfoMirrorRepeat();
-	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 	sampler_info = zest_CreateSamplerInfo();
-	app->shadow_sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->shadow_sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 	zest_sampler shadow_sampler_2d = zest_GetSampler(app->shadow_sampler_2d);

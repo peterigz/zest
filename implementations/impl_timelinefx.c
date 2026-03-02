@@ -122,7 +122,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_render_res
 	zest_AcquireInstanceLayerBufferIndex(device, zest_GetLayer(resources->layer));
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	resources->sampler = zest_CreateSampler(context, &sampler_info);
+	resources->sampler = zest_CreateSampler(device, &sampler_info);
 	zest_sampler sampler = zest_GetSampler(resources->sampler);
 	resources->sampler_index = zest_AcquireSamplerIndex(device, sampler);
 

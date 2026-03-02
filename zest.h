@@ -43,6 +43,7 @@
         [App_initialise_and_run_functions]
 		[Enum_to_string_functions]
 		[Internal_render_graph_functions]
+		[Debug_overlay_functions]
 
     --API functions
     [Essential_setup_functions]         Functions for initialising Zest
@@ -1985,6 +1986,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_critical_error = 1 << 13,
 	zest_context_flag_frame_started = 1 << 14,
 	zest_context_flag_headless = 1 << 15,
+	zest_context_flag_debug_overlay_enabled = 1 << 16,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -2017,6 +2019,7 @@ typedef enum zest_context_init_flag_bits {
 	zest_context_init_flag_maximised = 1 << 1,
 	zest_context_init_flag_enable_vsync = 1 << 2,
 	zest_context_init_flag_headless = 1 << 3,
+	zest_context_init_flag_debug_overlay = 1 << 4,
 } zest_context_init_flag_bits;
 
 typedef zest_uint zest_context_init_flags;
@@ -2286,7 +2289,7 @@ typedef enum zest_frame_graph_flag_bits {
 	zest_frame_graph_is_executed = 1 << 2,
 	zest_frame_graph_present_after_execute = 1 << 3,
 	zest_frame_graph_is_cached = 1 << 4,
-	zest_frame_graph_is_command_graph = 1 << 5,	//For one off frame graphs that can be flushed immediately
+	zest_frame_graph_is_command_graph = 1 << 5,		//For one off frame graphs that can be flushed immediately
 } zest_frame_graph_flag_bits;
 
 typedef zest_uint zest_frame_graph_flags;
@@ -3616,7 +3619,7 @@ typedef struct zest_create_context_info_t {
 	zest_millisecs semaphore_wait_timeout_ms;           //The amount of time the main loop fence should wait before timing out
 	zest_millisecs max_semaphore_timeout_ms;            //The maximum amount of time to wait before giving up
 	zest_format color_format;                   		//The format to use for the swapchain
-	zest_context_init_flags flags;                              //Set flags to apply different initialisation options
+	zest_context_init_flags flags;                      //Set flags to apply different initialisation options
 	zest_platform_type platform;
 	zest_size memory_pool_size;
 } zest_create_context_info_t;
@@ -3975,6 +3978,19 @@ typedef struct zest_ImDrawVert_t {
 	zest_uint col;
 } zest_ImDrawVert_t;
 
+typedef struct zest_db_push_constants_t {
+	zest_vec4 transform;
+	zest_uint font_index;
+	zest_uint sampler_index;
+} zest_db_push_constants_t;
+
+typedef struct zest_db_overlay_vert_t {
+	zest_vec2 pos;
+	zest_vec2 uv;
+	zest_uint col;
+	zest_uint character_index;
+} zest_db_overlay_vert_t;
+
 typedef struct zest_layer_buffers_t {
 	union {
 		zest_buffer staging_vertex_data;
@@ -4096,6 +4112,8 @@ typedef struct zest_platform_t {
 	zest_sample_count_flags	   (*get_msaa_sample_count)(zest_context context);
 	zest_bool 				   (*initialise_swapchain)(zest_context context);
 	zest_bool				   (*initialise_context_queue_backend)(zest_context context, zest_context_queue context_queue);
+	zest_shader_handle		   (*get_db_overlay_vertex_shader)(zest_device device);
+	zest_shader_handle		   (*get_db_overlay_fragment_shader)(zest_device device);
 	//Device/OS
 	void                  	   (*wait_for_idle_device)(zest_device device);
 	zest_bool 				   (*initialise_device)(zest_device device);
@@ -4121,7 +4139,7 @@ typedef struct zest_platform_t {
 	void*					   (*new_submission_batch_backend)(zest_context context);
 	void*					   (*new_set_layout_backend)(zloc_allocator *allocator);
 	void*					   (*new_descriptor_pool_backend)(zloc_allocator *allocator);
-	void*					   (*new_sampler_backend)(zest_context context);
+	void*					   (*new_sampler_backend)(zest_device device);
 	void*					   (*new_context_queue_backend)(zest_context context);
 	//Cleanup backends
 	void                       (*cleanup_frame_graph_semaphore)(zest_context context, zest_frame_graph_semaphores semaphores);
@@ -4387,6 +4405,7 @@ ZEST_PRIVATE zest_bool zest__initialise_vulkan_device(zest_device device, zest_d
 ZEST_PRIVATE zest_bool zest__is_vulkan_device(zest_device device); 
 ZEST_PRIVATE void zest__create_default_images(zest_device device, zest_device_builder builder);
 ZEST_PRIVATE void zest__initialise_debug_font(zest_device device);
+ZEST_PRIVATE void zest__cleanup_debug_font(zest_device device);
 //end device setup functions
 
 //App_initialise_and_run_functions
@@ -4442,6 +4461,11 @@ ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_grap
 ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
 // --- End Internal_render_graph_functions ---
+
+// --- Debug_overlay_functions ---
+ZEST_PRIVATE void zest__draw_debug_overlay(const zest_command_list command_list);
+ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, float x, float y);
+// --- End Debug_overlay_functions ---
 
 //User API functions
 
@@ -5084,7 +5108,7 @@ ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint
 // --Sampler_functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
 //then a new one will be created.
-ZEST_API zest_sampler_handle zest_CreateSampler(zest_context context, zest_sampler_info_t *info);
+ZEST_API zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *info);
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfo();
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfoRepeat();
 ZEST_API zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat();
@@ -5410,6 +5434,7 @@ ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *alloca
 ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
+ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
 //--End Debug Helpers
 
 //Helper functions for executing commands on the GPU immediately
@@ -6278,10 +6303,24 @@ typedef struct zest_device_t {
 
 	//Debug font
 	zest_image_handle debug_font_image;
+	zest_sampler_handle debug_font_sampler;
+	zest_db_push_constants_t debug_push;
 
 	//Callbacks
 	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
 } zest_device_t;
+
+typedef struct zest_db_overlay_t {
+    zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
+    zest_buffer index_staging_buffer[ZEST_MAX_FIF];
+	zest_pipeline_template pipeline;
+	zest_shader_handle vertex_shader;
+	zest_shader_handle fragment_shader;
+	zest_db_overlay_vert_t *vertices;
+	zest_uint *indices;
+	zest_uint vertex_count;
+	zest_uint index_count;
+} zest_db_overlay_t;
 
 typedef struct zest_context_t {
 	int magic;
@@ -6345,6 +6384,9 @@ typedef struct zest_context_t {
  
 	//Flags
 	zest_context_flags flags;
+
+	//Debug rendering
+	zest_db_overlay_t db_overlay;
 
 	void *user_data;
 	zest_device_t *device;
@@ -6566,6 +6608,7 @@ typedef struct zest_sampler_t {
 	zest_sampler_handle handle;
 	zest_sampler_backend backend;
 	zest_sampler_info_t create_info;
+	zest_uint descriptor_index;
 } zest_sampler_t;
 
 typedef struct zest_image_t {
@@ -8114,6 +8157,14 @@ void zest__initialise_debug_font(zest_device device) {
 	zloc_Free(device->allocator, pixels);
 
 	zest__activate_resource(device->debug_font_image.store, device->debug_font_image.value);
+	device->debug_push.font_index = zest_AcquireSampledImageIndex(device, zest_GetImage(device->debug_font_image), zest_texture_array_binding);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	device->debug_font_sampler = zest_CreateSampler(device, &sampler_info);
+	device->debug_push.sampler_index = zest_AcquireSamplerIndex(device, zest_GetSampler(device->debug_font_sampler));
+}
+
+void zest__cleanup_debug_font(zest_device device) {
+	zest_FreeImageNow(device->debug_font_image);
 }
 
 zest_bool zest__is_vulkan_device(zest_device device) {
@@ -8299,6 +8350,7 @@ void zest_DestroyContext(zest_context context) {
 }
 
 void zest_ResetDevice(zest_device device) {
+	zest__cleanup_debug_font(device);
     zest__cleanup_buffers_in_allocators(device);
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
 	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
@@ -9615,7 +9667,32 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		ZEST_ASSERT(result, "Unable to allocate a frame graph allocator, out of memory.");
 		zloc_SetLinearAllocatorUserData(&context->frame_graph_allocator[fif], context);
 		zest__initialise_timeline(context->device, &context->frame_timeline[fif]);
+
+		if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_debug_overlay)) {
+			context->db_overlay.index_staging_buffer[fif] = zest_CreateStagingBuffer(device, zloc__MEGABYTE(2), 0);
+			context->db_overlay.vertex_staging_buffer[fif] = zest_CreateStagingBuffer(device, zloc__MEGABYTE(4), 0);
+		}
     }
+
+	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_debug_overlay)) {
+		ZEST__FLAG(context->flags, zest_context_flag_debug_overlay_enabled);
+		context->db_overlay.vertex_shader = device->platform->get_db_overlay_vertex_shader(device);
+		context->db_overlay.fragment_shader = device->platform->get_db_overlay_fragment_shader(device);
+		zest_pipeline_template db_pipeline = zest_CreatePipelineTemplate(device, "Debug Overlay Pipeline");
+		zest_AddVertexInputBindingDescription(db_pipeline, 0, sizeof(zest_db_overlay_vert_t), zest_input_rate_vertex);
+		zest_AddVertexAttribute(db_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_db_overlay_vert_t, pos));    // Location 0: Position
+		zest_AddVertexAttribute(db_pipeline, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_db_overlay_vert_t, uv));    // Location 1: UV
+		zest_AddVertexAttribute(db_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_db_overlay_vert_t, col));    // Location 2: Color
+		zest_AddVertexAttribute(db_pipeline, 0, 3, zest_format_r32_uint, offsetof(zest_db_overlay_vert_t, character_index));    // Location 2: Color
+		zest_SetPipelineLayout(db_pipeline, device->pipeline_layout);
+		zest_SetPipelineShaders(db_pipeline, context->db_overlay.vertex_shader, context->db_overlay.fragment_shader);
+		zest_SetPipelineFrontFace(db_pipeline, zest_front_face_counter_clockwise);
+		zest_SetPipelineCullMode(db_pipeline, zest_cull_mode_none);
+		zest_SetPipelineTopology(db_pipeline, zest_topology_triangle_list);
+		zest_SetPipelineBlend(db_pipeline, zest_ImGuiBlendState());
+		zest_SetPipelineDepthTest(db_pipeline, ZEST_FALSE, ZEST_FALSE);
+		context->db_overlay.pipeline = db_pipeline;
+	}
 
     ZEST_APPEND_LOG(context->device->log_path.str, "Finished zest initialisation");
 
@@ -10187,6 +10264,8 @@ void zest__cleanup_context(zest_context context) {
     zest_map_free(context->allocator, context->cached_frame_graph_semaphores);
     zest_map_free(context->allocator, context->cached_frame_graphs);
     zest_map_free(context->allocator, context->buffer_allocators);
+	zest_vec_free(context->allocator, context->db_overlay.vertices);
+	zest_vec_free(context->allocator, context->db_overlay.indices);
 
 	context->device->platform->cleanup_context_backend(context);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->allocator)));
@@ -11848,15 +11927,14 @@ void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, z
     }
 }
 
-zest_sampler_handle zest_CreateSampler(zest_context context, zest_sampler_info_t *info) {
-	zest_device device = context->device;
+zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *info) {
 	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_samplers];
 	zest_sampler_handle sampler_handle = ZEST_STRUCT_LITERAL(zest_sampler_handle, zest__add_store_resource(store), store );
 	sampler_handle.store = store;
     zest_sampler sampler = (zest_sampler)zest__get_store_resource_unsafe(store, sampler_handle.value);
     sampler->magic = zest_INIT_MAGIC(zest_struct_type_sampler);
     sampler->create_info = *info;
-    sampler->backend = (zest_sampler_backend)context->device->platform->new_sampler_backend(context);
+    sampler->backend = (zest_sampler_backend)device->platform->new_sampler_backend(device);
     sampler->handle = sampler_handle;
 
     if (device->platform->create_sampler(sampler)) {
@@ -13872,6 +13950,10 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                     pass->execution_callback.callback(&frame_graph->command_list, pass->execution_callback.user_data);
                 }
 
+				if (context->db_overlay.vertex_count > 0 && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+					zest__draw_debug_overlay(&frame_graph->command_list);
+				}
+
                 zest_map_foreach(pass_input_index, grouped_pass->inputs) {
                     zest_resource_node resource = grouped_pass->inputs.data[pass_input_index].resource_node;
                     if (resource->aliased_resource) {
@@ -14418,6 +14500,7 @@ zest_uint zest_AcquireStorageImageIndex(zest_device device, zest_image image, ze
 zest_uint zest_AcquireSamplerIndex(zest_device device, zest_sampler sampler) {
 	ZEST_ASSERT_HANDLE(sampler);			//Not a valid sampler handle
     zest_uint index = zest__acquire_bindless_sampler_index(device, sampler, device->bindless_set_layout, device->bindless_set, zest_sampler_binding);
+	sampler->descriptor_index = index;
     return index;
 }
 
@@ -17404,6 +17487,93 @@ void zest__cleanup_compute(zest_compute compute) {
 //--End Compute shaders
 
 //-- Start debug helpers
+void zest__draw_debug_overlay(const zest_command_list command_list) {
+	//This gets called from zest__execute_frame_graph if overlay->vertex_count > 0. So all the user
+	//has to do is call zest_DrawDebugText or zest_DrawDebugRect and it will trigger the overlay.
+	//Make the drawcall for the debug overlay
+	zest_db_overlay_t *overlay = &command_list->context->db_overlay;
+	zest_context context = command_list->context;
+	zest_device device = context->device;
+	zest_uint fif = context->current_fif;
+
+	//Copy vertex and index data into staging buffers for the current frame in flight
+	zest_size vertex_data_size = overlay->vertex_count * sizeof(zest_db_overlay_vert_t);
+	zest_size index_data_size = overlay->index_count * sizeof(zest_uint);
+	memcpy(zest_BufferData(overlay->vertex_staging_buffer[fif]), overlay->vertices, vertex_data_size);
+	memcpy(zest_BufferData(overlay->index_staging_buffer[fif]), overlay->indices, index_data_size);
+
+	//Set up push constants with the screen space to NDC transform
+	zest_db_push_constants_t push = device->debug_push;
+	float width = (float)context->window_extent.width;
+	float height = (float)context->window_extent.height;
+	push.transform.x = 2.0f / width;
+	push.transform.y = 2.0f / height;
+	push.transform.z = -1.0f;
+	push.transform.w = -1.0f;
+
+	//Bind the overlay pipeline, vertex and index buffers then make the indexed draw call
+	zest_pipeline pipeline = zest_GetPipeline(overlay->pipeline, command_list);
+	if (pipeline) {
+		zest_cmd_BindPipeline(command_list, pipeline);
+		zest_cmd_BindVertexBuffer(command_list, 0, 1, overlay->vertex_staging_buffer[fif]);
+		zest_cmd_BindIndexBuffer(command_list, overlay->index_staging_buffer[fif]);
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(zest_db_push_constants_t));
+		zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+		zest_cmd_DrawIndexed(command_list, overlay->index_count, 1, 0, 0, 0);
+	}
+
+	//After the drawcall, reset the counts for next frame
+	overlay->vertex_count = 0;
+	overlay->index_count = 0;
+	zest_vec_clear(overlay->vertices);
+	zest_vec_clear(overlay->indices);
+}
+
+void zest__draw_debug_text(zest_context context, const char* text, float x, float y, zest_uint color) {
+	zest_db_overlay_t *overlay = &context->db_overlay;
+	zloc_allocator *allocator = context->allocator;
+	float char_width = 8.0f;
+	float char_height = 8.0f;
+	float cursor_x = x;
+	float cursor_y = y;
+
+	for (const char *c = text; *c; c++) {
+		if (*c == '\n') {
+			cursor_x = x;
+			cursor_y += char_height;
+			continue;
+		}
+
+		unsigned char ch = (unsigned char)*c;
+		if (ch < 32 || ch > 127) ch = '?';
+		zest_uint character_index = ch - 32;
+
+		zest_uint base_vertex = overlay->vertex_count;
+
+		//Push 4 vertices for the character quad (top-left, top-right, bottom-right, bottom-left)
+		zest_db_overlay_vert_t v0 = { {cursor_x, cursor_y}, {1.0f, 0.0f}, color, character_index };
+		zest_db_overlay_vert_t v1 = { {cursor_x + char_width, cursor_y}, {0.0f, 0.0f}, color, character_index };
+		zest_db_overlay_vert_t v2 = { {cursor_x + char_width, cursor_y + char_height}, {0.0f, 1.0f}, color, character_index };
+		zest_db_overlay_vert_t v3 = { {cursor_x, cursor_y + char_height}, {1.0f, 1.0f}, color, character_index };
+		zest_vec_push(allocator, overlay->vertices, v0);
+		zest_vec_push(allocator, overlay->vertices, v1);
+		zest_vec_push(allocator, overlay->vertices, v2);
+		zest_vec_push(allocator, overlay->vertices, v3);
+
+		//Push 6 indices for two triangles (0,1,2) and (2,3,0)
+		zest_vec_push(allocator, overlay->indices, base_vertex + 0);
+		zest_vec_push(allocator, overlay->indices, base_vertex + 1);
+		zest_vec_push(allocator, overlay->indices, base_vertex + 2);
+		zest_vec_push(allocator, overlay->indices, base_vertex + 2);
+		zest_vec_push(allocator, overlay->indices, base_vertex + 3);
+		zest_vec_push(allocator, overlay->indices, base_vertex + 0);
+
+		overlay->vertex_count += 4;
+		overlay->index_count += 6;
+		cursor_x += char_width;
+	}
+}
+
 void zest_OutputMemoryUsage(zest_context context) {
     printf("Host Memory Pools\n");
     zest_size total_host_memory = 0;
@@ -17658,6 +17828,56 @@ void zest_ResetValidationErrors(zest_device device) {
         zest_FreeText(device->allocator, &device->validation_errors.data[i]);
     }
     zest_map_free(device->allocator, device->validation_errors);
+}
+
+void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) {
+		return;
+	}
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    return zest__draw_debug_text(context, buffer, x, y, color);
+}
+
+void zest_DrawDebugRect(zest_context context, float x, float y, float width, float height, zest_uint color) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) {
+		return;
+	}
+	//This function should draw a simple rect, using the final character in zest_debug_font so the sampled
+	//uv coords will be a solid color.
+	zest_db_overlay_t *overlay = &context->db_overlay;
+	zloc_allocator *allocator = context->allocator;
+
+	//Use the last character (index 95, ASCII 127 DEL) which should be a solid block
+	zest_uint character_index = 95;
+	zest_uint base_vertex = overlay->vertex_count;
+
+	//Push 4 vertices for the rect quad
+	zest_db_overlay_vert_t v0 = { {x, y}, {0.0f, 0.0f}, color, character_index };
+	zest_db_overlay_vert_t v1 = { {x + width, y}, {1.0f, 0.0f}, color, character_index };
+	zest_db_overlay_vert_t v2 = { {x + width, y + height}, {1.0f, 1.0f}, color, character_index };
+	zest_db_overlay_vert_t v3 = { {x, y + height}, {0.0f, 1.0f}, color, character_index };
+	zest_vec_push(allocator, overlay->vertices, v0);
+	zest_vec_push(allocator, overlay->vertices, v1);
+	zest_vec_push(allocator, overlay->vertices, v2);
+	zest_vec_push(allocator, overlay->vertices, v3);
+
+	//Push 6 indices for two triangles
+	zest_vec_push(allocator, overlay->indices, base_vertex + 0);
+	zest_vec_push(allocator, overlay->indices, base_vertex + 1);
+	zest_vec_push(allocator, overlay->indices, base_vertex + 2);
+	zest_vec_push(allocator, overlay->indices, base_vertex + 2);
+	zest_vec_push(allocator, overlay->indices, base_vertex + 3);
+	zest_vec_push(allocator, overlay->indices, base_vertex + 0);
+
+	overlay->vertex_count += 4;
+	overlay->index_count += 6;
 }
 
 zest_bool zest_SetErrorLogPath(zest_device device, const char* path) {

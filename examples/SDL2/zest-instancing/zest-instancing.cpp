@@ -70,7 +70,7 @@ void InitInstancingExample(InstancingExample *app) {
 	sampler_info.address_mode_u = zest_sampler_address_mode_repeat;
 	sampler_info.address_mode_v = zest_sampler_address_mode_repeat;
 	sampler_info.address_mode_w = zest_sampler_address_mode_repeat;
-	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 	// Bindless: acquire descriptor index for use in shaders via push constants
 	app->push.sampler_index = zest_AcquireSamplerIndex(app->device, sampler_2d);

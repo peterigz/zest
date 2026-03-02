@@ -3,6 +3,7 @@
 
 /*
 Zest Vulkan Implementation
+	-- [Shader_code]
     -- [Backend_structs]
     -- [Other_setup_structs]
 	-- [Error_logging]
@@ -46,6 +47,73 @@ Zest Vulkan Implementation
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// -- [Shader_code]
+//For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
+#define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
+
+//----------------------
+//Debug overlay vert shader
+//----------------------
+static const char *zest_shader_db_overlay_vert = ZEST_GLSL(450,
+
+layout(push_constant) uniform imgui_push
+{
+	vec4 transform;
+	uint font_index;
+	uint sampler_index;
+} pc;
+
+layout(location = 0) in vec2 in_position;
+layout(location = 1) in vec2 in_tex_coord;
+layout(location = 2) in vec4 in_color;
+layout(location = 3) in uint in_character_index;
+
+layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec2 out_uv;
+layout(location = 2) out flat float out_layer;
+
+void main() {
+
+	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);
+
+	out_uv = in_tex_coord;
+	out_layer = float(in_character_index);
+	out_color = in_color;
+}
+
+);
+
+//----------------------
+//Debug overlay fragment shader
+//----------------------
+static const char *zest_shader_db_overlay_frag = ZEST_GLSL(450,
+
+layout(location = 0) in vec4 in_color;
+layout(location = 1) in vec2 in_uv;
+layout(location = 2) in flat float in_layer;
+
+layout(location = 0) out vec4 out_color;
+layout(set = 0, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 1) uniform texture2D textures[];
+layout(set = 0, binding = 3) uniform texture2DArray texture_arrays[];
+
+layout(push_constant) uniform imgui_push
+{
+	vec4 transform;
+	uint texture_index;
+	uint sampler_index;
+} pc;
+
+void main()
+{
+	float alpha = texture(sampler2DArray(texture_arrays[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), vec3(in_uv, in_layer)).r;
+	out_color = vec4(in_color.rgb, in_color.a * alpha);
+}
+
+);
+
+// -- End Shader_code
 
 ZEST_API VkInstance zest_GetVKInstance(zest_context context);
 ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks(zest_context context);
@@ -193,7 +261,7 @@ ZEST_PRIVATE void *zest__vk_new_swapchain_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
 ZEST_PRIVATE void *zest__vk_new_set_layout_backend(zloc_allocator *allocator);
 ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(zloc_allocator *allocator);
-ZEST_PRIVATE void *zest__vk_new_sampler_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_sampler_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_queue_backend(zest_device device, zest_uint family_index);
 ZEST_PRIVATE void *zest__vk_new_context_queue_backend(zest_context device);
 ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zest_context context);
@@ -232,6 +300,9 @@ ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_initialise_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_swapchain(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context context, zest_context_queue queue);
+ZEST_PRIVATE zest_shader_handle	zest__vk_get_db_overlay_vertex_shader(zest_device device);
+ZEST_PRIVATE zest_shader_handle	zest__vk_get_db_overlay_fragment_shader(zest_device device);
+
 ZEST_PRIVATE zest_bool zest__vk_create_instance(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_create_logical_device(zest_device device);
 ZEST_PRIVATE void zest__vk_set_limit_data(zest_device device);
@@ -525,6 +596,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->get_msaa_sample_count						    = zest__vk_get_msaa_sample_count;
     platform->initialise_swapchain						    = zest__vk_initialise_swapchain;
     platform->initialise_context_queue_backend			    = zest__vk_initialise_context_queue_backend;
+    platform->get_db_overlay_vertex_shader			    	= zest__vk_get_db_overlay_vertex_shader;
+    platform->get_db_overlay_fragment_shader			    = zest__vk_get_db_overlay_fragment_shader;
 
 	platform->wait_for_idle_device                          = zest__vk_wait_for_idle_device;
 	platform->initialise_device                      	    = zest__vk_initialise_device;
@@ -1289,6 +1362,16 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context co
     ZEST_APPEND_LOG(context->device->log_path.str, "Create context queue command buffer pools");
 
     return ZEST_TRUE;
+}
+
+zest_shader_handle zest__vk_get_db_overlay_vertex_shader(zest_device device) {
+	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_vert, zest_vertex_shader, "DB Overlay Vertex", ZEST_TRUE);
+	return shader;
+}
+
+zest_shader_handle zest__vk_get_db_overlay_fragment_shader(zest_device device) {
+	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_frag, zest_fragment_shader, "DB Overlay fragment", ZEST_TRUE);
+	return shader;
 }
 
 // -- Swapchain_presenting
@@ -2150,8 +2233,8 @@ void *zest__vk_new_descriptor_pool_backend(zloc_allocator *allocator) {
     return backend;
 }
 
-void *zest__vk_new_sampler_backend(zest_context context) {
-    zest_sampler_backend backend = (zest_sampler_backend)ZEST__NEW(context->device->allocator, zest_sampler_backend);
+void *zest__vk_new_sampler_backend(zest_device device) {
+    zest_sampler_backend backend = (zest_sampler_backend)ZEST__NEW(device->allocator, zest_sampler_backend);
     *backend = ZEST__ZERO_INIT(zest_sampler_backend_t);
     return backend;
 }

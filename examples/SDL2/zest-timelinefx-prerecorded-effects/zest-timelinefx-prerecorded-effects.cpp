@@ -136,7 +136,7 @@ void InitExample(tfxPrerecordedExample *example) {
 	example->tfx_rendering.particle_images = zest_tfx_CreateImageCollection(32);
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
-	example->sampler = zest_CreateSampler(example->context, &sampler);
+	example->sampler = zest_CreateSampler(example->device, &sampler);
 	example->sampler_index = zest_AcquireSamplerIndex(example->device, zest_GetSampler(example->sampler));
 
 	int width, height, channels;

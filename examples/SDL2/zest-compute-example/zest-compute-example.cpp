@@ -69,7 +69,7 @@ void InitComputeExample(ComputeExample *app) {
     sampler_info.compare_op = zest_compare_op_never;
 	sampler_info.border_color = zest_border_color_float_opaque_white;
 	//Create the sampler using the sampler_info.
-	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
+	app->particle_sampler = zest_CreateSampler(app->device, &sampler_info);
 	//And we also need a sampler index for the sampler as well so that we can look it up in the shader.
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, zest_GetSampler(app->particle_sampler));
 

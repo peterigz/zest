@@ -248,13 +248,13 @@ All variants default to linear filtering with linear mipmap interpolation.
 Creates a sampler with the specified configuration.
 
 ```cpp
-zest_sampler_handle zest_CreateSampler(zest_context context, zest_sampler_info_t *info);
+zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *info);
 ```
 
 **Example:**
 ```cpp
 zest_sampler_info_t info = zest_CreateSamplerInfoRepeat();
-zest_sampler_handle sampler_handle = zest_CreateSampler(context, &info);
+zest_sampler_handle sampler_handle = zest_CreateSampler(device, &info);
 zest_sampler sampler = zest_GetSampler(sampler_handle);
 ```
 
@@ -427,7 +427,7 @@ zest_uint texture_index = zest_AcquireSampledImageIndex(device, image, zest_text
 
 // Create a sampler
 zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-zest_sampler_handle sampler_handle = zest_CreateSampler(context, &sampler_info);
+zest_sampler_handle sampler_handle = zest_CreateSampler(device, &sampler_info);
 zest_sampler sampler = zest_GetSampler(sampler_handle);
 zest_uint sampler_index = zest_AcquireSamplerIndex(device, sampler);
 

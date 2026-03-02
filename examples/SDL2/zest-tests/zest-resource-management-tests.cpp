@@ -1370,7 +1370,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 	// Phase 1: Basic creation with default settings
 	{
 		zest_sampler_info_t info = zest_CreateSamplerInfo();
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 		if (sampler.value != 0) {
 			zest_sampler s = zest_GetSampler(sampler);
 			if (s) {
@@ -1407,7 +1407,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		info.mag_filter = filter_tests[i].mag;
 		info.min_filter = filter_tests[i].min;
 
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 		if (sampler.value != 0) {
 			passed_tests++;
 			zest_FreeSamplerNow(sampler);
@@ -1430,7 +1430,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		info.address_mode_v = address_modes[i];
 		info.address_mode_w = address_modes[i];
 
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 		if (sampler.value != 0) {
 			passed_tests++;
 			zest_FreeSamplerNow(sampler);
@@ -1444,7 +1444,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		zest_sampler_info_t info_nearest = zest_CreateSamplerInfo();
 		info_nearest.mipmap_mode = zest_mipmap_mode_nearest;
 
-		zest_sampler_handle sampler_nearest = zest_CreateSampler(tests->context, &info_nearest);
+		zest_sampler_handle sampler_nearest = zest_CreateSampler(tests->device, &info_nearest);
 		if (sampler_nearest.value != 0) {
 			passed_tests++;
 			zest_FreeSamplerNow(sampler_nearest);
@@ -1455,7 +1455,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		zest_sampler_info_t info_linear = zest_CreateSamplerInfo();
 		info_linear.mipmap_mode = zest_mipmap_mode_linear;
 
-		zest_sampler_handle sampler_linear = zest_CreateSampler(tests->context, &info_linear);
+		zest_sampler_handle sampler_linear = zest_CreateSampler(tests->device, &info_linear);
 		if (sampler_linear.value != 0) {
 			passed_tests++;
 			zest_FreeSamplerNow(sampler_linear);
@@ -1472,7 +1472,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 			info.anisotropy_enable = ZEST_TRUE;
 			info.max_anisotropy = aniso_levels[i];
 
-			zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+			zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 			if (sampler.value != 0) {
 				passed_tests++;
 				zest_FreeSamplerNow(sampler);
@@ -1499,7 +1499,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 			info.compare_enable = ZEST_TRUE;
 			info.compare_op = compare_ops[i];
 
-			zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+			zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 			if (sampler.value != 0) {
 				passed_tests++;
 				zest_FreeSamplerNow(sampler);
@@ -1525,7 +1525,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 			info.address_mode_v = zest_sampler_address_mode_clamp_to_border;
 			info.border_color = border_colors[i];
 
-			zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+			zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 			if (sampler.value != 0) {
 				passed_tests++;
 				zest_FreeSamplerNow(sampler);
@@ -1544,7 +1544,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		info.mip_lod_bias = 0.5f; // mipLodBias not supported on Metal/MoltenVK
 #endif
 
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 		if (sampler.value != 0) {
 			zest_sampler s = zest_GetSampler(sampler);
 #if defined(__APPLE__)
@@ -1573,7 +1573,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 			info.mag_filter = (i % 2 == 0) ? zest_filter_nearest : zest_filter_linear;
 			info.min_filter = (i % 2 == 0) ? zest_filter_linear : zest_filter_nearest;
 
-			multi_samplers[i] = zest_CreateSampler(tests->context, &info);
+			multi_samplers[i] = zest_CreateSampler(tests->device, &info);
 			if (multi_samplers[i].value != 0) {
 				created++;
 			}
@@ -1593,7 +1593,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 	// Phase 10: Descriptor index acquisition
 	{
 		zest_sampler_info_t info = zest_CreateSamplerInfo();
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 
 		if (sampler.value != 0) {
 			zest_sampler s = zest_GetSampler(sampler);
@@ -1630,7 +1630,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 		info.mip_lod_bias = -0.5f; // mipLodBias not supported on Metal/MoltenVK
 #endif
 
-		zest_sampler_handle sampler = zest_CreateSampler(tests->context, &info);
+		zest_sampler_handle sampler = zest_CreateSampler(tests->device, &info);
 		if (sampler.value != 0) {
 			passed_tests++;
 			zest_FreeSamplerNow(sampler);

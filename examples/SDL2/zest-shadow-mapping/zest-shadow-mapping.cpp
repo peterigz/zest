@@ -61,7 +61,7 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 
 	//Create sampler for shadow map sampling
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
 	zest_sampler sampler_2d = zest_GetSampler(app->sampler_2d);
 	app->scene_push.sampler_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 
