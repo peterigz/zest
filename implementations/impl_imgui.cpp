@@ -799,6 +799,302 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 	ImGui::End();
 }
 
+// -- CPU profiling ImGui helpers --
+
+static ImVec4 zest__imgui_cpu_variance_bar_color(zest_cpu_profile_smoothed_t *s) {
+	double stddev = sqrt(s->variance);
+	double cv = s->smoothed_us > 0.001 ? stddev / s->smoothed_us : 0.0;
+	if (cv > 1.0) cv = 1.0;
+	float t = (float)cv;
+	float alpha = s->depth > 1 ? 0.6f : 0.85f;
+
+	// Teal/cyan base color for CPU profiling
+	float base_r = 0.27f, base_g = 0.67f, base_b = 0.80f;
+	float hot_r = 1.0f, hot_g = 0.27f, hot_b = 0.13f;
+	return ImVec4(
+		base_r * (1.0f - t) + hot_r * t,
+		base_g * (1.0f - t) + hot_g * t,
+		base_b * (1.0f - t) + hot_b * t,
+		alpha
+	);
+}
+
+static void zest__imgui_draw_cpu_profile_time_and_bar(zest_cpu_profile_smoothed_t *s, double max_time, float bar_max_width) {
+	ImGui::TableNextColumn();
+	if (s->smoothed_us >= 1000.0) {
+		ImGui::Text("%7.2f ms", s->smoothed_us / 1000.0);
+	} else {
+		ImGui::Text("%7.1f us", s->smoothed_us);
+	}
+
+	ImGui::TableNextColumn();
+	float bar_width = (float)(s->smoothed_us / max_time) * bar_max_width;
+	if (bar_width < 2.0f) bar_width = 2.0f;
+
+	ImVec4 bar_color = zest__imgui_cpu_variance_bar_color(s);
+
+	ImVec2 cursor = ImGui::GetCursorScreenPos();
+	float row_height = ImGui::GetTextLineHeight();
+	ImGui::GetWindowDrawList()->AddRectFilled(
+		cursor,
+		ImVec2(cursor.x + bar_width, cursor.y + row_height),
+		ImGui::ColorConvertFloat4ToU32(bar_color)
+	);
+	ImGui::Dummy(ImVec2(bar_max_width, row_height));
+}
+
+static bool zest__imgui_cpu_pass_has_children(zest_cpu_profile_smoothed_t *results, zest_uint result_count, zest_uint i) {
+	return (i + 1 < result_count && results[i + 1].depth > results[i].depth);
+}
+
+static void zest__imgui_draw_cpu_profile_tree(zest_cpu_profile_smoothed_t *results, zest_uint result_count, zest_uint *index, zest_uint parent_depth, double max_time, float bar_max_width) {
+	while (*index < result_count && results[*index].depth > parent_depth) {
+		zest_cpu_profile_smoothed_t *s = &results[*index];
+		zest_uint current_depth = s->depth;
+		const char *name = s->name[0] ? s->name : "???";
+		bool has_children = (*index + 1 < result_count && results[*index + 1].depth > current_depth);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+
+		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+		if (!has_children) {
+			flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+		}
+
+		bool open = ImGui::TreeNodeEx((void*)(intptr_t)(*index + 0x10000), flags, "%s", name);
+
+		zest__imgui_draw_cpu_profile_time_and_bar(s, max_time, bar_max_width);
+
+		(*index)++;
+
+		if (has_children) {
+			if (open) {
+				zest__imgui_draw_cpu_profile_tree(results, result_count, index, current_depth, max_time, bar_max_width);
+				ImGui::TreePop();
+			} else {
+				while (*index < result_count && results[*index].depth > current_depth) {
+					(*index)++;
+				}
+			}
+		}
+	}
+}
+
+void zest_imgui_DrawCPUProfileWindow(zest_context context) {
+	zest_uint result_count = 0;
+	zest_cpu_profile_smoothed_t *results = zest_GetCPUProfileSmoothedResults(context, &result_count);
+
+	if (!ImGui::Begin("CPU Profile", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::End();
+		return;
+	}
+
+	if (result_count == 0) {
+		ImGui::TextDisabled("No profiling data");
+		ImGui::End();
+		return;
+	}
+
+	double max_time = 0.001;
+	for (zest_uint i = 0; i < result_count; ++i) {
+		if (results[i].smoothed_us > max_time) {
+			max_time = results[i].smoothed_us;
+		}
+	}
+
+	double total_time = zest_GetCPUProfileSmoothedTotalTime(context);
+	if (total_time >= 1000.0) {
+		ImGui::Text("Total: %.2f ms", total_time / 1000.0);
+	} else {
+		ImGui::Text("Total: %.1f us", total_time);
+	}
+	ImGui::Separator();
+
+	float bar_max_width = 120.0f;
+
+	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+	if (ImGui::BeginTable("cpu_profile", 3, table_flags)) {
+		ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
+		ImGui::TableHeadersRow();
+
+		zest_uint i = 0;
+		while (i < result_count) {
+			zest_cpu_profile_smoothed_t *s = &results[i];
+			const char *name = s->name[0] ? s->name : "???";
+			bool has_children = zest__imgui_cpu_pass_has_children(results, result_count, i);
+
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+
+			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+			if (!has_children) {
+				flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+			}
+
+			bool open = ImGui::TreeNodeEx((void*)(intptr_t)(i + 0x10000), flags, "%s", name);
+
+			zest__imgui_draw_cpu_profile_time_and_bar(s, max_time, bar_max_width);
+
+			i++;
+
+			if (has_children) {
+				if (open) {
+					zest__imgui_draw_cpu_profile_tree(results, result_count, &i, s->depth, max_time, bar_max_width);
+					ImGui::TreePop();
+				} else {
+					while (i < result_count && results[i].depth > s->depth) {
+						i++;
+					}
+				}
+			}
+		}
+
+		ImGui::EndTable();
+	}
+
+	ImGui::End();
+}
+
+void zest_imgui_DrawProfileWindow(zest_context context) {
+	if (!ImGui::Begin("Profile", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::End();
+		return;
+	}
+
+	float bar_max_width = 120.0f;
+
+	// GPU section
+	zest_uint gpu_count = 0;
+	zest_gpu_profile_smoothed_t *gpu_results = zest_GetGPUProfileSmoothedResults(context, &gpu_count);
+	if (gpu_count > 0) {
+		double gpu_total = zest_GetGPUProfileSmoothedTotalTime(context);
+		if (gpu_total >= 1000.0) {
+			ImGui::TextColored(ImVec4(0.80f, 0.53f, 0.27f, 1.0f), "GPU - Total: %.2f ms", gpu_total / 1000.0);
+		} else {
+			ImGui::TextColored(ImVec4(0.80f, 0.53f, 0.27f, 1.0f), "GPU - Total: %.1f us", gpu_total);
+		}
+
+		double gpu_max_time = 0.001;
+		for (zest_uint i = 0; i < gpu_count; ++i) {
+			if (gpu_results[i].smoothed_us > gpu_max_time) {
+				gpu_max_time = gpu_results[i].smoothed_us;
+			}
+		}
+
+		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+		if (ImGui::BeginTable("gpu_profile_combined", 3, table_flags)) {
+			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
+			ImGui::TableHeadersRow();
+
+			zest_uint i = 0;
+			while (i < gpu_count) {
+				zest_gpu_profile_smoothed_t *s = &gpu_results[i];
+				const char *name = s->name[0] ? s->name : "???";
+				bool has_children = zest__imgui_pass_has_children(gpu_results, gpu_count, i);
+
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+
+				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+				if (!has_children) {
+					flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+				}
+
+				bool open = ImGui::TreeNodeEx((void*)(intptr_t)i, flags, "%s", name);
+				zest__imgui_draw_profile_time_and_bar(s, gpu_max_time, bar_max_width);
+
+				i++;
+
+				if (has_children) {
+					if (open) {
+						zest__imgui_draw_profile_tree(gpu_results, gpu_count, &i, s->depth, gpu_max_time, bar_max_width);
+						ImGui::TreePop();
+					} else {
+						while (i < gpu_count && gpu_results[i].depth > s->depth) {
+							i++;
+						}
+					}
+				}
+			}
+
+			ImGui::EndTable();
+		}
+	}
+
+	// CPU section
+	zest_uint cpu_count = 0;
+	zest_cpu_profile_smoothed_t *cpu_results = zest_GetCPUProfileSmoothedResults(context, &cpu_count);
+	if (cpu_count > 0) {
+		if (gpu_count > 0) ImGui::Spacing();
+
+		double cpu_total = zest_GetCPUProfileSmoothedTotalTime(context);
+		if (cpu_total >= 1000.0) {
+			ImGui::TextColored(ImVec4(0.27f, 0.67f, 0.80f, 1.0f), "CPU - Total: %.2f ms", cpu_total / 1000.0);
+		} else {
+			ImGui::TextColored(ImVec4(0.27f, 0.67f, 0.80f, 1.0f), "CPU - Total: %.1f us", cpu_total);
+		}
+
+		double cpu_max_time = 0.001;
+		for (zest_uint i = 0; i < cpu_count; ++i) {
+			if (cpu_results[i].smoothed_us > cpu_max_time) {
+				cpu_max_time = cpu_results[i].smoothed_us;
+			}
+		}
+
+		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+		if (ImGui::BeginTable("cpu_profile_combined", 3, table_flags)) {
+			ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
+			ImGui::TableHeadersRow();
+
+			zest_uint i = 0;
+			while (i < cpu_count) {
+				zest_cpu_profile_smoothed_t *s = &cpu_results[i];
+				const char *name = s->name[0] ? s->name : "???";
+				bool has_children = zest__imgui_cpu_pass_has_children(cpu_results, cpu_count, i);
+
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+
+				ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+				if (!has_children) {
+					flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+				}
+
+				bool open = ImGui::TreeNodeEx((void*)(intptr_t)(i + 0x10000), flags, "%s", name);
+				zest__imgui_draw_cpu_profile_time_and_bar(s, cpu_max_time, bar_max_width);
+
+				i++;
+
+				if (has_children) {
+					if (open) {
+						zest__imgui_draw_cpu_profile_tree(cpu_results, cpu_count, &i, s->depth, cpu_max_time, bar_max_width);
+						ImGui::TreePop();
+					} else {
+						while (i < cpu_count && cpu_results[i].depth > s->depth) {
+							i++;
+						}
+					}
+				}
+			}
+
+			ImGui::EndTable();
+		}
+	}
+
+	if (gpu_count == 0 && cpu_count == 0) {
+		ImGui::TextDisabled("No profiling data");
+	}
+
+	ImGui::End();
+}
+
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	ImGui::DestroyContext();
 	zest_FreeImage(imgui->font_texture);

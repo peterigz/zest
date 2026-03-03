@@ -269,7 +269,9 @@ void Mainloop(render_target_app_t *example) {
 			//Build the frame graph for the bloom pipeline:
 			//  Upload font data -> Render text to HDR target -> Downsample -> Upsample -> Composite to swapchain
 			zest_SetSwapchainClearColor(example->context, 0.f, .1f, .2f, 1.f);
+			ZEST_CPU_PROFILE_BEGIN(example->context, "Get Cached Graph");
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(example->context, &cache_key);
+			ZEST_CPU_PROFILE_END(example->context);
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(example->context, "Bloom Example Render Graph", &cache_key)) {
 
@@ -348,8 +350,11 @@ void Mainloop(render_target_app_t *example) {
 
 int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	/*
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
+	*/
 
 	//Create a window using SDL2 before device creation (needed for Vulkan extensions)
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Render Targets");

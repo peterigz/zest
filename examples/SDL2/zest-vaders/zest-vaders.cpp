@@ -974,6 +974,8 @@ void BuildUI(VadersGame *game) {
 			game->request_graph_print = 1;
 		}
 		ImGui::End();
+		zest_imgui_DrawGPUProfileWindow(game->context);
+		zest_imgui_DrawCPUProfileWindow(game->context);
 	//}
 
 	ImGui::Render();
@@ -1374,6 +1376,8 @@ void MainLoop(VadersGame *game) {
 int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
 	VadersGame game = { 0 };
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));

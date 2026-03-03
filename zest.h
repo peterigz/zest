@@ -1988,6 +1988,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_headless = 1 << 15,
 	zest_context_flag_debug_overlay_enabled = 1 << 16,
 	zest_context_flag_gpu_profiling_enabled = 1 << 17,
+	zest_context_flag_cpu_profiling_enabled = 1 << 18,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -2022,6 +2023,7 @@ typedef enum zest_context_init_flag_bits {
 	zest_context_init_flag_headless = 1 << 3,
 	zest_context_init_flag_debug_overlay = 1 << 4,
 	zest_context_init_flag_gpu_profiling = 1 << 5,
+	zest_context_init_flag_cpu_profiling = 1 << 6,
 } zest_context_init_flag_bits;
 
 typedef zest_uint zest_context_init_flags;
@@ -3771,6 +3773,66 @@ typedef struct zest_gpu_profiler_s {
 	void *backend;
 } zest_gpu_profiler_t;
 
+//cpu_profiling_types
+
+#ifndef ZEST_MAX_CPU_PROFILE_ENTRIES
+#define ZEST_MAX_CPU_PROFILE_ENTRIES 256
+#endif
+
+#ifndef ZEST_MAX_CPU_PROFILE_STACK_DEPTH
+#define ZEST_MAX_CPU_PROFILE_STACK_DEPTH 16
+#endif
+
+#ifndef ZEST_CPU_PROFILE_NAME_LENGTH
+#define ZEST_CPU_PROFILE_NAME_LENGTH 64
+#endif
+
+#ifndef ZEST_CPU_PROFILE_SMOOTHING_ALPHA
+#define ZEST_CPU_PROFILE_SMOOTHING_ALPHA 0.1f
+#endif
+
+typedef struct zest_cpu_profile_result_s {
+	char name[ZEST_CPU_PROFILE_NAME_LENGTH];
+	double microseconds;
+	zest_uint depth;
+} zest_cpu_profile_result_t;
+
+typedef struct zest_cpu_profile_smoothed_s {
+	char name[ZEST_CPU_PROFILE_NAME_LENGTH];
+	double smoothed_us;
+	double variance;
+	zest_uint depth;
+	zest_bool active;
+} zest_cpu_profile_smoothed_t;
+
+typedef struct zest_cpu_profiler_s {
+	// Per-frame recording (no FIF needed - CPU results are immediate)
+	zest_cpu_profile_result_t *entries;
+	zest_uint entry_count;
+	zest_uint max_entries;
+
+	// Timing stack
+	zest_microsecs start_times[ZEST_MAX_CPU_PROFILE_STACK_DEPTH];
+	zest_uint stack_entry_indices[ZEST_MAX_CPU_PROFILE_STACK_DEPTH];
+	zest_uint stack_depth;
+
+	// Results from previous frame (for display)
+	zest_cpu_profile_result_t *results;
+	zest_uint result_count;
+	double total_microseconds;
+
+	// Smoothed with variance
+	zest_cpu_profile_smoothed_t *smoothed;
+	zest_uint smoothed_count;
+	double smoothed_total_us;
+	float smoothing_alpha;
+
+	// Frame timing
+	zest_microsecs frame_start_us;
+
+	zest_bool enabled;
+} zest_cpu_profiler_t;
+
 //frame_graph_types
 
 typedef void (*zest_fg_execution_callback)(const zest_command_list command_list, void *user_data);
@@ -4539,6 +4601,10 @@ ZEST_PRIVATE void zest__init_gpu_profiler(zest_context context);
 ZEST_PRIVATE void zest__cleanup_gpu_profiler(zest_context context);
 ZEST_PRIVATE void zest__gpu_profiler_begin_frame(zest_context context);
 ZEST_PRIVATE void zest__draw_gpu_profile_overlay(zest_context context);
+ZEST_PRIVATE void zest__init_cpu_profiler(zest_context context);
+ZEST_PRIVATE void zest__cleanup_cpu_profiler(zest_context context);
+ZEST_PRIVATE void zest__cpu_profiler_begin_frame(zest_context context);
+ZEST_PRIVATE void zest__draw_cpu_profile_overlay(zest_context context);
 ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, float x, float y);
 // --- End Debug_overlay_functions ---
 
@@ -5521,6 +5587,24 @@ ZEST_API double zest_GetGPUProfileSmoothedTotalTime(zest_context context);
 ZEST_API void zest_SetGPUProfileSmoothingAlpha(zest_context context, float alpha);
 ZEST_API void zest_EnableGPUProfiling(zest_context context, zest_bool enabled);
 ZEST_API void zest_EnableDebugOverlay(zest_context context, zest_bool enabled);
+
+//--CPU Profiling
+ZEST_API void zest_BeginCPUProfile(zest_context context, const char *format, ...);
+ZEST_API void zest_EndCPUProfile(zest_context context);
+ZEST_API zest_cpu_profile_result_t* zest_GetCPUProfileResults(zest_context context, zest_uint *count);
+ZEST_API zest_cpu_profile_smoothed_t* zest_GetCPUProfileSmoothedResults(zest_context context, zest_uint *count);
+ZEST_API double zest_GetCPUProfileTotalTime(zest_context context);
+ZEST_API double zest_GetCPUProfileSmoothedTotalTime(zest_context context);
+ZEST_API void zest_SetCPUProfileSmoothingAlpha(zest_context context, float alpha);
+ZEST_API void zest_EnableCPUProfiling(zest_context context, zest_bool enabled);
+
+#ifdef ZEST_DISABLE_CPU_PROFILING
+	#define ZEST_CPU_PROFILE_BEGIN(context, name, ...)  ((void)0)
+	#define ZEST_CPU_PROFILE_END(context)               ((void)0)
+#else
+	#define ZEST_CPU_PROFILE_BEGIN(context, name, ...)  zest_BeginCPUProfile(context, name, ##__VA_ARGS__)
+	#define ZEST_CPU_PROFILE_END(context)               zest_EndCPUProfile(context)
+#endif
 //--End Debug Helpers
 
 //Helper functions for executing commands on the GPU immediately
@@ -6477,6 +6561,9 @@ typedef struct zest_context_t {
 	//GPU profiling
 	zest_gpu_profiler_t gpu_profiler;
 
+	//CPU profiling
+	zest_cpu_profiler_t cpu_profiler;
+
 	void *user_data;
 	zest_device_t *device;
 	zest_uint device_frame_counter;
@@ -6615,9 +6702,6 @@ typedef struct zest_frame_graph_t {
 	zest_command_list_t command_list;
 	zest_key cache_key;
 	zest_size cached_size;
-
-	zest_microsecs compile_time;
-	zest_microsecs execute_time;
 
 	zest_uint timestamp_count;
 	zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
@@ -8288,6 +8372,7 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 }
 
 zest_bool zest_BeginFrame(zest_context context) {
+	ZEST_CPU_PROFILE_BEGIN(context, "Begin Frame");
 	ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(context->flags, zest_context_flag_headless), context->device,
 							"zest_BeginFrame cannot be used with a headless context. Use zest_BeginCommandGraph instead.",
 							ZEST_FALSE);
@@ -8298,15 +8383,19 @@ zest_bool zest_BeginFrame(zest_context context) {
 							"zest_UpdateDevice was not called this frame. Make sure you call it at least once each frame before calling zest_BeginFrame.",
 							ZEST_FALSE);
 	context->device_frame_counter = context->device->frame_counter;
+	ZEST_CPU_PROFILE_BEGIN(context, "Semaphore Wait");
 	zest_semaphore_status semaphore_wait_result = zest__main_loop_semaphore_wait(context);
 	if (semaphore_wait_result == zest_semaphore_status_success) {
+		ZEST_CPU_PROFILE_END(context);	//Semaphore wait
 	} else if (semaphore_wait_result == zest_semaphore_status_timeout) {
 		ZEST_ALERT("Fence wait timed out.");
 		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
+		ZEST_CPU_PROFILE_END(context);	//Semaphore wait
 		return ZEST_FALSE;
 	} else {
 		ZEST_ALERT("Critical error when waiting for the main loop fence.");
 		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
+		ZEST_CPU_PROFILE_END(context);	//Semaphore wait
 		return ZEST_FALSE;
 	}
 
@@ -8334,9 +8423,14 @@ zest_bool zest_BeginFrame(zest_context context) {
 	}
 
 	zest__do_context_scheduled_tasks(context);
+	ZEST_CPU_PROFILE_END(context);
 
 	if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
 		zest__gpu_profiler_begin_frame(context);
+	}
+
+	if (ZEST__FLAGGED(context->flags, zest_context_flag_cpu_profiling_enabled)) {
+		zest__cpu_profiler_begin_frame(context);
 	}
 
 	if (!context->device->platform->acquire_swapchain_image(context->swapchain)) {
@@ -8352,6 +8446,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 }
 
 void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
+	ZEST_CPU_PROFILE_BEGIN(context, "End Frame");
 	ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(context->flags, zest_context_flag_headless), context->device,
 							"zest_EndFrame cannot be used with a headless context. Use zest_FlushFrameGraph instead.",
 							(void)0);
@@ -8366,8 +8461,8 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 		if (frame_graph->error_status != zest_fgs_success) {
 			ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
 		} else {
+			zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
 			if (!zest__frame_graph_builder) {
-				zest_frame_graph_builder_t builder = ZEST__ZERO_INIT(zest_frame_graph_builder_t);
 				zest__frame_graph_builder = &builder;
 				zest__frame_graph_builder->allocator = &context->frame_graph_allocator[context->current_fif];
 				zest__frame_graph_builder->context = context;
@@ -8382,8 +8477,11 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
         ZEST_REPORT(context->device, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. \n\nIt could just be that you have a condition (like if imgui doesn't return a pass because it has nothing to render yet), in which case this can be ignored.");
     }
 
+	ZEST_CPU_PROFILE_BEGIN(context, "Cleanup Frame Graph");
 	zest__cleanup_frame_graph_builder();
+	ZEST_CPU_PROFILE_END(context);
 	
+	ZEST_CPU_PROFILE_BEGIN(context, "Present Frame");
 	if (ZEST_VALID_HANDLE(context->swapchain, zest_struct_type_swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
 		zest_context_queue present_queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
 		zest_bool presented = context->device->platform->present_frame(context, present_queue);
@@ -8392,6 +8490,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 			zest_FlushCachedFrameGraphs(context);
 		}
 	}
+	ZEST_CPU_PROFILE_END(context);
 
 	//Cover some cases where a frame graph wasn't created or it was but there was nothing to render etc., to make sure
 	//that the fence is always signalled and another frame can happen
@@ -8408,6 +8507,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	}
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
+	ZEST_CPU_PROFILE_BEGIN(context, "Release Queues");
 	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
 		zest_context_queue context_queue = context->queues[i];
 		if (context_queue->queue) {
@@ -8422,6 +8522,8 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 			}
 		}
 	}
+	ZEST_CPU_PROFILE_END(context);  //Release Queues
+	ZEST_CPU_PROFILE_END(context);	//End Frame
 }
 
 void zest_DestroyDevice(zest_device device) {
@@ -8620,6 +8722,7 @@ int zest_UpdateDevice(zest_device device) {
 }
 
 void zest__do_context_scheduled_tasks(zest_context context) {
+	ZEST_CPU_PROFILE_BEGIN(context, "Frame Cleanup");
     if (zest_vec_size(context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif])) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif]) {
             zest_binding_index_for_release_t index = context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif][i];
@@ -8657,6 +8760,7 @@ void zest__do_context_scheduled_tasks(zest_context context) {
     }
 
 	zest_FlushUsedBuffers(context, context->current_fif);
+	ZEST_CPU_PROFILE_END(context);
 }
 
 zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context) {
@@ -9775,6 +9879,13 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		}
 	}
 
+	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_cpu_profiling)) {
+		zest__init_cpu_profiler(context);
+		if (context->cpu_profiler.enabled) {
+			ZEST__FLAG(context->flags, zest_context_flag_cpu_profiling_enabled);
+		}
+	}
+
 	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_debug_overlay)) {
 		ZEST__FLAG(context->flags, zest_context_flag_debug_overlay_enabled);
 		context->db_overlay.vertex_shader = device->platform->get_db_overlay_vertex_shader(device);
@@ -10271,6 +10382,9 @@ void zest__cleanup_view_array_store(zest_device device) {
 void zest__cleanup_context(zest_context context) {
     if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
         zest__cleanup_gpu_profiler(context);
+    }
+    if (ZEST__FLAGGED(context->flags, zest_context_flag_cpu_profiling_enabled)) {
+        zest__cleanup_cpu_profiler(context);
     }
     zest__cleanup_uniform_buffer_store(context);
     zest__cleanup_layer_store(context);
@@ -12758,10 +12872,10 @@ Main compile phases:
 [Prepare_render_passes]
 */
 zest_frame_graph zest__compile_frame_graph() {
-	zest_microsecs start_time = zest_Microsecs();
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
 	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+	ZEST_CPU_PROFILE_BEGIN(context, "Compile %s", frame_graph->name);
 
 	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
 		zest_execution_timeline timeline = &context->frame_timeline[context->current_fif];
@@ -12775,6 +12889,7 @@ zest_frame_graph zest__compile_frame_graph() {
 			if (zest__detect_cyclic_recursion(frame_graph, pass_node)) {
 				ZEST_REPORT(context->device, zest_report_cyclic_dependency, zest_message_cyclic_dependency, frame_graph->name, pass_node->name);
 				ZEST__FLAG(frame_graph->error_status, zest_fgs_cyclic_dependency);
+				ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 				return frame_graph;
 			}
 		}
@@ -12841,6 +12956,7 @@ zest_frame_graph zest__compile_frame_graph() {
                         if (pass_node->inputs.data[j].resource_node->reference_count == 0) {
                             ZEST_REPORT(context->device, zest_report_invalid_reference_counts, zest_message_pass_culled_not_consumed, frame_graph->name);
                             frame_graph->error_status |= zest_fgs_critical_error;
+							ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
                             return frame_graph;
                         }
                     }
@@ -12870,6 +12986,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
 						frame_graph->error_status |= zest_fgs_critical_error;
+						ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 						return frame_graph;
                     }
 					if (ZEST__FLAGGED(usage->resource_node->type, zest_resource_type_swap_chain_image)) {
@@ -12885,6 +13002,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
 						frame_graph->error_status |= zest_fgs_critical_error;
+						ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 						return frame_graph;
                     }
                     zest_map_linear_insert(allocator, pass_group.inputs, usage->resource_node->name, *usage);
@@ -12901,6 +13019,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     pass_group->queue_info.timeline_wait_stage != pass_node->queue_info.timeline_wait_stage) {
 					ZEST_REPORT(context->device, zest_report_invalid_pass, zest_message_multiple_swapchain_usage, frame_graph->name);
 					frame_graph->error_status |= zest_fgs_critical_error;
+					ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 					return frame_graph;
 				}
                 if (pass_node->execution_callback.callback) {
@@ -12914,6 +13033,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
 						ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
 						frame_graph->error_status |= zest_fgs_critical_error;
+						ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 						return frame_graph;
                     }
                     zest_map_linear_insert(allocator, pass_group->inputs, usage->resource_node->name, *usage);
@@ -12930,6 +13050,7 @@ zest_frame_graph zest__compile_frame_graph() {
     if (!has_execution_callback) {
 		ZEST_REPORT(context->device, zest_report_no_work, "No passes in frame graph [%s] had any tasks set so there is no work to do in the frame graph.", frame_graph->name);
         zest__set_rg_error_status(frame_graph, zest_fgs_no_work_to_do);
+		ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
         return frame_graph;
     }
 
@@ -12994,6 +13115,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 if (resource->type == zest_resource_type_swap_chain_image) {
                     ZEST_REPORT(context->device, zest_report_multiple_swapchains, zest_message_multiple_swapchain_usage, frame_graph->name);
                     frame_graph->error_status |= zest_fgs_critical_error;
+					ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 					return frame_graph;
                 }
 			    //Add the versioned alias to the outputs instead
@@ -13029,6 +13151,7 @@ zest_frame_graph zest__compile_frame_graph() {
             if (output_usage->resource_node->producer_pass_idx != -1 && output_usage->resource_node->producer_pass_idx != i) {
 				ZEST_REPORT(context->device, zest_report_multiple_swapchains, zest_message_resource_added_as_ouput_more_than_once, frame_graph->name);
 				frame_graph->error_status |= zest_fgs_critical_error;
+				ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 				return frame_graph;
             }
             output_usage->resource_node->producer_pass_idx = i;
@@ -13132,6 +13255,7 @@ zest_frame_graph zest__compile_frame_graph() {
 
     if (zest_vec_size(initial_waves) == 0) {
         //Nothing to send to the GPU!
+		ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
         return frame_graph;
     }
 
@@ -13661,7 +13785,7 @@ zest_frame_graph zest__compile_frame_graph() {
 		zest_SetDescriptorSets(context->device->pipeline_layout, &set, 1);
 	}
 
-	frame_graph->compile_time = zest_Microsecs() - start_time;
+	ZEST_CPU_PROFILE_END(context);
     return frame_graph;
 }
 
@@ -13944,12 +14068,22 @@ void zest__cleanup_frame_graph_builder() {
 
 zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-	zest_microsecs start_time = zest_Microsecs();
+	ZEST_CPU_PROFILE_BEGIN(context, "Run %s", frame_graph->name);
+
+	// For cached frame graphs, update the signal timeline to the current FIF's timeline.
+	// Without this, a cached graph keeps pointing at the FIF from when it was first compiled,
+	// causing the timeline value to be incremented by every frame regardless of FIF, which
+	// makes the CPU semaphore wait block until the GPU catches up to over-incremented values.
+	if (frame_graph->signal_timeline && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
+		frame_graph->signal_timeline = &context->frame_timeline[context->current_fif];
+	}
+
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_map_queue_value queues = ZEST__ZERO_INIT(zest_map_queue_value);
 
     zest_execution_backend backend = (zest_execution_backend)context->device->platform->new_execution_backend(allocator);
 
+	ZEST_CPU_PROFILE_BEGIN(context, "Update resources");
 	zest_vec_foreach(resource_index, frame_graph->resources_to_update) {
 		zest_resource_node resource = frame_graph->resources_to_update[resource_index];
 		if (resource->buffer_provider) {
@@ -13958,14 +14092,17 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             resource->view = resource->image_provider(context, resource);
 		}
 	}
+	ZEST_CPU_PROFILE_END(context);
 
     zest_vec_foreach(submission_index, frame_graph->submissions) {
+		ZEST_CPU_PROFILE_BEGIN(context, "Wave Submission %i", submission_index);
         zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
 
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
             zest_submission_batch_t *batch = &wave_submission->batches[queue_index];
             if (!batch->magic) continue;
             ZEST_ASSERT(zest_vec_size(batch->pass_indices));    //A batch was created without any pass indices. Bug in the Compile stage!
+			ZEST_CPU_PROFILE_BEGIN(context, "Queue %i", queue_index);
 
             if (batch->queue->last_reset_frame != context->device_frame_counter) {
                 context->device->platform->reset_queue_command_pool(context, batch->queue);
@@ -14011,6 +14148,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 			}
 
             zest_vec_foreach(i, batch->pass_indices) {
+				ZEST_CPU_PROFILE_BEGIN(context, "Pass %i", i);
                 zest_uint pass_index = batch->pass_indices[i];
                 zest_pass_group_t *grouped_pass = &frame_graph->final_passes.data[pass_index];
                 zest_execution_details_t *exe_details = &grouped_pass->execution_details;
@@ -14023,6 +14161,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					break;
 				}
 
+				ZEST_CPU_PROFILE_BEGIN(context, "Create Transients");
                 //Create any transient resources where they're first used in this grouped_pass
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
@@ -14031,6 +14170,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                         return ZEST_FALSE;
                     }
                 }
+				ZEST_CPU_PROFILE_END(context);
 
                 //Batch execute acquire barriers for images and buffers
 				context->device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
@@ -14064,6 +14204,14 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					frame_graph->command_list.began_rendering = ZEST_TRUE;
                 }
 
+                // CPU profiling: begin timing for this grouped pass
+                zest_bool cpu_profile_active = ZEST_FALSE;
+                if (ZEST__FLAGGED(context->flags, zest_context_flag_cpu_profiling_enabled) && context->cpu_profiler.enabled) {
+                    const char *cpu_pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
+                    ZEST_CPU_PROFILE_BEGIN(context, "%s", cpu_pass_name);
+                    cpu_profile_active = ZEST_TRUE;
+                }
+
                 //Execute the callbacks in the pass
                 zest_vec_foreach(pass_index, grouped_pass->passes) {
                     zest_pass_node pass = grouped_pass->passes[pass_index];
@@ -14077,9 +14225,19 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                     pass->execution_callback.callback(&frame_graph->command_list, pass->execution_callback.user_data);
                 }
 
+                // CPU profiling: end timing for this grouped pass
+                if (cpu_profile_active) {
+                    ZEST_CPU_PROFILE_END(context);
+                }
+
 				// GPU profiling: draw built-in overlay if both profiling and debug overlay are enabled
 				if (gpu_profile_active && ZEST__FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled) && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
 					zest__draw_gpu_profile_overlay(context);
+				}
+
+				// CPU profiling: draw built-in overlay
+				if (ZEST__FLAGGED(context->flags, zest_context_flag_cpu_profiling_enabled) && ZEST__FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled) && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+					zest__draw_cpu_profile_overlay(context);
 				}
 
 				if (context->db_overlay.vertex_count > 0 && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
@@ -14123,13 +14281,20 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                     zest__free_transient_resource(resource);
                 }
                 //End pass
+				ZEST_CPU_PROFILE_END(context); //Pass profile
             }
 			context->device->platform->end_command_buffer(&frame_graph->command_list);
+			ZEST_CPU_PROFILE_BEGIN(context, "Submit Batch");
             context->device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
+			ZEST_CPU_PROFILE_END(context);
+
+			ZEST_CPU_PROFILE_END(context); //Batch queue profile
         }   //Batch
 
         //For each batch in the last wave add the queue semaphores that were used so that the next batch submissions can wait on them
         context->device->platform->carry_over_semaphores(frame_graph, wave_submission, backend);
+
+		ZEST_CPU_PROFILE_END(context);
     }   //Wave 
 
     zest_map_foreach(i, queues) {
@@ -14137,6 +14302,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
         queue->fif = (queue->fif + 1) % ZEST_MAX_FIF;
     }
 
+	ZEST_CPU_PROFILE_BEGIN(context, "Reset Resources");
 	zest_bucket_array_foreach(index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, index);
         //Reset the resource state indexes (the point in their graph journey). This is necessary for cached
@@ -14148,7 +14314,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
         }
 		memset(resource->bindless_index, 0xFF, sizeof(zest_uint) * zest_max_global_binding_number);
 	}
+	ZEST_CPU_PROFILE_END(context);
 
+	ZEST_CPU_PROFILE_BEGIN(context, "Free Transient Images");
 	zest_vec_foreach(i, frame_graph->deferred_image_destruction) {
 		zest_resource_node resource = frame_graph->deferred_image_destruction[i];
 		zest__deferr_image_destruction(context, frame_graph, &resource->image);
@@ -14158,13 +14326,15 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
 	}
 	frame_graph->deferred_image_destruction = 0;
+	ZEST_CPU_PROFILE_END(context);
 
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_executed);
 
-	frame_graph->execute_time = zest_Microsecs() - start_time;
+	ZEST_CPU_PROFILE_END(context);
     return ZEST_TRUE;
 
 	cleanup:
+		ZEST_CPU_PROFILE_END(context);
 		return ZEST_FALSE;
 }
 
@@ -18363,6 +18533,311 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 }
 
 // -- End GPU_Profiling_implementation
+
+// -- CPU_Profiling_implementation
+
+void zest__init_cpu_profiler(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	memset(profiler, 0, sizeof(zest_cpu_profiler_t));
+	profiler->max_entries = ZEST_MAX_CPU_PROFILE_ENTRIES;
+	profiler->enabled = ZEST_TRUE;
+	profiler->smoothing_alpha = ZEST_CPU_PROFILE_SMOOTHING_ALPHA;
+
+	profiler->entries = (zest_cpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
+	memset(profiler->entries, 0, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
+
+	profiler->results = (zest_cpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
+	memset(profiler->results, 0, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
+
+	profiler->smoothed = (zest_cpu_profile_smoothed_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_cpu_profile_smoothed_t) * profiler->max_entries);
+	memset(profiler->smoothed, 0, sizeof(zest_cpu_profile_smoothed_t) * profiler->max_entries);
+}
+
+void zest__cleanup_cpu_profiler(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (profiler->entries) {
+		ZEST__FREE(context->allocator, profiler->entries);
+	}
+	if (profiler->results) {
+		ZEST__FREE(context->allocator, profiler->results);
+	}
+	if (profiler->smoothed) {
+		ZEST__FREE(context->allocator, profiler->smoothed);
+	}
+	memset(profiler, 0, sizeof(zest_cpu_profiler_t));
+}
+
+void zest__cpu_profiler_begin_frame(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (!profiler->enabled) return;
+
+	// Safety: if stack_depth != 0, a Begin was unmatched last frame.
+	// Close any open entries with the current timestamp before processing.
+	while (profiler->stack_depth > 0) {
+		profiler->stack_depth--;
+		zest_microsecs elapsed = zest_Microsecs() - profiler->start_times[profiler->stack_depth];
+		profiler->entries[profiler->stack_entry_indices[profiler->stack_depth]].microseconds = (double)elapsed;
+	}
+
+	// Copy previous frame's entries to results
+	if (profiler->entry_count > 0) {
+		profiler->result_count = profiler->entry_count;
+		memcpy(profiler->results, profiler->entries, sizeof(zest_cpu_profile_result_t) * profiler->entry_count);
+
+		// Find the minimum depth (root level) and sum those entries for total
+		zest_uint min_depth = profiler->results[0].depth;
+		for (zest_uint i = 1; i < profiler->result_count; ++i) {
+			if (profiler->results[i].depth < min_depth) {
+				min_depth = profiler->results[i].depth;
+			}
+		}
+		double total = 0.0;
+		for (zest_uint i = 0; i < profiler->result_count; ++i) {
+			if (profiler->results[i].depth == min_depth && profiler->results[i].microseconds > 0.0) {
+				total += profiler->results[i].microseconds;
+			}
+		}
+		profiler->total_microseconds = total;
+	} else {
+		profiler->result_count = 0;
+		profiler->total_microseconds = 0.0;
+	}
+
+	// IIR smoothing and variance tracking (same algorithm as GPU profiler)
+	if (profiler->result_count > 0) {
+		float alpha = profiler->smoothing_alpha;
+
+		// Mark all existing smoothed entries as inactive
+		for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+			profiler->smoothed[i].active = ZEST_FALSE;
+		}
+
+		// Match each raw result to a smoothed entry by name+depth
+		for (zest_uint i = 0; i < profiler->result_count; ++i) {
+			zest_cpu_profile_result_t *raw = &profiler->results[i];
+			zest_cpu_profile_smoothed_t *match = 0;
+
+			for (zest_uint j = 0; j < profiler->smoothed_count; ++j) {
+				if (!profiler->smoothed[j].active &&
+					profiler->smoothed[j].depth == raw->depth &&
+					strcmp(profiler->smoothed[j].name, raw->name) == 0) {
+					match = &profiler->smoothed[j];
+					break;
+				}
+			}
+
+			if (match) {
+				double prev = match->smoothed_us;
+				match->smoothed_us = prev * (1.0 - alpha) + raw->microseconds * alpha;
+				double deviation = raw->microseconds - match->smoothed_us;
+				match->variance = match->variance * (1.0 - alpha) + (deviation * deviation) * alpha;
+				match->active = ZEST_TRUE;
+			} else {
+				if (profiler->smoothed_count < profiler->max_entries) {
+					match = &profiler->smoothed[profiler->smoothed_count++];
+				} else {
+					match = &profiler->smoothed[profiler->smoothed_count - 1];
+				}
+				memset(match, 0, sizeof(zest_cpu_profile_smoothed_t));
+				snprintf(match->name, ZEST_CPU_PROFILE_NAME_LENGTH, "%s", raw->name);
+				match->smoothed_us = raw->microseconds;
+				match->variance = 0.0;
+				match->depth = raw->depth;
+				match->active = ZEST_TRUE;
+			}
+		}
+
+		// Remove inactive entries by compacting
+		zest_uint write = 0;
+		for (zest_uint read = 0; read < profiler->smoothed_count; ++read) {
+			if (profiler->smoothed[read].active) {
+				if (write != read) {
+					profiler->smoothed[write] = profiler->smoothed[read];
+				}
+				write++;
+			}
+		}
+		profiler->smoothed_count = write;
+
+		// Smooth the total time
+		if (profiler->smoothed_total_us == 0.0) {
+			profiler->smoothed_total_us = profiler->total_microseconds;
+		} else {
+			profiler->smoothed_total_us = profiler->smoothed_total_us * (1.0 - alpha) + profiler->total_microseconds * alpha;
+		}
+	}
+
+	// Reset for new frame
+	profiler->entry_count = 0;
+	profiler->stack_depth = 0;
+	profiler->frame_start_us = zest_Microsecs();
+}
+
+void zest_BeginCPUProfile(zest_context context, const char *format, ...) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (!profiler->enabled || profiler->entry_count >= profiler->max_entries) return;
+	if (profiler->stack_depth >= ZEST_MAX_CPU_PROFILE_STACK_DEPTH) return;
+
+	zest_uint entry_index = profiler->entry_count;
+	zest_cpu_profile_result_t *entry = &profiler->entries[entry_index];
+
+	va_list args;
+	va_start(args, format);
+	vsnprintf(entry->name, ZEST_CPU_PROFILE_NAME_LENGTH, format, args);
+	va_end(args);
+
+	entry->depth = profiler->stack_depth + 1;
+	entry->microseconds = 0.0;
+
+	profiler->start_times[profiler->stack_depth] = zest_Microsecs();
+	profiler->stack_entry_indices[profiler->stack_depth] = entry_index;
+	profiler->stack_depth++;
+	profiler->entry_count++;
+}
+
+void zest_EndCPUProfile(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (!profiler->enabled || profiler->stack_depth == 0) return;
+
+	profiler->stack_depth--;
+	zest_microsecs elapsed = zest_Microsecs() - profiler->start_times[profiler->stack_depth];
+	profiler->entries[profiler->stack_entry_indices[profiler->stack_depth]].microseconds = (double)elapsed;
+}
+
+zest_cpu_profile_result_t* zest_GetCPUProfileResults(zest_context context, zest_uint *count) {
+	ZEST_ASSERT_HANDLE(context);
+	*count = context->cpu_profiler.result_count;
+	return context->cpu_profiler.results;
+}
+
+zest_cpu_profile_smoothed_t* zest_GetCPUProfileSmoothedResults(zest_context context, zest_uint *count) {
+	ZEST_ASSERT_HANDLE(context);
+	*count = context->cpu_profiler.smoothed_count;
+	return context->cpu_profiler.smoothed;
+}
+
+double zest_GetCPUProfileTotalTime(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->cpu_profiler.total_microseconds;
+}
+
+double zest_GetCPUProfileSmoothedTotalTime(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->cpu_profiler.smoothed_total_us;
+}
+
+void zest_SetCPUProfileSmoothingAlpha(zest_context context, float alpha) {
+	ZEST_ASSERT_HANDLE(context);
+	if (alpha < 0.001f) alpha = 0.001f;
+	if (alpha > 1.0f) alpha = 1.0f;
+	context->cpu_profiler.smoothing_alpha = alpha;
+}
+
+void zest_EnableCPUProfiling(zest_context context, zest_bool enabled) {
+	ZEST_ASSERT_HANDLE(context);
+	context->cpu_profiler.enabled = enabled;
+	if (enabled) {
+		ZEST__FLAG(context->flags, zest_context_flag_cpu_profiling_enabled);
+	} else {
+		ZEST__UNFLAG(context->flags, zest_context_flag_cpu_profiling_enabled);
+	}
+}
+
+void zest__draw_cpu_profile_overlay(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (!profiler->enabled || profiler->smoothed_count == 0) return;
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) return;
+
+	// Table layout matches GPU overlay
+	float char_w = 8.0f;
+	float x_start = 10.0f;
+	float bar_height = 8.0f;
+	float row_height = 12.0f;
+	float indent_width = 12.0f;
+	float name_col_width = 30.0f * char_w;
+	float time_col_width = 10.0f * char_w;
+	float max_bar_width = 120.0f;
+	float padding = 4.0f;
+
+	float time_col_x = x_start + name_col_width + padding;
+	float bar_col_x = time_col_x + time_col_width + padding;
+	float total_width = bar_col_x + max_bar_width + padding - x_start;
+
+	// Position below GPU overlay if it exists
+	float y_start = 30.0f;
+	zest_gpu_profiler_t *gpu_profiler = &context->gpu_profiler;
+	if (gpu_profiler->enabled && gpu_profiler->smoothed_count > 0) {
+		float gpu_header_height = 14.0f;
+		float gpu_total_height = gpu_header_height + gpu_profiler->smoothed_count * row_height + padding * 2.0f;
+		y_start += gpu_total_height + 8.0f;
+	}
+
+	// Find max smoothed time for scaling bars
+	double max_time = 0.001;
+	for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+		if (profiler->smoothed[i].smoothed_us > max_time) {
+			max_time = profiler->smoothed[i].smoothed_us;
+		}
+	}
+
+	// Draw background
+	float header_height = 14.0f;
+	float total_height = header_height + profiler->smoothed_count * row_height + padding * 2.0f;
+	zest_DrawDebugRect(context, x_start - padding, y_start - header_height, total_width + padding * 2.0f, total_height, 0xCC000000);
+
+	// Header with smoothed total time
+	char header_str[64];
+	if (profiler->smoothed_total_us >= 1000.0) {
+		snprintf(header_str, sizeof(header_str), "CPU Profile - Total: %.2fms", profiler->smoothed_total_us / 1000.0);
+	} else {
+		snprintf(header_str, sizeof(header_str), "CPU Profile - Total: %.1fus", profiler->smoothed_total_us);
+	}
+	zest_DrawDebugText(context, x_start, y_start - header_height + 3.0f, 0xFFAAAAAA, "%s", header_str);
+
+	for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+		zest_cpu_profile_smoothed_t *s = &profiler->smoothed[i];
+		float y = y_start + (float)i * row_height;
+		float indent = (float)s->depth * indent_width;
+
+		// Column 1: name with hierarchy indentation
+		const char *name = s->name[0] ? s->name : "???";
+		zest_uint text_color = s->depth > 1 ? 0xFFBBBBBB : 0xFFFFFFFF;
+		if (s->depth > 1) {
+			zest_DrawDebugText(context, x_start + indent - indent_width, y + 1.0f, 0xFF888888, "-");
+		}
+		zest_DrawDebugText(context, x_start + indent, y + 1.0f, text_color, "%s", name);
+
+		// Column 2: smoothed time value
+		char time_str[32];
+		if (s->smoothed_us >= 1000.0) {
+			snprintf(time_str, sizeof(time_str), "%7.2fms", s->smoothed_us / 1000.0);
+		} else {
+			snprintf(time_str, sizeof(time_str), "%7.1fus", s->smoothed_us);
+		}
+		zest_DrawDebugText(context, time_col_x, y + 1.0f, 0xFFDDDDDD, "%s", time_str);
+
+		// Column 3: proportional bar with variance-based coloring
+		double stddev = sqrt(s->variance);
+		double cv = s->smoothed_us > 0.001 ? stddev / s->smoothed_us : 0.0;
+		if (cv > 1.0) cv = 1.0;
+
+		// Teal/cyan base color for CPU profiling
+		zest_uint base_r = 0x44, base_g = 0xAA, base_b = 0xCC;
+		zest_uint hot_r = 0xFF, hot_g = 0x44, hot_b = 0x22;
+		float t = (float)cv;
+		zest_uint final_r = (zest_uint)(base_r * (1.0f - t) + hot_r * t);
+		zest_uint final_g = (zest_uint)(base_g * (1.0f - t) + hot_g * t);
+		zest_uint final_b = (zest_uint)(base_b * (1.0f - t) + hot_b * t);
+		zest_uint bar_alpha = s->depth > 1 ? 0x88 : 0xCC;
+		zest_uint bar_color = (bar_alpha << 24) | (final_b << 16) | (final_g << 8) | final_r;
+
+		float bar_width = (float)(s->smoothed_us / max_time) * max_bar_width;
+		if (bar_width < 2.0f) bar_width = 2.0f;
+		zest_DrawDebugRect(context, bar_col_x, y + 1.0f, bar_width, bar_height, bar_color);
+	}
+}
+
+// -- End CPU_Profiling_implementation
 
 zest_bool zest_SetErrorLogPath(zest_device device, const char* path) {
     ZEST_ASSERT_HANDLE(device);    //Have you initialised Zest yet?

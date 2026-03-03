@@ -74,6 +74,8 @@ zest_imgui_viewport_t *zest_imgui_AcquireViewport(zest_device device);
 void zest_imgui_FreeViewport(zest_device device, zest_imgui_viewport_t *viewport);
 
 void zest_imgui_DrawGPUProfileWindow(zest_context context);
+void zest_imgui_DrawCPUProfileWindow(zest_context context);
+void zest_imgui_DrawProfileWindow(zest_context context);
 
 void zest__imgui_create_viewport(ImGuiViewport* viewport);
 void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg);
