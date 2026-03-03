@@ -50,10 +50,8 @@ int test__stress_simple(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -102,11 +100,9 @@ int test__stress_pass_dependencies(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -151,11 +147,9 @@ int test__stress_pass_dependency_chain(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -253,11 +247,9 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -325,11 +317,9 @@ int test__stress_transient_images(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
@@ -406,11 +396,9 @@ int test__stress_all_transients(ZestTests *tests, Test *test) {
 			}
 
 			frame_graph = zest_EndFrameGraph();
-			ZEST_PRINT("Frame graph compiled in %llu microseconds", frame_graph->compile_time);
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		//zest_PrintCompiledFrameGraph(frame_graph);
-		ZEST_PRINT("Frame graph executed in %llu microseconds", frame_graph->execute_time);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount(tests->context);
