@@ -1987,6 +1987,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_frame_started = 1 << 14,
 	zest_context_flag_headless = 1 << 15,
 	zest_context_flag_debug_overlay_enabled = 1 << 16,
+	zest_context_flag_gpu_profiling_enabled = 1 << 17,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -2020,6 +2021,7 @@ typedef enum zest_context_init_flag_bits {
 	zest_context_init_flag_enable_vsync = 1 << 2,
 	zest_context_init_flag_headless = 1 << 3,
 	zest_context_init_flag_debug_overlay = 1 << 4,
+	zest_context_init_flag_gpu_profiling = 1 << 5,
 } zest_context_init_flag_bits;
 
 typedef zest_uint zest_context_init_flags;
@@ -3706,6 +3708,50 @@ typedef struct zest_timestamp_duration_s {
 	double milliseconds;
 } zest_timestamp_duration_t;
 
+//gpu_profiling_types
+
+#ifndef ZEST_MAX_GPU_PROFILE_QUERIES
+#define ZEST_MAX_GPU_PROFILE_QUERIES 512
+#endif
+
+#ifndef ZEST_MAX_GPU_PROFILE_STACK_DEPTH
+#define ZEST_MAX_GPU_PROFILE_STACK_DEPTH 8
+#endif
+
+#ifndef ZEST_GPU_PROFILE_NAME_LENGTH
+#define ZEST_GPU_PROFILE_NAME_LENGTH 64
+#endif
+
+typedef struct zest_gpu_profile_result_s {
+	char name[ZEST_GPU_PROFILE_NAME_LENGTH];
+	double microseconds;
+	zest_uint queue_type;
+	zest_uint depth;
+} zest_gpu_profile_result_t;
+
+typedef struct zest_gpu_profiler_s {
+	zest_uint max_queries;
+	zest_uint query_count[ZEST_MAX_FIF];
+
+	zest_gpu_profile_result_t *query_map[ZEST_MAX_FIF];
+
+	// Raw timestamp readback buffer (set by backend, read by platform-independent code)
+	zest_u64 *raw_timestamps[ZEST_MAX_FIF];
+
+	zest_gpu_profile_result_t *results;
+	zest_uint result_count;
+	double total_microseconds;
+
+	float timestamp_period_ns;
+	zest_bool enabled;
+
+	// User sub-region stack per FIF
+	zest_uint profile_stack[ZEST_MAX_GPU_PROFILE_STACK_DEPTH];
+	zest_uint profile_stack_depth;
+
+	void *backend;
+} zest_gpu_profiler_t;
+
 //frame_graph_types
 
 typedef void (*zest_fg_execution_callback)(const zest_command_list command_list, void *user_data);
@@ -4161,6 +4207,12 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue queue);
 	void 					   (*cleanup_context_queue_backend)(zest_context context, zest_context_queue context_queue);
 	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
+	//GPU Profiling
+	zest_bool                  (*create_gpu_profiler_backend)(zest_context context, zest_gpu_profiler_t *profiler);
+	void                       (*cleanup_gpu_profiler_backend)(zest_gpu_profiler_t *profiler);
+	void                       (*reset_gpu_query_pool)(zest_gpu_profiler_t *profiler, zest_uint fif);
+	void                       (*write_timestamp)(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
+	zest_bool                  (*readback_gpu_timestamps)(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
 	//Debugging
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
@@ -4464,6 +4516,10 @@ ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_ke
 
 // --- Debug_overlay_functions ---
 ZEST_PRIVATE void zest__draw_debug_overlay(const zest_command_list command_list);
+ZEST_PRIVATE void zest__init_gpu_profiler(zest_context context);
+ZEST_PRIVATE void zest__cleanup_gpu_profiler(zest_context context);
+ZEST_PRIVATE void zest__gpu_profiler_begin_frame(zest_context context);
+ZEST_PRIVATE void zest__draw_gpu_profile_overlay(zest_context context);
 ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, float x, float y);
 // --- End Debug_overlay_functions ---
 
@@ -5435,6 +5491,14 @@ ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *fir
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
+
+//--GPU Profiling
+ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
+ZEST_API void zest_EndGPUProfile(zest_command_list command_list);
+ZEST_API zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count);
+ZEST_API double zest_GetGPUProfileTotalTime(zest_context context);
+ZEST_API void zest_EnableGPUProfiling(zest_context context, zest_bool enabled);
+ZEST_API void zest_EnableDebugOverlay(zest_context context, zest_bool enabled);
 //--End Debug Helpers
 
 //Helper functions for executing commands on the GPU immediately
@@ -6388,6 +6452,9 @@ typedef struct zest_context_t {
 	//Debug rendering
 	zest_db_overlay_t db_overlay;
 
+	//GPU profiling
+	zest_gpu_profiler_t gpu_profiler;
+
 	void *user_data;
 	zest_device_t *device;
 	zest_uint device_frame_counter;
@@ -6413,6 +6480,7 @@ typedef struct zest_command_list_t {
 	zest_bool began_rendering;
 	zest_pipeline_stage_flags timeline_wait_stage;
 	zest_rendering_info_t rendering_info;
+	zest_gpu_profiler_t *gpu_profiler;
 } zest_command_list_t;
 
 typedef struct zest_submission_batch_t {
@@ -8245,6 +8313,10 @@ zest_bool zest_BeginFrame(zest_context context) {
 
 	zest__do_context_scheduled_tasks(context);
 
+	if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
+		zest__gpu_profiler_begin_frame(context);
+	}
+
 	if (!context->device->platform->acquire_swapchain_image(context->swapchain)) {
 		zest__recreate_swapchain(context);
 		ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
@@ -9674,6 +9746,13 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 		}
     }
 
+	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_gpu_profiling)) {
+		zest__init_gpu_profiler(context);
+		if (context->gpu_profiler.enabled) {
+			ZEST__FLAG(context->flags, zest_context_flag_gpu_profiling_enabled);
+		}
+	}
+
 	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_debug_overlay)) {
 		ZEST__FLAG(context->flags, zest_context_flag_debug_overlay_enabled);
 		context->db_overlay.vertex_shader = device->platform->get_db_overlay_vertex_shader(device);
@@ -10168,6 +10247,9 @@ void zest__cleanup_view_array_store(zest_device device) {
 }
 
 void zest__cleanup_context(zest_context context) {
+    if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
+        zest__cleanup_gpu_profiler(context);
+    }
     zest__cleanup_uniform_buffer_store(context);
     zest__cleanup_layer_store(context);
 	if (context->swapchain) {
@@ -13891,6 +13973,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
             ZEST_CLEANUP_ON_FALSE(context->device->platform->begin_command_buffer(&frame_graph->command_list));
 
+			// Set up GPU profiler pointer on the command list
+			frame_graph->command_list.gpu_profiler = ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled) ? &context->gpu_profiler : 0;
+
 			// Bind the global bindless descriptor set for graphics and compute queues
 			if (batch->queue_type != zest_queue_transfer && frame_graph->descriptor_sets) {
 				if (batch->queue_type == zest_queue_graphics) {
@@ -13928,6 +14013,26 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //Batch execute acquire barriers for images and buffers
 				context->device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
 
+				// GPU profiling: write begin timestamp for this grouped pass
+				// Reserve the query pair immediately so user sub-region calls don't collide
+				zest_gpu_profiler_t *gpu_profiler = frame_graph->command_list.gpu_profiler;
+				zest_uint gpu_profile_query_index = 0;
+				zest_bool gpu_profile_active = ZEST_FALSE;
+				if (gpu_profiler && gpu_profiler->enabled) {
+					zest_uint fif = context->current_fif;
+					gpu_profile_query_index = gpu_profiler->query_count[fif];
+					if (gpu_profile_query_index + 2 <= gpu_profiler->max_queries) {
+						context->device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, fif, gpu_profile_query_index, ZEST_FALSE);
+						zest_uint pair_index = gpu_profile_query_index / 2;
+						const char *pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
+						snprintf(gpu_profiler->query_map[fif][pair_index].name, ZEST_GPU_PROFILE_NAME_LENGTH, "%s", pass_name);
+						gpu_profiler->query_map[fif][pair_index].queue_type = batch->queue_type;
+						gpu_profiler->query_map[fif][pair_index].depth = 0;
+						gpu_profiler->query_count[fif] += 2;
+						gpu_profile_active = ZEST_TRUE;
+					}
+				}
+
                 zest_bool has_render_pass = exe_details->requires_dynamic_render_pass;
 
                 //Begin the render pass if the pass has one
@@ -13950,8 +14055,18 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                     pass->execution_callback.callback(&frame_graph->command_list, pass->execution_callback.user_data);
                 }
 
+				// GPU profiling: draw built-in overlay if both profiling and debug overlay are enabled
+				if (gpu_profile_active && ZEST__FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled) && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+					zest__draw_gpu_profile_overlay(context);
+				}
+
 				if (context->db_overlay.vertex_count > 0 && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
 					zest__draw_debug_overlay(&frame_graph->command_list);
+				}
+
+				// GPU profiling: write end timestamp for this grouped pass
+				if (gpu_profile_active) {
+					context->device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, context->current_fif, gpu_profile_query_index + 1, ZEST_TRUE);
 				}
 
                 zest_map_foreach(pass_input_index, grouped_pass->inputs) {
@@ -17879,6 +17994,247 @@ void zest_DrawDebugRect(zest_context context, float x, float y, float width, flo
 	overlay->vertex_count += 4;
 	overlay->index_count += 6;
 }
+
+// -- GPU_Profiling_implementation
+
+void zest__init_gpu_profiler(zest_context context) {
+	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
+	memset(profiler, 0, sizeof(zest_gpu_profiler_t));
+	profiler->max_queries = ZEST_MAX_GPU_PROFILE_QUERIES;
+	profiler->enabled = ZEST_TRUE;
+
+	if (!context->device->platform->create_gpu_profiler_backend(context, profiler)) {
+		profiler->enabled = ZEST_FALSE;
+		return;
+	}
+
+	zest_ForEachFrameInFlight(fif) {
+		profiler->query_map[fif] = (zest_gpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
+		memset(profiler->query_map[fif], 0, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
+	}
+
+	profiler->results = (zest_gpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
+	memset(profiler->results, 0, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
+	profiler->result_count = 0;
+}
+
+void zest__cleanup_gpu_profiler(zest_context context) {
+	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
+	if (!profiler->backend) return;
+	context->device->platform->cleanup_gpu_profiler_backend(profiler);
+	zest_ForEachFrameInFlight(fif) {
+		if (profiler->raw_timestamps[fif]) {
+			ZEST__FREE(context->allocator, profiler->raw_timestamps[fif]);
+		}
+		if (profiler->query_map[fif]) {
+			ZEST__FREE(context->allocator, profiler->query_map[fif]);
+		}
+	}
+	if (profiler->results) {
+		ZEST__FREE(context->allocator, profiler->results);
+	}
+	if (profiler->backend) {
+		ZEST__FREE(context->allocator, profiler->backend);
+	}
+	memset(profiler, 0, sizeof(zest_gpu_profiler_t));
+}
+
+void zest__gpu_profiler_begin_frame(zest_context context) {
+	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
+	if (!profiler->enabled || !profiler->backend) return;
+
+	// Read back results from the previous frame's FIF
+	zest_uint prev_fif = (context->current_fif + ZEST_MAX_FIF - 1) % ZEST_MAX_FIF;
+	zest_uint prev_query_count = profiler->query_count[prev_fif];
+
+	if (prev_query_count > 0) {
+		context->device->platform->readback_gpu_timestamps(profiler, prev_fif, prev_query_count);
+
+		zest_u64 *raw = profiler->raw_timestamps[prev_fif];
+		zest_uint pair_count = prev_query_count / 2;
+		profiler->result_count = pair_count;
+
+		// Find earliest begin and latest end across all queries for true total time
+		zest_u64 earliest_tick = raw[0];
+		zest_u64 latest_tick = raw[1];
+		for (zest_uint i = 0; i < pair_count; ++i) {
+			zest_u64 begin_tick = raw[i * 2];
+			zest_u64 end_tick = raw[i * 2 + 1];
+			if (begin_tick < earliest_tick) earliest_tick = begin_tick;
+			if (end_tick > latest_tick) latest_tick = end_tick;
+			zest_u64 ticks = end_tick - begin_tick;
+			profiler->results[i] = profiler->query_map[prev_fif][i];
+			profiler->results[i].microseconds = (double)ticks * (double)profiler->timestamp_period_ns / 1000.0;
+		}
+		profiler->total_microseconds = (double)(latest_tick - earliest_tick) * (double)profiler->timestamp_period_ns / 1000.0;
+	} else {
+		profiler->result_count = 0;
+		profiler->total_microseconds = 0.0;
+	}
+
+	// Reset current FIF's query pool and counter
+	zest_uint current_fif = context->current_fif;
+	context->device->platform->reset_gpu_query_pool(profiler, current_fif);
+	profiler->query_count[current_fif] = 0;
+	profiler->profile_stack_depth = 0;
+}
+
+void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...) {
+	zest_gpu_profiler_t *profiler = command_list->gpu_profiler;
+	if (!profiler || !profiler->enabled) return;
+
+	zest_uint fif = command_list->context->current_fif;
+	zest_uint query_index = profiler->query_count[fif];
+	if (query_index + 2 > profiler->max_queries) return;
+
+	// Push onto stack
+	ZEST_ASSERT(profiler->profile_stack_depth < ZEST_MAX_GPU_PROFILE_STACK_DEPTH);
+	profiler->profile_stack[profiler->profile_stack_depth] = query_index;
+	profiler->profile_stack_depth++;
+
+	// Write begin timestamp
+	command_list->context->device->platform->write_timestamp(command_list, profiler, fif, query_index, ZEST_FALSE);
+
+	// Record metadata
+	zest_uint pair_index = query_index / 2;
+	va_list args;
+	va_start(args, format);
+	vsnprintf(profiler->query_map[fif][pair_index].name, ZEST_GPU_PROFILE_NAME_LENGTH, format, args);
+	va_end(args);
+	profiler->query_map[fif][pair_index].queue_type = 0;
+	profiler->query_map[fif][pair_index].depth = profiler->profile_stack_depth;
+
+	profiler->query_count[fif] += 2;
+}
+
+void zest_EndGPUProfile(zest_command_list command_list) {
+	zest_gpu_profiler_t *profiler = command_list->gpu_profiler;
+	if (!profiler || !profiler->enabled) return;
+	if (profiler->profile_stack_depth == 0) return;
+
+	zest_uint fif = command_list->context->current_fif;
+
+	// Pop from stack
+	profiler->profile_stack_depth--;
+	zest_uint query_index = profiler->profile_stack[profiler->profile_stack_depth];
+
+	// Write end timestamp (query_index + 1)
+	command_list->context->device->platform->write_timestamp(command_list, profiler, fif, query_index + 1, ZEST_TRUE);
+}
+
+zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count) {
+	ZEST_ASSERT_HANDLE(context);
+	*count = context->gpu_profiler.result_count;
+	return context->gpu_profiler.results;
+}
+
+double zest_GetGPUProfileTotalTime(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->gpu_profiler.total_microseconds;
+}
+
+void zest_EnableGPUProfiling(zest_context context, zest_bool enabled) {
+	ZEST_ASSERT_HANDLE(context);
+	if (context->gpu_profiler.backend) {
+		context->gpu_profiler.enabled = enabled;
+	}
+}
+
+void zest_EnableDebugOverlay(zest_context context, zest_bool enabled) {
+	ZEST_ASSERT_HANDLE(context);
+	if (enabled) {
+		ZEST__FLAG(context->flags, zest_context_flag_debug_overlay_enabled);
+	} else {
+		ZEST__UNFLAG(context->flags, zest_context_flag_debug_overlay_enabled);
+	}
+}
+
+void zest__draw_gpu_profile_overlay(zest_context context) {
+	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
+	if (!profiler->enabled || profiler->result_count == 0) return;
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) return;
+
+	// Table layout: [Name column] [Time column] [Bar column]
+	float char_w = 8.0f;
+	float x_start = 10.0f;
+	float y_start = 30.0f;
+	float bar_height = 8.0f;
+	float row_height = 12.0f;
+	float indent_width = 12.0f;
+	float name_col_width = 20.0f * char_w;		// 20 chars for pass names
+	float time_col_width = 10.0f * char_w;		// 10 chars for timing value
+	float max_bar_width = 120.0f;
+	float padding = 4.0f;
+
+	float time_col_x = x_start + name_col_width + padding;
+	float bar_col_x = time_col_x + time_col_width + padding;
+	float total_width = bar_col_x + max_bar_width + padding - x_start;
+
+	// Find max time for scaling bars
+	double max_time = 0.001;
+	for (zest_uint i = 0; i < profiler->result_count; ++i) {
+		if (profiler->results[i].microseconds > max_time) {
+			max_time = profiler->results[i].microseconds;
+		}
+	}
+
+	// Draw background
+	float header_height = 14.0f;
+	float total_height = header_height + profiler->result_count * row_height + padding * 2.0f;
+	zest_DrawDebugRect(context, x_start - padding, y_start - header_height, total_width + padding * 2.0f, total_height, 0xCC000000);
+
+	// Header with total time
+	char header_str[64];
+	if (profiler->total_microseconds >= 1000.0) {
+		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.2fms", profiler->total_microseconds / 1000.0);
+	} else {
+		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.1fus", profiler->total_microseconds);
+	}
+	zest_DrawDebugText(context, x_start, y_start - header_height + 3.0f, 0xFFAAAAAA, "%s", header_str);
+
+	for (zest_uint i = 0; i < profiler->result_count; ++i) {
+		zest_gpu_profile_result_t *result = &profiler->results[i];
+		float y = y_start + (float)i * row_height;
+		float indent = (float)result->depth * indent_width;
+
+		// Column 1: name with hierarchy indentation
+		const char *name = result->name ? result->name : "???";
+		// Dim sub-regions slightly
+		zest_uint text_color = result->depth > 0 ? 0xFFBBBBBB : 0xFFFFFFFF;
+		if (result->depth > 0) {
+			// Draw a small marker for sub-regions
+			zest_DrawDebugText(context, x_start + indent - indent_width, y + 1.0f, 0xFF888888, "-");
+		}
+		zest_DrawDebugText(context, x_start + indent, y + 1.0f, text_color, "%s", name);
+
+		// Column 2: time value, right-aligned feel with consistent format
+		char time_str[32];
+		if (result->microseconds >= 1000.0) {
+			snprintf(time_str, sizeof(time_str), "%7.2fms", result->microseconds / 1000.0);
+		} else {
+			snprintf(time_str, sizeof(time_str), "%7.1fus", result->microseconds);
+		}
+		zest_DrawDebugText(context, time_col_x, y + 1.0f, 0xFFDDDDDD, "%s", time_str);
+
+		// Column 3: proportional bar
+		zest_uint bar_color;
+		switch (result->queue_type) {
+			case zest_queue_compute:  bar_color = 0xCC44CC44; break;
+			case zest_queue_transfer: bar_color = 0xCC4444CC; break;
+			default:                  bar_color = 0xCCCC8844; break;
+		}
+		// Dim bar for sub-regions
+		if (result->depth > 0) {
+			bar_color = (bar_color & 0x00FFFFFF) | 0x88000000;
+		}
+
+		float bar_width = (float)(result->microseconds / max_time) * max_bar_width;
+		if (bar_width < 2.0f) bar_width = 2.0f;
+		zest_DrawDebugRect(context, bar_col_x, y + 1.0f, bar_width, bar_height, bar_color);
+	}
+}
+
+// -- End GPU_Profiling_implementation
 
 zest_bool zest_SetErrorLogPath(zest_device device, const char* path) {
     ZEST_ASSERT_HANDLE(device);    //Have you initialised Zest yet?

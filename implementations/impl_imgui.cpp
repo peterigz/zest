@@ -628,6 +628,158 @@ void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
     style.ChildBorderSize = 1.f;
 }
 
+// Helper: draw the time and bar columns for a profile result row
+static void zest__imgui_draw_profile_time_and_bar(zest_gpu_profile_result_t *r, double max_time, float bar_max_width) {
+	ImGui::TableNextColumn();
+	if (r->microseconds >= 1000.0) {
+		ImGui::Text("%7.2f ms", r->microseconds / 1000.0);
+	} else {
+		ImGui::Text("%7.1f us", r->microseconds);
+	}
+
+	ImGui::TableNextColumn();
+	float bar_width = (float)(r->microseconds / max_time) * bar_max_width;
+	if (bar_width < 2.0f) bar_width = 2.0f;
+
+	ImVec4 bar_color;
+	switch (r->queue_type) {
+		case zest_queue_compute:  bar_color = ImVec4(0.27f, 0.80f, 0.27f, r->depth > 0 ? 0.6f : 0.85f); break;
+		case zest_queue_transfer: bar_color = ImVec4(0.27f, 0.27f, 0.80f, r->depth > 0 ? 0.6f : 0.85f); break;
+		default:                  bar_color = ImVec4(0.80f, 0.53f, 0.27f, r->depth > 0 ? 0.6f : 0.85f); break;
+	}
+
+	ImVec2 cursor = ImGui::GetCursorScreenPos();
+	float row_height = ImGui::GetTextLineHeight();
+	ImGui::GetWindowDrawList()->AddRectFilled(
+		cursor,
+		ImVec2(cursor.x + bar_width, cursor.y + row_height),
+		ImGui::ColorConvertFloat4ToU32(bar_color)
+	);
+	ImGui::Dummy(ImVec2(bar_max_width, row_height));
+}
+
+// Helper: check if a depth-0 pass at index i has any children (depth > 0 entries following it)
+static bool zest__imgui_pass_has_children(zest_gpu_profile_result_t *results, zest_uint result_count, zest_uint i) {
+	return (i + 1 < result_count && results[i + 1].depth > results[i].depth);
+}
+
+// Helper: recursively draw profile tree rows starting at *index, for entries at the given depth.
+// Advances *index past all consumed entries.
+static void zest__imgui_draw_profile_tree(zest_gpu_profile_result_t *results, zest_uint result_count, zest_uint *index, zest_uint parent_depth, double max_time, float bar_max_width) {
+	while (*index < result_count && results[*index].depth > parent_depth) {
+		zest_gpu_profile_result_t *r = &results[*index];
+		zest_uint current_depth = r->depth;
+		const char *name = r->name ? r->name : "???";
+		bool has_children = (*index + 1 < result_count && results[*index + 1].depth > current_depth);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+
+		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+		if (!has_children) {
+			flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+		}
+
+		bool open = ImGui::TreeNodeEx((void*)(intptr_t)*index, flags, "%s", name);
+
+		zest__imgui_draw_profile_time_and_bar(r, max_time, bar_max_width);
+
+		(*index)++;
+
+		if (has_children) {
+			if (open) {
+				zest__imgui_draw_profile_tree(results, result_count, index, current_depth, max_time, bar_max_width);
+				ImGui::TreePop();
+			} else {
+				// Skip all children when collapsed
+				while (*index < result_count && results[*index].depth > current_depth) {
+					(*index)++;
+				}
+			}
+		}
+	}
+}
+
+void zest_imgui_DrawGPUProfileWindow(zest_context context) {
+	zest_uint result_count = 0;
+	zest_gpu_profile_result_t *results = zest_GetGPUProfileResults(context, &result_count);
+
+	if (!ImGui::Begin("GPU Profile", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::End();
+		return;
+	}
+
+	if (result_count == 0) {
+		ImGui::TextDisabled("No profiling data");
+		ImGui::End();
+		return;
+	}
+
+	// Find max time for bar scaling
+	double max_time = 0.001;
+	for (zest_uint i = 0; i < result_count; ++i) {
+		if (results[i].microseconds > max_time) {
+			max_time = results[i].microseconds;
+		}
+	}
+
+	// Total frame GPU time (earliest begin to latest end, accounts for overlap)
+	double total_time = zest_GetGPUProfileTotalTime(context);
+	if (total_time >= 1000.0) {
+		ImGui::Text("Total: %.2f ms", total_time / 1000.0);
+	} else {
+		ImGui::Text("Total: %.1f us", total_time);
+	}
+	ImGui::Separator();
+
+	float bar_max_width = 120.0f;
+
+	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+	if (ImGui::BeginTable("gpu_profile", 3, table_flags)) {
+		ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
+		ImGui::TableHeadersRow();
+
+		zest_uint i = 0;
+		while (i < result_count) {
+			zest_gpu_profile_result_t *r = &results[i];
+			const char *name = r->name ? r->name : "???";
+			bool has_children = zest__imgui_pass_has_children(results, result_count, i);
+
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+
+			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
+			if (!has_children) {
+				flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+			}
+
+			bool open = ImGui::TreeNodeEx((void*)(intptr_t)i, flags, "%s", name);
+
+			zest__imgui_draw_profile_time_and_bar(r, max_time, bar_max_width);
+
+			i++;
+
+			if (has_children) {
+				if (open) {
+					zest__imgui_draw_profile_tree(results, result_count, &i, r->depth, max_time, bar_max_width);
+					ImGui::TreePop();
+				} else {
+					// Skip children when collapsed
+					while (i < result_count && results[i].depth > r->depth) {
+						i++;
+					}
+				}
+			}
+		}
+
+		ImGui::EndTable();
+	}
+
+	ImGui::End();
+}
+
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	ImGui::DestroyContext();
 	zest_FreeImage(imgui->font_texture);

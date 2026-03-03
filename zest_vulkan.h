@@ -170,6 +170,13 @@ zest__log_vulkan_error(device, result, __FILE__, __LINE__);                     
 
 ZEST_PRIVATE void zest__vk_initialise_platform_callbacks(zest_platform_t *platform);
 
+//GPU Profiling
+ZEST_PRIVATE zest_bool zest__vk_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler);
+ZEST_PRIVATE void zest__vk_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler);
+ZEST_PRIVATE void zest__vk_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif);
+ZEST_PRIVATE void zest__vk_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
+ZEST_PRIVATE zest_bool zest__vk_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
+
 ZEST_PRIVATE void zest__log_vulkan_error(zest_device device, VkResult result, const char *file, int line);
 ZEST_PRIVATE const char *zest__vulkan_error_string(VkResult errorCode);
 
@@ -452,6 +459,7 @@ typedef struct zest_device_backend_t {
     PFN_vkCmdEndRenderingKHR pfn_vkCmdEndRendering;
     PFN_vkQueueSubmit2KHR pfn_vkQueueSubmit2;
     PFN_vkCmdPipelineBarrier2KHR pfn_vkCmdPipelineBarrier2;
+    PFN_vkCmdWriteTimestamp2KHR pfn_vkCmdWriteTimestamp2;
     VkFormat color_format;
     VkResult last_result;
 	shaderc_compiler_t shaderc_compiler;
@@ -476,6 +484,13 @@ typedef struct zest_context_backend_t {
 typedef struct zest_command_list_backend_t {
     VkCommandBuffer command_buffer;
 } zest_command_list_backend_t;
+
+typedef struct zest_gpu_profiler_backend_t {
+    VkDevice logical_device;
+    VkAllocationCallbacks *allocation_callbacks;
+    VkQueryPool query_pool[ZEST_MAX_FIF];
+    zest_u64 *raw_timestamps[ZEST_MAX_FIF];
+} zest_gpu_profiler_backend_t;
 
 typedef struct zest_descriptor_pool_backend_t {
     VkDescriptorPool vk_descriptor_pool;
@@ -530,6 +545,76 @@ typedef struct zest_swapchain_support_details_t {
     VkPresentModeKHR *present_modes;
     zest_uint present_modes_count;
 } zest_swapchain_support_details_t;
+
+// -- GPU_Profiling_backend
+
+zest_bool zest__vk_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) {
+	zest_device device = context->device;
+	zest_gpu_profiler_backend_t *backend = (zest_gpu_profiler_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_gpu_profiler_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_gpu_profiler_backend_t);
+	backend->logical_device = device->backend->logical_device;
+	backend->allocation_callbacks = &device->backend->allocation_callbacks;
+
+	VkQueryPoolCreateInfo pool_info = ZEST__ZERO_INIT(VkQueryPoolCreateInfo);
+	pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+	pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+	pool_info.queryCount = profiler->max_queries;
+
+	zest_ForEachFrameInFlight(fif) {
+		VkResult result = vkCreateQueryPool(device->backend->logical_device, &pool_info, &device->backend->allocation_callbacks, &backend->query_pool[fif]);
+		if (result != VK_SUCCESS) {
+			ZEST__FREE(context->allocator, backend);
+			return ZEST_FALSE;
+		}
+		vkResetQueryPool(device->backend->logical_device, backend->query_pool[fif], 0, profiler->max_queries);
+		backend->raw_timestamps[fif] = (zest_u64 *)ZEST__ALLOCATE(context->allocator, sizeof(zest_u64) * profiler->max_queries);
+		memset(backend->raw_timestamps[fif], 0, sizeof(zest_u64) * profiler->max_queries);
+	}
+
+	profiler->timestamp_period_ns = device->backend->properties.limits.timestampPeriod;
+	profiler->backend = backend;
+	zest_ForEachFrameInFlight(fif2) {
+		profiler->raw_timestamps[fif2] = backend->raw_timestamps[fif2];
+	}
+	return ZEST_TRUE;
+}
+
+void zest__vk_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler) {
+	if (!profiler->backend) return;
+	zest_gpu_profiler_backend_t *backend = (zest_gpu_profiler_backend_t *)profiler->backend;
+	zest_ForEachFrameInFlight(fif) {
+		if (backend->query_pool[fif]) {
+			vkDestroyQueryPool(backend->logical_device, backend->query_pool[fif], backend->allocation_callbacks);
+		}
+	}
+}
+
+void zest__vk_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif) {
+	zest_gpu_profiler_backend_t *backend = (zest_gpu_profiler_backend_t *)profiler->backend;
+	vkResetQueryPool(backend->logical_device, backend->query_pool[fif], 0, profiler->max_queries);
+}
+
+void zest__vk_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end) {
+	zest_gpu_profiler_backend_t *backend = (zest_gpu_profiler_backend_t *)profiler->backend;
+	VkCommandBuffer cmd = command_list->backend->command_buffer;
+	VkPipelineStageFlagBits2 stage = is_end ? VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+	command_list->device->backend->pfn_vkCmdWriteTimestamp2(cmd, stage, backend->query_pool[fif], query_index);
+}
+
+zest_bool zest__vk_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count) {
+	zest_gpu_profiler_backend_t *backend = (zest_gpu_profiler_backend_t *)profiler->backend;
+	if (query_count == 0) return ZEST_TRUE;
+	VkResult result = vkGetQueryPoolResults(
+		backend->logical_device,
+		backend->query_pool[fif],
+		0, query_count,
+		sizeof(zest_u64) * query_count,
+		backend->raw_timestamps[fif],
+		sizeof(zest_u64),
+		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
+	);
+	return result == VK_SUCCESS;
+}
 
 void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     //Frame Graph Related
@@ -646,6 +731,13 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->cleanup_sampler_backend 					    = zest__vk_cleanup_sampler_backend;
 	platform->cleanup_queue_backend 					    = zest__vk_cleanup_queue_backend;
 	platform->cleanup_context_queue_backend 				= zest__vk_cleanup_context_queue_backend;
+
+	//GPU Profiling
+	platform->create_gpu_profiler_backend                   = zest__vk_create_gpu_profiler_backend;
+	platform->cleanup_gpu_profiler_backend                  = zest__vk_cleanup_gpu_profiler_backend;
+	platform->reset_gpu_query_pool                          = zest__vk_reset_gpu_query_pool;
+	platform->write_timestamp                               = zest__vk_write_timestamp;
+	platform->readback_gpu_timestamps                       = zest__vk_readback_gpu_timestamps;
 
 	//Debugging
     platform->get_final_signal_ptr                          = zest__vk_get_final_signal_ptr;
@@ -2046,6 +2138,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features_12.bufferDeviceAddress = VK_TRUE;
     device_features_12.timelineSemaphore = VK_TRUE;
     device_features_12.samplerMirrorClampToEdge = VK_TRUE;
+    device_features_12.hostQueryReset = VK_TRUE;
 
 	VkPhysicalDeviceVulkan11Features device_features_11 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Features);
 	device_features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
@@ -2093,6 +2186,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdEndRenderingKHR");
     device->backend->pfn_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdPipelineBarrier2KHR");
     device->backend->pfn_vkQueueSubmit2 = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkQueueSubmit2KHR");
+    device->backend->pfn_vkCmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdWriteTimestamp2KHR");
 
 	//Loop over the available device queues and add queues for each one
 	zest_vec_foreach(i, device->queue_families) {

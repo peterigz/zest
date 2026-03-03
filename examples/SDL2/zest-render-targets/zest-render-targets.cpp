@@ -103,6 +103,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	//Iterate from mip 1 to the smallest mip, halving resolution each step
 	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
 	for (zest_uint mip_index = 1; mip_index != mip_levels; ++mip_index) {
+		zest_BeginGPUProfile(command_list, "Downsampler Mip %i", mip_index);
 		push.src_mip_index = sampler_mip_indices[mip_index - 1];
 		push.storage_image_index = storage_mip_indices[mip_index];
 
@@ -119,6 +120,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 			//Barrier ensures this mip write is visible before the next level reads it
 			zest_cmd_InsertComputeImageBarrier(command_list, downsampler_target, mip_index);
 		}
+		zest_EndGPUProfile(command_list);
 	}
 }
 
@@ -155,6 +157,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 
 	//Walk back up from smallest to largest mip, doubling resolution each step
 	for (int mip_index = mip_levels - 2; mip_index >= 0; --mip_index) {
+		zest_BeginGPUProfile(command_list, "Upsampler Mip %i", mip_index);
 		zest_uint current_width = ZEST__MAX(1u, resource_width >> mip_index);
 		zest_uint current_height = ZEST__MAX(1u, resource_height >> mip_index);
 		push.src_mip_index = sampler_mip_indices[mip_index + 1];
@@ -170,6 +173,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 		if (mip_index > 0) {
 			zest_cmd_InsertComputeImageBarrier(command_list, upsampler_target, mip_index);
 		}
+		zest_EndGPUProfile(command_list);
 	}
 }
 
@@ -344,6 +348,8 @@ void Mainloop(render_target_app_t *example) {
 
 int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 
 	//Create a window using SDL2 before device creation (needed for Vulkan extensions)
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Render Targets");

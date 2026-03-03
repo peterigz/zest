@@ -43,8 +43,6 @@ void MainLoop(minimal_app_t *app) {
 		//Generate a cache key
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
 		if (zest_BeginFrame(app->context)) {
-			zest_DrawDebugRect(app->context, 10, 10, 100, 50, 0xFFFFFFFF);
-			zest_DrawDebugText(app->context, 12, 12, 0xFF000000, "Testing");
 			//Try and fetch a cached frame graph using the key
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			if (!frame_graph) {
@@ -80,6 +78,7 @@ int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 
 	minimal_app_t app = {};
 

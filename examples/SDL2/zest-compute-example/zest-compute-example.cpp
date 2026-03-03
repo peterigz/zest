@@ -146,6 +146,9 @@ void InitComputeExample(ComputeExample *app) {
 
 	//Create a timer for a fixed update loop for the UI.
 	app->loop_timer = zest_CreateTimer(60.0);
+
+	//Initially disable the debug overlay
+	zest_EnableDebugOverlay(app->context, app->output_debug_overlay);
 }
 
 void RecordComputeSprites(zest_command_list command_list, void *user_data) {
@@ -190,7 +193,9 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(ParticlePushConsts));
 	//Dispatch the compute shader
+	zest_BeginGPUProfile(command_list, "Compute Dispatch");
 	zest_cmd_DispatchCompute(command_list, PARTICLE_COUNT / 256, 1, 1);
+	zest_EndGPUProfile(command_list);
 }
 
 void UpdateComputeUniformBuffers(ComputeExample *app) {
@@ -276,9 +281,14 @@ void MainLoop(ComputeExample *app) {
 			ImGui::Text("FPS: %u", fps);
 			ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 			ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
+			if (ImGui::Button("Toggle Debug Overlay")) {
+				app->output_debug_overlay = !app->output_debug_overlay;
+				zest_EnableDebugOverlay(app->context, app->output_debug_overlay);
+			}
 			if (ImGui::Button("Print Render Graph")) {
 				app->print_render_graph = true;
 			}
+			zest_imgui_DrawGPUProfileWindow(app->context);
 			ImGui::End();
 			ImGui::Render();
 		} zest_EndTimerLoop(app->loop_timer)
@@ -379,6 +389,8 @@ int main(int argc, char *argv[]) {
 
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 	compute_example.context = zest_CreateContext(compute_example.device, &window_data, &create_info);
 
 	//Initialise Dear ImGui
