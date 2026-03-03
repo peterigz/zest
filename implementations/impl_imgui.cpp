@@ -769,7 +769,7 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 
 	float bar_max_width = 120.0f;
 
-	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 	if (ImGui::BeginTable("gpu_profile", 3, table_flags)) {
 		ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
 		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
@@ -943,7 +943,7 @@ void zest_imgui_DrawCPUProfileWindow(zest_context context) {
 
 	float bar_max_width = 120.0f;
 
-	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 	if (ImGui::BeginTable("cpu_profile", 3, table_flags)) {
 		ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
 		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
@@ -1032,7 +1032,7 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 			}
 		}
 
-		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 		if (ImGui::BeginTable("gpu_profile_combined", 3, table_flags)) {
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
 			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
@@ -1092,7 +1092,7 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 			}
 		}
 
-		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV;
+		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 		if (ImGui::BeginTable("cpu_profile_combined", 3, table_flags)) {
 			ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
 			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);

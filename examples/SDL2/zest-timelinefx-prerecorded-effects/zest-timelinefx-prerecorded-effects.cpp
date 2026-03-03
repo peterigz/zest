@@ -261,6 +261,7 @@ void BuildUI(tfxPrerecordedExample *example, zest_uint fps) {
 	ImGui::Text("Total Memory For Drawn Sprites: %ikb", (example->animation_manager_3d->buffer_metrics.total_sprites_to_draw * 64) / (1024));
 	ImGui::Text("Total Memory For Sprite Data: %ikb", example->animation_manager_3d->sprite_data.size_in_bytes() / (1024));
 	ImGui::End();
+	zest_imgui_DrawProfileWindow(example->context);
 	ImGui::Render();
 }
 
@@ -420,7 +421,7 @@ void MainLoop(tfxPrerecordedExample *example) {
 
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(example->context, &cache_key);
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(example->context, "TimelineFX Render Graph", 0)) {
+				if (zest_BeginFrameGraph(example->context, "TimelineFX Render Graph", &cache_key)) {
 					zest_ImportSwapchainResource();
 					zest_buffer_resource_info_t offsets_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d) };
 					zest_buffer_resource_info_t animation_instances_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d) };
@@ -476,6 +477,8 @@ void MainLoop(tfxPrerecordedExample *example) {
 int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
 	tfxPrerecordedExample example{};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
