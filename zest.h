@@ -18335,6 +18335,25 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 		}
 		profiler->smoothed_count = write;
 
+		// Reorder smoothed entries to match raw results order.
+		// When the frame graph changes, matched entries keep their old positions
+		// and new entries are appended, causing the display order to diverge from
+		// the actual execution order (e.g. sub-passes appearing after "Release Queues").
+		for (zest_uint i = 0; i < profiler->result_count && i < profiler->smoothed_count; ++i) {
+			zest_gpu_profile_result_t *r = &profiler->results[i];
+			for (zest_uint j = i; j < profiler->smoothed_count; ++j) {
+				if (profiler->smoothed[j].depth == r->depth &&
+					strcmp(profiler->smoothed[j].name, r->name) == 0) {
+					if (j != i) {
+						zest_gpu_profile_smoothed_t tmp = profiler->smoothed[i];
+						profiler->smoothed[i] = profiler->smoothed[j];
+						profiler->smoothed[j] = tmp;
+					}
+					break;
+				}
+			}
+		}
+
 		// Smooth the total time
 		if (profiler->smoothed_total_us == 0.0) {
 			profiler->smoothed_total_us = profiler->total_microseconds;
@@ -18467,9 +18486,13 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 		}
 	}
 
+	// Check if bound indicator should be shown
+	zest_bool show_bound_indicator = context->cpu_profiler.enabled && context->cpu_profiler.smoothed_count > 0;
+	float bound_row_extra = show_bound_indicator ? row_height : 0.0f;
+
 	// Draw background
 	float header_height = 14.0f;
-	float total_height = header_height + profiler->smoothed_count * row_height + padding * 2.0f;
+	float total_height = header_height + bound_row_extra + profiler->smoothed_count * row_height + padding * 2.0f;
 	zest_DrawDebugRect(context, x_start - padding, y_start - header_height, total_width + padding * 2.0f, total_height, 0xCC000000);
 
 	// Header with smoothed total time
@@ -18480,6 +18503,27 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.1fus", profiler->smoothed_total_us);
 	}
 	zest_DrawDebugText(context, x_start, y_start - header_height + 3.0f, 0xFFAAAAAA, "%s", header_str);
+
+	// Bound indicator: compare smoothed GPU and CPU totals
+	if (show_bound_indicator) {
+		double cpu_us = context->cpu_profiler.smoothed_total_us;
+		double gpu_us = profiler->smoothed_total_us;
+		const char *bound_str;
+		zest_uint bound_color;
+		if (gpu_us > cpu_us * 1.2) {
+			bound_str = "GPU bound";
+			bound_color = 0xFFCC8844;
+		} else if (cpu_us > gpu_us * 1.2) {
+			bound_str = "CPU bound";
+			bound_color = 0xFFCCAA44;
+		} else {
+			bound_str = "Balanced";
+			bound_color = 0xFF44CC44;
+		}
+		zest_DrawDebugText(context, x_start, y_start - header_height + 3.0f + row_height, bound_color,
+			"CPU: %.2fms  GPU: %.2fms  [%s]", cpu_us / 1000.0, gpu_us / 1000.0, bound_str);
+		y_start += row_height;
+	}
 
 	for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
 		zest_gpu_profile_smoothed_t *s = &profiler->smoothed[i];
@@ -18659,6 +18703,25 @@ void zest__cpu_profiler_begin_frame(zest_context context) {
 		}
 		profiler->smoothed_count = write;
 
+		// Reorder smoothed entries to match raw results order.
+		// When the frame graph changes, matched entries keep their old positions
+		// and new entries are appended, causing the display order to diverge from
+		// the actual execution order (e.g. sub-passes appearing after "Release Queues").
+		for (zest_uint i = 0; i < profiler->result_count && i < profiler->smoothed_count; ++i) {
+			zest_cpu_profile_result_t *r = &profiler->results[i];
+			for (zest_uint j = i; j < profiler->smoothed_count; ++j) {
+				if (profiler->smoothed[j].depth == r->depth &&
+					strcmp(profiler->smoothed[j].name, r->name) == 0) {
+					if (j != i) {
+						zest_cpu_profile_smoothed_t tmp = profiler->smoothed[i];
+						profiler->smoothed[i] = profiler->smoothed[j];
+						profiler->smoothed[j] = tmp;
+					}
+					break;
+				}
+			}
+		}
+
 		// Smooth the total time
 		if (profiler->smoothed_total_us == 0.0) {
 			profiler->smoothed_total_us = profiler->total_microseconds;
@@ -18768,7 +18831,8 @@ void zest__draw_cpu_profile_overlay(zest_context context) {
 	zest_gpu_profiler_t *gpu_profiler = &context->gpu_profiler;
 	if (gpu_profiler->enabled && gpu_profiler->smoothed_count > 0) {
 		float gpu_header_height = 14.0f;
-		float gpu_total_height = gpu_header_height + gpu_profiler->smoothed_count * row_height + padding * 2.0f;
+		float gpu_bound_row = (profiler->enabled && profiler->smoothed_count > 0) ? row_height : 0.0f;
+		float gpu_total_height = gpu_header_height + gpu_bound_row + gpu_profiler->smoothed_count * row_height + padding * 2.0f;
 		y_start += gpu_total_height + 8.0f;
 	}
 

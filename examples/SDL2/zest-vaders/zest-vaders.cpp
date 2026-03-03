@@ -974,8 +974,7 @@ void BuildUI(VadersGame *game) {
 			game->request_graph_print = 1;
 		}
 		ImGui::End();
-		zest_imgui_DrawGPUProfileWindow(game->context);
-		zest_imgui_DrawCPUProfileWindow(game->context);
+		zest_imgui_DrawProfileWindow(game->context);
 	//}
 
 	ImGui::Render();

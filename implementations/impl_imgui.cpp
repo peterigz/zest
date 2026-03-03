@@ -750,6 +750,21 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 	} else {
 		ImGui::Text("Total: %.1f us", total_time);
 	}
+	{
+		zest_uint cpu_profile_count = 0;
+		zest_GetCPUProfileSmoothedResults(context, &cpu_profile_count);
+		if (cpu_profile_count > 0) {
+			double cpu_us = zest_GetCPUProfileSmoothedTotalTime(context);
+			double gpu_us = total_time;
+			if (gpu_us > cpu_us * 1.2) {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.80f, 0.53f, 0.27f, 1.0f), " [GPU bound]");
+			} else if (cpu_us > gpu_us * 1.2) {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.27f, 0.67f, 0.80f, 1.0f), " [CPU bound]");
+			} else {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.27f, 0.80f, 0.27f, 1.0f), " [Balanced]");
+			}
+		}
+	}
 	ImGui::Separator();
 
 	float bar_max_width = 120.0f;
@@ -909,6 +924,21 @@ void zest_imgui_DrawCPUProfileWindow(zest_context context) {
 	} else {
 		ImGui::Text("Total: %.1f us", total_time);
 	}
+	{
+		zest_uint gpu_profile_count = 0;
+		zest_GetGPUProfileSmoothedResults(context, &gpu_profile_count);
+		if (gpu_profile_count > 0) {
+			double gpu_us = zest_GetGPUProfileSmoothedTotalTime(context);
+			double cpu_us = total_time;
+			if (gpu_us > cpu_us * 1.2) {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.80f, 0.53f, 0.27f, 1.0f), " [GPU bound]");
+			} else if (cpu_us > gpu_us * 1.2) {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.27f, 0.67f, 0.80f, 1.0f), " [CPU bound]");
+			} else {
+				ImGui::SameLine(); ImGui::TextColored(ImVec4(0.27f, 0.80f, 0.27f, 1.0f), " [Balanced]");
+			}
+		}
+	}
 	ImGui::Separator();
 
 	float bar_max_width = 120.0f;
@@ -966,9 +996,27 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 
 	float bar_max_width = 120.0f;
 
-	// GPU section
+	// Bound indicator at top when both profilers have data
 	zest_uint gpu_count = 0;
 	zest_gpu_profile_smoothed_t *gpu_results = zest_GetGPUProfileSmoothedResults(context, &gpu_count);
+	zest_uint cpu_count = 0;
+	zest_cpu_profile_smoothed_t *cpu_results = zest_GetCPUProfileSmoothedResults(context, &cpu_count);
+	if (gpu_count > 0 && cpu_count > 0) {
+		double gpu_total = zest_GetGPUProfileSmoothedTotalTime(context);
+		double cpu_total = zest_GetCPUProfileSmoothedTotalTime(context);
+		if (gpu_total > cpu_total * 1.2) {
+			ImGui::TextColored(ImVec4(0.80f, 0.53f, 0.27f, 1.0f), "GPU bound");
+		} else if (cpu_total > gpu_total * 1.2) {
+			ImGui::TextColored(ImVec4(0.27f, 0.67f, 0.80f, 1.0f), "CPU bound");
+		} else {
+			ImGui::TextColored(ImVec4(0.27f, 0.80f, 0.27f, 1.0f), "Balanced");
+		}
+		ImGui::SameLine();
+		ImGui::Text(" - CPU: %.2f ms  GPU: %.2f ms", cpu_total / 1000.0, gpu_total / 1000.0);
+		ImGui::Separator();
+	}
+
+	// GPU section
 	if (gpu_count > 0) {
 		double gpu_total = zest_GetGPUProfileSmoothedTotalTime(context);
 		if (gpu_total >= 1000.0) {
@@ -1027,8 +1075,6 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 	}
 
 	// CPU section
-	zest_uint cpu_count = 0;
-	zest_cpu_profile_smoothed_t *cpu_results = zest_GetCPUProfileSmoothedResults(context, &cpu_count);
 	if (cpu_count > 0) {
 		if (gpu_count > 0) ImGui::Spacing();
 
