@@ -1,5 +1,6 @@
 #include "impl_imgui.h"
 #include "imgui_internal.h"
+#include <math.h>
 
 void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback) {
 	*imgui = {};
@@ -628,25 +629,46 @@ void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
     style.ChildBorderSize = 1.f;
 }
 
-// Helper: draw the time and bar columns for a profile result row
-static void zest__imgui_draw_profile_time_and_bar(zest_gpu_profile_result_t *r, double max_time, float bar_max_width) {
+// Helper: compute variance-blended bar color for a smoothed profile entry
+static ImVec4 zest__imgui_variance_bar_color(zest_gpu_profile_smoothed_t *s) {
+	// Coefficient of variation: stddev / mean. 0 = steady, >1 = very erratic
+	double stddev = sqrt(s->variance);
+	double cv = s->smoothed_us > 0.001 ? stddev / s->smoothed_us : 0.0;
+	if (cv > 1.0) cv = 1.0;
+	float t = (float)cv;
+	float alpha = s->depth > 0 ? 0.6f : 0.85f;
+
+	// Base color per queue type
+	float base_r, base_g, base_b;
+	switch (s->queue_type) {
+		case zest_queue_compute:  base_r = 0.27f; base_g = 0.80f; base_b = 0.27f; break;
+		case zest_queue_transfer: base_r = 0.27f; base_g = 0.27f; base_b = 0.80f; break;
+		default:                  base_r = 0.80f; base_g = 0.53f; base_b = 0.27f; break;
+	}
+	// Hot color: red-orange for erratic
+	float hot_r = 1.0f, hot_g = 0.27f, hot_b = 0.13f;
+	return ImVec4(
+		base_r * (1.0f - t) + hot_r * t,
+		base_g * (1.0f - t) + hot_g * t,
+		base_b * (1.0f - t) + hot_b * t,
+		alpha
+	);
+}
+
+// Helper: draw the time and bar columns for a smoothed profile result row
+static void zest__imgui_draw_profile_time_and_bar(zest_gpu_profile_smoothed_t *s, double max_time, float bar_max_width) {
 	ImGui::TableNextColumn();
-	if (r->microseconds >= 1000.0) {
-		ImGui::Text("%7.2f ms", r->microseconds / 1000.0);
+	if (s->smoothed_us >= 1000.0) {
+		ImGui::Text("%7.2f ms", s->smoothed_us / 1000.0);
 	} else {
-		ImGui::Text("%7.1f us", r->microseconds);
+		ImGui::Text("%7.1f us", s->smoothed_us);
 	}
 
 	ImGui::TableNextColumn();
-	float bar_width = (float)(r->microseconds / max_time) * bar_max_width;
+	float bar_width = (float)(s->smoothed_us / max_time) * bar_max_width;
 	if (bar_width < 2.0f) bar_width = 2.0f;
 
-	ImVec4 bar_color;
-	switch (r->queue_type) {
-		case zest_queue_compute:  bar_color = ImVec4(0.27f, 0.80f, 0.27f, r->depth > 0 ? 0.6f : 0.85f); break;
-		case zest_queue_transfer: bar_color = ImVec4(0.27f, 0.27f, 0.80f, r->depth > 0 ? 0.6f : 0.85f); break;
-		default:                  bar_color = ImVec4(0.80f, 0.53f, 0.27f, r->depth > 0 ? 0.6f : 0.85f); break;
-	}
+	ImVec4 bar_color = zest__imgui_variance_bar_color(s);
 
 	ImVec2 cursor = ImGui::GetCursorScreenPos();
 	float row_height = ImGui::GetTextLineHeight();
@@ -658,18 +680,17 @@ static void zest__imgui_draw_profile_time_and_bar(zest_gpu_profile_result_t *r, 
 	ImGui::Dummy(ImVec2(bar_max_width, row_height));
 }
 
-// Helper: check if a depth-0 pass at index i has any children (depth > 0 entries following it)
-static bool zest__imgui_pass_has_children(zest_gpu_profile_result_t *results, zest_uint result_count, zest_uint i) {
+// Helper: check if entry at index i has children (higher depth entries following it)
+static bool zest__imgui_pass_has_children(zest_gpu_profile_smoothed_t *results, zest_uint result_count, zest_uint i) {
 	return (i + 1 < result_count && results[i + 1].depth > results[i].depth);
 }
 
 // Helper: recursively draw profile tree rows starting at *index, for entries at the given depth.
-// Advances *index past all consumed entries.
-static void zest__imgui_draw_profile_tree(zest_gpu_profile_result_t *results, zest_uint result_count, zest_uint *index, zest_uint parent_depth, double max_time, float bar_max_width) {
+static void zest__imgui_draw_profile_tree(zest_gpu_profile_smoothed_t *results, zest_uint result_count, zest_uint *index, zest_uint parent_depth, double max_time, float bar_max_width) {
 	while (*index < result_count && results[*index].depth > parent_depth) {
-		zest_gpu_profile_result_t *r = &results[*index];
-		zest_uint current_depth = r->depth;
-		const char *name = r->name ? r->name : "???";
+		zest_gpu_profile_smoothed_t *s = &results[*index];
+		zest_uint current_depth = s->depth;
+		const char *name = s->name[0] ? s->name : "???";
 		bool has_children = (*index + 1 < result_count && results[*index + 1].depth > current_depth);
 
 		ImGui::TableNextRow();
@@ -682,7 +703,7 @@ static void zest__imgui_draw_profile_tree(zest_gpu_profile_result_t *results, ze
 
 		bool open = ImGui::TreeNodeEx((void*)(intptr_t)*index, flags, "%s", name);
 
-		zest__imgui_draw_profile_time_and_bar(r, max_time, bar_max_width);
+		zest__imgui_draw_profile_time_and_bar(s, max_time, bar_max_width);
 
 		(*index)++;
 
@@ -691,7 +712,6 @@ static void zest__imgui_draw_profile_tree(zest_gpu_profile_result_t *results, ze
 				zest__imgui_draw_profile_tree(results, result_count, index, current_depth, max_time, bar_max_width);
 				ImGui::TreePop();
 			} else {
-				// Skip all children when collapsed
 				while (*index < result_count && results[*index].depth > current_depth) {
 					(*index)++;
 				}
@@ -702,7 +722,7 @@ static void zest__imgui_draw_profile_tree(zest_gpu_profile_result_t *results, ze
 
 void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 	zest_uint result_count = 0;
-	zest_gpu_profile_result_t *results = zest_GetGPUProfileResults(context, &result_count);
+	zest_gpu_profile_smoothed_t *results = zest_GetGPUProfileSmoothedResults(context, &result_count);
 
 	if (!ImGui::Begin("GPU Profile", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ImGui::End();
@@ -715,16 +735,16 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 		return;
 	}
 
-	// Find max time for bar scaling
+	// Find max smoothed time for bar scaling
 	double max_time = 0.001;
 	for (zest_uint i = 0; i < result_count; ++i) {
-		if (results[i].microseconds > max_time) {
-			max_time = results[i].microseconds;
+		if (results[i].smoothed_us > max_time) {
+			max_time = results[i].smoothed_us;
 		}
 	}
 
-	// Total frame GPU time (earliest begin to latest end, accounts for overlap)
-	double total_time = zest_GetGPUProfileTotalTime(context);
+	// Smoothed total GPU time
+	double total_time = zest_GetGPUProfileSmoothedTotalTime(context);
 	if (total_time >= 1000.0) {
 		ImGui::Text("Total: %.2f ms", total_time / 1000.0);
 	} else {
@@ -743,8 +763,8 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 
 		zest_uint i = 0;
 		while (i < result_count) {
-			zest_gpu_profile_result_t *r = &results[i];
-			const char *name = r->name ? r->name : "???";
+			zest_gpu_profile_smoothed_t *s = &results[i];
+			const char *name = s->name[0] ? s->name : "???";
 			bool has_children = zest__imgui_pass_has_children(results, result_count, i);
 
 			ImGui::TableNextRow();
@@ -757,17 +777,16 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 
 			bool open = ImGui::TreeNodeEx((void*)(intptr_t)i, flags, "%s", name);
 
-			zest__imgui_draw_profile_time_and_bar(r, max_time, bar_max_width);
+			zest__imgui_draw_profile_time_and_bar(s, max_time, bar_max_width);
 
 			i++;
 
 			if (has_children) {
 				if (open) {
-					zest__imgui_draw_profile_tree(results, result_count, &i, r->depth, max_time, bar_max_width);
+					zest__imgui_draw_profile_tree(results, result_count, &i, s->depth, max_time, bar_max_width);
 					ImGui::TreePop();
 				} else {
-					// Skip children when collapsed
-					while (i < result_count && results[i].depth > r->depth) {
+					while (i < result_count && results[i].depth > s->depth) {
 						i++;
 					}
 				}

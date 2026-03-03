@@ -3729,6 +3729,19 @@ typedef struct zest_gpu_profile_result_s {
 	zest_uint depth;
 } zest_gpu_profile_result_t;
 
+#ifndef ZEST_GPU_PROFILE_SMOOTHING_ALPHA
+#define ZEST_GPU_PROFILE_SMOOTHING_ALPHA 0.1f
+#endif
+
+typedef struct zest_gpu_profile_smoothed_s {
+	char name[ZEST_GPU_PROFILE_NAME_LENGTH];
+	double smoothed_us;         // IIR-smoothed microseconds
+	double variance;            // EMA of squared deviation from smoothed mean
+	zest_uint queue_type;
+	zest_uint depth;
+	zest_bool active;           // Was this entry matched this frame?
+} zest_gpu_profile_smoothed_t;
+
 typedef struct zest_gpu_profiler_s {
 	zest_uint max_queries;
 	zest_uint query_count[ZEST_MAX_FIF];
@@ -3741,6 +3754,12 @@ typedef struct zest_gpu_profiler_s {
 	zest_gpu_profile_result_t *results;
 	zest_uint result_count;
 	double total_microseconds;
+
+	// Smoothed results with variance tracking
+	zest_gpu_profile_smoothed_t *smoothed;
+	zest_uint smoothed_count;
+	double smoothed_total_us;
+	float smoothing_alpha;
 
 	float timestamp_period_ns;
 	zest_bool enabled;
@@ -5496,7 +5515,10 @@ ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_ui
 ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
 ZEST_API void zest_EndGPUProfile(zest_command_list command_list);
 ZEST_API zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count);
+ZEST_API zest_gpu_profile_smoothed_t* zest_GetGPUProfileSmoothedResults(zest_context context, zest_uint *count);
 ZEST_API double zest_GetGPUProfileTotalTime(zest_context context);
+ZEST_API double zest_GetGPUProfileSmoothedTotalTime(zest_context context);
+ZEST_API void zest_SetGPUProfileSmoothingAlpha(zest_context context, float alpha);
 ZEST_API void zest_EnableGPUProfiling(zest_context context, zest_bool enabled);
 ZEST_API void zest_EnableDebugOverlay(zest_context context, zest_bool enabled);
 //--End Debug Helpers
@@ -18016,6 +18038,11 @@ void zest__init_gpu_profiler(zest_context context) {
 	profiler->results = (zest_gpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
 	memset(profiler->results, 0, sizeof(zest_gpu_profile_result_t) * (profiler->max_queries / 2));
 	profiler->result_count = 0;
+
+	profiler->smoothed = (zest_gpu_profile_smoothed_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_gpu_profile_smoothed_t) * (profiler->max_queries / 2));
+	memset(profiler->smoothed, 0, sizeof(zest_gpu_profile_smoothed_t) * (profiler->max_queries / 2));
+	profiler->smoothed_count = 0;
+	profiler->smoothing_alpha = ZEST_GPU_PROFILE_SMOOTHING_ALPHA;
 }
 
 void zest__cleanup_gpu_profiler(zest_context context) {
@@ -18032,6 +18059,9 @@ void zest__cleanup_gpu_profiler(zest_context context) {
 	}
 	if (profiler->results) {
 		ZEST__FREE(context->allocator, profiler->results);
+	}
+	if (profiler->smoothed) {
+		ZEST__FREE(context->allocator, profiler->smoothed);
 	}
 	if (profiler->backend) {
 		ZEST__FREE(context->allocator, profiler->backend);
@@ -18070,6 +18100,77 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 	} else {
 		profiler->result_count = 0;
 		profiler->total_microseconds = 0.0;
+	}
+
+	// IIR smoothing and variance tracking
+	if (profiler->result_count > 0) {
+		float alpha = profiler->smoothing_alpha;
+
+		// Mark all existing smoothed entries as inactive
+		for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+			profiler->smoothed[i].active = ZEST_FALSE;
+		}
+
+		// Match each raw result to a smoothed entry by name+depth
+		for (zest_uint i = 0; i < profiler->result_count; ++i) {
+			zest_gpu_profile_result_t *raw = &profiler->results[i];
+			zest_gpu_profile_smoothed_t *match = 0;
+
+			// Find existing smoothed entry with same name and depth
+			for (zest_uint j = 0; j < profiler->smoothed_count; ++j) {
+				if (!profiler->smoothed[j].active &&
+					profiler->smoothed[j].depth == raw->depth &&
+					strcmp(profiler->smoothed[j].name, raw->name) == 0) {
+					match = &profiler->smoothed[j];
+					break;
+				}
+			}
+
+			if (match) {
+				// Update existing entry with IIR filter
+				double prev = match->smoothed_us;
+				match->smoothed_us = prev * (1.0 - alpha) + raw->microseconds * alpha;
+				double deviation = raw->microseconds - match->smoothed_us;
+				match->variance = match->variance * (1.0 - alpha) + (deviation * deviation) * alpha;
+				match->queue_type = raw->queue_type;
+				match->active = ZEST_TRUE;
+			} else {
+				// New entry — seed with raw value, zero variance
+				if (profiler->smoothed_count < profiler->max_queries / 2) {
+					match = &profiler->smoothed[profiler->smoothed_count++];
+				} else {
+					// Overflow — reuse last slot
+					match = &profiler->smoothed[profiler->smoothed_count - 1];
+				}
+				memset(match, 0, sizeof(zest_gpu_profile_smoothed_t));
+				snprintf(match->name, ZEST_GPU_PROFILE_NAME_LENGTH, "%s", raw->name);
+				match->smoothed_us = raw->microseconds;
+				match->variance = 0.0;
+				match->queue_type = raw->queue_type;
+				match->depth = raw->depth;
+				match->active = ZEST_TRUE;
+			}
+
+		}
+
+		// Remove inactive entries (passes that disappeared) by compacting
+		zest_uint write = 0;
+		for (zest_uint read = 0; read < profiler->smoothed_count; ++read) {
+			if (profiler->smoothed[read].active) {
+				if (write != read) {
+					profiler->smoothed[write] = profiler->smoothed[read];
+				}
+				write++;
+			}
+		}
+		profiler->smoothed_count = write;
+
+		// Smooth the total time
+		if (profiler->smoothed_total_us == 0.0) {
+			profiler->smoothed_total_us = profiler->total_microseconds;
+		} else {
+			profiler->smoothed_total_us = profiler->smoothed_total_us * (1.0 - alpha) + profiler->total_microseconds * alpha;
+		}
 	}
 
 	// Reset current FIF's query pool and counter
@@ -18133,6 +18234,24 @@ double zest_GetGPUProfileTotalTime(zest_context context) {
 	return context->gpu_profiler.total_microseconds;
 }
 
+zest_gpu_profile_smoothed_t* zest_GetGPUProfileSmoothedResults(zest_context context, zest_uint *count) {
+	ZEST_ASSERT_HANDLE(context);
+	*count = context->gpu_profiler.smoothed_count;
+	return context->gpu_profiler.smoothed;
+}
+
+double zest_GetGPUProfileSmoothedTotalTime(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->gpu_profiler.smoothed_total_us;
+}
+
+void zest_SetGPUProfileSmoothingAlpha(zest_context context, float alpha) {
+	ZEST_ASSERT_HANDLE(context);
+	if (alpha < 0.001f) alpha = 0.001f;
+	if (alpha > 1.0f) alpha = 1.0f;
+	context->gpu_profiler.smoothing_alpha = alpha;
+}
+
 void zest_EnableGPUProfiling(zest_context context, zest_bool enabled) {
 	ZEST_ASSERT_HANDLE(context);
 	if (context->gpu_profiler.backend) {
@@ -18151,7 +18270,7 @@ void zest_EnableDebugOverlay(zest_context context, zest_bool enabled) {
 
 void zest__draw_gpu_profile_overlay(zest_context context) {
 	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
-	if (!profiler->enabled || profiler->result_count == 0) return;
+	if (!profiler->enabled || profiler->smoothed_count == 0) return;
 	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) return;
 
 	// Table layout: [Name column] [Time column] [Bar column]
@@ -18170,65 +18289,74 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 	float bar_col_x = time_col_x + time_col_width + padding;
 	float total_width = bar_col_x + max_bar_width + padding - x_start;
 
-	// Find max time for scaling bars
+	// Find max smoothed time for scaling bars
 	double max_time = 0.001;
-	for (zest_uint i = 0; i < profiler->result_count; ++i) {
-		if (profiler->results[i].microseconds > max_time) {
-			max_time = profiler->results[i].microseconds;
+	for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+		if (profiler->smoothed[i].smoothed_us > max_time) {
+			max_time = profiler->smoothed[i].smoothed_us;
 		}
 	}
 
 	// Draw background
 	float header_height = 14.0f;
-	float total_height = header_height + profiler->result_count * row_height + padding * 2.0f;
+	float total_height = header_height + profiler->smoothed_count * row_height + padding * 2.0f;
 	zest_DrawDebugRect(context, x_start - padding, y_start - header_height, total_width + padding * 2.0f, total_height, 0xCC000000);
 
-	// Header with total time
+	// Header with smoothed total time
 	char header_str[64];
-	if (profiler->total_microseconds >= 1000.0) {
-		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.2fms", profiler->total_microseconds / 1000.0);
+	if (profiler->smoothed_total_us >= 1000.0) {
+		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.2fms", profiler->smoothed_total_us / 1000.0);
 	} else {
-		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.1fus", profiler->total_microseconds);
+		snprintf(header_str, sizeof(header_str), "GPU Profile - Total: %.1fus", profiler->smoothed_total_us);
 	}
 	zest_DrawDebugText(context, x_start, y_start - header_height + 3.0f, 0xFFAAAAAA, "%s", header_str);
 
-	for (zest_uint i = 0; i < profiler->result_count; ++i) {
-		zest_gpu_profile_result_t *result = &profiler->results[i];
+	for (zest_uint i = 0; i < profiler->smoothed_count; ++i) {
+		zest_gpu_profile_smoothed_t *s = &profiler->smoothed[i];
 		float y = y_start + (float)i * row_height;
-		float indent = (float)result->depth * indent_width;
+		float indent = (float)s->depth * indent_width;
 
 		// Column 1: name with hierarchy indentation
-		const char *name = result->name ? result->name : "???";
-		// Dim sub-regions slightly
-		zest_uint text_color = result->depth > 0 ? 0xFFBBBBBB : 0xFFFFFFFF;
-		if (result->depth > 0) {
-			// Draw a small marker for sub-regions
+		const char *name = s->name[0] ? s->name : "???";
+		zest_uint text_color = s->depth > 0 ? 0xFFBBBBBB : 0xFFFFFFFF;
+		if (s->depth > 0) {
 			zest_DrawDebugText(context, x_start + indent - indent_width, y + 1.0f, 0xFF888888, "-");
 		}
 		zest_DrawDebugText(context, x_start + indent, y + 1.0f, text_color, "%s", name);
 
-		// Column 2: time value, right-aligned feel with consistent format
+		// Column 2: smoothed time value
 		char time_str[32];
-		if (result->microseconds >= 1000.0) {
-			snprintf(time_str, sizeof(time_str), "%7.2fms", result->microseconds / 1000.0);
+		if (s->smoothed_us >= 1000.0) {
+			snprintf(time_str, sizeof(time_str), "%7.2fms", s->smoothed_us / 1000.0);
 		} else {
-			snprintf(time_str, sizeof(time_str), "%7.1fus", result->microseconds);
+			snprintf(time_str, sizeof(time_str), "%7.1fus", s->smoothed_us);
 		}
 		zest_DrawDebugText(context, time_col_x, y + 1.0f, 0xFFDDDDDD, "%s", time_str);
 
-		// Column 3: proportional bar
-		zest_uint bar_color;
-		switch (result->queue_type) {
-			case zest_queue_compute:  bar_color = 0xCC44CC44; break;
-			case zest_queue_transfer: bar_color = 0xCC4444CC; break;
-			default:                  bar_color = 0xCCCC8844; break;
-		}
-		// Dim bar for sub-regions
-		if (result->depth > 0) {
-			bar_color = (bar_color & 0x00FFFFFF) | 0x88000000;
-		}
+		// Column 3: proportional bar with variance-based coloring
+		// Coefficient of variation: stddev / mean. 0 = perfectly steady, >1 = very erratic
+		double stddev = sqrt(s->variance);
+		double cv = s->smoothed_us > 0.001 ? stddev / s->smoothed_us : 0.0;
+		if (cv > 1.0) cv = 1.0;
 
-		float bar_width = (float)(result->microseconds / max_time) * max_bar_width;
+		// Lerp bar color from queue-type base color (steady) toward red/yellow (erratic)
+		// Base colors per queue type (r, g, b as 0-255)
+		zest_uint base_r, base_g, base_b;
+		switch (s->queue_type) {
+			case zest_queue_compute:  base_r = 0x44; base_g = 0xCC; base_b = 0x44; break;
+			case zest_queue_transfer: base_r = 0x44; base_g = 0x44; base_b = 0xCC; break;
+			default:                  base_r = 0xCC; base_g = 0x88; base_b = 0x44; break;
+		}
+		// Hot color: red-orange for erratic
+		zest_uint hot_r = 0xFF, hot_g = 0x44, hot_b = 0x22;
+		float t = (float)cv;
+		zest_uint final_r = (zest_uint)(base_r * (1.0f - t) + hot_r * t);
+		zest_uint final_g = (zest_uint)(base_g * (1.0f - t) + hot_g * t);
+		zest_uint final_b = (zest_uint)(base_b * (1.0f - t) + hot_b * t);
+		zest_uint alpha = s->depth > 0 ? 0x88 : 0xCC;
+		zest_uint bar_color = (alpha << 24) | (final_b << 16) | (final_g << 8) | final_r;
+
+		float bar_width = (float)(s->smoothed_us / max_time) * max_bar_width;
 		if (bar_width < 2.0f) bar_width = 2.0f;
 		zest_DrawDebugRect(context, bar_col_x, y + 1.0f, bar_width, bar_height, bar_color);
 	}
