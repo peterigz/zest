@@ -4302,6 +4302,7 @@ typedef struct zest_platform_t {
 	void*                      (*get_buffer_ptr)(zest_buffer buffer);
 	void*	      			   (*get_swapchain_wait_semaphore)(zest_swapchain swapchain, zest_uint index);
 	void*	      			   (*get_swapchain_signal_semaphore)(zest_swapchain swapchain, zest_uint index);
+	void*	      			   (*get_swapchain_identifier)(zest_swapchain swapchain);
 	//Command recording
 	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
 	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
@@ -6791,6 +6792,9 @@ typedef struct zest_image_t {
 	zest_image_handle handle;
 	zest_image_backend backend;
 	void *buffer;
+	#ifdef ZEST_DEBUGGING
+	void *buffer_identifier;
+	#endif
 	zest_uint bindless_index[zest_max_global_binding_number];
 	zest_image_info_t info;
 	zest_image_view default_view;
@@ -6953,6 +6957,9 @@ typedef struct zest_resource_node_t {
 	zest_image_view view;
 	zest_image_view_array view_array;
 	zest_buffer storage_buffer;
+	#ifdef ZEST_DEBUGGING
+	void *buffer_identifier;
+	#endif
 	zest_uint bindless_index[zest_max_global_binding_number];   		   //The index to use in the shader
 	zest_uint *mip_level_bindless_indexes[zest_max_global_binding_number]; //The mip indexes to use in the shader
 
@@ -12647,6 +12654,9 @@ zest_bool zest__create_transient_resource(zest_context context, zest_resource_no
     } else if (ZEST__FLAGGED(resource->type, zest_resource_type_buffer) && resource->storage_buffer == NULL) {
 		resource->buffer_desc.buffer_info.frame_in_flight = context->current_fif;
 		resource->storage_buffer = zest__create_transient_buffer(context, resource->buffer_desc.size, &resource->buffer_desc.buffer_info);
+		#ifdef ZEST_DEBUGGING
+		resource->buffer_identifier = context->device->platform->get_resource_ptr(resource);
+		#endif
         if (!resource->storage_buffer) {
             return ZEST_FALSE;
         }
@@ -14449,18 +14459,21 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
     }
 
 	zest_context context = frame_graph->command_list.context;
+	zest_device device = context->device;
 
-	ZEST_PRINT("Swapchain Info");
-	ZEST_PRINT("Image Available Wait Semaphores:");
-	zest_ForEachFrameInFlight(fif) {
-		void *wait_semaphore = context->device->platform->get_swapchain_wait_semaphore(context->swapchain, fif);
-		ZEST_PRINT("%p %s", wait_semaphore, fif == context->current_fif ? "*" : "");
-	}
-	ZEST_PRINT("");
-	ZEST_PRINT("Render Finished Signal Semaphores:");
-	for (int i = 0; i != context->swapchain->image_count; i++) {
-		void *signal_semaphore = context->device->platform->get_swapchain_signal_semaphore(context->swapchain, i);
-		ZEST_PRINT("%p %s", signal_semaphore, i == context->swapchain->current_image_frame ? "*" : "");
+	if (context->swapchain) {
+		ZEST_PRINT("Swapchain Info");
+		ZEST_PRINT("Image Available Wait Semaphores:");
+		zest_ForEachFrameInFlight(fif) {
+			void *wait_semaphore = context->device->platform->get_swapchain_wait_semaphore(context->swapchain, fif);
+			ZEST_PRINT("%p %s", wait_semaphore, fif == context->current_fif ? "*" : "");
+		}
+		ZEST_PRINT("");
+		ZEST_PRINT("Render Finished Signal Semaphores:");
+		for (int i = 0; i != context->swapchain->image_count; i++) {
+			void *signal_semaphore = context->device->platform->get_swapchain_signal_semaphore(context->swapchain, i);
+			ZEST_PRINT("%p %s", signal_semaphore, i == context->swapchain->current_image_frame ? "*" : "");
+		}
 	}
 
 	ZEST_PRINT("");
@@ -14476,13 +14489,15 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
-		void *resource_ptr = context->device->platform->get_resource_ptr(resource);
         if (resource->type & zest_resource_type_buffer) {
+			void *resource_ptr = resource->buffer_identifier;
 			ZEST_PRINT("Buffer: %s (%p) - Size: %llu, Offset: %llu", resource->name, resource_ptr, resource->buffer_desc.size, ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) ? resource->storage_buffer->memory_offset : 0);
         } else if (resource->type & zest_resource_type_image) {
+			void *resource_ptr = resource->image.buffer_identifier;
             ZEST_PRINT("Image: %s (%p) - Size: %u x %u", 
 					   resource->name, resource_ptr, resource->image.info.extent.width, resource->image.info.extent.height);
         } else if (resource->type == zest_resource_type_swap_chain_image) {
+			void *resource_ptr = device->platform->get_swapchain_identifier(frame_graph->swapchain);
             ZEST_PRINT("Swapchain Image: %s (%p)", 
 					   resource->name, resource_ptr);
         }
@@ -14558,7 +14573,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, imb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->dst_stage);
-							void *resource_ptr = context->device->platform->get_resource_ptr(image_resource);
+							void *resource_ptr = image_resource->image.buffer_identifier;
 							ZEST_PRINT("            %s (%p), Layout: %s -> %s, \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
@@ -14585,7 +14600,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, bmb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->dst_stage);
-							void *resource_ptr = context->device->platform->get_resource_ptr(buffer_resource);
+							void *resource_ptr = buffer_resource->buffer_identifier;
 							ZEST_PRINT("            %s (%p) | \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
@@ -14626,7 +14641,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, imb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->dst_stage);
-							void *resource_ptr = context->device->platform->get_resource_ptr(image_resource);
+							void *resource_ptr = image_resource->image.buffer_identifier;
 							ZEST_PRINT("            %s (%p), Layout: %s -> %s, \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
@@ -14653,7 +14668,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, bmb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->dst_stage);
-							void *resource_ptr = context->device->platform->get_resource_ptr(buffer_resource);
+							void *resource_ptr = buffer_resource->buffer_identifier;
 							ZEST_PRINT("            %s (%p) | \n"
 									   "            Access: %s -> %s, \n"
 									   "            Pipeline Stage: %s -> %s, \n"
@@ -15083,6 +15098,7 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
     node.frame_graph = frame_graph;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.storage_buffer = buffer;
+	node.buffer_identifier = zest__frame_graph_builder->context->device->platform->get_resource_ptr(&node);
 	node.buffer_desc.size = buffer->size;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;

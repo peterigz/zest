@@ -343,6 +343,7 @@ ZEST_PRIVATE void *zest__vk_get_resource_ptr(zest_resource_node resource);
 ZEST_PRIVATE void *zest__vk_get_buffer_ptr(zest_buffer buffer);
 ZEST_PRIVATE void *zest__vk_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint index);
 ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uint index);
+ZEST_PRIVATE void *zest__vk_get_swapchain_identifier(zest_swapchain swapchain);
 
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
@@ -746,6 +747,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->get_buffer_ptr                         		= zest__vk_get_buffer_ptr;
     platform->get_swapchain_wait_semaphore            		= zest__vk_get_swapchain_wait_semaphore;
     platform->get_swapchain_signal_semaphore          		= zest__vk_get_swapchain_signal_semaphore;
+    platform->get_swapchain_identifier		          		= zest__vk_get_swapchain_identifier;
 
 	//Command buffer recording
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
@@ -3492,6 +3494,10 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
 		vk_memory = memory->backend->memory;
 	}
 
+	#ifdef ZEST_DEBUGGING
+	image->buffer_identifier = (void*)image->backend->vk_image;
+	#endif
+
     if (image->buffer) {
         vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, vk_memory, offset);
     } else {
@@ -5681,6 +5687,10 @@ void *zest__vk_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint 
 
 void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uint index) {
 	return (void*)swapchain->backend->vk_render_finished_semaphore[index];
+}
+
+void *zest__vk_get_swapchain_identifier(zest_swapchain swapchain) {
+	return (void*)swapchain->images[swapchain->current_image_frame].backend->vk_image;
 }
 
 #endif
