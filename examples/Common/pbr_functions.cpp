@@ -48,7 +48,7 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 	// Load the compute shader that will generate the LUT
 	// The 'true' parameter just tells the function not to cache the shader which is useful if you're just
 	// developing the shader and need to recompile it each time
-	zest_shader_handle brd_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+	zest_shader_handle brd_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
 
 	// Create a 512x512 storage image to hold the LUT
 	// R16G16 format gives us two 16-bit float channels for the scale and bias values
@@ -113,7 +113,7 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle skybox_texture, zest_uint sampler_index) {
 	zest_device device = zest_GetContextDevice(context);
 
-	zest_shader_handle irr_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/irradiancecube.comp", "irradiancecube_comp.spv", zest_compute_shader, true);
+	zest_shader_handle irr_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/irradiancecube.comp", "irradiancecube_comp.spv", zest_compute_shader, NULL, true);
 
 	// Create a 64x64 cubemap - small because diffuse irradiance is low frequency
 	// R32G32B32A32 format for high precision color values
@@ -187,7 +187,7 @@ zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle s
 zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle skybox_texture, zest_uint sampler_index, zest_uint **prefiltered_mip_indexes) {
 	zest_device device = zest_GetContextDevice(context);
 
-	zest_shader_handle prefiltered_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", zest_compute_shader, true);
+	zest_shader_handle prefiltered_shader = zest_CreateShaderFromFile(device, "examples/Common/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", zest_compute_shader, NULL, true);
 
 	// Create a 512x512 mipped cubemap - larger than irradiance because specular needs detail
 	// R16G16B16A16 format balances precision with memory usage

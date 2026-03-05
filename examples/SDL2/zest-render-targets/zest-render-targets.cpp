@@ -18,10 +18,10 @@ void InitExample(render_target_app_t *example) {
 	example->sampler_index = zest_AcquireSamplerIndex(example->device, sampler);
 
 	//Load compute shaders for bloom down/up sampling and the composite pass-through shaders
-	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
-	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, NULL, 1);
+	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, NULL, 1);
 
 	//Composite pipeline - fullscreen pass that blends base and bloom images together.
 	//No vertex input needed; the vertex shader generates a fullscreen triangle.

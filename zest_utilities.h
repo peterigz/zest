@@ -808,8 +808,8 @@ void zest__msdf_free(void* ptr, void* ctx) {
 zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader) {
 	zest_device device = zest_GetContextDevice(context);
 	//Create and compile the shaders for our custom sprite pipeline
-	zest_shader_handle font_vert = zest_CreateShaderFromFile(device, vert_shader, "font_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle font_frag = zest_CreateShaderFromFile(device, frag_shader, "font_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle font_vert = zest_CreateShaderFromFile(device, vert_shader, "font_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle font_frag = zest_CreateShaderFromFile(device, frag_shader, "font_frag.spv", zest_fragment_shader, NULL, true);
 
 	//Create a pipeline that we can use to draw billboards
 	zest_pipeline_template font_pipeline = zest_CreatePipelineTemplate(device, "pipeline_billboard");

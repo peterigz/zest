@@ -67,9 +67,9 @@ void InitImGuiApp(Ribbons *app) {
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
 
 	// Load shaders: compute shader generates geometry, vert/frag render it
-	app->ribbon_comp_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbons.comp", "ribbon_comp.spv", zest_compute_shader, true);
-	app->ribbon_vert_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", zest_vertex_shader, true);
-	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", zest_fragment_shader, true);
+	app->ribbon_comp_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbons.comp", "ribbon_comp.spv", zest_compute_shader, NULL, true);
+	app->ribbon_vert_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", zest_vertex_shader, NULL, true);
+	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", zest_fragment_shader, NULL, true);
 
 	// Create compute pipeline for ribbon geometry generation
 	app->ribbon_compute = zest_CreateCompute(app->device, "Ribbon Compute", app->ribbon_comp_shader);

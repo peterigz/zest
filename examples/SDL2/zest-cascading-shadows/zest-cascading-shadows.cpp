@@ -78,12 +78,12 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	app->scene_push.shadow_sampler_index = zest_AcquireSamplerIndex(app->device, shadow_sampler_2d);
 
 	//Load shaders for scene rendering, depth pass, and debug visualization
-	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.vert", "scene_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle depthpass_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.vert", "depthpass_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle depthpass_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.frag", "depthpass_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle debug_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.vert", "debugshadowmap_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle debug_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.frag", "debugshadowmap_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.vert", "scene_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle depthpass_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.vert", "depthpass_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle depthpass_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.frag", "depthpass_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle debug_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.vert", "debugshadowmap_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle debug_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.frag", "debugshadowmap_frag.spv", zest_fragment_shader, NULL, true);
 
 	//Debug pipeline for visualizing shadow map cascades (uses fullscreen triangle, no vertex input)
 	app->debug_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");

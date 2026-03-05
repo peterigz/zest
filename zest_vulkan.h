@@ -248,7 +248,7 @@ ZEST_PRIVATE void zest__vk_os_add_platform_extensions(zest_context);
 
 //Shader compiling with shaderc
 ZEST_PRIVATE zest_bool zest__vk_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
-ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
+ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, zest_shader_options options);
 
 //Semaphores
 ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context);
@@ -1459,12 +1459,12 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_queue_backend(zest_context co
 }
 
 zest_shader_handle zest__vk_get_db_overlay_vertex_shader(zest_device device) {
-	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_vert, zest_vertex_shader, "DB Overlay Vertex", ZEST_TRUE);
+	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_vert, zest_vertex_shader, "DB Overlay Vertex", NULL, ZEST_TRUE);
 	return shader;
 }
 
 zest_shader_handle zest__vk_get_db_overlay_fragment_shader(zest_device device) {
-	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_frag, zest_fragment_shader, "DB Overlay fragment", ZEST_TRUE);
+	zest_shader_handle shader = zest_CreateShader(device, zest_shader_db_overlay_frag, zest_fragment_shader, "DB Overlay fragment", NULL, ZEST_TRUE);
 	return shader;
 }
 
@@ -5623,7 +5623,7 @@ zest_bool zest__vk_validate_shader(zest_device device, const char *shader_code, 
 	return ZEST_TRUE;
 }
 
-zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type shader_type, const char *name, const char *entry_point, void *options) {
+zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type shader_type, const char *name, const char *entry_point, zest_shader_options options) {
 	zest_device device = (zest_device)shader->handle.store->origin;
 	shaderc_compiler_t compiler = device->backend->shaderc_compiler;
 	if (!compiler) {
@@ -5636,7 +5636,13 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
         return ZEST_FALSE;
     }
 
-	shaderc_compile_options_t shaderc_options = (shaderc_compile_options_t)options;
+    shaderc_compile_options_t shaderc_options = shaderc_compile_options_initialize();
+	if (options) {
+		zest_vec_foreach(i, options->macro_definitions) {
+			zest_macro_definition_t *definition = &options->macro_definitions[i];
+			shaderc_compile_options_add_macro_definition(shaderc_options, definition->name.str, zest_TextLength(&definition->name), definition->value.str, zest_TextLength(&definition->value));
+		}
+	}
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), zest__to_shaderc_shader_kind(shader->type), name, "main", shaderc_options );
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {

@@ -74,15 +74,15 @@ void InitIndirectDrawExample(IndirectDrawExample *app) {
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 
 	// Load shaders for render pipelines
-	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.vert", "indirect_instancing_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.frag", "indirect_instancing_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.vert", "indirect_planet_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.frag", "indirect_planet_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.vert", "indirect_skybox_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.frag", "indirect_skybox_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.vert", "indirect_instancing_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.frag", "indirect_instancing_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.vert", "indirect_planet_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.frag", "indirect_planet_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.vert", "indirect_skybox_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.frag", "indirect_skybox_frag.spv", zest_fragment_shader, NULL, true);
 
 	// Load compute shader for frustum culling
-	zest_shader_handle cull_shader = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/cull.comp", "indirect_cull_comp.spv", zest_compute_shader, true);
+	zest_shader_handle cull_shader = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/cull.comp", "indirect_cull_comp.spv", zest_compute_shader, NULL, true);
 	app->cull_compute = zest_CreateCompute(app->device, "Frustum Cull", cull_shader);
 
 	// Rock pipeline: TWO vertex bindings - mesh vertices (binding 0) and instance data (binding 1)

@@ -75,7 +75,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_sampler sampler = zest_GetSampler(sampler_handle);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, sampler);
 
-	app->imgui_sprite_shader = zest_CreateShader(app->device, zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", ZEST_TRUE);
+	app->imgui_sprite_shader = zest_CreateShader(app->device, zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", NULL, ZEST_TRUE);
 
 	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate("ImGui Sprite Pipeline", app->imgui.pipeline);
 	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);

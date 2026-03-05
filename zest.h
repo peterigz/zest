@@ -1902,6 +1902,7 @@ typedef enum zest_struct_type {
 	zest_struct_type_resource_store = 48 << 16,
 	zest_struct_type_buffer_linear_allocator = 49 << 16,
 	zest_struct_type_pipeline_layout = 50 << 16,
+	zest_struct_type_shader_options = 51 << 16,
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -2520,6 +2521,7 @@ typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
 typedef struct zest_device_memory_t zest_device_memory_t;
 typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_shader_t zest_shader_t;
+typedef struct zest_shader_options_t zest_shader_options_t;
 typedef struct zest_frame_graph_semaphores_t zest_frame_graph_semaphores_t;
 typedef struct zest_frame_graph_t zest_frame_graph_t;
 typedef struct zest_frame_graph_builder_t zest_frame_graph_builder_t;
@@ -2594,6 +2596,7 @@ ZEST__MAKE_HANDLE(zest_buffer)
 ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_device_memory)
 ZEST__MAKE_HANDLE(zest_shader)
+ZEST__MAKE_HANDLE(zest_shader_options)
 ZEST__MAKE_HANDLE(zest_queue)
 ZEST__MAKE_HANDLE(zest_queue_manager)
 ZEST__MAKE_HANDLE(zest_context_queue)
@@ -4249,7 +4252,7 @@ typedef struct zest_platform_t {
 	zest_bool				   (*create_window_surface)(zest_context context);
 	//Shader Compiling
 	zest_bool				   (*validate_shader)(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
-	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
+	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, zest_shader_options options);
 	//Create backends
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4700,12 +4703,18 @@ ZEST_API zest_pipeline_layout zest_GetDefaultPipelineLayout(zest_device device);
 ZEST_API zest_viewport_t zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a zest_scissor_rect_t for render clipping
 ZEST_API zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+//Create shader options which can be used to add things like macro definitions when compiling shaders.
+ZEST_API zest_shader_options zest_CreateShaderOptions(zest_device device);
+//Add a new macro definition to shader options
+ZEST_API void zest_AddMacroDefinition(zest_shader_options options, const char *name, const char *value);
+//Free shader options from memory
+ZEST_API void zest_FreeShaderOptions(zest_shader_options options);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching);
+ZEST_API zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching);
 //Creates a shader from a file containing the shader glsl code
-ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching);
+ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_shader_options options, zest_bool disable_caching);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type);
 //Get a shader pointer that you can use to pass in to functions. Curently there's no real use for this so may
@@ -4717,7 +4726,7 @@ ZEST_API zest_shader zest_GetShader(zest_shader_handle shader_handle);
 //the pipeline that uses the shader. Returns true if the shader was successfully loaded.
 ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader);
+ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type);
@@ -6767,6 +6776,17 @@ typedef struct zest_pass_node_t {
 	zest_pipeline_bind_point bind_point;
 	zest_pass_node_visit_state visit_state;
 } zest_pass_node_t;
+
+typedef struct zest_macro_definition_t {
+	zest_text_t name;
+	zest_text_t value;
+} zest_macro_definition_t;
+
+typedef struct zest_shader_options_t {
+	int magic;
+	zest_device device;
+	zest_macro_definition_t *macro_definitions;
+} zest_shader_options_t;
 
 typedef struct zest_shader_t {
 	int magic;
@@ -10208,6 +10228,11 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 			zest__cleanup_pipeline_layout(layout);
 			break;
 		}
+		case zest_struct_type_shader_options: {
+			zest_shader_options shader_options = (zest_shader_options)handle;
+			zest_FreeShaderOptions(shader_options);
+			break;
+		}
 		case zest_struct_type_context: {
 			zest_context context = (zest_context)handle;
 			zest_PrintReports(context);
@@ -10255,15 +10280,10 @@ void zest__scan_memory_and_free_resources(void *origin, zest_bool including_cont
 					zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
 					switch (struct_type) {
 						case zest_struct_type_pipeline_template:
-							zest_vec_push(allocator, memory_to_free, allocation);
-							break;
 						case zest_struct_type_execution_timeline:
-							zest_vec_push(allocator, memory_to_free, allocation);
-							break;
 						case zest_struct_type_buffer_backend:
-							zest_vec_push(allocator, memory_to_free, allocation);
-							break;
 						case zest_struct_type_pipeline_layout:
+						case zest_struct_type_shader_options:
 							zest_vec_push(allocator, memory_to_free, allocation);
 							break;
 						case zest_struct_type_context:
@@ -11212,6 +11232,36 @@ void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
     ZEST__FREE(pipeline_template->device->allocator, pipeline_template);
 }
 
+zest_shader_options zest_CreateShaderOptions(zest_device device) {
+	zest_shader_options options = ZEST__NEW(device->allocator, zest_shader_options);
+	*options = ZEST__ZERO_INIT(zest_shader_options_t);
+	options->magic = zest_INIT_MAGIC(zest_struct_type_shader_options);
+	options->device = device;
+	return options;
+}
+
+void zest_FreeShaderOptions(zest_shader_options options) {
+	ZEST_ASSERT_HANDLE(options);	//Not a valid shader options handle
+	zest_vec_foreach(i, options->macro_definitions) {
+		zest_macro_definition_t *definition = &options->macro_definitions[i];
+		zest_FreeText(options->device->allocator, &definition->name);
+		zest_FreeText(options->device->allocator, &definition->value);
+	}
+	ZEST__FREE(options->device->allocator, options);
+}
+
+void zest_AddMacroDefinition(zest_shader_options options, const char *name, const char *value) {
+	ZEST_ASSERT_HANDLE(options);	//Not a valid shader options handle
+	ZEST_ASSERT(name);				//must have a non zero length macro name
+	zest_macro_definition_t definition = ZEST__ZERO_INIT(zest_macro_definition_t);
+	zest_device device = options->device;
+	zest_SetText(device->allocator, &definition.name, name);
+	if (value) {
+		zest_SetText(device->allocator, &definition.value, value);
+	}
+	zest_vec_push(device->allocator, options->macro_definitions, definition);
+}
+
 zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) {
 	if (!device->platform->validate_shader(device, shader_code, type, name)) {
 		return ZEST_FALSE;
@@ -11219,21 +11269,21 @@ zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_
     return ZEST_TRUE;
 }
 
-zest_bool zest_CompileShader(zest_shader_handle shader_handle) {
+zest_bool zest_CompileShader(zest_shader_handle shader_handle, zest_shader_options options) {
 	zest_device device = (zest_device)shader_handle.store->origin;
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 	
-    if (device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL)) {
+    if (device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", options)) {
 		ZEST_APPEND_LOG(device->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
         return ZEST_TRUE;
     }
     return ZEST_FALSE;
 }
 
-zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching) {
+zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_shader_options options, zest_bool disable_caching) {
     char *shader_code = zest_ReadEntireFile(device, file, ZEST_TRUE);
     ZEST_ASSERT(shader_code, "Unable to load the shader code, check the path is valid."); 
-    zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, disable_caching);
+    zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, options, disable_caching);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->file_path, file);
     zest_vec_free(device->allocator, shader_code);
@@ -11252,7 +11302,7 @@ zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
     return 1;
 }
 
-zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching) {
+zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
@@ -11277,7 +11327,7 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
     }
 
 	zest_SetText(device->allocator, &shader->shader_code, shader_code);
-	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL)) {
+	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", options)) {
 		zest__activate_resource(shader_handle.store, shader_handle.value);
         zest_FreeShader(shader_handle);
         ZEST_ASSERT(0, "There's a bug in this shader that needs fixing. You can check the log file for the error message");

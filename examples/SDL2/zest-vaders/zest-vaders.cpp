@@ -448,8 +448,8 @@ void VadersGame::Init() {
 	}
 
 	//Create and compile the shaders for our custom sprite pipeline
-	billboard_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, true);
-	billboard_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
+	billboard_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, NULL, true);
+	billboard_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, NULL, true);
 
 	//Create a pipeline that we can use to draw billboards
 	billboard_pipeline = zest_CreatePipelineTemplate(device, "pipeline_billboard");

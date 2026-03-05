@@ -1991,7 +1991,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			tests->device,
 			"examples/SDL2/zest-tests/shaders/buffer_write.comp",
 			"test_compute.spv",
-			zest_compute_shader,
+			zest_compute_shader, NULL,
 			1  // disable caching
 		);
 
@@ -2119,7 +2119,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 				tests->device,
 				"examples/SDL2/zest-tests/shaders/buffer_write.comp",
 				"multi_compute.spv",
-				zest_compute_shader,
+				zest_compute_shader, NULL,
 				1
 			);
 
@@ -2273,7 +2273,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			tests->device,
 			"examples/SDL2/zest-tests/shaders/buffer_write.comp",
 			"edge_compute.spv",
-			zest_compute_shader,
+			zest_compute_shader, NULL,
 			1
 		);
 
@@ -2287,7 +2287,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 					tests->device,
 					"examples/SDL2/zest-tests/shaders/buffer_write.comp",
 					"cycle_compute.spv",
-					zest_compute_shader,
+					zest_compute_shader, NULL,
 					1
 				);
 

@@ -69,10 +69,10 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.z = 0.1f;
 
 	//Load shaders for PBR rendering and skybox
-	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-forward/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);

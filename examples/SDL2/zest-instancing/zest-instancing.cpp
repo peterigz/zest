@@ -79,12 +79,12 @@ void InitInstancingExample(InstancingExample *app) {
 
 	// Load shaders for each pipeline (rocks, planet, skybox)
 	// Last param (true) = compile from source if .spv is outdated
-	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.vert", "instancing_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.frag", "instancing_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.vert", "planet_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.frag", "planet_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.vert", "skybox_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.frag", "skybox_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.vert", "instancing_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.frag", "instancing_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.vert", "planet_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.frag", "planet_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.vert", "skybox_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.frag", "skybox_frag.spv", zest_fragment_shader, NULL, true);
 
 	// Rock pipeline: Uses TWO vertex bindings - mesh vertices (binding 0) and instance data (binding 1)
 	// This is the key to GPU instancing: per-vertex data + per-instance data

@@ -10,8 +10,8 @@ struct vertex {
 
 // Helper function to create a basic pipeline template
 zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const char *name) {
-	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, name);
 	
@@ -313,8 +313,8 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	command_list.context = tests->context;
 	
 	for (int i = 0; i < 4; i++) {
-		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
-		zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);
+		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, NULL, true);
+		zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, NULL, true);
 
 		zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, format_names[i]);
 		
@@ -340,8 +340,8 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	// Test instance rate input
 	zest_pipeline_template instance_pipeline = zest_CreatePipelineTemplate(tests->device, "Instance Rate Test");
 	
-	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", "vertex_frag.spv", zest_fragment_shader, NULL, true);
 	
 	zest_AddVertexInputBindingDescription(instance_pipeline, 0, sizeof(vertex), zest_input_rate_instance);
 	zest_AddVertexAttribute(instance_pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(vertex, position));	  

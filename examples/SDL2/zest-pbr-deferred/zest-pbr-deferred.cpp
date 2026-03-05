@@ -73,18 +73,18 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.z = 0.1f;
 
 	//Load skybox shaders
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, NULL, true);
 
 	//Deferred rendering shaders:
 	//- gbuffer: outputs geometry data to multiple render targets
 	//- lighting: fullscreen pass that reads G-buffer and computes PBR lighting
 	//- composite: combines lit scene with skybox
-	app->gbuffer_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.vert", "gbuffer_vert.spv", zest_vertex_shader, true);
-	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, true);
-	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, true);
-	app->lighting_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.frag", "deferred_lighting_frag.spv", zest_fragment_shader, true);
-	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/composite.frag", "deferred_lighting_frag.spv", zest_fragment_shader, true);
+	app->gbuffer_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.vert", "gbuffer_vert.spv", zest_vertex_shader, NULL, true);
+	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, NULL, true);
+	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, NULL, true);
+	app->lighting_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.frag", "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
+	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/composite.frag", "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);

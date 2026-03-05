@@ -66,9 +66,9 @@ void InitShadowMappingExample(ShadowMappingExample *app) {
 	app->scene_push.sampler_index = zest_AcquireSamplerIndex(app->device, sampler_2d);
 
 	//Load shaders for scene rendering and shadow depth pass
-	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/scene.vert", "scene_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle offscreen_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/offscreen.vert", "offscreen_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/scene.vert", "scene_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle offscreen_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-shadow-mapping/shaders/offscreen.vert", "offscreen_vert.spv", zest_vertex_shader, NULL, true);
 
 	//Main scene pipeline with instanced mesh rendering
 	app->mesh_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");

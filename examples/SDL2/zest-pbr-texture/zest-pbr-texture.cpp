@@ -57,10 +57,10 @@ void InitPBRTextureExample(PBRTextureExample *app) {
 	app->material_push = { 0 };
 
 	//Compile the shaders we will use to render the particles
-	zest_shader_handle pbr_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/pbr.vert", "pbr_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle pbr_texture_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/pbr_texture.frag", "pbr_texture_frag.spv", zest_fragment_shader, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle pbr_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/pbr.vert", "pbr_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle pbr_texture_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/pbr_texture.frag", "pbr_texture_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-texture/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);

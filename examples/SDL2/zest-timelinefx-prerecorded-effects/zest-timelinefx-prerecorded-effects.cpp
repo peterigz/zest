@@ -78,7 +78,7 @@ void UploadBuffers(tfxPrerecordedExample *example) {
 //Prepare the compute shader that will be used to playback the effects in the animation manager
 void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example) {
 	//Register a new compute shader
-	example->playback_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/sprite_data_playback.comp", "sprite_data_playback.comp.spv", zest_compute_shader, true);
+	example->playback_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/sprite_data_playback.comp", "sprite_data_playback.comp.spv", zest_compute_shader, NULL, true);
 
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
