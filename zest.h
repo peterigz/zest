@@ -13642,60 +13642,47 @@ zest_frame_graph zest__compile_frame_graph() {
                     exe_details->requires_dynamic_render_pass = ZEST_TRUE;
                 }
             } else if(resource->type & zest_resource_type_buffer) {
-				if (!prev_state && !(resource->flags & zest_resource_node_flag_transient)) {
-					//This is the first state of the resource
-					//If there's no previous state then we need to see if a barrier is needed to transition from the resource
-					//start state. We put this in the acquire barrier as it needs to be put in place before the pass is executed.
-					zest_uint src_queue_family_index = resource->current_queue_family_index;
-					zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
-					if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
-						if ((resource->access_mask & zest_access_write_bits_general) &&
-							(current_usage->access_mask & zest_access_read_bits_general)) {
-							context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
+                if (!prev_state) {
+                    //This is the first state of the resource
+                    //If there's no previous state then we need to see if a barrier is needed to transition from the resource
+                    //start state. We put this in the acquire barrier as it needs to be put in place before the pass is executed.
+                    zest_uint src_queue_family_index = resource->current_queue_family_index;
+                    zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
+                    if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
+                        if ((resource->access_mask & zest_access_write_bits_general) &&
+                            (current_usage->access_mask & zest_access_read_bits_general)) {
+                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
 																					  resource->access_mask, current_usage->access_mask,
 																					  src_queue_family_index, dst_queue_family_index,
 																					  resource->last_stage_mask, current_state->usage.stage_mask);
 							#ifdef ZEST_DEBUGGING
-							zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
+                            zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
 													 resource->access_mask, current_usage->access_mask,
 													 src_queue_family_index, dst_queue_family_index,
 													 resource->last_stage_mask, current_state->usage.stage_mask);
 							#endif
-						}
-					} else {
-						//This resource already belongs to a queue which means that it's an imported resource
-						//If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
+                        }
+                    } else {
+                        //This resource already belongs to a queue which means that it's an imported resource
+                        //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
 
-						//It shouldn't be possible for transient resources to be considered for a barrier at this point. 
-						ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
-						dst_queue_family_index = current_state->queue_family_index;
-						if (src_queue_family_index != ZEST_QUEUE_FAMILY_IGNORED) {
-							context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
+                        //It shouldn't be possible for transient resources to be considered for a barrier at this point. 
+                        ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
+                        dst_queue_family_index = current_state->queue_family_index;
+                        if (src_queue_family_index != ZEST_QUEUE_FAMILY_IGNORED) {
+                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
 																					  resource->access_mask, current_usage->access_mask,
 																					  src_queue_family_index, dst_queue_family_index,
 																					  resource->last_stage_mask, current_state->usage.stage_mask);
 							#ifdef ZEST_DEBUGGING
-							zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
+                            zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
 													 resource->access_mask, current_usage->access_mask,
 													 src_queue_family_index, dst_queue_family_index,
 													 resource->last_stage_mask, current_state->usage.stage_mask);
 							#endif
-						}
-					}
-					zest_bool needs_releasing = ZEST_FALSE;
-				} else if(!prev_state && resource->flags & zest_resource_node_flag_transient) {
-					//Reset transient buffers to tell the gpu that any previous contents of the buffer
-					//can be discarded
-					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
-																			zest_access_none, current_usage->access_mask,
-																			ZEST_QUEUE_FAMILY_IGNORED, ZEST_QUEUE_FAMILY_IGNORED,
-																			current_state->usage.stage_mask, current_state->usage.stage_mask);
-					#ifdef ZEST_DEBUGGING
-					zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
-											zest_access_none, current_usage->access_mask,
-											ZEST_QUEUE_FAMILY_IGNORED, ZEST_QUEUE_FAMILY_IGNORED,
-											current_state->usage.stage_mask, current_state->usage.stage_mask);
-					#endif
+                        }
+                    }
+                    zest_bool needs_releasing = ZEST_FALSE;
                 } else {
                     //There is a previous state, do we need to acquire the resource from a different queue?
                     zest_uint src_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
@@ -13765,6 +13752,19 @@ zest_frame_graph zest__compile_frame_graph() {
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
 																			  current_usage->access_mask, zest_access_none,
 																			  current_state->queue_family_index, context->graphics_family_index,
+																			  current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+					#ifdef ZEST_DEBUGGING
+					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
+											 current_usage->access_mask, zest_access_none,
+											 current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
+											 current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+					#endif
+                } else if (resource->flags & zest_resource_node_flag_transient) {
+                    //Release the buffer so that it's ready to be acquired by any other queue in the next frame
+                    //Release to the transfer queue by default (if it's not already on the transfer queue).
+					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
+																			  current_usage->access_mask, zest_access_none,
+																			  current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
 																			  current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#ifdef ZEST_DEBUGGING
 					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
