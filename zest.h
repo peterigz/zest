@@ -3420,6 +3420,7 @@ typedef struct zest_buffer_usage_t {
 
 typedef struct zest_buffer_allocator_key_t {
 	zest_buffer_usage_t usage;
+	zest_context context;	
 	zest_uint frame_in_flight;
 } zest_buffer_allocator_key_t;
 
@@ -4203,7 +4204,7 @@ typedef struct zest_platform_t {
 	void					   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
 	//Images
 	zest_bool 				   (*is_image_format_supported)(zest_device device, zest_format format, zest_image_flags flags);
-	zest_bool 				   (*create_image)(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+	zest_bool 				   (*create_image)(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 	zest_image_view 		   (*create_image_view)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_image_view_array 	   (*create_image_views_per_mip)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_bool 				   (*copy_buffer_regions_to_image)(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
@@ -9369,6 +9370,7 @@ zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, 
 	}
 	zest_buffer_allocator_key_t usage_key;
 	usage_key.usage = usage;
+	usage_key.context = context;
     usage_key.frame_in_flight = buffer_info->frame_in_flight;
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
@@ -9435,6 +9437,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 	}
 	zest_buffer_allocator_key_t usage_key;
 	usage_key.usage = usage;
+	usage_key.context = 0;
     usage_key.frame_in_flight = buffer_info->frame_in_flight;
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
@@ -12256,7 +12259,7 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
     if (ZEST__FLAGGED(resource->image.info.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
         image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(resource->image.info.extent.width, resource->image.info.extent.height))) + 1;
     }
-    if (!context->device->platform->create_image(context->device, image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
+    if (!context->device->platform->create_image(context->device, context, image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
 		context->device->platform->cleanup_image_backend(image);
         return ZEST_FALSE;
     }
@@ -14937,7 +14940,6 @@ zest_resource_node zest__add_transient_image_resource(const char *name, const ze
     resource.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     resource.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     resource.producer_pass_idx = -1;
-    resource.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, &resource.image, NULL);
 	ZEST__FLAG(resource.flags, zest_resource_node_flag_transient);
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
     node->image_layout = zest_image_layout_undefined;
@@ -15164,7 +15166,6 @@ zest_resource_node zest_ImportSwapchainResource() {
 	node.type = zest_resource_type_swap_chain_image;
     node.frame_graph = frame_graph;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
-    node.image.backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, &node.image, &swapchain->images[swapchain->current_image_frame]);
     node.image.info = swapchain->images[0].info;
     node.view = swapchain->views[swapchain->current_image_frame];
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
@@ -16183,7 +16184,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
     if (ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
         image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(create_info->extent.width, create_info->extent.height))) + 1;
     }
-    if (!device->platform->create_image(device, image, image->info.layer_count, zest_sample_count_1_bit, create_info->flags)) {
+    if (!device->platform->create_image(device, 0, image, image->info.layer_count, zest_sample_count_1_bit, create_info->flags)) {
         zest__cleanup_image(image);
         return ZEST__ZERO_INIT(zest_image_handle);
     }

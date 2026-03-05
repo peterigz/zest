@@ -316,7 +316,7 @@ ZEST_PRIVATE void zest__vk_set_limit_data(zest_device device);
 ZEST_PRIVATE void zest__vk_setup_validation(zest_device device);
 ZEST_PRIVATE void zest__vk_pick_physical_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags);
-ZEST_PRIVATE zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+ZEST_PRIVATE zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image);
 ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
@@ -3423,7 +3423,7 @@ zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format for
 	return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
+zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
 
     VkImageUsageFlags usage = ZEST__FLAGGED(flags, zest_image_flag_sampled) ? VK_IMAGE_USAGE_SAMPLED_BIT : 0;
     usage |= ZEST__FLAGGED(flags, zest_image_flag_storage) ? VK_IMAGE_USAGE_STORAGE_BIT : 0;
@@ -3482,7 +3482,7 @@ zest_bool zest__vk_create_image(zest_device device, zest_image image, zest_uint 
 	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
 		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
 		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
-		zest_buffer buffer = zest_CreateBuffer(device, memory_requirements.size, &buffer_info);
+		zest_buffer buffer = zest__create_transient_buffer(context, memory_requirements.size, &buffer_info);
 		image->buffer = (void*)buffer;
 		vk_memory = zest__vk_get_buffer_device_memory(buffer);
 		offset = buffer->memory_offset;
