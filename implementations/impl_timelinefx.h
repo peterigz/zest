@@ -42,6 +42,7 @@ typedef struct tfx_render_resources_s {
 	zest_camera_t camera;
 	zest_timer_t timer;
 	zest_execution_timeline timeline;
+	zest_vec4 planes[6];
 } tfx_render_resources_t;
 
 #ifdef __cplusplus

@@ -57,6 +57,7 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_render_resources_t *
 	uniform_buffer->screen_size.y = zest_ScreenHeightf(context);
 	uniform_buffer->timer_lerp = (float)zest_TimerLerp(&resources->timer);
 	uniform_buffer->update_time = (float)zest_TimerUpdateTime(&resources->timer);
+	zest_CalculateFrustumPlanes(&uniform_buffer->view, &uniform_buffer->proj, resources->planes);
 }
 
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
