@@ -153,7 +153,7 @@ void InitExample(tfxPrerecordedExample *example) {
 	example->animation_manager_3d = tfx_CreateAnimationManager(MAX_INSTANCES, MAX_SPRITES);
 	//Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
 	//the view frustum and cull it if it's not.
-	//example->animation_manager_3d->maybe_render_instance_callback = CullAnimationInstancesCallback;
+	example->animation_manager_3d->maybe_render_instance_callback = CullAnimationInstancesCallback;
 	//Set the user data to the tfxPrerecordedExample which we can use in the callback function
 	tfx_SetAnimationManagerUserData(example->animation_manager_3d, example);
 
@@ -274,7 +274,7 @@ bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx
 	//Get the position of the instance offset by the center point of the bounding box
 	tfx_vec3_t bb_position = frame_meta->bb_center_point + instance->position;
 	//Check if the radius of the bounding box is in view. Note that the planes are calculated in the UpdateUniform3d function.
-	return (bool)zest_IsSphereInFrustum(example->planes, &bb_position.x, frame_meta->radius);
+	return (bool)zest_IsSphereInFrustum(example->tfx_rendering.planes, &bb_position.x, frame_meta->radius);
 }
 
 void UploadAnimationData(const zest_command_list command_list, void *user_data) {
