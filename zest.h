@@ -13763,14 +13763,14 @@ zest_frame_graph zest__compile_frame_graph() {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
-																			  current_usage->access_mask, zest_access_none,
+																			  current_usage->access_mask, zest_access_memory_read_bit | zest_access_memory_write_bit,
 																			  current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
-																			  current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+																			  current_state->usage.stage_mask, zest_pipeline_stage_all_commands_bit);
 					#ifdef ZEST_DEBUGGING
 					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
-											 current_usage->access_mask, zest_access_none,
-											 current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
-											 current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+											current_usage->access_mask, zest_access_memory_read_bit | zest_access_memory_write_bit,
+											current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
+											current_state->usage.stage_mask, zest_pipeline_stage_all_commands_bit);
 					#endif
 				}
                 prev_state = current_state;
@@ -15111,7 +15111,9 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
     node.frame_graph = frame_graph;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.storage_buffer = buffer;
+	#ifdef ZEST_DEBUGGING
 	node.buffer_identifier = zest__frame_graph_builder->context->device->platform->get_resource_ptr(&node);
+	#endif
 	node.buffer_desc.size = buffer->size;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;
