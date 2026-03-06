@@ -11247,6 +11247,7 @@ void zest_FreeShaderOptions(zest_shader_options options) {
 		zest_FreeText(options->device->allocator, &definition->name);
 		zest_FreeText(options->device->allocator, &definition->value);
 	}
+	zest_vec_free(options->device->allocator, options->macro_definitions);
 	ZEST__FREE(options->device->allocator, options);
 }
 
@@ -12115,7 +12116,7 @@ void zest_FreeText(zloc_allocator *allocator, zest_text_t* buffer) {
 }
 
 zest_uint zest_TextLength(zest_text_t* buffer) {
-    return (zest_uint)strlen(buffer->str);
+    return buffer->str ? (zest_uint)strlen(buffer->str) : 0;
 }
 
 zest_uint zest_TextSize(zest_text_t* buffer) {
