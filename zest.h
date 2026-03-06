@@ -15559,7 +15559,7 @@ void zest_SetResourceWidth(zest_resource_node resource, zest_uint width) {
 
 void zest_SetResourceHeight(zest_resource_node resource, zest_uint height) {
     ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
-	resource->image.info.extent.width = height;
+	resource->image.info.extent.height = height;
 }
 
 void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size) {
