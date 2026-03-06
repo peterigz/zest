@@ -6640,7 +6640,10 @@ typedef struct zest_execution_details_t {
 	zest_rendering_attachment_info_t *color_attachments;
 	zest_rendering_attachment_info_t depth_attachment;
 	zest_swapchain swapchain;
-	zest_scissor_rect_t render_area;
+	int render_area_offset_x;
+	int render_area_offset_y;
+	zest_uint *render_area_width;
+	zest_uint *render_area_height;
 	zest_clear_value_t *clear_values;
 	zest_rendering_info_t rendering_info;
 	zest_execution_barriers_t barriers;
@@ -13892,10 +13895,10 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					color.clear_value = output_usage->clear_value;
 					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
 					if (color_attachment_index == 0) {
-						exe_details->render_area.offset.x = 0;
-						exe_details->render_area.offset.y = 0;
-						exe_details->render_area.extent.width = resource->image.info.extent.width;
-						exe_details->render_area.extent.height = resource->image.info.extent.height;
+						exe_details->render_area_offset_x = 0;
+						exe_details->render_area_offset_y = 0;
+						exe_details->render_area_width = &resource->image.info.extent.width;
+						exe_details->render_area_height = &resource->image.info.extent.height;
 					}
 					color_attachment_index++;
 					exe_details->rendering_info.color_attachment_count++;
@@ -13931,10 +13934,10 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					depth->store_op = output_usage->store_op;
 					depth->clear_value = output_usage->clear_value;
 					if (color_attachment_index == 0) {
-						exe_details->render_area.offset.x = 0;
-						exe_details->render_area.offset.y = 0;
-						exe_details->render_area.extent.width = resource->image.info.extent.width;
-						exe_details->render_area.extent.height = resource->image.info.extent.height;
+						exe_details->render_area_offset_x = 0;
+						exe_details->render_area_offset_y = 0;
+						exe_details->render_area_width = &resource->image.info.extent.width;
+						exe_details->render_area_height = &resource->image.info.extent.height;
 					}
 					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
 					if (resource->image.info.layer_count > 1) {
@@ -14689,8 +14692,8 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 
                 if (zest_vec_size(exe_details->color_attachments)) {
                     ZEST_PRINT("      RenderArea: (%d,%d)-(%ux%u)",
-							   exe_details->render_area.offset.x, exe_details->render_area.offset.y,
-							   exe_details->render_area.extent.width, exe_details->render_area.extent.height);
+							   exe_details->render_area_offset_x, exe_details->render_area_offset_y,
+							   *exe_details->render_area_width, *exe_details->render_area_height);
                     // Further detail: iterate VkRenderPassCreateInfo's attachments (if stored or re-derived)
                     // and print each VkAttachmentDescription's load/store/layouts and clear values.
                 }

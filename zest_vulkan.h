@@ -4395,10 +4395,10 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 	rendering_info.pDepthAttachment = has_depth ? &depth_attachment : VK_NULL_HANDLE;
 	rendering_info.viewMask = exe_details->rendering_info.view_mask;
 	rendering_info.layerCount = 1;
-	rendering_info.renderArea.offset.x = exe_details->render_area.offset.x;
-	rendering_info.renderArea.offset.y = exe_details->render_area.offset.y;
-	rendering_info.renderArea.extent.width = exe_details->render_area.extent.width;
-	rendering_info.renderArea.extent.height = exe_details->render_area.extent.height;
+	rendering_info.renderArea.offset.x = exe_details->render_area_offset_x;
+	rendering_info.renderArea.offset.y = exe_details->render_area_offset_y;
+	rendering_info.renderArea.extent.width = *exe_details->render_area_width;
+	rendering_info.renderArea.extent.height = *exe_details->render_area_height;
 
 	context->device->backend->pfn_vkCmdBeginRendering(command_list->backend->command_buffer, &rendering_info);	
 	return ZEST_TRUE;
