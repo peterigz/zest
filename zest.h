@@ -4969,6 +4969,8 @@ ZEST_API zest_buffer zest_GetPassOutputBuffer(const zest_command_list command_li
 ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
+ZEST_API void zest_SetResourceWidth(zest_resource_node resource, zest_uint width);
+ZEST_API void zest_SetResourceHeight(zest_resource_node resource, zest_uint height);
 ZEST_API void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size);
 ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API zest_buffer zest_GetResourceBuffer(zest_resource_node resource_node);
@@ -7788,7 +7790,7 @@ zest_vec2 zest_WorldToScreenOrtho(const float point[3], float view_width, float 
     float cx = projection->v[3].x + projection->v[0].x * (view->v[0].x * point[0] + view->v[1].x * point[1] + view->v[2].x * point[2] + view->v[3].x);
     float cy = projection->v[3].y + projection->v[1].y * (view->v[0].y * point[0] + view->v[1].y * point[1] + view->v[2].y * point[2] + view->v[3].y);
 
-    return zest_Vec2Set((0.5f + 0.5f * -cx) * view_width, (0.5f + 0.5f * -cy) * view_height);
+    return zest_Vec2Set((0.5f + 0.5f * cx) * view_width, (0.5f + 0.5f * cy) * view_height);
 }
 
 zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar) {
@@ -15548,6 +15550,16 @@ zest_uint zest_GetResourceWidth(zest_resource_node resource) {
 zest_uint zest_GetResourceHeight(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
     return resource->image.info.extent.height;
+}
+
+void zest_SetResourceWidth(zest_resource_node resource, zest_uint width) {
+    ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
+	resource->image.info.extent.width = width;
+}
+
+void zest_SetResourceHeight(zest_resource_node resource, zest_uint height) {
+    ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
+	resource->image.info.extent.width = height;
 }
 
 void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size) {
