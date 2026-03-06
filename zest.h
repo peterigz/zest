@@ -7777,7 +7777,7 @@ zest_vec2 zest_WorldToScreen(const float point[3], float view_width, float view_
     // If you try to convert the camera's "from" position to screen space, you will
     // end up dividing by zero (please don't do that)
     //if (w <= 0) return [-1, -1];
-    if (w == 0) return zest_Vec2Set(-1.f, -1.f);
+    if (w > 0) return zest_Vec2Set(-1.f, -1.f);
     float cx = projection->v[2].x + projection->v[0].x * (view->v[0].x * point[0] + view->v[1].x * point[1] + view->v[2].x * point[2] + view->v[3].x) / w;
     float cy = projection->v[2].y + projection->v[1].y * (view->v[0].y * point[0] + view->v[1].y * point[1] + view->v[2].y * point[2] + view->v[3].y) / w;
 
