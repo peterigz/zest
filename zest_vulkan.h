@@ -788,7 +788,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 // -- Debug_naming
 void zest__vk_set_object_name(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name) {
 	if (!device->backend->pfnSetDebugUtilsObjectNameEXT) return;
-	VkDebugUtilsObjectNameInfoEXT name_info = {0};
+	VkDebugUtilsObjectNameInfoEXT name_info = ZEST__ZERO_INIT(VkDebugUtilsObjectNameInfoEXT);
 	name_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
 	name_info.objectType = (VkObjectType)object_type;
 	name_info.objectHandle = object_handle;
