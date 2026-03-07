@@ -10203,6 +10203,7 @@ void zest__cleanup_device(zest_device device) {
 	device->platform->cleanup_device_backend(device);
     ZEST__FREE(device->allocator, device->scratch_arena.data);
 
+	zest_vec_free(device->allocator, device->validation_debug_stops);
     zest_vec_free(device->allocator, device->debug.frame_log);
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
