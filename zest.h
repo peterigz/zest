@@ -13861,7 +13861,7 @@ zest_frame_graph zest__compile_frame_graph() {
 											 current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
 											 current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#endif
-                } else if (resource->flags & zest_resource_node_flag_transient) {
+                } else if (resource->flags & zest_resource_node_flag_transient && frame_graph->flags & zest_frame_graph_is_command_graph) {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
