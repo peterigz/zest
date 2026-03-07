@@ -2257,6 +2257,12 @@ typedef enum {
 	zest_query_state_ready,
 } zest_query_state;
 
+typedef enum zest_object_type {
+	zest_object_type_device_memory = 8,
+	zest_object_type_buffer = 9,
+	zest_object_type_image = 10,
+} zest_object_type;
+
 typedef enum {
 	zest_queue_none = 0,
 	zest_queue_graphics = 1,
@@ -4325,6 +4331,9 @@ typedef struct zest_platform_t {
 	void                       (*write_timestamp)(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
 	zest_bool                  (*readback_gpu_timestamps)(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
 	//Debugging
+	void                       (*set_object_name)(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
+	void                       (*set_image_name)(zest_device device, zest_image image, const char *name);
+	void                       (*set_buffer_pool_name)(zest_device device, zest_device_memory_pool pool, const char *name);
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_resource_ptr)(zest_resource_node resource);
@@ -5265,6 +5274,9 @@ ZEST_API void zest_FreeImageView(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewNow(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewArray(zest_image_view_array_handle view_handle);
 ZEST_API void zest_FreeImageViewArrayNow(zest_image_view_array_handle view_handle);
+ZEST_API void zest_SetObjectName(zest_device device, zest_object_type object_type, zest_u64 object_handle, const char *name);
+ZEST_API void zest_SetImageName(zest_device device, zest_image image, const char *name);
+ZEST_API void zest_SetBufferPoolName(zest_device device, zest_device_memory_pool pool, const char *name);
 ZEST_API void zest_GetFormatPixelData(zest_format format, int *channels, int *bytes_per_pixel, int *block_width, int *block_height, int *bytes_per_block);
 ZEST_API zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height);
 ZEST_API zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void *pixels);
@@ -12364,6 +12376,10 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
     resource->view = image->default_view;
 	resource->linked_layout = &image->info.layout;
 
+	if (resource->name && context->device->platform->set_image_name) {
+		context->device->platform->set_image_name(context->device, image, resource->name);
+	}
+
     return ZEST_TRUE;
 }
 
@@ -16859,6 +16875,24 @@ void zest_FreeImageViewArrayNow(zest_image_view_array_handle handle) {
     zest_image_view_array view = *(zest_image_view_array*)zest__get_store_resource_checked(handle.store, handle.value);
 	zest_device device = (zest_device)handle.store->origin;
 	zest__free_handle(device->allocator, view);
+}
+
+void zest_SetObjectName(zest_device device, zest_object_type object_type, zest_u64 object_handle, const char *name) {
+	if (device->platform->set_object_name) {
+		device->platform->set_object_name(device, (zest_uint)object_type, object_handle, name);
+	}
+}
+
+void zest_SetImageName(zest_device device, zest_image image, const char *name) {
+	if (device->platform->set_image_name) {
+		device->platform->set_image_name(device, image, name);
+	}
+}
+
+void zest_SetBufferPoolName(zest_device device, zest_device_memory_pool pool, const char *name) {
+	if (device->platform->set_buffer_pool_name) {
+		device->platform->set_buffer_pool_name(device, pool, name);
+	}
 }
 
 zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image image) {
