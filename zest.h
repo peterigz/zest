@@ -6622,6 +6622,10 @@ typedef struct zest_context_t {
 	zest_device_t *device;
 	zest_uint device_frame_counter;
 	zest_create_context_info_t create_info;
+
+	//Track the queue layout signature of the last executed frame graph so we can detect
+	//when the queue structure changes and drain in-flight work to avoid cross-queue hazards
+	zest_u64 last_queue_layout_signature;
 } zest_context_t;
 
 typedef struct zest_pipeline_layout_t {
@@ -14197,6 +14201,18 @@ void zest__cleanup_frame_graph_builder() {
 zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	ZEST_CPU_PROFILE_BEGIN(context, "Run %s", frame_graph->name);
+
+	// Compute a signature from the wave/queue layout of this frame graph.
+	// If it differs from the previous frame's layout, resources may have moved between
+	// queues and we need to drain all in-flight work to avoid cross-queue hazards.
+	zest_u64 queue_layout_signature = (zest_u64)zest_vec_size(frame_graph->submissions);
+	zest_vec_foreach(i, frame_graph->submissions) {
+		queue_layout_signature = (queue_layout_signature << 4) | (zest_u64)frame_graph->submissions[i].queue_bits;
+	}
+	if (context->last_queue_layout_signature != 0 && context->last_queue_layout_signature != queue_layout_signature) {
+		zest_WaitForIdleDevice(context->device);
+	}
+	context->last_queue_layout_signature = queue_layout_signature;
 
 	// For cached frame graphs, update the signal timeline to the current FIF's timeline.
 	// Without this, a cached graph keeps pointing at the FIF from when it was first compiled,
