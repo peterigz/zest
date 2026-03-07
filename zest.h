@@ -2472,6 +2472,7 @@ typedef enum zest_report_category {
 	zest_report_last_batch_already_signalled,
 	zest_report_layers,
 	zest_report_memory,
+	zest_report_wait_idle,
 } zest_report_category;
 
 typedef enum zest_binding_number_type {
@@ -14211,6 +14212,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 	}
 	if (context->last_queue_layout_signature != 0 && context->last_queue_layout_signature != queue_layout_signature) {
 		zest_WaitForIdleDevice(context->device);
+		ZEST_REPORT(context->device, zest_report_wait_idle, "The wave and queue configuration for context %s changed causing a Wait for Device Idle to prevent sync hazards. Only something to worry about if you see 100s/1000s of these as that will be a performance bottleneck.", context->swapchain ? context->swapchain->name : "(Headless)");
 	}
 	context->last_queue_layout_signature = queue_layout_signature;
 
