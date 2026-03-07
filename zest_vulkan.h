@@ -1674,12 +1674,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (pCallbackData->messageIdNumber == 559874765) {
 		ZEST_ALERT("Error: This validation error usually indicates that the descriptor sets that you're binding don't match up with the set numbers in your shader.");
     }
-    if (pCallbackData->messageIdNumber == -1254218959) {
-        int d = 0;
-    }
-    if (pCallbackData->messageIdNumber == -1575303641) {
-        int d = 0;
-    }
+	zest_vec_foreach(i, device->validation_debug_stops) {
+		if (pCallbackData->messageIdNumber == device->validation_debug_stops[i]) {
+			ZEST_DEBUG_STOP();
+		}
+	}
     if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_memory)) {
         if (!zest_map_valid_key(device->validation_errors, (zest_key)pCallbackData->messageIdNumber)) {
             zest_text_t error_message = ZEST__ZERO_INIT(zest_text_t);

@@ -1039,11 +1039,37 @@ static const unsigned char zest_debug_font[96 * 8] = {
 )
 
 #else
-#pragma message("ZEST_ASSERT is disabled because NDEBUG is defined.")
 #define ZEST_ASSERT(...) (void)0
 #define ZEST_ASSERT_TILING_FORMAT(format) void(0)
 #endif
 
+#endif
+
+//Debug break macros
+#if defined(_MSC_VER)
+#include <intrin.h>
+#define ZEST_DEBUG_STOP() __debugbreak()
+
+#elif defined(__clang__) || defined(__GNUC__)
+#if defined(__i386__) || defined(__x86_64__)
+#define ZEST_DEBUG_STOP() __asm__ volatile("int3")
+
+#elif defined(__aarch64__) || defined(__arm__)
+#define ZEST_DEBUG_STOP() __asm__ volatile("brk #0")
+
+#elif defined(__riscv)
+#define ZEST_DEBUG_STOP() __asm__ volatile("ebreak")
+
+#else
+/* Generic fallback for GCC/Clang on unknown arch */
+#include <signal.h>
+#define ZEST_DEBUG_STOP() raise(SIGTRAP)
+#endif
+
+#else
+/* Unknown compiler - best effort */
+#include <signal.h>
+#define ZEST_DEBUG_STOP() raise(SIGTRAP)
 #endif
 
 // Test mode validation macro - validates gracefully and returns on failure instead of asserting.
@@ -5589,6 +5615,8 @@ ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *fir
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
+ZEST_API void zest_AddDeviceValidationErrorDebugStop(zest_device device, zest_uint error_number);
+ZEST_API void zest_ClearDeviceValidationErrorDebugStops(zest_device device);
 
 //--GPU Profiling
 ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
@@ -6453,6 +6481,7 @@ typedef struct zest_device_t {
 	//Debugging
 	zest_debug_t debug;
 	zest_map_reports reports;
+	int *validation_debug_stops;
 
 	//Global descriptor set and layout template.
 	zest_set_layout_builder_t global_layout_builder;
@@ -18233,6 +18262,14 @@ void zest_ResetValidationErrors(zest_device device) {
         zest_FreeText(device->allocator, &device->validation_errors.data[i]);
     }
     zest_map_free(device->allocator, device->validation_errors);
+}
+
+void zest_AddDeviceValidationErrorDebugStop(zest_device device, zest_uint error_number) {
+	zest_vec_push(device->allocator, device->validation_debug_stops, error_number);
+}
+
+void zest_ClearDeviceValidationErrorDebugStops(zest_device device) {
+	zest_vec_clear(device->validation_debug_stops);
 }
 
 void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...) {
