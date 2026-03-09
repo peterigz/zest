@@ -3964,6 +3964,7 @@ typedef struct zest_rendering_attachment_info_t {
 	zest_load_op load_op;
 	zest_store_op store_op;
 	zest_clear_value_t clear_value;
+	zest_resource_node resource;
 	zest_bool is_swapchain_image;
 } zest_rendering_attachment_info_t;
 
@@ -12336,6 +12337,8 @@ void zest_FreeSamplerNow(zest_sampler_handle handle) {
 // --General Helper Functions
 zest_viewport_t zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth) {
     zest_viewport_t viewport = ZEST__ZERO_INIT(zest_viewport_t);
+	viewport.x = x;
+	viewport.y = y;
     viewport.width = width;
     viewport.height = height;
     viewport.minDepth = minDepth;
@@ -13939,11 +13942,11 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				}
 				if (output_usage->purpose == zest_purpose_color_attachment_write) {
 					zest_rendering_attachment_info_t color = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
+					color.resource = resource;
 					color.image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
 					color.layout = output_usage->image_layout;
 					color.load_op = output_usage->load_op;
 					color.store_op = output_usage->store_op;
-					color.clear_value = output_usage->clear_value;
 					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
 					if (color_attachment_index == 0) {
 						exe_details->render_area_offset_x = 0;

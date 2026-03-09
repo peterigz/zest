@@ -4390,10 +4390,10 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 			color_attachments[i].clearValue.color.float32[2] = context->swapchain->clear_color.color.b;
 			color_attachments[i].clearValue.color.float32[3] = context->swapchain->clear_color.color.a;
 		} else {
-			color_attachments[i].clearValue.color.float32[0] = info->clear_value.color.r;
-			color_attachments[i].clearValue.color.float32[1] = info->clear_value.color.g;
-			color_attachments[i].clearValue.color.float32[2] = info->clear_value.color.b;
-			color_attachments[i].clearValue.color.float32[3] = info->clear_value.color.a;
+			color_attachments[i].clearValue.color.float32[0] = info->resource->clear_color.r;
+			color_attachments[i].clearValue.color.float32[1] = info->resource->clear_color.g;
+			color_attachments[i].clearValue.color.float32[2] = info->resource->clear_color.b;
+			color_attachments[i].clearValue.color.float32[3] = info->resource->clear_color.a;
 		}
 	}
 
