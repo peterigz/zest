@@ -2,7 +2,7 @@
 #include <SDL.h>
 #include <zest.h>
 
-struct BlurPushConstants {
+struct BloomPushConstants {
 	zest_uint storage_image_index;
 	zest_uint src_mip_index;
 	zest_uint downsampler_mip_index;
@@ -16,8 +16,9 @@ struct CompositePushConstants {
 	float bloom_alpha;
 };
 
-struct BloomPushConstants {
-	zest_vec4 settings;				
+struct BloomSettings {
+	float threshold;				
+	float knee;
 };
 
 struct RenderCacheInfo {
@@ -37,7 +38,7 @@ struct render_target_app_t {
 	zest_layer_handle font_layer;				            //Font layer for drawing some text to the top layer
 	zest_msdf_font_t font;					            //Handle to the font
 	zest_font_resources_t font_resources;
-	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
+	BloomSettings bloom_settings;		        //The push constants containing the bloom thresholds
 	RenderCacheInfo cache_info;
 	zest_timer_t timer;
 

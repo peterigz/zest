@@ -66,7 +66,7 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 	CompositePushConstants push;
 	push.base_index = down_bindless_index;
 	push.bloom_index = up_bindless_index;
-	push.bloom_alpha = example->bloom_constants.settings.x;
+	push.bloom_alpha = example->bloom_settings.threshold;
 	push.sampler_index = example->sampler_index;
 
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(CompositePushConstants));
@@ -87,7 +87,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	zest_uint* sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
 	zest_uint* storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_storage_image_binding);
 
-	BlurPushConstants push = { 0 };
+	BloomPushConstants push = { 0 };
 
 	zest_uint current_width = zest_GetResourceWidth(downsampler_target);
 	zest_uint current_height = zest_GetResourceHeight(downsampler_target);
@@ -113,7 +113,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 		current_width = ZEST__MAX(1u, current_width >> 1);
 		current_height = ZEST__MAX(1u, current_height >> 1);
 
-		zest_cmd_SendPushConstants(command_list, &push, sizeof(BlurPushConstants));
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(BloomPushConstants));
 
 		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
 		if (mip_index < mip_levels - 1) {
@@ -136,7 +136,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_uint *storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_storage_image_binding);
 	zest_uint *downsampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
 
-	BlurPushConstants push = { 0 };
+	BloomPushConstants push = { 0 };
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -167,7 +167,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
 		zest_uint group_count_y = (current_height + local_size_y - 1) / local_size_y;
 
-		zest_cmd_SendPushConstants(command_list, &push, sizeof(BlurPushConstants));
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(BloomPushConstants));
 
 		zest_cmd_DispatchCompute(command_list, group_count_x, group_count_y, 1);
 		if (mip_index > 0) {
@@ -240,8 +240,8 @@ void Mainloop(render_target_app_t *example) {
 			knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
 			threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
 
-			example->bloom_constants.settings.x = threshold;
-			example->bloom_constants.settings.y = knee;
+			example->bloom_settings.threshold = threshold;
+			example->bloom_settings.knee = knee;
 
 			//Draw some colored text lines to demonstrate the bloom effect on rendered content
 			zest_SetMSDFFontDrawing(font_layer, &example->font, &example->font_resources);
@@ -280,9 +280,6 @@ void Mainloop(render_target_app_t *example) {
 					zest_resource_node downsampler = zest_AddTransientImageResource("Downsampler", &image_info);
 					zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 					zest_ImportSwapchainResource();
-
-					zest_compute downsampler_compute = zest_GetCompute(example->downsampler_compute);
-					zest_compute upsampler_compute = zest_GetCompute(example->upsampler_compute);
 
 					//---------------------------------Transfer Pass----------------------------------------------------
 					//Upload font vertex/index data to GPU
