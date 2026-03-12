@@ -1977,9 +1977,9 @@ typedef enum zest_window_mode {
 enum zest__constants {
 	zest__validation_layer_count = 1,
 	#if defined(__APPLE__)
-	zest__required_extension_names_count = 4,
-	#else
 	zest__required_extension_names_count = 3,
+	#else
+	zest__required_extension_names_count = 2,
 	#endif
 };
 
@@ -2039,6 +2039,8 @@ typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_log_validation_errors_to_console = 1 << 5,
 	zest_device_init_flag_log_validation_errors_to_memory = 1 << 6,
 	zest_device_init_flag_output_memory_pool_info = 1 << 7,
+	zest_device_init_flag_force_legacy_render_pass = 1 << 8,
+	zest_device_init_flag_using_legacy_render_pass = 1 << 9,
 } zest_device_init_flag_bits;
 
 typedef zest_uint zest_device_init_flags;
@@ -3954,15 +3956,18 @@ typedef struct zest_buffer_resource_info_t {
 	zest_size size;
 } zest_buffer_resource_info_t;
 
-zest_hash_map(zest_uint) attachment_idx;
-
-typedef struct zest_rendering_attachment_info_t {
-	zest_image_view *image_view;
+typedef struct zest_attachment_usage_t {
 	zest_image_layout layout;
-	zest_image_view *resolve_image_view;
 	zest_image_layout resolve_layout;
 	zest_load_op load_op;
 	zest_store_op store_op;
+	zest_format format;
+} zest_attachment_usage_t;
+
+typedef struct zest_rendering_attachment_info_t {
+	zest_attachment_usage_t usage;
+	zest_image_view *image_view;
+	zest_image_view *resolve_image_view;
 	zest_clear_value_t clear_value;
 	zest_resource_node resource;
 	zest_bool is_swapchain_image;
@@ -3975,6 +3980,7 @@ typedef struct zest_rendering_info_t {
 	zest_format stencil_attachment_format;
 	zest_sample_count_flags sample_count;
 	zest_uint view_mask;
+	zest_key render_pass_key;
 } zest_rendering_info_t;
 
 typedef zest_buffer(*zest_resource_buffer_provider)(zest_context context, zest_resource_node resource);
@@ -4343,6 +4349,7 @@ typedef struct zest_platform_t {
 	void*	      			   (*get_swapchain_wait_semaphore)(zest_swapchain swapchain, zest_uint index);
 	void*	      			   (*get_swapchain_signal_semaphore)(zest_swapchain swapchain, zest_uint index);
 	void*	      			   (*get_swapchain_identifier)(zest_swapchain swapchain);
+	void					   (*create_test_render_pass)(zest_device device, const zest_command_list_t *command_list);
 	//Command recording
 	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
 	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
@@ -4369,6 +4376,9 @@ typedef struct zest_platform_t {
 	void                       (*draw_indexed_indirect)(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 	void                       (*draw_indirect)(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 	void                       (*set_depth_bias)(const zest_command_list command_list, float factor, float clamp, float slope);
+
+	// Legacy render pass fallback
+	void                       (*flush_legacy_framebuffers)(zest_context context, zest_uint fif);
 } zest_platform_t;
 
 extern zest_platform_t ZestPlatform;
@@ -4635,6 +4645,7 @@ ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_f
 ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node);
 ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
+ZEST_PRIVATE zest_bool zest__using_legacy_render_pass(zest_device device);
 // --- End Internal_render_graph_functions ---
 
 // --- Debug_overlay_functions ---
@@ -4666,6 +4677,8 @@ ZEST_API void zest_DeviceBuilderLogToConsole(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderPrintMemoryInfo(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogToMemory(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path);
+//Force legacy VkRenderPass/VkFramebuffer usage even when dynamic rendering is available (for testing)
+ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
 //Finish and create the device
@@ -5631,6 +5644,7 @@ ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
 ZEST_API void zest_AddDeviceValidationErrorDebugStop(zest_device device, zest_uint error_number);
 ZEST_API void zest_ClearDeviceValidationErrorDebugStops(zest_device device);
+ZEST_API void zest_CreateTestRenderPass();
 
 //--GPU Profiling
 ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
@@ -6683,7 +6697,6 @@ typedef struct zest_wave_submission_t {
 } zest_wave_submission_t;
 
 typedef struct zest_execution_details_t {
-	attachment_idx attachment_indexes;
 	zest_rendering_attachment_info_t *color_attachments;
 	zest_rendering_attachment_info_t depth_attachment;
 	zest_swapchain swapchain;
@@ -6694,7 +6707,8 @@ typedef struct zest_execution_details_t {
 	zest_clear_value_t *clear_values;
 	zest_rendering_info_t rendering_info;
 	zest_execution_barriers_t barriers;
-	zest_bool requires_dynamic_render_pass;
+	zest_key render_pass_key;
+	zest_bool requires_render_pass;
 } zest_execution_details_t;
 
 typedef struct zest_pass_group_t {
@@ -8218,6 +8232,10 @@ void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path
 	builder->log_path = log_path;
 }
 
+void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder) {
+	ZEST__FLAG(builder->flags, zest_device_init_flag_force_legacy_render_pass);
+}
+
 void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST_ASSERT(size > zloc__MEGABYTE(2));	//Size for the memory pool must be greater than 2 megabytes
@@ -8238,6 +8256,7 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	*device = ZEST__ZERO_INIT(zest_device_t);
     device->allocator = allocator;
 	device->platform = (zest_platform)zloc_Allocate(allocator, sizeof(zest_platform_t));
+	*device->platform = ZEST__ZERO_INIT(zest_platform_t);
 	device->init_flags = builder->flags;
 
     device->thread_count = builder->thread_count;
@@ -8840,6 +8859,9 @@ void zest__do_context_scheduled_tasks(zest_context context) {
     }
 
 	zest_FlushUsedBuffers(context, context->current_fif);
+	if (context->device->platform->flush_legacy_framebuffers) {
+		context->device->platform->flush_legacy_framebuffers(context, context->current_fif);
+	}
 	ZEST_CPU_PROFILE_END(context);
 }
 
@@ -12495,6 +12517,10 @@ zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_ke
     return key;
 }
 
+zest_bool zest__using_legacy_render_pass(zest_device device) {
+	return ZEST__FLAGGED(device->init_flags, zest_device_init_flag_using_legacy_render_pass);
+}
+
 void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
@@ -13749,7 +13775,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest__add_image_barriers(frame_graph, allocator, resource, barriers, current_state, prev_state, next_state);
                 prev_state = current_state;
                 if (current_state->usage.access_mask & zest_access_render_pass_bits) {
-                    exe_details->requires_dynamic_render_pass = ZEST_TRUE;
+                    exe_details->requires_render_pass = ZEST_TRUE;
                 }
             } else if(resource->type & zest_resource_type_buffer) {
                 if (!prev_state) {
@@ -13926,13 +13952,15 @@ zest_frame_graph zest__compile_frame_graph() {
 }
 
 void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
-	if (exe_details->requires_dynamic_render_pass) {
+	if (exe_details->requires_render_pass) {
 		zest_context context = zest__frame_graph_builder->context;
 		zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
 		zest_uint color_attachment_index = 0;
 		//Determine attachments for color and depth (resolve can come later), first for outputs
 		exe_details->depth_attachment.image_view = 0;
 		exe_details->rendering_info.sample_count = zest_sample_count_1_bit;
+
+		zest_key render_pass_key = 0;
 		zest_map_foreach(o, pass->outputs) {
 			zest_resource_usage_t *output_usage = &pass->outputs.data[o];
 			zest_resource_node resource = pass->outputs.data[o].resource_node;
@@ -13944,9 +13972,10 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					zest_rendering_attachment_info_t color = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
 					color.resource = resource;
 					color.image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
-					color.layout = output_usage->image_layout;
-					color.load_op = output_usage->load_op;
-					color.store_op = output_usage->store_op;
+					color.usage.layout = output_usage->image_layout;
+					color.usage.load_op = output_usage->load_op;
+					color.usage.store_op = output_usage->store_op;
+					color.usage.format = resource->image.info.format;
 					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
 					if (color_attachment_index == 0) {
 						exe_details->render_area_offset_x = 0;
@@ -13974,18 +14003,30 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						);
 						ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_present_after_execute);
 					}
+					render_pass_key = zest_Hash(&color.usage, sizeof(zest_attachment_usage_t), render_pass_key);
 					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
 				} else if (output_usage->purpose == zest_purpose_color_attachment_resolve) {
-					exe_details->color_attachments[color_attachment_index].resolve_layout = output_usage->image_layout;
+					exe_details->color_attachments[color_attachment_index].usage.resolve_layout = output_usage->image_layout;
 					exe_details->color_attachments[color_attachment_index].resolve_image_view = &resource->view;
 					exe_details->rendering_info.sample_count = context->device->platform->get_msaa_sample_count(context);
+					struct {
+						zest_image_layout layout;
+						zest_uint sample_count;
+						zest_format format;
+					} resolve_key_info = {
+						output_usage->image_layout,
+						exe_details->rendering_info.sample_count,
+						resource->image.info.format
+					};
+					render_pass_key = zest_Hash(&resolve_key_info, sizeof(resolve_key_info), render_pass_key);
 				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
 					zest_rendering_attachment_info_t *depth = &exe_details->depth_attachment;
 					//*depth = ZEST__ZERO_INIT(zest_rendering_attachment_info_t);
 					depth->image_view = resource->aliased_resource ? &resource->aliased_resource->view : &resource->view;
-					depth->layout = output_usage->image_layout;
-					depth->load_op = output_usage->load_op;
-					depth->store_op = output_usage->store_op;
+					depth->usage.layout = output_usage->image_layout;
+					depth->usage.load_op = output_usage->load_op;
+					depth->usage.store_op = output_usage->store_op;
+					depth->usage.format = resource->image.info.format;
 					depth->clear_value = output_usage->clear_value;
 					if (color_attachment_index == 0) {
 						exe_details->render_area_offset_x = 0;
@@ -14000,10 +14041,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
 						exe_details->rendering_info.view_mask = (1u << resource->image.info.layer_count) - 1;
 					}
+					render_pass_key = zest_Hash(&depth->usage, sizeof(zest_attachment_usage_t), render_pass_key);
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
 				}
 			}
 		}
+		exe_details->render_pass_key = render_pass_key;
 	}
 }
 
@@ -14206,6 +14249,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	ZEST_CPU_PROFILE_BEGIN(context, "Run %s", frame_graph->name);
 
+	zest_device device = context->device;
+
 	// Compute a signature from the wave/queue layout of this frame graph.
 	// If it differs from the previous frame's layout, resources may have moved between
 	// queues and we need to drain all in-flight work to avoid cross-queue hazards.
@@ -14214,8 +14259,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 		queue_layout_signature = (queue_layout_signature << 4) | (zest_u64)frame_graph->submissions[i].queue_bits;
 	}
 	if (context->last_queue_layout_signature != 0 && context->last_queue_layout_signature != queue_layout_signature) {
-		zest_WaitForIdleDevice(context->device);
-		ZEST_REPORT(context->device, zest_report_wait_idle, "The wave and queue configuration for context %s changed causing a Wait for Device Idle to prevent sync hazards. Only something to worry about if you see 100s/1000s of these as that will be a performance bottleneck.", context->swapchain ? context->swapchain->name : "(Headless)");
+		zest_WaitForIdleDevice(device);
+		ZEST_REPORT(device, zest_report_wait_idle, "The wave and queue configuration for context %s changed causing a Wait for Device Idle to prevent sync hazards. Only something to worry about if you see 100s/1000s of these as that will be a performance bottleneck.", context->swapchain ? context->swapchain->name : "(Headless)");
 	}
 	context->last_queue_layout_signature = queue_layout_signature;
 
@@ -14230,7 +14275,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_map_queue_value queues = ZEST__ZERO_INIT(zest_map_queue_value);
 
-    zest_execution_backend backend = (zest_execution_backend)context->device->platform->new_execution_backend(allocator);
+    zest_execution_backend backend = (zest_execution_backend)device->platform->new_execution_backend(allocator);
 
 	ZEST_CPU_PROFILE_BEGIN(context, "Update resources");
 	zest_vec_foreach(resource_index, frame_graph->resources_to_update) {
@@ -14241,8 +14286,11 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             resource->view = resource->image_provider(context, resource);
 		}
 	}
+
 	ZEST_CPU_PROFILE_END(context);
 
+	zest_bool using_legacy_render_pass = zest__using_legacy_render_pass(device);
+	
     zest_vec_foreach(submission_index, frame_graph->submissions) {
 		ZEST_CPU_PROFILE_BEGIN(context, "Wave Submission %i", submission_index);
         zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
@@ -14254,7 +14302,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 			ZEST_CPU_PROFILE_BEGIN(context, "Queue %i", queue_index);
 
             if (batch->queue->last_reset_frame != context->device_frame_counter) {
-                context->device->platform->reset_queue_command_pool(context, batch->queue);
+                device->platform->reset_queue_command_pool(context, batch->queue);
                 batch->queue->next_buffer = 0;
                 batch->queue->last_reset_frame = context->device_frame_counter;
             }
@@ -14264,30 +14312,28 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             // 1. acquire an appropriate command buffer
             switch (batch->queue_type) {
 				case zest_queue_graphics:
-					ZEST_CLEANUP_ON_FALSE(context->device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
+					ZEST_CLEANUP_ON_FALSE(device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
 					timeline_wait_stage = zest_pipeline_stage_vertex_input_bit;
 					break;
 				case zest_queue_compute:
-					ZEST_CLEANUP_ON_FALSE(context->device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
+					ZEST_CLEANUP_ON_FALSE(device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
 					timeline_wait_stage = zest_pipeline_stage_compute_shader_bit;
 					break;
 				case zest_queue_transfer:
-					ZEST_CLEANUP_ON_FALSE(context->device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
+					ZEST_CLEANUP_ON_FALSE(device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
 					timeline_wait_stage = zest_pipeline_stage_transfer_bit;
 					break;
 				default:
 					ZEST_ASSERT(0); //Unknown queue type for batch. Corrupt memory perhaps?!
             }
 
-            ZEST_CLEANUP_ON_FALSE(context->device->platform->begin_command_buffer(&frame_graph->command_list));
-
-			// Set up GPU profiler pointer on the command list
-			frame_graph->command_list.gpu_profiler = ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled) ? &context->gpu_profiler : 0;
+            ZEST_CLEANUP_ON_FALSE(device->platform->begin_command_buffer(&frame_graph->command_list));
 
 			// Bind the global bindless descriptor set for graphics and compute queues
 			if (batch->queue_type != zest_queue_transfer && frame_graph->descriptor_sets) {
-				if (batch->queue_type == zest_queue_graphics) {
+				if (batch->queue_type == zest_queue_graphics && !using_legacy_render_pass) {
 					// Graphics queue can do both graphics and compute
+					// If it's a legacy render pass on vulkan then we bind inside the render pass below
 					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_graphics, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
 					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_compute, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
 				} else {
@@ -14295,6 +14341,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_compute, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
 				}
 			}
+
+			// Set up GPU profiler pointer on the command list
+			frame_graph->command_list.gpu_profiler = ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled) ? &context->gpu_profiler : 0;
 
             zest_vec_foreach(i, batch->pass_indices) {
 				ZEST_CPU_PROFILE_BEGIN(context, "Pass %i", i);
@@ -14322,7 +14371,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 				ZEST_CPU_PROFILE_END(context);
 
                 //Batch execute acquire barriers for images and buffers
-				context->device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
+				device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
 
 				// GPU profiling: write begin timestamp for this grouped pass
 				// Reserve the query pair immediately so user sub-region calls don't collide
@@ -14333,7 +14382,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					zest_uint fif = context->current_fif;
 					gpu_profile_query_index = gpu_profiler->query_count[fif];
 					if (gpu_profile_query_index + 2 <= gpu_profiler->max_queries) {
-						context->device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, fif, gpu_profile_query_index, ZEST_FALSE);
+						device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, fif, gpu_profile_query_index, ZEST_FALSE);
 						zest_uint pair_index = gpu_profile_query_index / 2;
 						const char *pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
 						snprintf(gpu_profiler->query_map[fif][pair_index].name, ZEST_GPU_PROFILE_NAME_LENGTH, "%s", pass_name);
@@ -14344,11 +14393,21 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					}
 				}
 
-                zest_bool has_render_pass = exe_details->requires_dynamic_render_pass;
+                zest_bool has_render_pass = exe_details->requires_render_pass;
 
                 //Begin the render pass if the pass has one
                 if (has_render_pass) {
-                    context->device->platform->begin_render_pass(&frame_graph->command_list, exe_details);
+                    device->platform->begin_render_pass(&frame_graph->command_list, exe_details);
+
+					// Bind the global bindless descriptor set for graphics and compute queues
+					if (frame_graph->descriptor_sets && using_legacy_render_pass) {
+						// Have to bind the descriptors here otherwise it can throw a validation error
+						// with legacy render passes
+						// Graphics queue can do both graphics and compute
+						zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_graphics, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+						zest_cmd_BindDescriptorSets(&frame_graph->command_list, zest_bind_point_compute, frame_graph->pipeline_layout, frame_graph->descriptor_sets, zest_vec_size(frame_graph->descriptor_sets), 0);
+					}
+
 					frame_graph->command_list.rendering_info = exe_details->rendering_info;
 					frame_graph->command_list.began_rendering = ZEST_TRUE;
                 }
@@ -14366,11 +14425,12 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                     zest_pass_node pass = grouped_pass->passes[pass_index];
 
                     if (pass->type == zest_pass_type_graphics && !frame_graph->command_list.began_rendering) {
-                        ZEST_REPORT(context->device, zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
+                        ZEST_REPORT(device, zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
                         continue;
                     }
                     frame_graph->command_list.pass_node = pass;
                     frame_graph->command_list.frame_graph = frame_graph;
+					frame_graph->command_list.rendering_info.render_pass_key = exe_details->render_pass_key;
                     pass->execution_callback.callback(&frame_graph->command_list, pass->execution_callback.user_data);
                 }
 
@@ -14395,7 +14455,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 				// GPU profiling: write end timestamp for this grouped pass
 				if (gpu_profile_active) {
-					context->device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, context->current_fif, gpu_profile_query_index + 1, ZEST_TRUE);
+					device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, context->current_fif, gpu_profile_query_index + 1, ZEST_TRUE);
 				}
 
                 zest_map_foreach(pass_input_index, grouped_pass->inputs) {
@@ -14417,13 +14477,13 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 }
 
                 if (has_render_pass) {
-                    context->device->platform->end_render_pass(&frame_graph->command_list);
+                    device->platform->end_render_pass(&frame_graph->command_list);
 					frame_graph->command_list.began_rendering = ZEST_FALSE;
                 }
 
                 //Batch execute release barriers for images and buffers
 
-				context->device->platform->release_barrier(&frame_graph->command_list, exe_details);
+				device->platform->release_barrier(&frame_graph->command_list, exe_details);
 
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_free) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_free[r];
@@ -14432,16 +14492,16 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //End pass
 				ZEST_CPU_PROFILE_END(context); //Pass profile
             }
-			context->device->platform->end_command_buffer(&frame_graph->command_list);
+			device->platform->end_command_buffer(&frame_graph->command_list);
 			ZEST_CPU_PROFILE_BEGIN(context, "Submit Batch");
-            context->device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
+            device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
 			ZEST_CPU_PROFILE_END(context);
 
 			ZEST_CPU_PROFILE_END(context); //Batch queue profile
         }   //Batch
 
         //For each batch in the last wave add the queue semaphores that were used so that the next batch submissions can wait on them
-        context->device->platform->carry_over_semaphores(frame_graph, wave_submission, backend);
+        device->platform->carry_over_semaphores(frame_graph, wave_submission, backend);
 
 		ZEST_CPU_PROFILE_END(context);
     }   //Wave 
@@ -18328,6 +18388,10 @@ void zest_ClearDeviceValidationErrorDebugStops(zest_device device) {
 	zest_vec_clear(device->validation_debug_stops);
 }
 
+void zest_CreateTestRenderPass(zest_device device, const zest_command_list_t *command_list) {
+	device->platform->create_test_render_pass(device, command_list);
+}
+
 void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...) {
 	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
 	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) {
@@ -19491,6 +19555,7 @@ zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, ze
 		zest_AddDeviceBuilderValidation(device_builder);
 		zest_DeviceBuilderLogToConsole(device_builder);
 	}
+	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array

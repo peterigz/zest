@@ -92,7 +92,7 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test State Depth", test__pipeline_state_depth, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
@@ -174,6 +174,7 @@ int main(int argc, char *argv[]) {
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
 	zest_DeviceBuilderLogToMemory(device_builder);
+	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
 	tests.device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array

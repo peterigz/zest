@@ -125,7 +125,6 @@ ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
 
 ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_count] = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-	VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 	VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
 	#if defined(__APPLE__)
 	"VK_KHR_portability_subset"
@@ -194,6 +193,8 @@ ZEST_PRIVATE zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zes
 ZEST_PRIVATE zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
 ZEST_PRIVATE zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__vk_end_render_pass(const zest_command_list command_list);
+ZEST_PRIVATE zest_bool zest__vk_begin_render_pass_legacy(const zest_command_list command_list, zest_execution_details_t *exe_details);
+ZEST_PRIVATE void zest__vk_end_render_pass_legacy(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_context context, zest_context_queue present_queue);
@@ -214,12 +215,14 @@ ZEST_PRIVATE zest_bool zest__vk_create_device_memory(zest_device device, zest_si
 ZEST_PRIVATE zest_bool zest__vk_map_memory(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 ZEST_PRIVATE void zest__vk_unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__vk_flush_used_buffers(zest_context context, zest_uint fif);
+ZEST_PRIVATE void zest__vk_flush_legacy_framebuffers(zest_context context, zest_uint fif);
 ZEST_PRIVATE void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
 ZEST_PRIVATE zest_pipeline_stage_flags zest__vk_get_buffer_last_pipeline_stage(zest_buffer buffer);
 ZEST_PRIVATE zest_uint zest__vk_get_buffer_queue_family_index(zest_buffer buffer);
 
 //Pipelines
 ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list);
+ZEST_PRIVATE zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_list command_list);
 ZEST_PRIVATE zest_bool zest__vk_build_pipeline_layout(zest_device device, zest_pipeline_layout pipeline_layout, zest_pipeline_layout_info_t *info);
 
 //Set layouts
@@ -307,6 +310,10 @@ ZEST_PRIVATE void zest__vk_cleanup_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_destroy_context_surface(zest_context context);
 
 ZEST_PRIVATE zest_bool zest__vk_has_extension(zest_device device, const char *extension_name);
+ZEST_PRIVATE VkRenderPass zest__vk_get_or_create_legacy_render_pass(zest_device device, zest_execution_details_t *exe_details);
+ZEST_PRIVATE VkImageView zest__vk_get_single_mip_view(zest_context context, zest_image_view_t *view);
+ZEST_PRIVATE VkFramebuffer zest__vk_create_legacy_framebuffer(zest_context context, VkRenderPass render_pass, zest_execution_details_t *exe_details, zest_uint width, zest_uint height);
+ZEST_PRIVATE void zest__vk_cleanup_legacy_render_pass_cache(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_initialise_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_swapchain(zest_context context);
@@ -348,6 +355,7 @@ ZEST_PRIVATE void *zest__vk_get_buffer_ptr(zest_buffer buffer);
 ZEST_PRIVATE void *zest__vk_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint index);
 ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uint index);
 ZEST_PRIVATE void *zest__vk_get_swapchain_identifier(zest_swapchain swapchain);
+ZEST_PRIVATE void zest__vk_create_test_render_pass(zest_device device, const zest_command_list_t *command_list);
 
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
@@ -448,6 +456,8 @@ typedef struct zest_execution_timeline_backend_t {
     VkSemaphore semaphore;
 } zest_execution_timeline_backend_t;
 
+zest_hash_map(VkRenderPass) zest_map_vk_render_passes;
+
 typedef struct zest_device_backend_t {
     VkAllocationCallbacks allocation_callbacks;
     VkInstance instance;
@@ -469,6 +479,8 @@ typedef struct zest_device_backend_t {
     VkResult last_result;
 	shaderc_compiler_t shaderc_compiler;
     VkPipelineCache pipeline_cache;
+    zest_bool has_dynamic_rendering;
+    zest_map_vk_render_passes legacy_render_passes;  
 } zest_device_backend_t;
 
 typedef struct zest_swapchain_backend_t {
@@ -483,6 +495,8 @@ typedef struct zest_context_backend_t {
     VkAllocationCallbacks allocation_callbacks;
     VkSurfaceKHR surface;
 	VkBuffer *used_buffers_ready_for_freeing[ZEST_MAX_FIF];
+	VkFramebuffer *legacy_framebuffers[ZEST_MAX_FIF];
+	VkImageView *legacy_owned_views[ZEST_MAX_FIF];
     VkResult last_result;
 } zest_context_backend_t;
 
@@ -630,6 +644,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->release_barrier                               = zest__vk_release_barrier;
     platform->get_frame_graph_semaphores                    = zest__vk_get_frame_graph_semaphores;
     platform->submit_frame_graph_batch                      = zest__vk_submit_frame_graph_batch;
+    // begin_render_pass and end_render_pass are set later in zest__vk_create_logical_device
+    // based on whether dynamic rendering is available
     platform->begin_render_pass                             = zest__vk_begin_render_pass;
     platform->end_render_pass                               = zest__vk_end_render_pass;
     platform->carry_over_semaphores                         = zest__vk_carry_over_semaphores;
@@ -688,6 +704,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->initialise_context_queue_backend			    = zest__vk_initialise_context_queue_backend;
     platform->get_db_overlay_vertex_shader			    	= zest__vk_get_db_overlay_vertex_shader;
     platform->get_db_overlay_fragment_shader			    = zest__vk_get_db_overlay_fragment_shader;
+    platform->create_test_render_pass					    = zest__vk_create_test_render_pass;
 
 	platform->set_object_name                               = zest__vk_set_object_name;
 	platform->set_image_name                                = zest__vk_set_image_name;
@@ -1764,12 +1781,21 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
     vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, available_extensions);
 
     zest_uint required_extensions_found = 0;
+    zest_bool dynamic_rendering_found = ZEST_FALSE;
     for (int i = 0; i != extension_count; ++i) {
         for (int e = 0; e != zest__required_extension_names_count; ++e) {
             if (strcmp(available_extensions[i].extensionName, zest_required_extensions[e]) == 0) {
                 required_extensions_found++;
             }
         }
+        if (strcmp(available_extensions[i].extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
+            dynamic_rendering_found = ZEST_TRUE;
+        }
+    }
+
+    // Store dynamic rendering availability for later use during logical device creation
+    if (device->backend->physical_device == physical_device || device->backend->physical_device == VK_NULL_HANDLE) {
+        device->backend->has_dynamic_rendering = dynamic_rendering_found;
     }
 
     ZEST__FREE(device->allocator, available_extensions);
@@ -2180,20 +2206,43 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 	sync2_features.pNext = &device_features_11;
 	sync2_features.synchronization2 = VK_TRUE;
 
-	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = ZEST__ZERO_INIT(VkPhysicalDeviceDynamicRenderingFeaturesKHR);
-	dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
-	dynamic_rendering_features.dynamicRendering = VK_TRUE;
-	dynamic_rendering_features.pNext = &sync2_features;
+	// Check if dynamic rendering is available and not force-disabled
+	// has_dynamic_rendering was already set during zest__vk_check_device_extension_support
+	zest_bool use_dynamic_rendering = device->backend->has_dynamic_rendering;
+	if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_force_legacy_render_pass)) {
+		use_dynamic_rendering = ZEST_FALSE;
+	}
 
-	device_features_12.pNext = &dynamic_rendering_features;
+	// Build the enabled extension list: required + optional dynamic rendering
+	const char *enabled_extensions[zest__required_extension_names_count + 1];
+	zest_uint enabled_extension_count = zest__required_extension_names_count;
+	for (int i = 0; i != zest__required_extension_names_count; ++i) {
+		enabled_extensions[i] = zest_required_extensions[i];
+	}
+
+	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = ZEST__ZERO_INIT(VkPhysicalDeviceDynamicRenderingFeaturesKHR);
+	if (use_dynamic_rendering) {
+		enabled_extensions[enabled_extension_count++] = VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+		dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
+		dynamic_rendering_features.dynamicRendering = VK_TRUE;
+		dynamic_rendering_features.pNext = &sync2_features;
+		device_features_12.pNext = &dynamic_rendering_features;
+		ZEST_APPEND_LOG(device->log_path.str, "Dynamic rendering extension available, using dynamic render passes");
+	} else {
+		device_features_12.pNext = &sync2_features;
+		ZEST_APPEND_LOG(device->log_path.str, "Dynamic rendering not available, using legacy VkRenderPass fallback");
+		ZEST__FLAG(device->init_flags, zest_device_init_flag_using_legacy_render_pass);
+	}
+
+	device->backend->has_dynamic_rendering = use_dynamic_rendering;
 
     VkDeviceCreateInfo create_info = ZEST__ZERO_INIT(VkDeviceCreateInfo);
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     create_info.pEnabledFeatures = &device_features;
     create_info.queueCreateInfoCount = zest_vec_size(queue_infos);
     create_info.pQueueCreateInfos = queue_infos;
-    create_info.enabledExtensionCount = zest__required_extension_names_count;
-    create_info.ppEnabledExtensionNames = zest_required_extensions;
+    create_info.enabledExtensionCount = enabled_extension_count;
+    create_info.ppEnabledExtensionNames = enabled_extensions;
 	create_info.pNext = &device_features_12;
 
     if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers)) {
@@ -2212,8 +2261,18 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         return ZEST_FALSE;
     }
 
-    device->backend->pfn_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdBeginRenderingKHR");
-    device->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdEndRenderingKHR");
+	// Wire up platform callbacks based on dynamic rendering availability
+	if (use_dynamic_rendering) {
+		device->backend->pfn_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdBeginRenderingKHR");
+		device->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdEndRenderingKHR");
+	} else {
+		device->backend->pfn_vkCmdBeginRendering = VK_NULL_HANDLE;
+		device->backend->pfn_vkCmdEndRendering = VK_NULL_HANDLE;
+		device->platform->begin_render_pass = zest__vk_begin_render_pass_legacy;
+		device->platform->end_render_pass = zest__vk_end_render_pass_legacy;
+		device->platform->build_pipeline = zest__vk_build_pipeline_legacy;
+		device->platform->flush_legacy_framebuffers = zest__vk_flush_legacy_framebuffers;
+	}
     device->backend->pfn_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdPipelineBarrier2KHR");
     device->backend->pfn_vkQueueSubmit2 = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkQueueSubmit2KHR");
     device->backend->pfn_vkCmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdWriteTimestamp2KHR");
@@ -2569,6 +2628,7 @@ void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_gra
 }
 
 void zest__vk_cleanup_device_backend(zest_device device) {
+    zest__vk_cleanup_legacy_render_pass_cache(device);
     vkDestroyPipelineCache(device->backend->logical_device, device->backend->pipeline_cache, &device->backend->allocation_callbacks);
 	if (device->backend->shaderc_compiler) {
 		shaderc_compiler_release(device->backend->shaderc_compiler);
@@ -2591,6 +2651,14 @@ void zest__vk_cleanup_context_backend(zest_context context) {
     zest_ForEachFrameInFlight(fif) {
         vkDestroyCommandPool(context->device->backend->logical_device, context->backend->utility_command_pool[fif], &context->backend->allocation_callbacks);
 		zest_vec_free(context->allocator, context->backend->used_buffers_ready_for_freeing[fif]);
+		zest_vec_foreach(i, context->backend->legacy_owned_views[fif]) {
+			vkDestroyImageView(context->device->backend->logical_device, context->backend->legacy_owned_views[fif][i], &context->device->backend->allocation_callbacks);
+		}
+		zest_vec_free(context->allocator, context->backend->legacy_owned_views[fif]);
+		zest_vec_foreach(i, context->backend->legacy_framebuffers[fif]) {
+			vkDestroyFramebuffer(context->device->backend->logical_device, context->backend->legacy_framebuffers[fif][i], &context->device->backend->allocation_callbacks);
+		}
+		zest_vec_free(context->allocator, context->backend->legacy_framebuffers[fif]);
     }
     ZEST__FREE(context->allocator, context->backend);
 }
@@ -2878,6 +2946,19 @@ void zest__vk_flush_used_buffers(zest_context context, zest_uint fif) {
         vkDestroyBuffer(context->device->backend->logical_device, buffer, &context->device->backend->allocation_callbacks);
     }
 	zest_vec_clear(context->backend->used_buffers_ready_for_freeing[fif]);
+}
+
+void zest__vk_flush_legacy_framebuffers(zest_context context, zest_uint fif) {
+	VkDevice logical_device = context->device->backend->logical_device;
+	VkAllocationCallbacks *callbacks = &context->device->backend->allocation_callbacks;
+	zest_vec_foreach(i, context->backend->legacy_owned_views[fif]) {
+		vkDestroyImageView(logical_device, context->backend->legacy_owned_views[fif][i], callbacks);
+	}
+	zest_vec_clear(context->backend->legacy_owned_views[fif]);
+	zest_vec_foreach(i, context->backend->legacy_framebuffers[fif]) {
+		vkDestroyFramebuffer(logical_device, context->backend->legacy_framebuffers[fif][i], callbacks);
+	}
+	zest_vec_clear(context->backend->legacy_framebuffers[fif]);
 }
 
 void zest__vk_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset) {
@@ -3416,6 +3497,220 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 	vkDestroyShaderModule(context->device->backend->logical_device, vert_shader_module, &context->device->backend->allocation_callbacks);
     zloc_ResetLinearAllocator(scratch);
     return result == VK_SUCCESS ? ZEST_TRUE : ZEST_FALSE;
+}
+
+zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_list command_list) {
+	zest_context context = command_list->context;
+	zest_device device = context->device;
+
+	zloc_linear_allocator_t *scratch = zest__get_scratch_arena(device);
+
+	zest_pipeline_template pipeline_template = pipeline->pipeline_template;
+
+	VkPipelineInputAssemblyStateCreateInfo input_assembly = ZEST__ZERO_INIT(VkPipelineInputAssemblyStateCreateInfo);
+	VkPipelineViewportStateCreateInfo viewport_state = ZEST__ZERO_INIT(VkPipelineViewportStateCreateInfo);
+	VkDynamicState *dynamic_states = 0;
+	VkPipelineDynamicStateCreateInfo dynamic_state = ZEST__ZERO_INIT(VkPipelineDynamicStateCreateInfo);
+	VkPipelineMultisampleStateCreateInfo multisampling = ZEST__ZERO_INIT(VkPipelineMultisampleStateCreateInfo);
+	VkPipelineRasterizationStateCreateInfo rasterizer = ZEST__ZERO_INIT(VkPipelineRasterizationStateCreateInfo);
+	VkPipelineDepthStencilStateCreateInfo depth_stencil = ZEST__ZERO_INIT(VkPipelineDepthStencilStateCreateInfo);
+	VkPipelineColorBlendStateCreateInfo color_blending = ZEST__ZERO_INIT(VkPipelineColorBlendStateCreateInfo);
+	VkGraphicsPipelineCreateInfo pipeline_info = ZEST__ZERO_INIT(VkGraphicsPipelineCreateInfo);
+	VkPipelineVertexInputStateCreateInfo vertex_input_info = ZEST__ZERO_INIT(VkPipelineVertexInputStateCreateInfo);
+	VkPipelineShaderStageCreateInfo frag_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
+	VkPipelineColorBlendAttachmentState *color_blend_attachments = 0;
+	VkVertexInputBindingDescription *binding_descriptions = 0;
+	VkVertexInputAttributeDescription *attribute_descriptions = 0;
+	VkPipelineShaderStageCreateInfo shaderStages[2];
+	zest_shader frag_shader = 0;
+
+	VkShaderModule vert_shader_module = ZEST__ZERO_INIT(VkShaderModule);
+	VkShaderModule frag_shader_module = ZEST__ZERO_INIT(VkShaderModule);
+	zest_uint stage_count = 0;
+	zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->vertex_shader.store, pipeline_template->vertex_shader.value);
+	VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
+	VkResult result = VK_SUCCESS;
+	if (ZEST_VALID_HANDLE(vert_shader, zest_struct_type_shader)) {
+		if (!vert_shader->spv) {
+			ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline_template->name);
+			result = VK_ERROR_UNKNOWN;
+			goto legacy_cleanup;
+		}
+		result = zest__vk_create_shader_module(context->device, vert_shader->spv, &vert_shader_module);
+		vert_shader_stage_info.module = vert_shader_module;
+		stage_count++;
+	}
+
+	if (pipeline_template->fragment_shader.value) {
+		frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
+	}
+	if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
+		if (!frag_shader->spv) {
+			ZEST_APPEND_LOG(context->device->log_path.str, "Fragment shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
+			result = VK_ERROR_UNKNOWN;
+			goto legacy_cleanup;
+		}
+		result = zest__vk_create_shader_module(context->device, frag_shader->spv, &frag_shader_module);
+		frag_shader_stage_info.module = frag_shader_module;
+		frag_shader_stage_info.pName = pipeline_template->fragShaderFunctionName;
+		stage_count++;
+	}
+
+	if (result != VK_SUCCESS) {
+		ZEST_VK_PRINT_RESULT(context->device, result);
+		goto legacy_cleanup;
+	}
+
+	vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vert_shader_stage_info.pName = pipeline_template->vertShaderFunctionName;
+
+	frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	shaderStages[0] = vert_shader_stage_info;
+	shaderStages[1] = frag_shader_stage_info;
+
+	vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	if (!pipeline_template->no_vertex_input) {
+		ZEST_ASSERT(zest_vec_size(pipeline_template->binding_descriptions), "If the pipeline is set to have vertex input, then you must add bindingDescriptions. You can use zest_AddVertexInputBindingDescription for this, otherwise make sure you call zest_SetPipelineDisableVertexInput when setting up the pipeline template if the pipeline doesn't need any vertex input.");
+		zest_vec_foreach(i, pipeline_template->binding_descriptions) {
+			VkVertexInputBindingDescription description = {
+				pipeline_template->binding_descriptions[i].binding,
+				pipeline_template->binding_descriptions[i].stride,
+				(VkVertexInputRate)pipeline_template->binding_descriptions[i].input_rate,
+			};
+			zest_vec_linear_push(scratch, binding_descriptions, description);
+		}
+		zest_vec_foreach(i, pipeline_template->attribute_descriptions) {
+			VkVertexInputAttributeDescription description = {
+				pipeline_template->attribute_descriptions[i].location,
+				pipeline_template->attribute_descriptions[i].binding,
+				(VkFormat)pipeline_template->attribute_descriptions[i].format,
+				pipeline_template->attribute_descriptions[i].offset,
+			};
+			zest_vec_linear_push(scratch, attribute_descriptions, description);
+		}
+		vertex_input_info.vertexBindingDescriptionCount = (zest_uint)zest_vec_size(pipeline_template->binding_descriptions);
+		vertex_input_info.pVertexBindingDescriptions = binding_descriptions;
+		vertex_input_info.vertexAttributeDescriptionCount = (zest_uint)zest_vec_size(pipeline_template->attribute_descriptions);
+		vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions;
+	}
+
+	input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	input_assembly.primitiveRestartEnable = VK_FALSE;
+	input_assembly.topology = (VkPrimitiveTopology)pipeline_template->primitive_topology;
+	input_assembly.flags = 0;
+
+	viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport_state.viewportCount = 1;
+	viewport_state.pViewports = NULL;
+	viewport_state.scissorCount = 1;
+	viewport_state.pScissors = NULL;
+
+	zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_VIEWPORT);
+	zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_SCISSOR);
+	if (pipeline_template->rasterization.depth_bias_enable) {
+		zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_DEPTH_BIAS);
+	}
+
+	dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamic_state.dynamicStateCount = (zest_uint)(zest_vec_size(dynamic_states));
+	dynamic_state.pDynamicStates = dynamic_states;
+
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.sampleShadingEnable = VK_FALSE;
+	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizer.cullMode = (VkCullModeFlags)pipeline_template->rasterization.cull_mode;
+	rasterizer.polygonMode = (VkPolygonMode)pipeline_template->rasterization.polygon_mode;
+	rasterizer.frontFace = (VkFrontFace)pipeline_template->rasterization.front_face;
+	rasterizer.lineWidth = pipeline_template->rasterization.line_width;
+	rasterizer.rasterizerDiscardEnable = pipeline_template->rasterization.rasterizer_discard_enable;
+	rasterizer.depthClampEnable = pipeline_template->rasterization.depth_clamp_enable;
+	rasterizer.depthBiasEnable = pipeline_template->rasterization.depth_bias_enable;
+	rasterizer.depthBiasClamp = pipeline_template->rasterization.depth_bias_clamp;
+	rasterizer.depthBiasConstantFactor = pipeline_template->rasterization.depth_bias_constant_factor;
+	rasterizer.depthBiasSlopeFactor = pipeline_template->rasterization.depth_bias_slope_factor;
+
+	depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	depth_stencil.depthBoundsTestEnable = pipeline_template->depth_stencil.depth_bounds_test_enable;
+	depth_stencil.depthWriteEnable = pipeline_template->depth_stencil.depth_write_enable;
+	depth_stencil.depthTestEnable = pipeline_template->depth_stencil.depth_test_enable;
+	depth_stencil.stencilTestEnable = pipeline_template->depth_stencil.stencil_test_enable;
+	depth_stencil.depthCompareOp = (VkCompareOp)pipeline_template->depth_stencil.depth_compare_op;
+
+	if (stage_count == 2) {
+		for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
+			VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
+			color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
+			color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
+			color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
+			color_attachment.colorBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.color_blend_op;
+			color_attachment.srcAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_alpha_blend_factor;
+			color_attachment.dstAlphaBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_alpha_blend_factor;
+			color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
+			color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
+			zest_vec_linear_push(scratch, color_blend_attachments, color_attachment);
+		}
+	}
+
+	color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	color_blending.logicOpEnable = VK_FALSE;
+	color_blending.logicOp = VK_LOGIC_OP_COPY;
+	color_blending.attachmentCount = zest_vec_size(color_blend_attachments);
+	color_blending.pAttachments = color_blend_attachments;
+	color_blending.blendConstants[0] = 0.0f;
+	color_blending.blendConstants[1] = 0.0f;
+	color_blending.blendConstants[2] = 0.0f;
+	color_blending.blendConstants[3] = 0.0f;
+
+	// For legacy pipelines, get or create a compatible VkRenderPass
+	// We need a temporary execution_details to get the render pass
+	// The render pass is looked up from the command_list's rendering_info
+	// For pipeline creation, we create a dummy render pass based on format info
+	VkRenderPass compatible_render_pass = VK_NULL_HANDLE;
+	{
+		if (zest_map_valid_key(command_list->device->backend->legacy_render_passes, command_list->rendering_info.render_pass_key)) {
+			compatible_render_pass = *zest_map_at_key(command_list->device->backend->legacy_render_passes, command_list->rendering_info.render_pass_key);
+		}
+	}
+
+	ZEST_ASSERT(compatible_render_pass, "A render pass was not created for this pipeline. Pipelines that render to an image must be after a begin_render_pass therefore should be able to find the correct compatible render pass");
+
+	pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipeline_info.stageCount = stage_count;
+	pipeline_info.pStages = shaderStages;
+	pipeline_info.pVertexInputState = &vertex_input_info;
+	pipeline_info.pInputAssemblyState = &input_assembly;
+	pipeline_info.pViewportState = &viewport_state;
+	pipeline_info.pRasterizationState = &rasterizer;
+	pipeline_info.pMultisampleState = &multisampling;
+	pipeline_info.pColorBlendState = &color_blending;
+	pipeline_info.pDepthStencilState = &depth_stencil;
+	pipeline_info.layout = pipeline->layout->backend->vk_pipeline_layout;
+	pipeline_info.renderPass = compatible_render_pass;
+	pipeline_info.subpass = 0;
+	pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+	pipeline_info.pDynamicState = &dynamic_state;
+
+	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_pipelines);
+	result = vkCreateGraphicsPipelines(device->backend->logical_device, device->backend->pipeline_cache, 1, &pipeline_info, &context->backend->allocation_callbacks, &pipeline->backend->vk_pipeline);
+	if (result != VK_SUCCESS) {
+		ZEST_VK_PRINT_RESULT(context->device, result);
+		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
+		vkDestroyPipeline(device->backend->logical_device, pipeline->backend->vk_pipeline, &context->backend->allocation_callbacks);
+	} else {
+		ZEST_APPEND_LOG(device->log_path.str, "Built legacy pipeline %s", pipeline_template->name);
+		ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
+	}
+
+	legacy_cleanup:
+	vkDestroyShaderModule(device->backend->logical_device, frag_shader_module, &device->backend->allocation_callbacks);
+	vkDestroyShaderModule(device->backend->logical_device, vert_shader_module, &device->backend->allocation_callbacks);
+	zloc_ResetLinearAllocator(scratch);
+	return result == VK_SUCCESS ? ZEST_TRUE : ZEST_FALSE;
 }
 
 // -- End Pipelines
@@ -4009,6 +4304,8 @@ zest_bool zest__vk_has_extension(zest_device device, const char *extension_name)
     return ZEST_FALSE;
 }
 
+
+
 zest_bool zest__vk_create_window_surface(zest_context context) {
 	zest_device device = context->device;
 #ifdef _WIN32
@@ -4375,14 +4672,14 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 		color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		color_attachments[i].pNext = VK_NULL_HANDLE;
 		color_attachments[i].imageView = (*info->image_view)->backend->vk_view;
-		color_attachments[i].imageLayout = zest__to_vk_image_layout(info->layout);
+		color_attachments[i].imageLayout = zest__to_vk_image_layout(info->usage.layout);
 		color_attachments[i].resolveMode = VK_RESOLVE_MODE_NONE;
 		if (info->resolve_image_view) {
 			color_attachments[i].resolveImageView = (*info->resolve_image_view)->backend->vk_view;
-			color_attachments[i].resolveImageLayout = zest__to_vk_image_layout(info->resolve_layout);
+			color_attachments[i].resolveImageLayout = zest__to_vk_image_layout(info->usage.resolve_layout);
 		}
-		color_attachments[i].loadOp = zest__to_vk_load_op(info->load_op);
-		color_attachments[i].storeOp = zest__to_vk_store_op(info->store_op);
+		color_attachments[i].loadOp = zest__to_vk_load_op(info->usage.load_op);
+		color_attachments[i].storeOp = zest__to_vk_store_op(info->usage.store_op);
 		if (info->is_swapchain_image) {
 			//Get the color directly from the swap chain
 			color_attachments[i].clearValue.color.float32[0] = context->swapchain->clear_color.color.r;
@@ -4404,14 +4701,14 @@ zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_
 		depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		depth_attachment.pNext = VK_NULL_HANDLE;
 		depth_attachment.imageView = (*info->image_view)->backend->vk_view;
-		depth_attachment.imageLayout = zest__to_vk_image_layout(info->layout);
+		depth_attachment.imageLayout = zest__to_vk_image_layout(info->usage.layout);
 		depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
 		if (info->resolve_image_view) {
 			depth_attachment.resolveImageView = (*info->resolve_image_view)->backend->vk_view;
-			depth_attachment.resolveImageLayout = zest__to_vk_image_layout(info->resolve_layout);
+			depth_attachment.resolveImageLayout = zest__to_vk_image_layout(info->usage.resolve_layout);
 		}
-		depth_attachment.loadOp = zest__to_vk_load_op(info->load_op);
-		depth_attachment.storeOp = zest__to_vk_store_op(info->store_op);
+		depth_attachment.loadOp = zest__to_vk_load_op(info->usage.load_op);
+		depth_attachment.storeOp = zest__to_vk_store_op(info->usage.store_op);
 		depth_attachment.clearValue.depthStencil.depth = info->clear_value.depth_stencil.depth;
 		depth_attachment.clearValue.depthStencil.stencil = info->clear_value.depth_stencil.stencil;
 		has_depth = ZEST_TRUE;
@@ -4436,6 +4733,297 @@ void zest__vk_end_render_pass(const zest_command_list command_list) {
 	zest_context context = command_list->context;
 	context->device->backend->pfn_vkCmdEndRendering(command_list->backend->command_buffer);
 }
+
+// -- Legacy render pass fallback implementation
+VkRenderPass zest__vk_get_or_create_legacy_render_pass(zest_device device, zest_execution_details_t *exe_details) {
+	if (zest_map_valid_key(device->backend->legacy_render_passes, exe_details->render_pass_key)) {
+		return *zest_map_at_key(device->backend->legacy_render_passes, exe_details->render_pass_key);
+	}
+
+	// Create a new VkRenderPass
+	VkAttachmentDescription attachments[ZEST_MAX_ATTACHMENTS * 2 + 1]; // color + resolve + depth
+	VkAttachmentReference color_refs[ZEST_MAX_ATTACHMENTS];
+	VkAttachmentReference resolve_refs[ZEST_MAX_ATTACHMENTS];
+	VkAttachmentReference depth_ref = ZEST__ZERO_INIT(VkAttachmentReference);
+	zest_uint attachment_count = 0;
+	zest_bool has_resolve = 0;
+
+	// Color attachments
+	zest_vec_foreach(i, exe_details->color_attachments) {
+		VkAttachmentDescription *att = &attachments[attachment_count];
+		*att = ZEST__ZERO_INIT(VkAttachmentDescription);
+		att->format = zest__to_vk_format(exe_details->rendering_info.color_attachment_formats[i]);
+		att->samples = (VkSampleCountFlagBits)exe_details->rendering_info.sample_count;
+		if (att->samples == 0) att->samples = VK_SAMPLE_COUNT_1_BIT;
+		att->loadOp = zest__to_vk_load_op(exe_details->color_attachments[i].usage.load_op);
+		att->storeOp = zest__to_vk_store_op(exe_details->color_attachments[i].usage.store_op);
+		att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		att->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		att->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		color_refs[i].attachment = attachment_count;
+		color_refs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		attachment_count++;
+		if (exe_details->color_attachments[i].resolve_image_view) {
+			has_resolve = ZEST_TRUE;
+		}
+	}
+
+	// Resolve attachments (if MSAA)
+	zest_uint resolve_base = attachment_count;
+	if (has_resolve) {
+		zest_vec_foreach(i, exe_details->color_attachments) {
+			if (exe_details->color_attachments[i].resolve_image_view) {
+				VkAttachmentDescription *att = &attachments[attachment_count];
+				*att = ZEST__ZERO_INIT(VkAttachmentDescription);
+				att->format = zest__to_vk_format(exe_details->rendering_info.color_attachment_formats[i]);
+				att->samples = VK_SAMPLE_COUNT_1_BIT;
+				att->loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+				att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+				att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				att->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				att->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+				resolve_refs[i].attachment = attachment_count;
+				resolve_refs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				attachment_count++;
+			} else {
+				resolve_refs[i].attachment = VK_ATTACHMENT_UNUSED;
+				resolve_refs[i].layout = VK_IMAGE_LAYOUT_UNDEFINED;
+			}
+		}
+	}
+
+	// Depth attachment
+	zest_uint depth_attachment_index = VK_ATTACHMENT_UNUSED;
+	zest_bool has_depth = exe_details->depth_attachment.image_view ? ZEST_TRUE : ZEST_FALSE;
+	if (has_depth) {
+		VkAttachmentDescription *att = &attachments[attachment_count];
+		*att = ZEST__ZERO_INIT(VkAttachmentDescription);
+		att->format = zest__to_vk_format(exe_details->rendering_info.depth_attachment_format);
+		att->samples = (VkSampleCountFlagBits)exe_details->rendering_info.sample_count;
+		if (att->samples == 0) att->samples = VK_SAMPLE_COUNT_1_BIT;
+		att->loadOp = zest__to_vk_load_op(exe_details->depth_attachment.usage.load_op);
+		att->storeOp = zest__to_vk_store_op(exe_details->depth_attachment.usage.store_op);
+		att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		att->initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		att->finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		depth_attachment_index = attachment_count;
+		depth_ref.attachment = attachment_count;
+		depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		attachment_count++;
+	}
+
+	VkSubpassDescription subpass = ZEST__ZERO_INIT(VkSubpassDescription);
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = zest_vec_size(exe_details->color_attachments);
+	subpass.pColorAttachments = color_refs;
+	subpass.pResolveAttachments = has_resolve ? resolve_refs : VK_NULL_HANDLE;
+	subpass.pDepthStencilAttachment = has_depth ? &depth_ref : VK_NULL_HANDLE;
+
+	// Subpass dependencies for external synchronization
+	VkSubpassDependency dependencies[2];
+	dependencies[0] = ZEST__ZERO_INIT(VkSubpassDependency);
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[0].srcAccessMask = 0;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	dependencies[1] = ZEST__ZERO_INIT(VkSubpassDependency);
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = 0;
+
+	VkRenderPassCreateInfo render_pass_info = ZEST__ZERO_INIT(VkRenderPassCreateInfo);
+	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	render_pass_info.attachmentCount = attachment_count;
+	render_pass_info.pAttachments = attachments;
+	render_pass_info.subpassCount = 1;
+	render_pass_info.pSubpasses = &subpass;
+	render_pass_info.dependencyCount = 2;
+	render_pass_info.pDependencies = dependencies;
+
+	// Chain multiview info if needed
+	VkRenderPassMultiviewCreateInfo multiview_info = ZEST__ZERO_INIT(VkRenderPassMultiviewCreateInfo);
+	if (exe_details->rendering_info.view_mask != 0) {
+		zest_uint view_mask = exe_details->rendering_info.view_mask;
+		multiview_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
+		multiview_info.subpassCount = 1;
+		multiview_info.pViewMasks = &view_mask;
+		render_pass_info.pNext = &multiview_info;
+	}
+
+	VkRenderPass render_pass = VK_NULL_HANDLE;
+	VkResult result = vkCreateRenderPass(device->backend->logical_device, &render_pass_info, &device->backend->allocation_callbacks, &render_pass);
+	ZEST_ASSERT(result == VK_SUCCESS);
+
+	zest_map_insert_key(device->allocator, device->backend->legacy_render_passes, exe_details->render_pass_key, render_pass);
+
+	ZEST_APPEND_LOG(device->log_path.str, "Created legacy VkRenderPass (cache size: %i)", zest_map_size(device->backend->legacy_render_passes));
+	return render_pass;
+}
+
+VkImageView zest__vk_get_single_mip_view(zest_context context, zest_image_view_t *view) {
+	zest_image image = view->image;
+	if (image->info.mip_levels <= 1) {
+		return view->backend->vk_view;
+	}
+
+	// Image has multiple mip levels — create a single-mip view for framebuffer use
+	zest_device device = context->device;
+	VkImageViewCreateInfo view_info = ZEST__ZERO_INIT(VkImageViewCreateInfo);
+	view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	view_info.image = image->backend->vk_image;
+	view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	view_info.format = image->backend->vk_format;
+	view_info.subresourceRange.aspectMask = image->backend->vk_view_aspect;
+	view_info.subresourceRange.baseMipLevel = 0;
+	view_info.subresourceRange.levelCount = 1;
+	view_info.subresourceRange.baseArrayLayer = 0;
+	view_info.subresourceRange.layerCount = 1;
+
+	VkImageView single_mip_view = VK_NULL_HANDLE;
+	VkResult result = vkCreateImageView(device->backend->logical_device, &view_info, &device->backend->allocation_callbacks, &single_mip_view);
+	ZEST_ASSERT(result == VK_SUCCESS);
+
+	// Track for per-FIF cleanup
+	zest_vec_push(context->allocator, context->backend->legacy_owned_views[context->current_fif], single_mip_view);
+	return single_mip_view;
+}
+
+VkFramebuffer zest__vk_create_legacy_framebuffer(zest_context context, VkRenderPass render_pass, zest_execution_details_t *exe_details, zest_uint width, zest_uint height) {
+	zest_device device = context->device;
+	zest_uint color_count = zest_vec_size(exe_details->color_attachments);
+	zest_bool has_depth = exe_details->depth_attachment.image_view != 0;
+
+	// Build image view list, creating single-mip views where needed
+	VkImageView fb_views[ZEST_MAX_ATTACHMENTS * 2 + 1];
+	zest_uint fb_view_count = 0;
+
+	for (zest_uint i = 0; i < color_count; ++i) {
+		fb_views[fb_view_count++] = zest__vk_get_single_mip_view(context, *exe_details->color_attachments[i].image_view);
+	}
+	for (zest_uint i = 0; i < color_count; ++i) {
+		if (exe_details->color_attachments[i].resolve_image_view) {
+			fb_views[fb_view_count++] = zest__vk_get_single_mip_view(context, *exe_details->color_attachments[i].resolve_image_view);
+		}
+	}
+	if (has_depth) {
+		fb_views[fb_view_count++] = zest__vk_get_single_mip_view(context, *exe_details->depth_attachment.image_view);
+	}
+
+	// Create framebuffer
+	VkFramebufferCreateInfo fb_info = ZEST__ZERO_INIT(VkFramebufferCreateInfo);
+	fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	fb_info.renderPass = render_pass;
+	fb_info.attachmentCount = fb_view_count;
+	fb_info.pAttachments = fb_views;
+	fb_info.width = width;
+	fb_info.height = height;
+	fb_info.layers = 1;
+
+	VkFramebuffer framebuffer = VK_NULL_HANDLE;
+	VkResult result = vkCreateFramebuffer(device->backend->logical_device, &fb_info, &device->backend->allocation_callbacks, &framebuffer);
+	ZEST_ASSERT(result == VK_SUCCESS);
+
+	// Track for per-FIF cleanup
+	zest_vec_push(context->allocator, context->backend->legacy_framebuffers[context->current_fif], framebuffer);
+
+	return framebuffer;
+}
+
+void zest__vk_cleanup_legacy_render_pass_cache(zest_device device) {
+	zest_map_foreach(i, device->backend->legacy_render_passes) {
+		vkDestroyRenderPass(device->backend->logical_device, device->backend->legacy_render_passes.data[i], &device->backend->allocation_callbacks);
+	}
+	zest_map_free(device->allocator, device->backend->legacy_render_passes);
+}
+
+zest_bool zest__vk_begin_render_pass_legacy(const zest_command_list command_list, zest_execution_details_t *exe_details) {
+	zest_context context = command_list->context;
+	zest_device device = context->device;
+
+	VkRenderPass render_pass = zest__vk_get_or_create_legacy_render_pass(device, exe_details);
+	zest_uint width = *exe_details->render_area_width;
+	zest_uint height = *exe_details->render_area_height;
+	VkFramebuffer framebuffer = zest__vk_create_legacy_framebuffer(context, render_pass, exe_details, width, height);
+
+	// Build clear values array
+	zest_uint color_count = zest_vec_size(exe_details->color_attachments);
+	zest_bool has_depth = exe_details->depth_attachment.image_view != 0;
+	zest_bool has_resolve = ZEST_FALSE;
+	for (zest_uint i = 0; i < color_count; ++i) {
+		if (exe_details->color_attachments[i].resolve_image_view) {
+			has_resolve = ZEST_TRUE;
+			break;
+		}
+	}
+
+	VkClearValue clear_values[ZEST_MAX_ATTACHMENTS * 2 + 1];
+	zest_uint clear_count = 0;
+
+	// Color clear values
+	for (zest_uint i = 0; i < color_count; ++i) {
+		zest_rendering_attachment_info_t *info = &exe_details->color_attachments[i];
+		if (info->is_swapchain_image) {
+			clear_values[clear_count].color.float32[0] = context->swapchain->clear_color.color.r;
+			clear_values[clear_count].color.float32[1] = context->swapchain->clear_color.color.g;
+			clear_values[clear_count].color.float32[2] = context->swapchain->clear_color.color.b;
+			clear_values[clear_count].color.float32[3] = context->swapchain->clear_color.color.a;
+		} else {
+			clear_values[clear_count].color.float32[0] = info->resource->clear_color.r;
+			clear_values[clear_count].color.float32[1] = info->resource->clear_color.g;
+			clear_values[clear_count].color.float32[2] = info->resource->clear_color.b;
+			clear_values[clear_count].color.float32[3] = info->resource->clear_color.a;
+		}
+		clear_count++;
+	}
+
+	// Resolve clear values (unused but must match attachment count)
+	if (has_resolve) {
+		for (zest_uint i = 0; i < color_count; ++i) {
+			if (exe_details->color_attachments[i].resolve_image_view) {
+				memset(&clear_values[clear_count], 0, sizeof(VkClearValue));
+				clear_count++;
+			}
+		}
+	}
+
+	// Depth clear value
+	if (has_depth) {
+		clear_values[clear_count].depthStencil.depth = exe_details->depth_attachment.clear_value.depth_stencil.depth;
+		clear_values[clear_count].depthStencil.stencil = exe_details->depth_attachment.clear_value.depth_stencil.stencil;
+		clear_count++;
+	}
+
+	VkRenderPassBeginInfo begin_info = ZEST__ZERO_INIT(VkRenderPassBeginInfo);
+	begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	begin_info.renderPass = render_pass;
+	begin_info.framebuffer = framebuffer;
+	begin_info.renderArea.offset.x = exe_details->render_area_offset_x;
+	begin_info.renderArea.offset.y = exe_details->render_area_offset_y;
+	begin_info.renderArea.extent.width = width;
+	begin_info.renderArea.extent.height = height;
+	begin_info.clearValueCount = clear_count;
+	begin_info.pClearValues = clear_values;
+
+	vkCmdBeginRenderPass(command_list->backend->command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+	return ZEST_TRUE;
+}
+
+void zest__vk_end_render_pass_legacy(const zest_command_list command_list) {
+	vkCmdEndRenderPass(command_list->backend->command_buffer);
+}
+// -- End Legacy render pass fallback
 
 void zest__vk_end_command_buffer(const zest_command_list command_list) {
 	vkEndCommandBuffer(command_list->backend->command_buffer);
@@ -5725,6 +6313,93 @@ void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uin
 
 void *zest__vk_get_swapchain_identifier(zest_swapchain swapchain) {
 	return (void*)swapchain->images[swapchain->current_image_frame].backend->vk_image;
+}
+
+void zest__vk_create_test_render_pass(zest_device device, const zest_command_list_t *command_list) {
+    if (zest_map_valid_key(device->backend->legacy_render_passes, 0)) {
+        return;
+    }
+
+	// Create a compatible render pass with default load/store ops
+	zest_uint color_count = command_list->rendering_info.color_attachment_count;
+	zest_bool has_depth = command_list->rendering_info.depth_attachment_format != 0;
+
+	VkAttachmentDescription attachments[ZEST_MAX_ATTACHMENTS + 1];
+	VkAttachmentReference color_refs[ZEST_MAX_ATTACHMENTS];
+	VkAttachmentReference depth_ref_local = ZEST__ZERO_INIT(VkAttachmentReference);
+	zest_uint att_count = 0;
+
+	for (zest_uint i = 0; i < color_count; ++i) {
+		VkAttachmentDescription *att = &attachments[att_count];
+		*att = ZEST__ZERO_INIT(VkAttachmentDescription);
+		att->format = zest__to_vk_format(command_list->rendering_info.color_attachment_formats[i]);
+		att->samples = (VkSampleCountFlagBits)command_list->rendering_info.sample_count;
+		if (att->samples == 0) att->samples = VK_SAMPLE_COUNT_1_BIT;
+		att->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		att->initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		att->finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		color_refs[i].attachment = att_count;
+		color_refs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		att_count++;
+	}
+
+	if (has_depth) {
+		VkAttachmentDescription *att = &attachments[att_count];
+		*att = ZEST__ZERO_INIT(VkAttachmentDescription);
+		att->format = zest__to_vk_format(command_list->rendering_info.depth_attachment_format);
+		att->samples = (VkSampleCountFlagBits)command_list->rendering_info.sample_count;
+		if (att->samples == 0) att->samples = VK_SAMPLE_COUNT_1_BIT;
+		att->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		att->initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		att->finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		depth_ref_local.attachment = att_count;
+		depth_ref_local.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		att_count++;
+	}
+
+	VkSubpassDescription subpass_local = ZEST__ZERO_INIT(VkSubpassDescription);
+	subpass_local.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass_local.colorAttachmentCount = color_count;
+	subpass_local.pColorAttachments = color_refs;
+	subpass_local.pDepthStencilAttachment = has_depth ? &depth_ref_local : VK_NULL_HANDLE;
+
+	VkSubpassDependency dep = ZEST__ZERO_INIT(VkSubpassDependency);
+	dep.srcSubpass = VK_SUBPASS_EXTERNAL;
+	dep.dstSubpass = 0;
+	dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dep.srcAccessMask = 0;
+	dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo rp_info = ZEST__ZERO_INIT(VkRenderPassCreateInfo);
+	rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	rp_info.attachmentCount = att_count;
+	rp_info.pAttachments = attachments;
+	rp_info.subpassCount = 1;
+	rp_info.pSubpasses = &subpass_local;
+	rp_info.dependencyCount = 1;
+	rp_info.pDependencies = &dep;
+
+	VkRenderPassMultiviewCreateInfo mv_info = ZEST__ZERO_INIT(VkRenderPassMultiviewCreateInfo);
+	if (command_list->rendering_info.view_mask != 0) {
+		zest_uint view_mask = command_list->rendering_info.view_mask;
+		mv_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
+		mv_info.subpassCount = 1;
+		mv_info.pViewMasks = &view_mask;
+		rp_info.pNext = &mv_info;
+	}
+
+	VkRenderPass render_pass;
+	VkResult rp_result = vkCreateRenderPass(device->backend->logical_device, &rp_info, &device->backend->allocation_callbacks, &render_pass);
+	ZEST_ASSERT(rp_result == VK_SUCCESS);
+
+	zest_map_insert_key(device->allocator, device->backend->legacy_render_passes, 0, render_pass);
 }
 
 #endif

@@ -8,6 +8,17 @@ struct vertex {
 	zest_uint padding[3];
 };
 
+// Helper to create a command list with a default rendering info for pipeline tests
+zest_command_list_t create_test_command_list(ZestTests *tests) {
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = tests->context;
+	command_list.rendering_info.color_attachment_count = 1;
+	command_list.rendering_info.color_attachment_formats[0] = zest_format_b8g8r8a8_unorm;
+	command_list.device = tests->device;
+	zest_CreateTestRenderPass(tests->device, &command_list);
+	return command_list;
+}
+
 // Helper function to create a basic pipeline template
 zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const char *name) {
 	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, NULL, true);
@@ -32,8 +43,7 @@ zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const ch
 
 //Pipeline state depths - test multiple depth configurations
 int test__pipeline_state_depth(ZestTests *tests, Test *test) {
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	// Test 1: Depth test enabled, write enabled
 	zest_pipeline_template pipeline1 = create_basic_pipeline_template(tests, "Depth Pipeline - Test Write");
 	zest_SetPipelineDepthTest(pipeline1, true, true);
@@ -90,8 +100,7 @@ int test__pipeline_state_blending(ZestTests *tests, Test *test) {
 	zest_pipeline pipelines[9];
 	int failed_count = 0;
 
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	for (int i = 0; i < 9; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, blend_names[i]);
@@ -144,8 +153,7 @@ int test__pipeline_state_culling(ZestTests *tests, Test *test) {
 	zest_pipeline pipelines[8]; // 4 cull modes × 2 front faces
 	int failed_count = 0;
 	int pipeline_index = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	int name_index = 0;
 	for (int i = 0; i < 4; i++) {
@@ -203,8 +211,7 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 
 	zest_pipeline pipelines[6];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 
 	for (int i = 0; i < topology_count; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, topology_names[i]);
@@ -238,8 +245,7 @@ int test__pipeline_state_polygon_mode(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[3];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	for (int i = 0; i < 3; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, polygon_mode_names[i]);
@@ -271,8 +277,7 @@ int test__pipeline_state_front_face(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[2];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	for (int i = 0; i < 2; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, front_face_names[i]);
@@ -309,8 +314,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[4];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	for (int i = 0; i < 4; i++) {
 		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", "vertex_vert.spv", zest_vertex_shader, NULL, true);
@@ -420,8 +424,7 @@ int test__pipeline_state_multiblend(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[4];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	for (int i = 0; i < 4; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, custom_blend_names[i]);
@@ -459,8 +462,7 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	
 	zest_pipeline pipelines[6];
 	int failed_count = 0;
-	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
-	command_list.context = tests->context;
+	zest_command_list_t command_list = create_test_command_list(tests);
 	
 	// Test fill mode with default settings
 	zest_pipeline_template pipeline1 = create_basic_pipeline_template(tests, rasterization_names[0]);
