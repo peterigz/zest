@@ -3522,6 +3522,7 @@ zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_li
 	VkVertexInputBindingDescription *binding_descriptions = 0;
 	VkVertexInputAttributeDescription *attribute_descriptions = 0;
 	VkPipelineShaderStageCreateInfo shaderStages[2];
+	VkRenderPass compatible_render_pass = VK_NULL_HANDLE;
 	zest_shader frag_shader = 0;
 
 	VkShaderModule vert_shader_module = ZEST__ZERO_INIT(VkShaderModule);
@@ -3670,7 +3671,6 @@ zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_li
 	// We need a temporary execution_details to get the render pass
 	// The render pass is looked up from the command_list's rendering_info
 	// For pipeline creation, we create a dummy render pass based on format info
-	VkRenderPass compatible_render_pass = VK_NULL_HANDLE;
 	{
 		if (zest_map_valid_key(command_list->device->backend->legacy_render_passes, command_list->rendering_info.render_pass_key)) {
 			compatible_render_pass = *zest_map_at_key(command_list->device->backend->legacy_render_passes, command_list->rendering_info.render_pass_key);

@@ -19555,7 +19555,7 @@ zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, ze
 		zest_AddDeviceBuilderValidation(device_builder);
 		zest_DeviceBuilderLogToConsole(device_builder);
 	}
-	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
+	//zest_DeviceBuilderForceLegacyRenderPass(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array
