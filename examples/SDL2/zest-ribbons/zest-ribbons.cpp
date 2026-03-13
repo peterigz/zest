@@ -570,7 +570,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Ribbons");
 
 	// Create Vulkan device (one per application)
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);

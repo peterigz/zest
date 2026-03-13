@@ -483,7 +483,7 @@ int main(int argc, char *argv[]) {
 
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Indirect Draw - GPU Frustum Culling");
 
-	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);

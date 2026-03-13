@@ -255,7 +255,7 @@ int main(int argc, char *argv[]) {
 
 	//Create the device that serves all vulkan based contexts
 	//Get the required instance extensions from SDL
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

@@ -383,7 +383,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Texture");
 
 	//Create the device that serves all vulkan based contexts
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
 

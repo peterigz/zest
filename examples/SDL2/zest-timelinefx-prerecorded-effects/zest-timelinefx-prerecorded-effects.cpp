@@ -489,7 +489,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "TimelineFX Example");
 
 	//Create the device that serves all vulkan based contexts
-	example.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	example.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	//Initialise Zest
 	example.context = zest_CreateContext(example.device, &window_data, &create_info);

@@ -169,7 +169,7 @@ int main(int argc, char *argv[]) {
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
 
 	// Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
 	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);

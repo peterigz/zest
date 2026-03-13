@@ -359,7 +359,7 @@ int main(int argc, char *argv[]) {
 	render_target_app_t app = {};
 
 	//Create Vulkan device, window, and context
-	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);
 
 	InitExample(&app);

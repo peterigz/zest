@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
 	//Create the Vulkan device. This is a one-time setup that creates the Vulkan instance,
 	//selects a physical device, and sets up the logical device with required queues.
 	//The false parameter indicates we don't want a debug/validation layer.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	//Create a Zest context for this window. The context manages the swapchain, frame
 	//resources, and frame graph execution for this window.

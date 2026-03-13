@@ -384,8 +384,6 @@ void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_
 void zest__vk_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image image);
 
-ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder();
-
 #ifdef ZEST_VULKAN_IMPLEMENTATION
 
 // -- Backend_structs
@@ -1670,7 +1668,7 @@ zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
 // -- End Swapchain_presenting
 
 // -- Initialisation_functions
-zest_device_builder zest_BeginVulkanDeviceBuilder() {
+zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags) {
 	zest__register_platform(zest_platform_vulkan, zest__vk_initialise_platform_callbacks);
     void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
 	zest_device_builder builder = zest__begin_device_builder();
@@ -1678,6 +1676,7 @@ zest_device_builder zest_BeginVulkanDeviceBuilder() {
 	builder->compute_queue_count = -1;
 	builder->transfer_queue_count = -1;
 	builder->platform = zest_platform_vulkan;
+	builder->flags = flags;
 	return builder;
 }
 

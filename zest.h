@@ -4668,7 +4668,7 @@ ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, 
 //        Essential_setup_functions
 //-----------------------------------------------
 //Device creation builder
-ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder();
+ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags);
 //Add a required extension to the device builder. This will be used to find a suitable GPU in the machine
 ZEST_API void zest_AddDeviceBuilderExtension(zest_device_builder builder, const char *extension_name);
 ZEST_API void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int cout);
@@ -4795,13 +4795,14 @@ ZEST_API zest_device zest_GetContextDevice(zest_context context);
 
 //--External_lib_helpers
 //GLFW Header
-ZEST_API zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation);
+ZEST_API zest_device zest_implglfw_CreateVulkanDevice(zest_device_init_flags flags);
 ZEST_API zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
 ZEST_API void zest_implglfw_GetWindowSizeCallback(zest_window_data_t *window_data, int* fb_width, int* fb_height, int* window_width, int* window_height );
 ZEST_API zest_bool zest_implglfw_WindowIsFocused(void *window_handle);
 ZEST_API void zest_implglfw_DestroyWindow(zest_context context);
 
 //SDL Header
+ZEST_API zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_device_init_flags flags);
 ZEST_API zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_API void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_API void zest_implsdl2_SetWindowMode(zest_context context, zest_window_mode mode);
@@ -19474,7 +19475,7 @@ void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_lay
 #include <GLFW/glfw3native.h>
 #endif
 
-zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation) {
+zest_device zest_implglfw_CreateVulkanDevice(zest_device_init_flags flags) {
 	if (!glfwInit()) {
 		return 0;
 	}
@@ -19483,14 +19484,9 @@ zest_device zest_implglfw_CreateVulkanDevice(zest_bool enable_validation) {
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(flags);
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_SetDeviceBuilderMemoryPoolSize(device_builder, zloc__MEGABYTE(32));
-	if (enable_validation) {
-		zest_AddDeviceBuilderValidation(device_builder);
-		zest_DeviceBuilderLogToConsole(device_builder);
-		zest_DeviceBuilderPrintMemoryInfo(device_builder);
-	}
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	return device;
@@ -19568,20 +19564,15 @@ void zest_implglfw_DestroyWindow(zest_context context) {
 #if defined(SDL_MAJOR_VERSION)
 #include <SDL_syswm.h>
 
-zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_bool enable_validation) {
+zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_device_init_flags flags) {
 	unsigned int count = 0;
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data->window_handle, &count, NULL);
 	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data->window_handle, &count, sdl_extensions);
 
 	// Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(flags);
 	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
-	if (enable_validation) {
-		zest_AddDeviceBuilderValidation(device_builder);
-		zest_DeviceBuilderLogToConsole(device_builder);
-	}
-	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array

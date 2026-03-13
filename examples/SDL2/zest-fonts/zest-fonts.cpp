@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "MSDF Fonts");
 
 	//Create a device using a helper function for GLFW.
-	fonts_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
+	fonts_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
 
 	// Create window and context (one context per window/swapchain)
 	fonts_app.context = zest_CreateContext(fonts_app.device, &window_data, &create_info);
