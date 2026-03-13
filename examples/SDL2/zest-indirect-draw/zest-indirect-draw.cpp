@@ -176,6 +176,8 @@ void InitIndirectDrawExample(IndirectDrawExample *app) {
 
 	// Generate random instance data and create GPU buffers for culling
 	PrepareInstanceData(app);
+
+	app->print_frame_graph = false;
 }
 
 // Generate random positions, rotations, scales for asteroid instances
@@ -283,6 +285,9 @@ void UpdateImGui(IndirectDrawExample *app) {
 				zest_EnableVSync(app->context);
 				app->sync_refresh = true;
 			}
+		}
+		if (ImGui::Button("Print Frame Graph")) {
+			app->print_frame_graph = true;
 		}
 		ImGui::End();
 		ImGui::Render();
@@ -461,6 +466,10 @@ void MainLoop(IndirectDrawExample *app) {
 			}
 
 			zest_EndFrame(app->context, frame_graph);
+			if (app->print_frame_graph) {
+				app->print_frame_graph = false;
+				zest_PrintCompiledFrameGraph(frame_graph);
+			}
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {

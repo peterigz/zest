@@ -638,8 +638,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create a device using a helper function for SDL2.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
-	zest_AddDeviceValidationErrorDebugStop(imgui_app.device, 941228658);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);

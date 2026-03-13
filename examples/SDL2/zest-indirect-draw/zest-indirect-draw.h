@@ -120,6 +120,7 @@ struct IndirectDrawExample {
 	float contract_frustum;
 	bool sync_refresh;
 	bool culling_enabled;
+	bool print_frame_graph;
 };
 
 void InitIndirectDrawExample(IndirectDrawExample *app);

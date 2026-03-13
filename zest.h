@@ -2280,8 +2280,9 @@ typedef enum {
 	zest_resource_type_buffer = 1 << 1,
 	zest_resource_type_vertex_buffer = 1 << 2,
 	zest_resource_type_index_buffer = 1 << 3,
-	zest_resource_type_swap_chain_image = 1 << 4,
-	zest_resource_type_depth = 1 << 5,
+	zest_resource_type_indirect_buffer = 1 << 4,
+	zest_resource_type_swap_chain_image = 1 << 5,
+	zest_resource_type_depth = 1 << 6,
 	zest_resource_type_is_image = zest_resource_type_image | zest_resource_type_swap_chain_image | zest_resource_type_depth,
 	zest_resource_type_is_image_or_depth = zest_resource_type_image | zest_resource_type_depth
 } zest_resource_type_bits;
@@ -6945,6 +6946,7 @@ typedef struct zest_buffer_t {
 	zest_size size;							//Size of the buffer on the GPU
 	zest_size memory_offset;				//Offset from the start of the memory pool on the GPU
 	zest_device_memory_pool memory_pool;	//Pointer to the memory pool where this allocation belongs
+	zest_buffer_usage_flags usage_flags;	//Usage flags of the buffer so that frame graphs can create appropriate barriers
 } zest_buffer_t;
 
 typedef struct zest_uniform_buffer_t {
@@ -9510,6 +9512,7 @@ zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, 
 		}
     }
 
+	buffer->usage_flags = buffer_info->buffer_usage_flags;
     return buffer;
 }
 
@@ -9577,6 +9580,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 		}
     }
 
+	buffer->usage_flags = buffer_info->buffer_usage_flags;
     return buffer;
 }
 
@@ -14268,8 +14272,19 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 	// Without this, a cached graph keeps pointing at the FIF from when it was first compiled,
 	// causing the timeline value to be incremented by every frame regardless of FIF, which
 	// makes the CPU semaphore wait block until the GPU catches up to over-incremented values.
-	if (frame_graph->signal_timeline && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
-		frame_graph->signal_timeline = &context->frame_timeline[context->current_fif];
+	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
+		// Update per-FIF timelines: signal_timeline was set during the initial compilation
+		// and may point to a stale FIF. Update it to the current FIF's timeline.
+		if (frame_graph->signal_timeline) {
+			frame_graph->signal_timeline = &context->frame_timeline[context->current_fif];
+		}
+		// wait_on_timeline must point to the previous FIF's timeline so that this frame's
+		// first wave waits for the previous frame's graphics to finish before writing to
+		// shared buffers (e.g. compute output consumed by the next frame's graphics).
+		if (frame_graph->wait_on_timeline) {
+			zest_uint previous_fif = (context->current_fif + ZEST_MAX_FIF - 1) % ZEST_MAX_FIF;
+			frame_graph->wait_on_timeline = &context->frame_timeline[previous_fif];
+		}
 	}
 
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
@@ -15286,9 +15301,11 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
 	node.id = frame_graph->id_counter++;
     node.first_usage_pass_idx = ZEST_INVALID;
 	node.type = zest_resource_type_buffer;
-	if (buffer->memory_pool->allocator->buffer_info.buffer_usage_flags & zest_buffer_usage_index_buffer_bit) {
+	if (buffer->usage_flags & zest_buffer_usage_index_buffer_bit) {
 		ZEST__FLAG(node.type, zest_resource_type_index_buffer);
-	} else if (buffer->memory_pool->allocator->buffer_info.buffer_usage_flags & zest_buffer_usage_vertex_buffer_bit) {
+	} else if (buffer->usage_flags & zest_buffer_usage_indirect_buffer_bit) {
+		ZEST__FLAG(node.type, zest_resource_type_indirect_buffer);
+	} else if (buffer->usage_flags & zest_buffer_usage_vertex_buffer_bit) {
 		ZEST__FLAG(node.type, zest_resource_type_vertex_buffer);
 	}
     node.frame_graph = frame_graph;
@@ -15784,6 +15801,11 @@ void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node re
 			usage.stage_mask = relevant_pipeline_stages;
 			resource->buffer_desc.buffer_info.buffer_usage_flags |= zest_buffer_usage_storage_buffer_bit;
 			break;
+		case zest_purpose_indirect_buffer:
+			usage.access_mask = zest_access_indirect_command_read_bit;
+			usage.stage_mask = zest_pipeline_stage_draw_indirect_bit;
+			resource->buffer_desc.buffer_info.buffer_usage_flags |= zest_buffer_usage_indirect_buffer_bit;
+			break;
 		case zest_purpose_transfer_buffer:
 			usage.access_mask = zest_access_transfer_read_bit | zest_access_transfer_write_bit;
 			usage.stage_mask = zest_pipeline_stage_transfer_bit;
@@ -16036,10 +16058,14 @@ void zest_ConnectInput(zest_resource_node resource) {
         //Buffer input
         switch (pass->type) {
 			case zest_pass_type_graphics: {
-				stages = zest_pipeline_stage_vertex_input_bit;
 				if (resource->type & zest_resource_type_index_buffer) {
+					stages = zest_pipeline_stage_vertex_input_bit;
 					purpose = zest_purpose_index_buffer;
+				} else if (resource->type & zest_resource_type_indirect_buffer) {
+					stages = zest_pipeline_stage_draw_indirect_bit;
+					purpose = zest_purpose_indirect_buffer;
 				} else {
+					stages = zest_pipeline_stage_vertex_input_bit;
 					purpose = zest_purpose_vertex_buffer;
 				}
 				break;
@@ -19555,7 +19581,7 @@ zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, ze
 		zest_AddDeviceBuilderValidation(device_builder);
 		zest_DeviceBuilderLogToConsole(device_builder);
 	}
-	//zest_DeviceBuilderForceLegacyRenderPass(device_builder);
+	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array

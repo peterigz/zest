@@ -385,11 +385,11 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
 	//Create a device using a helper function for GLFW.
-	compute_example.device = zest_implsdl2_CreateVulkanDevice(&window_data, true);
+	compute_example.device = zest_implsdl2_CreateVulkanDevice(&window_data, false);
 
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
+	//ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 	compute_example.context = zest_CreateContext(compute_example.device, &window_data, &create_info);
 
