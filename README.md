@@ -6,7 +6,7 @@ Zest is a minimal, zero-bloat rendering library written in c that tames modern G
 
 In it's current state I would say that it's an early but usable version, there will definitely be shortcomings and bugs so please report any issues!
 
-This is a more forward looking renderer currently in that it supports bindless descriptors and dynamic render passes, this is mainly supported by GPUs from 2014/15 onwards. I'll probably try and address this with other platform layers in the future though.
+This is a more forward looking renderer currently in that it supports bindless descriptors and dynamic render passes, this is mainly supported by GPUs from 2014/15 onwards, however I recently added a fallback to legacy renderpasses to help support older cards as well.
 
 ### Features
 
@@ -24,7 +24,7 @@ I wrote this renderer because I wanted something simple and straightforward that
 
 Zest is for developers who understand rendering pipelines and shaders but don't want to wrangle thousands of lines of Rendering API (like Vulkan) boilerplate. If you want a minimal-dependency layer that stays out of your way while handling the tedious parts of modern GPU programming, Zest is a good fit.
 
-You should be comfortable with concepts like vertex buffers, pipelines, descriptor sets, and render passes. Zest doesn't abstract these away it makes them manageable. 
+You should be comfortable with concepts like vertex buffers, pipelines and render passes. Zest doesn't abstract these away it makes them manageable. 
 
 ### Current Requirements
 
@@ -33,7 +33,7 @@ The current requirements will change overtime as I add more platform layers like
 | Requirement | Minimum |
 |-------------|---------|
 | Vulkan | 1.2 |
-| GPU Features | Bindless descriptors, dynamic rendering, synchronization 2 |
+| GPU Features | Bindless descriptors, dynamic rendering (falls back to legacy render passes if gpu doesn't support dynamic), synchronization 2 |
 | C Standard | C11 (also compiles as C++) |
 | CMake | 3.7+ |
 
