@@ -5,8 +5,6 @@
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
 //using the shaders that only handle whatever you need for the effect.
 
-//#define LOW_UPDATE_RATE
-
 //Quad indexes
 const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 

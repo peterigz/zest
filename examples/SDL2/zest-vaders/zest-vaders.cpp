@@ -44,6 +44,7 @@ struct RenderCacheInfo {
 	bool draw_imgui;
 	bool draw_timeline_fx;
 	bool draw_sprites;
+	bool draw_title_ribbons;
 };
 
 struct Player {
@@ -174,7 +175,7 @@ struct VadersGame {
 	zest_layer_handle billboard_layer_handle;
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
-	tfx_render_resources_t tfx_rendering;
+	tfx_library_render_resources_t tfx_rendering;
 	billboard_push_constant_t billboard_push;
 	zest_image_collection_t game_sprites;
 	zest_sampler_handle sampler_handle;
@@ -476,6 +477,8 @@ void VadersGame::Init() {
 		index_offset[fif] = 0;
 	}
 
+	zest_tfx_CreateBuffersForEffects(context, title_pm, &tfx_rendering);
+	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering);
 }
 
 //Some helper functions
@@ -932,7 +935,7 @@ void BuildUI(VadersGame *game) {
 	//Draw the imgui window
 	ImGui_ImplSDL2_NewFrame();
 	ImGui::NewFrame();
-	//if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		ImGui::Begin("Effects");
 		ImGui::Text("FPS: %i", game->last_fps);
 		ImGui::Text("Game Particles: %i", tfx_ParticleCount(game->game_pm));
@@ -975,7 +978,7 @@ void BuildUI(VadersGame *game) {
 		}
 		ImGui::End();
 		zest_imgui_DrawProfileWindow(game->context);
-	//}
+	}
 
 	ImGui::Render();
 	ImGui::UpdatePlatformWindows();
@@ -1034,7 +1037,7 @@ void ResetGame(VadersGame *game) {
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_StartInstanceDrawing(layer, game->tfx_rendering.pipeline);
+	zest_StartInstanceDrawing(layer, game->tfx_rendering.particles.pipeline);
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
 	int fif = zest_GetLayerFrameInFlight(layer);
@@ -1044,7 +1047,7 @@ void RenderParticles3d(tfx_effect_manager pm, VadersGame *game, zest_layer layer
 //Render the particles by effect
 void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game, zest_layer layer) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_StartInstanceDrawing(layer, game->tfx_rendering.pipeline);
+	zest_StartInstanceDrawing(layer, game->tfx_rendering.particles.pipeline);
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
@@ -1210,6 +1213,15 @@ void VadersGame::Update(float ellapsed) {
 			BuildUI(this);
 		} zest_EndTimerLoop(tfx_rendering.timer);
 
+		zest_uint fif = zest_CurrentFIF(context);
+
+		if (tfx_HasRibbonsToDraw()) {
+			tfx_SetPMCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
+			tfx_CopyRibbonDataToStagingBuffers(zest_BufferData(tfx_rendering.ribbons.ribbon_staging_buffer[fif]), 
+											   zest_BufferData(tfx_rendering.ribbons.ribbon_instance_staging_buffer[fif]), 
+											   zest_BufferData(tfx_rendering.ribbons.emitter_staging_buffer[fif]));
+		}
+
 		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
 		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
 		//Do all the rendering outside of the update loop
@@ -1269,6 +1281,7 @@ void VadersGame::Update(float ellapsed) {
 		cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&imgui);
 		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
+		cache_info.draw_title_ribbons = tfx_HasRibbonsToDraw() && state == GameState_title;
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
@@ -1292,6 +1305,7 @@ void VadersGame::Update(float ellapsed) {
 				//-------------------------Game Transfer Pass-------------------------------------------------
 				zest_BeginTransferPass("Upload layers"); {
 					zest_ConnectOutput(tfx_write_layer);
+					zest_ConnectOutput(tfx_read_layer);
 					zest_ConnectOutput(billboard_layer_resource);
 					zest_ConnectOutput(font_layer_resources);
 					zest_SetPassTask(UploadGameLayerData, this);
@@ -1308,6 +1322,10 @@ void VadersGame::Update(float ellapsed) {
 					zest_SetPassTask(RenderGameSprites, this);
 					zest_ConnectSwapChainOutput();
 					zest_EndPass();
+				}
+
+				if (cache_info.draw_title_ribbons) {
+					zest_tfx_AddRibbonsToFrameGraph(title_pm, &tfx_rendering, 0);
 				}
 				//----------------------------------------------------------------------------------------------------
 
@@ -1326,8 +1344,11 @@ void VadersGame::Update(float ellapsed) {
 				frame_graph = zest_EndFrameGraph();
 			}
 		}
+		zest_ResetValidationErrors(device);
 		zest_EndFrame(context, frame_graph);
-		if (request_graph_print > 0) {
+		//zest_uint validation_count = zest_GetValidationErrorCount(device);
+		zest_uint validation_count = 0;
+		if (request_graph_print > 0 || validation_count > 0) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledFrameGraph(frame_graph);
 			request_graph_print--;
@@ -1375,8 +1396,8 @@ void MainLoop(VadersGame *game) {
 int main(int argc, char *argv[]) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
+	//ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	//ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
 	VadersGame game = { 0 };
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
@@ -1386,7 +1407,7 @@ int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Vaders");
 
 	//Create the device that serves all vulkan based contexts
-	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, zest_device_init_flag_log_validation_errors_to_memory | zest_device_init_flag_log_validation_errors_to_console | zest_device_init_flag_enable_validation_layers | zest_device_init_flag_enable_validation_layers_with_sync);
 
 	//Initialise Zest
 	game.context = zest_CreateContext(game.device, &window_data, &create_info);
