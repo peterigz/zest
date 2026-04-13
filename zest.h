@@ -2034,7 +2034,7 @@ typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_cache_shaders = 1 << 0,
 	zest_device_init_flag_enable_fragment_stores_and_atomics = 1 << 1,
 	zest_device_init_flag_enable_validation_layers = 1 << 2,
-	zest_device_init_flag_enable_validation_layers_with_sync = 1 << 3,
+	zest_device_init_flag_enable_validation_layers_with_sync = (1 << 3) | zest_device_init_flag_enable_validation_layers,
 	zest_device_init_flag_enable_validation_layers_with_best_practices = 1 << 4,
 	zest_device_init_flag_log_validation_errors_to_console = 1 << 5,
 	zest_device_init_flag_log_validation_errors_to_memory = 1 << 6,
@@ -5558,7 +5558,8 @@ ZEST_API void zest_TimerReset(zest_timer_t *timer);                             
 ZEST_API double zest_TimerDeltaTime(zest_timer_t *timer);                                          //The amount of time passed since the last tick
 ZEST_API void zest_TimerTick(zest_timer_t *timer);                                                 //Update the delta time
 ZEST_API double zest_TimerUpdateTime(zest_timer_t *timer);                                         //Gets the update time (1.f / update_frequency)
-ZEST_API double zest_TimerFrameLength(zest_timer_t *timer);                                        //Gets the update_tick_length (1000.f / update_frequency)
+ZEST_API double zest_TimerFrameLength(zest_timer_t *timer);                                        //Gets the update_tick_length (microseconds) (1000.f / update_frequency)
+ZEST_API double zest_TimerFrameLengthMillisecs(zest_timer_t *timer);                               //Gets the update_tick_length (milliseconds) (1000.f / update_frequency)
 ZEST_API double zest_TimerAccumulate(zest_timer_t *timer);                                         //Accumulate the amount of time that has passed since the last render
 ZEST_API int zest_TimerPendingTicks(zest_timer_t *timer);                                          //Returns the number of times the update loop will run this frame.
 ZEST_API void zest_TimerUnAccumulate(zest_timer_t *timer);                                         //Unaccumulate 1 tick length from the accumulator. While the accumulator is more then the tick length an update should be done
@@ -5641,7 +5642,7 @@ ZEST_API void zest_PrintReports(zest_context context);
 ZEST_API void zest_ResetReports(zest_context context);
 ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
-ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
+ZEST_API zest_uint zest_GetValidationErrorCount(zest_device device);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
 ZEST_API void zest_AddDeviceValidationErrorDebugStop(zest_device device, zest_uint error_number);
@@ -14329,7 +14330,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             switch (batch->queue_type) {
 				case zest_queue_graphics:
 					ZEST_CLEANUP_ON_FALSE(device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
-					timeline_wait_stage = zest_pipeline_stage_vertex_input_bit;
+					timeline_wait_stage = zest_pipeline_stage_vertex_input_bit | zest_pipeline_stage_transfer_bit;
 					break;
 				case zest_queue_compute:
 					ZEST_CLEANUP_ON_FALSE(device->platform->set_next_command_buffer(&frame_graph->command_list, batch->queue));
@@ -18396,8 +18397,8 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
     ZEST_PRINT("Device allocations: %u, Renderer Allocations: %u, Filter Allocations: %u", zest_stats.device_allocations, zest_stats.renderer_allocations, zest_stats.filter_count);
 }
 
-zest_uint zest_GetValidationErrorCount(zest_context context) {
-    return zest_map_size(context->device->validation_errors);
+zest_uint zest_GetValidationErrorCount(zest_device device) {
+    return zest_map_size(device->validation_errors);
 }
 
 void zest_ResetValidationErrors(zest_device device) {
@@ -19236,6 +19237,10 @@ double zest_TimerUpdateTime(zest_timer_t *timer) {
 
 double zest_TimerFrameLength(zest_timer_t *timer) {
     return timer->update_tick_length;
+}
+
+double zest_TimerFrameLengthMillisecs(zest_timer_t *timer) {
+    return timer->update_tick_length * .001;
 }
 
 double zest_TimerAccumulate(zest_timer_t *timer) {
