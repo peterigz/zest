@@ -44,13 +44,17 @@ struct AnimationInstance {
 	vec3 position;					//position that the instance should be played at
 	float scale;					//Overal scale of the effect
 	uint sprite_count;				//The number of sprites to be drawn
+	uint ribbon_count;                //The number of ribbons to be drawn
 	uint frame_count;				//The number of frames in the animation
 	uint offset_into_sprite_data;	//The starting ofset in the buffer that contains all the sprite data
+	uint offset_into_ribbon_data;     //The starting ofset in the buffer that contains all the ribbon data
 	uint info_index;				//Index into the effect_animation_info storage map to get at the frame meta
 	float current_time;				//Current point of time in the animation
 	float animation_time;			//Total time that the animation lasts for
 	float tween;					//The point time within the frame (0..1)
 	uint flags;						//Flags associated with the instance
+	uint padding0;
+	uint padding1;
 };
 
 //Contains image data to populate sprites with uv coords and texture array index if it's being used.
