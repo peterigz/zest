@@ -78,7 +78,7 @@ struct tfxPrerecordedExample {
 	//The compute shader that interpolates all the sprite data
 	zest_shader_handle playback_shader;
 
-	tfx_render_resources_t tfx_rendering;
+	tfx_library_render_resources_t tfx_rendering;
 
 	zest_imgui_t imgui;
 	tfx_gpu_shapes gpu_image_data;

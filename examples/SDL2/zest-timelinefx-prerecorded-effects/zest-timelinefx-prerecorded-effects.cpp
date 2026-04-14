@@ -38,7 +38,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	zest_layer layer = zest_GetLayer(example->tfx_rendering.layer);
 	zest_cmd_LayerViewport(command_list, layer);
 	
-	zest_pipeline pipeline = zest_GetPipeline(example->tfx_rendering.pipeline, command_list);
+	zest_pipeline pipeline = zest_GetPipeline(example->tfx_rendering.particles.pipeline, command_list);
 	zest_cmd_BindPipeline(command_list, pipeline);
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_sprite_sheet_push_t));
 	tfxU32 total_billboards = tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d);
