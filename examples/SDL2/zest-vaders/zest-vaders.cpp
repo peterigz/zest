@@ -297,17 +297,8 @@ void CreateSDLViewport(ImGuiViewport *viewport) {
 void VadersGame::Init() {
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
 
-	const char *library_path = "examples/assets/vaders/vadereffects.tfx";
-	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	tfx_rendering.particle_images = zest_tfx_CreateImageCollection(shape_count);
-
-	//Renderer specific - initialise the texture
-	float max_radius = 0;
-	//Add all of the images and animations into the texture
+	//Load game sprites into their own texture atlas
 	game_sprites = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, 100);
-	int width, height, channels;
-	stbi_uc *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 0);
-	int size = width * height * channels;
 	player_image = AddGameSprite(&game_sprites, "examples/assets/vaders/player.png", 1, 0, 0);
 	vader_image1 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader.png", 1, 0, 0);
 	vader_image2 = AddGameSprite(&game_sprites, "examples/assets/vaders/vader2.png", 1, 0, 0);
@@ -320,7 +311,6 @@ void VadersGame::Init() {
 	zest_image sprite_image = zest_GetImage(sprite_texture);
 	sprite_texture_index = zest_AcquireSampledImageIndex(device, sprite_image, zest_texture_array_binding);
 
-	//Create a descriptor set for the texture that uses the 3d uniform buffer
 	particle_ds_index = 0;
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
@@ -333,15 +323,10 @@ void VadersGame::Init() {
 
 	tfx_RandomReSeedTime(&random);
 
-	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	library = tfx_LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
-	//Renderer specific
-	//Process the texture with all the particle shapes that we just added to
-	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
-	zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
-	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
+	//Load the effects library and create the particle image atlas
+	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);
 
-	//Prepare all the Effect templates we need from the library
+	//Prepare all the Effect templates we need from the library - must be done before FinaliseLibrary
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
 	vader_explosion_effect = tfx_CreateEffectTemplate(library, "Vader Explosion");
 	big_explosion = tfx_CreateEffectTemplate(library, "Big Explosion");
@@ -354,34 +339,10 @@ void VadersGame::Init() {
 	weapon_power_up = tfx_CreateEffectTemplate(library, "Power Up");
 	damage = tfx_CreateEffectTemplate(library, "Damage");
 
-	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
-	//simply copied to a bitmap for uploading to the texture
-	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
-	tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
-	for (int i = 0; i != bitmap_count; ++i) {
-		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_AddImageAtlasPixels(&tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
-	}
-	//Process the color ramp texture to upload it all to the gpu
-	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
-	zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
-	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
-	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
-	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
-	tfx_UpdateLibraryGPUImageData(library);
+	//Finalise the library - uploads color ramps and GPU image data
+	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
 
-	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, tfx_GetLibraryGPUShapes(library));
-
-	tfxU32 layer_max_values[tfxLAYERS];
-	memset(layer_max_values, 0, 16);
-	layer_max_values[0] = 5000;
-	layer_max_values[1] = 2500;
-	layer_max_values[2] = 2500;
-	layer_max_values[3] = 2500;
-	//Initialise a particle manager. This manages effects, emitters and the particles that they spawn
-	//Depending on your needs you can use as many particle managers as you need.
-	//pm.InitFor3d(layer_max_values, 100, tfx_particle_manager_tMode_ordered_by_depth_guaranteed, 512);
+	//Initialise effect managers
 	tfx_effect_manager_info_t background_pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
 	background_pm = tfx_CreateEffectManager(background_pm_info);
 	tfx_effect_manager_info_t game_pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
@@ -477,7 +438,8 @@ void VadersGame::Init() {
 		index_offset[fif] = 0;
 	}
 
-	zest_tfx_CreateBuffersForEffects(context, title_pm, &tfx_rendering);
+	//Create shared ribbon buffers sized across all effect managers
+	zest_tfx_CreateRibbonBuffers(context, &tfx_rendering);
 	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering);
 }
 
@@ -1215,12 +1177,8 @@ void VadersGame::Update(float ellapsed) {
 
 		zest_uint fif = zest_CurrentFIF(context);
 
-		if (tfx_HasRibbonsToDraw()) {
-			tfx_SetPMCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
-			tfx_CopyRibbonDataToStagingBuffers(zest_BufferData(tfx_rendering.ribbons.ribbon_staging_buffer[fif]), 
-											   zest_BufferData(tfx_rendering.ribbons.ribbon_instance_staging_buffer[fif]), 
-											   zest_BufferData(tfx_rendering.ribbons.emitter_staging_buffer[fif]));
-		}
+		tfx_SetPMCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
+		zest_tfx_UpdateRibbonStagingBuffers(context, &tfx_rendering);
 
 		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
 		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
@@ -1325,7 +1283,7 @@ void VadersGame::Update(float ellapsed) {
 				}
 
 				if (cache_info.draw_title_ribbons) {
-					zest_tfx_AddRibbonsToFrameGraph(title_pm, &tfx_rendering, 0);
+					zest_tfx_AddRibbonsToFrameGraph(&tfx_rendering, 0);
 				}
 				//----------------------------------------------------------------------------------------------------
 

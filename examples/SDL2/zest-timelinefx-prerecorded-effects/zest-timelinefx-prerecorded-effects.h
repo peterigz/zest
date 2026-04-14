@@ -50,26 +50,6 @@ struct tfxPrerecordedExample {
 	bool left_mouse_clicked;
 	bool right_mouse_clicked;
 
-	//The sprite data buffer contains all of the baked in sprites for effects that you can upload to the GPU
-	zest_buffer sprite_data_buffer;
-	//The image data buffer contains data about the textures used to draw the sprites such as uv coordinates. The sprite
-	//data contains an index to look up this data
-	zest_buffer image_data_buffer;
-	//We also need to store some additional emitter property data such as the sprite handle which is looked up by the 
-	//compute shader each frame
-	zest_buffer emitter_properties_buffer;
-
-	//We also need indexes for the descriptor array in the shader:
-	tfxU32 image_data_index;
-	tfxU32 sprite_data_index;
-	tfxU32 emitter_properties_index;
-
-	//This example we are building pre-recording the effects from an effects library as apposed to just loading in a
-	//sprite data file that has all the effects and sprite data pre-built. Therefore if we want bounding boxed for the 
-	//effects we will need to calculate those after recording the effects (this is optional). With the bounding boxes
-	//we can cull effects that are outside the viewing frustum.
-	zest_buffer bounding_boxes;
-
 	//For GPU drivers that don't have the capability to write directly to the GPU buffer you will need
 	//staging buffers to write to first before uploading those to the GPU device buffers. We only need to upload
 	//the instances of each animation and the offsets array which are very small so not much overhead at all.
@@ -111,7 +91,6 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data);
 void RecordComputeSprites(zest_command_list command_list, void *user_data);
 void InitExample(tfxPrerecordedExample *example);
 void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example);
-void UploadBuffers(tfxPrerecordedExample *example);
 void UpdateUniform3d(tfxPrerecordedExample *game);
 void Update(zest_microsecs elapsed, void *data);
 void BuildUI(tfxPrerecordedExample *example, zest_uint fps);

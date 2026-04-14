@@ -30,7 +30,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	push.color_ramp_texture_index = example->tfx_rendering.color_ramps_index;
 	push.particle_texture_index = example->tfx_rendering.particle_texture_index;
 	push.sampler_index = example->tfx_rendering.sampler_index;
-	push.image_data_index = example->image_data_index;
+	push.image_data_index = example->tfx_rendering.image_data_index;
 	push.prev_billboards_index = 0;
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(example->tfx_rendering.uniform_buffer);
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
@@ -43,36 +43,6 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_sprite_sheet_push_t));
 	tfxU32 total_billboards = tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d);
 	zest_cmd_Draw(command_list, 6, total_billboards, 0, 0);
-}
-
-//Upload the buffers to the GPU that the compute shader will need to read from in order to build the sprite buffer each frame. These buffers
-//only need to be uploaded once once you've added all the sprite data for all the animations that you want to use.
-void UploadBuffers(tfxPrerecordedExample *example) {
-
-	tfx_animation_manager animation_manager = example->animation_manager_3d;
-
-	//Upload the sprite data. This contains all pre-recorded instance_data for all animations that you might want to play.
-	zest_queue queue = zest_imm_BeginCommandBuffer(example->device, zest_queue_transfer);
-	zest_buffer sprite_staging_buffer =  zest_CreateStagingBuffer(example->device, tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
-	zest_imm_CopyBuffer(queue, sprite_staging_buffer, example->sprite_data_buffer, tfx_GetSpriteDataSizeInBytes(animation_manager));
-
-	//Upload the emitter properties for each animation you're using. This contains the sprite handle and any flags that might be relavent.
-	zest_buffer emitter_properties_buffer = example->emitter_properties_buffer;
-	zest_buffer emitter_staging_buffer = zest_CreateStagingBuffer(example->device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), tfx_GetAnimationEmitterPropertiesBufferPointer(animation_manager));
-	zest_imm_CopyBuffer(queue, emitter_staging_buffer, emitter_properties_buffer, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager));
-
-	//Upload the image data containing all the UV coords and texture array index that the compute shader will use to build the sprite
-	//buffer each frame
-	zest_buffer image_staging_buffer = zest_CreateStagingBuffer(example->device, tfx_GetGPUShapesSizeInBytes(example->gpu_image_data), tfx_GetGPUShapesArray(example->gpu_image_data));
-	zest_imm_CopyBuffer(queue, image_staging_buffer, example->image_data_buffer, tfx_GetGPUShapesSizeInBytes(example->gpu_image_data));
-	zest_imm_EndCommandBuffer(queue);
-
-	zest_FreeBuffer(sprite_staging_buffer);
-	zest_FreeBuffer(emitter_staging_buffer);
-	zest_FreeBuffer(image_staging_buffer);
-	example->image_data_index = zest_AcquireStorageBufferIndex(example->device, example->image_data_buffer);
-	example->sprite_data_index = zest_AcquireStorageBufferIndex(example->device, example->sprite_data_buffer);
-	example->emitter_properties_index = zest_AcquireStorageBufferIndex(example->device, example->emitter_properties_buffer);
 }
 
 //Prepare the compute shader that will be used to playback the effects in the animation manager
@@ -116,9 +86,9 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 	push.offsets_index = zest_GetTransientBufferBindlessIndex(command_list, offsets_node);
 	push.animation_instances_index = zest_GetTransientBufferBindlessIndex(command_list, animation_instances_node);
 	push.billboards_index = zest_GetTransientBufferBindlessIndex(command_list, billboard_instances_node);
-	push.image_data_index = example->image_data_index;
-	push.sprite_data_index = example->sprite_data_index;
-	push.emitter_properties_index = example->emitter_properties_index;
+	push.image_data_index = example->tfx_rendering.image_data_index;
+	push.sprite_data_index = example->tfx_rendering.sprite_data_index;
+	push.emitter_properties_index = example->tfx_rendering.emitter_properties_index;
 
 	//Send the push constants in the compute object to the shader
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_sprite_data_push_t));
@@ -133,19 +103,10 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 //and prepare the effect we'll use as an example.
 void InitExample(tfxPrerecordedExample *example) {
 	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, "examples/assets/shaders/timelinefx3dstatic.vert", "examples/assets/shaders/timelinefxstatic.frag");
-	example->tfx_rendering.particle_images = zest_tfx_CreateImageCollection(32);
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->device, &sampler);
 	example->sampler_index = zest_AcquireSamplerIndex(example->device, zest_GetSampler(example->sampler));
-
-	int width, height, channels;
-	stbi_uc *pixels = stbi_load("examples/assets/checker.png", &width, &height, &channels, 4);
-	int size = width * height * 4;
-	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
-	image_info.format = zest_format_r8g8b8a8_unorm;
-	image_info.flags = zest_image_preset_texture_mipmaps;
-	STBI_FREE(pixels);
 
 	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
@@ -163,60 +124,15 @@ void InitExample(tfxPrerecordedExample *example) {
 	//Record the effects we want and calculate the bounding boxes
 	example->record_time = zest_Millisecs();		//See how long it takes to record.
 
-	//Load the effects library and pass our shape loader callback function which loads the particle shape images into our texture
-	tfxErrorFlags result = tfx_LoadSpriteData("examples/assets/prerecorded_effects.tfxsd", example->animation_manager_3d, zest_tfx_ShapeLoader, &example->tfx_rendering);
-	//ListEffectNames(&example->library);
-	assert(result == tfxErrorCode_success);		//Unable to load the effects library!
+	//Load prerecorded sprite data and create the particle image atlas
+	tfxErrorFlags result = zest_tfx_LoadSpriteData(example->context, &example->tfx_rendering, "examples/assets/prerecorded_effects.tfxsd", example->animation_manager_3d, 32, 1024, 1024);
+	assert(result == tfxErrorCode_success);		//Unable to load the sprite data!
 
-	example->tfx_rendering.particle_texture = zest_CreateImageAtlas(example->context, &example->tfx_rendering.particle_images, 1024, 1024, 0);
-	zest_image particle_image = zest_GetImage(example->tfx_rendering.particle_texture);
-	example->tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(example->device, particle_image, zest_texture_array_binding);
+	//Finalise sprite data - upload color ramps, GPU image data, and create/upload sprite data and emitter properties buffers
+	zest_tfx_FinaliseSpriteData(example->context, &example->tfx_rendering, example->animation_manager_3d, example->gpu_image_data);
 
-	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
-	//simply copied to a bitmap for uploading to the texture
-	example->tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, example->animation_manager_3d->color_ramps.color_ramp_bitmaps.size());
-	for (tfx_bitmap_t &bitmap : example->animation_manager_3d->color_ramps.color_ramp_bitmaps) {
-		zest_AddImageAtlasPixels(&example->tfx_rendering.color_ramps_collection, bitmap.data, bitmap.size, bitmap.width, bitmap.height, zest_format_r8g8b8a8_unorm);	//Create the texture for the color ramps
-	}
-	example->tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(example->context, &example->tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
-	zest_image color_ramps_image = zest_GetImage(example->tfx_rendering.color_ramps_texture);
-	example->tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(example->device, color_ramps_image, zest_texture_array_binding);
-	//Build the gpu image data. Pass the GetUV function which you will have to create based on your renderer.
-	tfx_BuildAnimationManagerGPUShapeData(example->animation_manager_3d, example->gpu_image_data, zest_tfx_GetUV);
-	//Update the image data to the gpu
-	zest_tfx_UpdateTimelineFXImageData(example->context, &example->tfx_rendering, example->gpu_image_data);
-
-	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-
-	//Render Specific - Create the 6 buffers needed for the compute shader. Create these after you've added all the effect animations you want to use
-	//to the animation manager.
-	/*
-	1)	Sprite data buffer for all sprites in all frames of the animation. Use tfx_GetTotalSpriteDataCount() and/or tfx_GetSpriteDataSizeInBytes() to get the
-		metrics you need to create the buffer. Note that we've already recorded the sprite data so we know the size of the buffer we need, otherwise
-		you might have to resize the buffer later and update the descriptor sets
-	*/
-	example->sprite_data_buffer = zest_CreateBuffer(example->device, sizeof(tfx_sprite_data_t) * tfx_GetTotalSpriteDataCount(example->animation_manager_3d), &buffer_info);
-
-	/*
-	5)	Image data buffer contains data about all of the shapes being used in the library. Use GetComputeShapeCount and GetComputeShapeSizeInBytes to get the metrics you need
-		to create the buffer.
-	*/
-	example->image_data_buffer = zest_CreateBuffer(example->device, sizeof(tfx_gpu_image_data_t) * 1000, &buffer_info);
-
-	/*
-	6)	Emitter properties contains data about each emitter used to create the animation that the compute shader uses to build the sprite buffer.
-		Use GetAnimationEmitterPropertyCount and tfx_GetAnimationEmitterPropertySizeInBytes to get the metrics you need to create the buffer.
-	*/
-	example->emitter_properties_buffer = zest_CreateBuffer(example->device, sizeof(tfx_animation_emitter_properties_t) * 100, &buffer_info);
-
-	example->bounding_boxes = zest_CreateBuffer(example->device, sizeof(tfx_bounding_box_t) * 200, &buffer_info);
-
-	//Prepare the compute shaders for effect playback and bounding box calculation
+	//Prepare the compute shaders for effect playback
 	PrepareComputeForEffectPlayback(example);
-
-	//Now that the sprite data is prepared we can Upload the buffers to the GPU. These are the buffers that we only need to upload once before we do anything
-	//They will containt the sprite, image and emitter data that the compute shader will index into to build each frame
-	UploadBuffers(example);
 
 	//Create the staging buffers that will stage the per frame instance and offset buffers
 	zest_ForEachFrameInFlight(fif) {

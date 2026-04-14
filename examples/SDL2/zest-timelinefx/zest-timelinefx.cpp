@@ -57,55 +57,24 @@ tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset,
 }
 
 void TimelineFXExample::Init() {
-	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
-	pm = tfx_CreateEffectManager(pm_info);
-
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
 
-	const char *library_path = "examples/assets/vaders/vadereffects.tfx";
-	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	tfx_rendering.particle_images = zest_tfx_CreateImageCollection(shape_count);
+	//Load the effects library and create the particle image atlas
+	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);
 
-	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
-	//Renderer specific
-	//Process the texture with all the particle shapes that we just added to
-	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
-	zest_image particle_image = zest_GetImage(tfx_rendering.particle_texture);
-	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
-
-	/*
-	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
-	means that you can tweak an effect without editing the base effect in the library.
-	*NOTE*	You must create all your templates before uploading color ramps as each effect template will create it's own emitter
-			color ramps that you can edit in the template. If you don't then the fragment shader will try indexing into the text
-			where there is no color data.
-	* @param library					A reference to a tfx_library_t that should be loaded with LoadEffectLibraryPackage
-	* @param name						The name of the effect in the library that you want to use for the template. If the effect is in a folder then use normal pathing: "My Folder/My effect"
-	//Returns a handle for a tfx_effect_template.
-	*/
+	//Create effect templates - must be done before calling FinaliseLibrary so that color ramps are set up correctly
 	effect_template1 = tfx_CreateEffectTemplate(library, "Title");
 	effect_template2 = tfx_CreateEffectTemplate(library, "Got Power Up");
 
-	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
-	//simply copied to a bitmap for uploading to the texture
-	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
-	tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
-	for (int i = 0; i != bitmap_count; ++i) {
-		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_AddImageAtlasPixels(&tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
-	}
-	//Process the color ramp texture to upload it all to the gpu
-	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
-	zest_image color_ramps_image = zest_GetImage(tfx_rendering.color_ramps_texture);
-	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
-	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
-	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
-	tfx_UpdateLibraryGPUImageData(library);
+	//Finalise the library - uploads color ramps and GPU image data
+	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
 
-	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, tfx_GetLibraryGPUShapes(library));
-	zest_tfx_CreateBuffersForEffects(context, pm, &tfx_rendering);
+	//Create the effect manager
+	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
+	pm = tfx_CreateEffectManager(pm_info);
+
+	//Create shared ribbon buffers sized across all effect managers and upload lookup data
+	zest_tfx_CreateRibbonBuffers(context, &tfx_rendering);
 	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering);
 
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
@@ -178,8 +147,6 @@ void MainLoop(TimelineFXExample *game) {
 
 			zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
 
-			zest_uint fif = zest_CurrentFIF(game->context);
-
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
@@ -220,12 +187,8 @@ void MainLoop(TimelineFXExample *game) {
 				BuildUI(game, fps);
 			} zest_EndTimerLoop(game->tfx_rendering.timer);
 
-			if (tfx_HasRibbonsToDraw()) {
-				tfx_SetPMCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
-				tfx_CopyRibbonDataToStagingBuffers(zest_BufferData(game->tfx_rendering.ribbons.ribbon_staging_buffer[fif]), 
-												   zest_BufferData(game->tfx_rendering.ribbons.ribbon_instance_staging_buffer[fif]), 
-												   zest_BufferData(game->tfx_rendering.ribbons.emitter_staging_buffer[fif]));
-			}
+			tfx_SetPMCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
+			zest_tfx_UpdateRibbonStagingBuffers(game->context, &game->tfx_rendering);
 
 			//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 			//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
@@ -281,7 +244,7 @@ void MainLoop(TimelineFXExample *game) {
 					}
 
 					if (tfx_HasRibbonsToDraw()) {
-						//zest_tfx_AddRibbonsToFrameGraph(game->pm, &game->tfx_rendering, 0);
+						zest_tfx_AddRibbonsToFrameGraph(&game->tfx_rendering, 0);
 					}
 
 					//If there's imgui to draw then draw it

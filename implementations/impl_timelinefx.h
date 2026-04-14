@@ -65,29 +65,66 @@ typedef struct tfx_library_render_resources_s {
 	zest_timer_t timer;
 	zest_execution_timeline timeline;
 	zest_vec4 planes[6];
+	//Prerecorded sprite data buffers (used by animation manager workflow)
+	zest_buffer sprite_data_buffer;
+	zest_buffer emitter_properties_buffer;
+	zest_uint sprite_data_index;
+	zest_uint emitter_properties_index;
 } tfx_library_render_resources_t;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+//-- High-level API (recommended) --
+
+//Initialise the render resources needed for TimelineFX rendering including pipelines, shaders, layer and uniform buffer.
+void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, const char *vert_shader, const char *frag_shader);
+
+//Load a TimelineFX library and create the particle image atlas. Returns the library handle so you can create effect templates.
+//Call zest_tfx_FinaliseLibrary after creating all effect templates.
+tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path, int atlas_width, int atlas_height);
+
+//Finalise the library after creating all effect templates. This uploads color ramps and GPU image data.
+void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library);
+
+//Load prerecorded sprite data and create the particle image atlas.
+//shape_count is the maximum number of particle shapes to allocate space for in the image collection.
+//Returns the error flags from tfx_LoadSpriteData.
+tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager, int shape_count, int atlas_width, int atlas_height);
+
+//Finalise prerecorded sprite data - uploads color ramps from the animation manager and GPU image data.
+void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resources_t *resources, tfx_animation_manager animation_manager, tfx_gpu_shapes gpu_image_data);
+
+//Create a single shared set of ribbon buffers sized across all registered effect managers.
+//Call this after all effect managers have been created.
+void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_library_render_resources_t *resources);
+
+//Copy ribbon data from all effect managers to staging buffers for GPU upload.
+//Handles the camera setup and HasRibbonsToDraw check internally.
+void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_library_render_resources_t *resources);
+
+//-- Uniform buffer and rendering --
+
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_library_render_resources_t *resources);
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_library_render_resources_t *resources);
-void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
-void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes);
-zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
-void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, const char *vert_shader, const char *frag_shader);
-void zest_tfx_CreateBuffersForEffects(zest_context context, tfx_effect_manager pm, tfx_library_render_resources_t *render_resources);
 void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
-void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
-void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
+
+//-- Frame graph pass callbacks --
+
+void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data);
-void zest_tfx_UploadRibbonLookupData(zest_context context, tfx_library_render_resources_t *resources);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
 void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data);
-void zest_tfx_AddRibbonsToFrameGraph(tfx_effect_manager pm, tfx_library_render_resources_t *resources, zest_resource_node output_resource);
-void zest_tfx_CreateBuffersForEffects(zest_context context, tfx_effect_manager pm, tfx_library_render_resources_t *render_resources);
+void zest_tfx_AddRibbonsToFrameGraph(tfx_library_render_resources_t *resources, zest_resource_node output_resource);
+
+//-- Low-level functions (for custom renderer integration) --
+
+void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes);
+void zest_tfx_UploadRibbonLookupData(zest_context context, tfx_library_render_resources_t *resources);
+void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
+void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
 
 #ifdef __cplusplus
 }

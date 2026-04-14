@@ -74,6 +74,86 @@ zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count) {
 	return zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, shape_count);
 }
 
+tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path, int atlas_width, int atlas_height) {
+	zest_device device = zest_GetContextDevice(context);
+	int shape_count = tfx_GetShapeCountInLibrary(library_path);
+	resources->particle_images = zest_tfx_CreateImageCollection(shape_count);
+
+	tfx_library library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources);
+
+	resources->particle_texture = zest_CreateImageAtlas(context, &resources->particle_images, atlas_width, atlas_height, 0);
+	zest_image particle_image = zest_GetImage(resources->particle_texture);
+	resources->particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
+
+	return library;
+}
+
+void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
+	zest_device device = zest_GetContextDevice(context);
+
+	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
+	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
+	for (tfxU32 i = 0; i != bitmap_count; ++i) {
+		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
+	}
+	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
+	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
+	resources->color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
+
+	tfx_UpdateLibraryGPUImageData(library);
+	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
+}
+
+tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager, int shape_count, int atlas_width, int atlas_height) {
+	zest_device device = zest_GetContextDevice(context);
+	resources->particle_images = zest_tfx_CreateImageCollection(shape_count);
+
+	tfxErrorFlags result = tfx_LoadSpriteData(path, animation_manager, zest_tfx_ShapeLoader, resources);
+	if (result != 0) return result;
+
+	resources->particle_texture = zest_CreateImageAtlas(context, &resources->particle_images, atlas_width, atlas_height, 0);
+	zest_image particle_image = zest_GetImage(resources->particle_texture);
+	resources->particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
+
+	return result;
+}
+
+void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resources_t *resources, tfx_animation_manager animation_manager, tfx_gpu_shapes gpu_image_data) {
+	zest_device device = zest_GetContextDevice(context);
+
+	tfxU32 bitmap_count = tfx_GetAnimationColorRampBitmapCount(animation_manager);
+	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
+	for (tfxU32 i = 0; i != bitmap_count; ++i) {
+		tfx_bitmap_t *bitmap = tfx_GetAnimationColorRampBitmap(animation_manager, i);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
+	}
+	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
+	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
+	resources->color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
+
+	tfx_BuildAnimationManagerGPUShapeData(animation_manager, gpu_image_data, zest_tfx_GetUV);
+	zest_tfx_UpdateTimelineFXImageData(context, resources, gpu_image_data);
+
+	//Create GPU storage buffers for sprite data and emitter properties
+	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	resources->sprite_data_buffer = zest_CreateBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), &storage_buffer_info);
+	resources->emitter_properties_buffer = zest_CreateBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), &storage_buffer_info);
+
+	//Upload sprite data and emitter properties to the GPU
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+	zest_buffer sprite_staging = zest_CreateStagingBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
+	zest_imm_CopyBuffer(queue, sprite_staging, resources->sprite_data_buffer, tfx_GetSpriteDataSizeInBytes(animation_manager));
+	zest_buffer emitter_staging = zest_CreateStagingBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), tfx_GetAnimationEmitterPropertiesBufferPointer(animation_manager));
+	zest_imm_CopyBuffer(queue, emitter_staging, resources->emitter_properties_buffer, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager));
+	zest_imm_EndCommandBuffer(queue);
+	zest_FreeBuffer(sprite_staging);
+	zest_FreeBuffer(emitter_staging);
+
+	resources->sprite_data_index = zest_AcquireStorageBufferIndex(device, resources->sprite_data_buffer);
+	resources->emitter_properties_index = zest_AcquireStorageBufferIndex(device, resources->emitter_properties_buffer);
+}
+
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *resources, const char *vert_shader, const char *frag_shader) {
 	zest_device device = zest_GetContextDevice(context);
 	resources->uniform_buffer = zest_CreateUniformBuffer(context, "tfx uniform", sizeof(tfx_uniform_buffer_data_t));
@@ -135,6 +215,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
 	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
 
+	//Don't actually need this, can remove?
 	resources->timeline = zest_CreateExecutionTimeline(device);
 
 	//Configure Ribbons
@@ -161,16 +242,16 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 
 }
 
-void zest_tfx_CreateBuffersForEffects(zest_context context, tfx_effect_manager pm, tfx_library_render_resources_t *resources) {
+void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_library_render_resources_t *resources) {
     resources->ribbons.ribbon_buffer_info = tfx_GenerateRibbonBufferInfo(1);
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	zest_device device = zest_GetContextDevice(context);
     zest_ForEachFrameInFlight(i) {
-		resources->ribbons.ribbon_lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);   //If this has to be resized then we need to rebind the buffer to the compute shader
+		resources->ribbons.ribbon_lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);
 		resources->ribbons.ribbon_lookup_index[i] = zest_AcquireStorageBufferIndex(device, resources->ribbons.ribbon_lookup_buffer[i]);
-        resources->ribbons.ribbon_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetSegmentBufferMaxSizeInBytes(pm), 0);
-        resources->ribbons.ribbon_instance_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetRibbonBufferMaxSizeInBytes(pm, 1000), 0);
-        resources->ribbons.emitter_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetEmitterBufferMaxSizeInBytes(pm), 0);
+        resources->ribbons.ribbon_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalSegmentBufferMaxSizeInBytes(), 0);
+        resources->ribbons.ribbon_instance_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalRibbonBufferMaxSizeInBytes(), 0);
+        resources->ribbons.emitter_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalEmitterBufferMaxSizeInBytes(), 0);
 		resources->ribbons.lookup_table_dirty[i] = true;
     }
 }
@@ -301,6 +382,16 @@ void zest_tfx_UploadRibbonLookupData(zest_context context, tfx_library_render_re
 	}
 }
 
+void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_library_render_resources_t *resources) {
+	if (tfx_HasRibbonsToDraw()) {
+		zest_uint fif = zest_CurrentFIF(context);
+		tfx_CopyRibbonDataToStagingBuffers(
+			zest_BufferData(resources->ribbons.ribbon_staging_buffer[fif]),
+			zest_BufferData(resources->ribbons.ribbon_instance_staging_buffer[fif]),
+			zest_BufferData(resources->ribbons.emitter_staging_buffer[fif]));
+	}
+}
+
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data) {
 	tfx_library_render_resources_t *resources = (tfx_library_render_resources_t*)(user_data);
 
@@ -361,12 +452,12 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 	}
 }
 
-void zest_tfx_AddRibbonsToFrameGraph(tfx_effect_manager pm, tfx_library_render_resources_t *resources, zest_resource_node output_resource) {
-	zest_buffer_resource_info_t segment_buffer_info = { 0, tfx_GetSegmentBufferMaxSizeInBytes(pm) };
-	zest_buffer_resource_info_t instance_buffer_info = { 0, tfx_GetRibbonBufferMaxSizeInBytes(pm, 1000) };
-	zest_buffer_resource_info_t vertex_buffer_info = { zest_resource_usage_hint_vertex_buffer, tfx_GetSegmentVertexBufferMaxSizeInBytes(pm, 0) };
-	zest_buffer_resource_info_t index_buffer_info = { zest_resource_usage_hint_index_buffer, tfx_GetSegmentIndexBufferMaxSizeInBytes(pm) };
-	zest_buffer_resource_info_t emitter_buffer_info = { 0, tfx_GetEmitterBufferMaxSizeInBytes(pm) };
+void zest_tfx_AddRibbonsToFrameGraph(tfx_library_render_resources_t *resources, zest_resource_node output_resource) {
+	zest_buffer_resource_info_t segment_buffer_info = { 0, tfx_GetTotalSegmentBufferMaxSizeInBytes() };
+	zest_buffer_resource_info_t instance_buffer_info = { 0, tfx_GetTotalRibbonBufferMaxSizeInBytes() };
+	zest_buffer_resource_info_t vertex_buffer_info = { zest_resource_usage_hint_vertex_buffer, tfx_GetTotalSegmentVertexBufferMaxSizeInBytes(0) };
+	zest_buffer_resource_info_t index_buffer_info = { zest_resource_usage_hint_index_buffer, tfx_GetTotalSegmentIndexBufferMaxSizeInBytes() };
+	zest_buffer_resource_info_t emitter_buffer_info = { 0, tfx_GetTotalEmitterBufferMaxSizeInBytes() };
 	zest_resource_node ribbon_segment_buffer = zest_AddTransientBufferResource("Ribbon Segment Buffer", &segment_buffer_info);
 	zest_resource_node ribbon_instance_buffer = zest_AddTransientBufferResource("Ribbon Instance Buffer", &instance_buffer_info);
 	zest_resource_node emitter_buffer = zest_AddTransientBufferResource("Emitter Buffer", &emitter_buffer_info);
