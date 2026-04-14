@@ -33,7 +33,7 @@ int test__image_format_support(ZestTests *tests, Test *test) {
 	}
 
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -120,7 +120,7 @@ int test__image_creation_destruction(ZestTests *tests, Test *test) {
 	int image_count = zest_GetDeviceResourceCount(tests->device, zest_handle_type_images);
 	
 	// Final validation
-	test->result = zest_GetValidationErrorCount(tests->context);
+	test->result = zest_GetValidationErrorCount(tests->device);
 	test->result |= resources_freed == 9 ? 0 : 1;
 	test->result |= image_count == 3 ? 0 : 1;	//There are 3 images in the device by default
 	test->frame_count++; 
@@ -252,8 +252,8 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 	
 	// Final validation
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	zest_uint validation_count = zest_GetValidationErrorCount(tests->context);
-	test->result |= zest_GetValidationErrorCount(tests->context) == 6 ? 0 : 1;
+	zest_uint validation_count = zest_GetValidationErrorCount(tests->device);
+	test->result |= zest_GetValidationErrorCount(tests->device) == 6 ? 0 : 1;
 	test->frame_count++;
 	return test->result;
 }
@@ -360,7 +360,7 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 	test->result = failed_count > 0 ? 1 : 0;
 	test->result |= view_count == 2 ? 0 : 1;
 	test->result |= view_array_count == 1 ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -459,7 +459,7 @@ int test__buffer_creation_destruction(ZestTests *tests, Test *test) {
 	}
 
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -581,7 +581,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context) == 1 ? 0 : 1;
+	test->result |= zest_GetValidationErrorCount(tests->device) == 1 ? 0 : 1;
 	test->frame_count++;
 	return test->result;
 }
@@ -653,7 +653,7 @@ int test__uniform_buffer_descriptor_management(ZestTests *tests, Test *test) {
 	}
 
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -702,7 +702,7 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 		total_tests++;
 	}
 
-	zest_uint initial_validation_errors = zest_GetValidationErrorCount(tests->context);
+	zest_uint initial_validation_errors = zest_GetValidationErrorCount(tests->device);
 	zest_ResetValidationErrors(tests->device);
 	// Size exceeding typical maxUniformBufferRange (64KB + 1)
 	// This should either fail gracefully or produce a validation error
@@ -797,7 +797,7 @@ int test__uniform_buffer_edge_cases(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context) + initial_validation_errors;
+	test->result |= zest_GetValidationErrorCount(tests->device) + initial_validation_errors;
 	test->frame_count++;
 	return test->result;
 }
@@ -1051,7 +1051,7 @@ int test__staging_buffer_operations(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -1357,7 +1357,7 @@ int test__image_with_pixels_creation(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -1639,7 +1639,7 @@ int test__sampler_creation(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -1971,7 +1971,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -2322,7 +2322,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 	}
 
 	test->result = (passed_tests == total_tests) ? 0 : 1;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }

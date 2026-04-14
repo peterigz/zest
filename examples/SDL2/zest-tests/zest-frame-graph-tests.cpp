@@ -7,7 +7,7 @@ int test__empty_graph(ZestTests *tests, Test *test) {
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		zest_FlushFrameGraph(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -20,7 +20,7 @@ int test__single_pass(ZestTests *tests, Test *test) {
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		zest_FlushFrameGraph(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -41,7 +41,7 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -73,7 +73,7 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -97,7 +97,7 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -139,7 +139,7 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 		if (frame_graph && zest_GetFrameGraphCulledPassesCount(frame_graph) == 2) {
 			test->result |= zest_GetFrameGraphResult(frame_graph);
 		}
-		test->result |= zest_GetValidationErrorCount(tests->context);
+		test->result |= zest_GetValidationErrorCount(tests->device);
 	}
 	test->frame_count++;
 	return test->result;
@@ -185,7 +185,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -218,7 +218,7 @@ int test__import_image(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -280,7 +280,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -411,7 +411,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 			test->result = 1;
 		}
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -574,7 +574,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 			test->result = 1;
 		}
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -617,7 +617,7 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 		}
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -728,7 +728,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -761,7 +761,7 @@ int test__pass_grouping(ZestTests *tests, Test *test) {
 		test->result |= final_pass_count == 1 ? 0 : 1;
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -802,7 +802,7 @@ int test__cyclic_dependency(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -832,7 +832,7 @@ int test__simple_caching(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	if (test->frame_count > 0) {
 		test->result |= test->cache_count == 0;
 	}

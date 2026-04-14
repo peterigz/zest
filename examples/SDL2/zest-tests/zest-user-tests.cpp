@@ -9,7 +9,7 @@ int test__no_update_device(ZestTests *tests, Test *test) {
 	if (zest_BeginFrame(tests->context)) {
 		zest_EndFrame(tests->context, 0);
 	}
-	test->result |= (zest_GetValidationErrorCount(tests->context) != 1);
+	test->result |= (zest_GetValidationErrorCount(tests->device) != 1);
 	test->frame_count++;
 	return test->result;
 }
@@ -22,7 +22,7 @@ int test__no_end_frame(ZestTests *tests, Test *test) {
 		if (zest_BeginFrame(tests->context)) {
 		}
 	}
-	test->result |= (zest_GetValidationErrorCount(tests->context) != 1);
+	test->result |= (zest_GetValidationErrorCount(tests->device) != 1);
 	test->frame_count++;
 	return test->result;
 }
@@ -43,7 +43,7 @@ int test__no_swapchain_import(ZestTests *tests, Test *test) {
 		}
 		zest_EndFrame(tests->context, frame_graph);
 	}
-	test->result |= (zest_GetValidationErrorCount(tests->context) != 1);
+	test->result |= (zest_GetValidationErrorCount(tests->device) != 1);
 	test->frame_count++;
 	return test->result;
 }
@@ -71,7 +71,7 @@ int test__no_end_pass(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context, frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 0);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -99,7 +99,7 @@ int test__no_end_pass(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context, frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 0);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -135,7 +135,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context, frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -161,7 +161,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 			frame_graph = zest_EndFrameGraph();
 			zest_FlushFrameGraph(frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -187,7 +187,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 			frame_graph = zest_EndFrameGraph();
 			zest_FlushFrameGraph(frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 2);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 2);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -206,7 +206,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		zest_UpdateDevice(tests->device);
 		zest_BeginFrame(tests->context);
 		zest_BeginFrame(tests->context);
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -225,7 +225,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 		zest_UpdateDevice(tests->device);
 		zest_EndFrame(tests->context, 0);
 		zest_EndFrame(tests->context, 0);
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -249,7 +249,7 @@ int test__bad_frame_graph_ordering(ZestTests *tests, Test *test) {
 			frame_graph = zest_EndFrameGraph();
 			zest_FlushFrameGraph(frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 2);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 2);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -276,7 +276,7 @@ int test__frame_graph_state_errors(ZestTests *tests, Test *test) {
 			zest_BeginFrameGraph(tests->context, "Second Graph", 0);
 			zest_EndFrame(tests->context, 0);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) >= 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -473,7 +473,7 @@ int test__buffer_output_in_render_pass(ZestTests *tests, Test *test) {
 			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should compile and execute without errors
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 0);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -508,7 +508,7 @@ int test__multiple_swapchain_imports(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context, frame_graph);
 		}
-		phase_passed = (zest_GetValidationErrorCount(tests->context) >= 1);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) >= 1);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -559,7 +559,7 @@ int test__transient_dependency_ordering(ZestTests *tests, Test *test) {
 			zest_EndFrame(tests->context, frame_graph);
 		}
 		//Should compile without errors - compiler should reorder correctly
-		phase_passed = (zest_GetValidationErrorCount(tests->context) == 0);
+		phase_passed = (zest_GetValidationErrorCount(tests->device) == 0);
 		phase_total += 1;
 		passed_tests += phase_passed;
 		total_tests += phase_total;
@@ -597,7 +597,7 @@ int test__resources_with_same_name(ZestTests *tests, Test *test) {
 		total_tests += 1;
 	}
 
-	zest_uint validation_count = zest_GetValidationErrorCount(tests->context);
+	zest_uint validation_count = zest_GetValidationErrorCount(tests->device);
 	test->result |= (validation_count == 0);
 	test->frame_count++;
 	return test->result;

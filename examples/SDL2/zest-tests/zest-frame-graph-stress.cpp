@@ -54,7 +54,7 @@ int test__stress_simple(ZestTests *tests, Test *test) {
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -105,7 +105,7 @@ int test__stress_pass_dependencies(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -152,7 +152,7 @@ int test__stress_pass_dependency_chain(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -252,7 +252,7 @@ int test__stress_transient_buffers(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -322,7 +322,7 @@ int test__stress_transient_images(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -401,7 +401,7 @@ int test__stress_all_transients(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -540,7 +540,7 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 		//zest_PrintCompiledFrameGraph(frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }

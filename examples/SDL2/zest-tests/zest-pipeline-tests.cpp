@@ -224,7 +224,7 @@ int test__pipeline_state_topology(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -258,7 +258,7 @@ int test__pipeline_state_polygon_mode(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -290,7 +290,7 @@ int test__pipeline_state_front_face(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -365,7 +365,7 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -437,7 +437,7 @@ int test__pipeline_state_multiblend(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -499,7 +499,7 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	}
 	
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }

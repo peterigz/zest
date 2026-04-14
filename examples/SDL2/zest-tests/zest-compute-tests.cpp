@@ -56,7 +56,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_FreeImageNow(tests->brd_texture);
 
 	test->result |= (status != zest_semaphore_status_success);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 
 	return test->result;
@@ -140,7 +140,7 @@ int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	zest_FreeBuffer(storage_buffer);
 
 	zest_FreeExecutionTimeline(timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -165,7 +165,7 @@ int test__timeline_timeout(ZestTests *tests, Test *test) {
 	}
 
 	zest_FreeExecutionTimeline(timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -232,7 +232,7 @@ int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 
 	zest_FreeImageNow(tests->brd_texture);
 
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -318,7 +318,7 @@ int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 	}
 
 	zest_FreeExecutionTimeline(timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -375,7 +375,7 @@ int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 
 	zest_FreeExecutionTimeline(timeline_1);
 	zest_FreeExecutionTimeline(timeline_2);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -451,7 +451,7 @@ int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 	}
 
 	zest_FreeExecutionTimeline(timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -542,7 +542,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	}
 
 	zest_FreeExecutionTimeline(timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
@@ -632,7 +632,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	}
 
 	zest_FreeExecutionTimeline(final_timeline);
-	test->result |= zest_GetValidationErrorCount(tests->context);
+	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
 }
