@@ -57,7 +57,7 @@ tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset,
 }
 
 void TimelineFXExample::Init() {
-	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
+	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag", "examples/assets/shaders/ribbon_3d.vert", "examples/assets/shaders/ribbon.frag", "examples/assets/shaders/ribbons.comp");
 
 	//Load the effects library and create the particle image atlas
 	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);

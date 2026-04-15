@@ -295,7 +295,7 @@ void CreateSDLViewport(ImGuiViewport *viewport) {
 
 //Initialise the game and set up the renderer
 void VadersGame::Init() {
-	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag");
+	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, "examples/assets/shaders/timelinefx3d.vert", "examples/assets/shaders/timelinefx.frag", "examples/assets/shaders/ribbon_3d.vert", "examples/assets/shaders/ribbon.frag", "examples/assets/shaders/ribbons.comp");
 
 	//Load game sprites into their own texture atlas
 	game_sprites = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, 100);

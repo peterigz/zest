@@ -154,7 +154,7 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	resources->emitter_properties_index = zest_AcquireStorageBufferIndex(device, resources->emitter_properties_buffer);
 }
 
-void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *resources, const char *vert_shader, const char *frag_shader) {
+void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *resources, const char *vert_shader, const char *frag_shader, const char *ribbon_vert, const char *ribbon_frag, const char *ribbon_comp) {
 	zest_device device = zest_GetContextDevice(context);
 	resources->uniform_buffer = zest_CreateUniformBuffer(context, "tfx uniform", sizeof(tfx_uniform_buffer_data_t));
 
@@ -171,9 +171,9 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	//Compile the shaders we will use to render the particles and ribbons
 	resources->particles.frag_shader = zest_CreateShaderFromFile(device, frag_shader, "tfx_frag.spv", zest_fragment_shader, NULL, true);
 	resources->particles.vert_shader = zest_CreateShaderFromFile(device, vert_shader, "tfx_vertex.spv", zest_vertex_shader, NULL, true);
-	resources->ribbons.frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
-	resources->ribbons.vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
-	resources->ribbons.comp_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	resources->ribbons.frag_shader = zest_CreateShaderFromFile(device, ribbon_frag, "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
+	resources->ribbons.vert_shader = zest_CreateShaderFromFile(device, ribbon_vert, "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
+	resources->ribbons.comp_shader = zest_CreateShaderFromFile(device, ribbon_comp, "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps

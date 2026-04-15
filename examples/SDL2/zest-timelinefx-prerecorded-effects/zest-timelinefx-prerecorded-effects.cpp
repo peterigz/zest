@@ -102,7 +102,7 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 //Initialise the example and create all the necessary buffers and objects for the compute shaders and load in the effects library
 //and prepare the effect we'll use as an example.
 void InitExample(tfxPrerecordedExample *example) {
-	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, "examples/assets/shaders/timelinefx3dstatic.vert", "examples/assets/shaders/timelinefxstatic.frag");
+	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, "examples/assets/shaders/timelinefx3dstatic.vert", "examples/assets/shaders/timelinefxstatic.frag", "examples/assets/shaders/ribbon_3d.vert", "examples/assets/shaders/ribbon.frag", "examples/assets/shaders/ribbons.comp");
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->device, &sampler);
