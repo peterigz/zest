@@ -104,6 +104,7 @@ void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_library_render_resou
 //Handles the camera setup and HasRibbonsToDraw check internally.
 void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_library_render_resources_t *resources);
 
+zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
 //-- Uniform buffer and rendering --
 
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
