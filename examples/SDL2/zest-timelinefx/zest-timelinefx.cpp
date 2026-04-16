@@ -15,8 +15,6 @@
 
 typedef unsigned int u32;
 
-#define FrameLength 16.66666666667f
-
 struct RenderCacheInfo {
 	bool draw_imgui;
 	bool draw_timeline_fx;
@@ -26,6 +24,8 @@ struct TimelineFXExample {
 	zest_context context;
 	zest_device device;
 	tfx_library_render_resources_t tfx_rendering;
+	tfx_ribbon_buffers_t ribbon_buffers;
+	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
 
 	tfx_library library;
 	tfx_effect_manager pm;
@@ -74,8 +74,8 @@ void TimelineFXExample::Init() {
 	pm = tfx_CreateEffectManager(pm_info);
 
 	//Create shared ribbon buffers sized across all effect managers and upload lookup data
-	zest_tfx_CreateRibbonBuffers(context, &tfx_rendering);
-	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering);
+	zest_tfx_CreateRibbonBuffers(context, &ribbon_buffers);
+	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering, &ribbon_buffers);
 
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
@@ -188,7 +188,7 @@ void MainLoop(TimelineFXExample *game) {
 			} zest_EndTimerLoop(game->tfx_rendering.timer);
 
 			tfx_SetPMCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
-			zest_tfx_UpdateRibbonStagingBuffers(game->context, &game->tfx_rendering);
+			zest_tfx_UpdateRibbonStagingBuffers(game->context, &game->ribbon_buffers, game->pm);
 
 			//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 			//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
@@ -217,6 +217,7 @@ void MainLoop(TimelineFXExample *game) {
 					zest_ImportSwapchainResource();
 
 					//Connect buffers and textures
+					zest_tfx_SetRibbonRenderDispatch(&game->ribbon_render_dispatch, game->pm, &game->ribbon_buffers, &game->tfx_rendering);
 
 					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
 					zest_BeginTransferPass("Upload TFX Pass"); {
@@ -243,8 +244,8 @@ void MainLoop(TimelineFXExample *game) {
 						zest_EndPass();
 					}
 
-					if (tfx_HasRibbonsToDraw()) {
-						zest_tfx_AddRibbonsToFrameGraph(&game->tfx_rendering, 0);
+					if (tfx_HasRibbonsToDraw(game->pm)) {
+						zest_tfx_AddRibbonsToFrameGraph(&game->ribbon_render_dispatch, 0);
 					}
 
 					//If there's imgui to draw then draw it

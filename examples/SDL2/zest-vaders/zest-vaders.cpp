@@ -176,6 +176,8 @@ struct VadersGame {
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
 	tfx_library_render_resources_t tfx_rendering;
+	tfx_ribbon_buffers_t title_ribbon_buffers;
+	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
 	billboard_push_constant_t billboard_push;
 	zest_image_collection_t game_sprites;
 	zest_sampler_handle sampler_handle;
@@ -439,8 +441,8 @@ void VadersGame::Init() {
 	}
 
 	//Create shared ribbon buffers sized across all effect managers
-	zest_tfx_CreateRibbonBuffers(context, &tfx_rendering);
-	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering);
+	zest_tfx_CreateRibbonBuffers(context, &title_ribbon_buffers);
+	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering, &title_ribbon_buffers);
 }
 
 //Some helper functions
@@ -1178,7 +1180,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_uint fif = zest_CurrentFIF(context);
 
 		tfx_SetPMCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
-		zest_tfx_UpdateRibbonStagingBuffers(context, &tfx_rendering);
+		zest_tfx_UpdateRibbonStagingBuffers(context, &title_ribbon_buffers, title_pm);
 
 		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
 		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
@@ -1239,7 +1241,7 @@ void VadersGame::Update(float ellapsed) {
 		cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&imgui);
 		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
-		cache_info.draw_title_ribbons = tfx_HasRibbonsToDraw() && state == GameState_title;
+		cache_info.draw_title_ribbons = tfx_HasRibbonsToDraw(title_pm) && state == GameState_title;
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
@@ -1283,7 +1285,8 @@ void VadersGame::Update(float ellapsed) {
 				}
 
 				if (cache_info.draw_title_ribbons) {
-					zest_tfx_AddRibbonsToFrameGraph(&tfx_rendering, 0);
+					zest_tfx_SetRibbonRenderDispatch(&ribbon_render_dispatch, title_pm, &title_ribbon_buffers, &tfx_rendering);
+					zest_tfx_AddRibbonsToFrameGraph(&ribbon_render_dispatch, 0);
 				}
 				//----------------------------------------------------------------------------------------------------
 
