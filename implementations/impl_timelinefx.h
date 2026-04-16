@@ -37,7 +37,6 @@ typedef struct tfx_ribbon_rendering_t {
 	tfx_ribbon_buffer_info_t ribbon_buffer_info;
 	tfx_ribbon_bucket_globals_t globals;
     bool lookup_table_dirty[ZEST_MAX_FIF];
-	bool draw_ribbons;
 } tfx_ribbon_rendering_t;
 
 typedef struct tfx_particle_rendering_t {
