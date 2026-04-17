@@ -247,11 +247,18 @@ void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_ribbon_buffers_t *bu
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	zest_device device = zest_GetContextDevice(context);
     zest_ForEachFrameInFlight(i) {
-		buffers->ribbon_lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);
-		buffers->ribbon_lookup_index[i] = zest_AcquireStorageBufferIndex(device, buffers->ribbon_lookup_buffer[i]);
         buffers->ribbon_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalSegmentBufferMaxSizeInBytes(), 0);
         buffers->ribbon_instance_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalRibbonBufferMaxSizeInBytes(), 0);
         buffers->emitter_staging_buffer[i] = zest_CreateStagingBuffer(device, tfx_GetTotalEmitterBufferMaxSizeInBytes(), 0);
+    }
+}
+
+void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers) {
+	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_device device = zest_GetContextDevice(context);
+    zest_ForEachFrameInFlight(i) {
+		buffers->lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);
+		buffers->lookup_index[i] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[i]);
 		buffers->lookup_table_dirty[i] = true;
     }
 }
@@ -354,23 +361,31 @@ void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_
 	if (render_dispatch->emitter_buffer) {
 		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->emitter_staging_buffer[fif], zest_GetResourceBuffer(render_dispatch->emitter_buffer), ribbon_buffer_requirements.emitter_buffer_size_in_bytes);
 	}
-	if (render_dispatch->buffers->lookup_table_dirty[fif]) {
-		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->lookup_tables_staging, render_dispatch->buffers->ribbon_lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes());
-		render_dispatch->buffers->lookup_table_dirty[fif] = false;
+}
+
+void zest_tfx_UploadGraphData(const zest_command_list command_list, void *user_data) {
+	tfx_global_library_buffers_t *buffers = (tfx_global_library_buffers_t*)(user_data);
+
+	zest_context context = zest_GetContext(command_list);
+	zest_uint fif = zest_CurrentFIF(context);
+	
+	if (buffers->lookup_table_dirty[fif]) {
+		zest_cmd_CopyBuffer(command_list, buffers->lookup_tables_staging, buffers->lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes());
+		buffers->lookup_table_dirty[fif] = false;
 	}
 }
 
-void zest_tfx_UploadRibbonLookupData(zest_context context, tfx_library_render_resources_t *resources, tfx_ribbon_buffers_t *buffers) {
+void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers) {
 	zest_uint fif = zest_CurrentFIF(context);
 	zest_ForEachFrameInFlight(fif) {
 		zest_device device = zest_GetContextDevice(context);
 		zest_buffer staging = zest_CreateStagingBuffer(device, tfx_GetGPUGraphLookupsBufferSizeInBytes(), tfx_GetGPUGraphLookupsBuffer());
-		if (zest_ResizeBuffer(&buffers->ribbon_lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes())) {
-			zest_ReleaseStorageBufferIndex(device, buffers->ribbon_lookup_index[fif]);
-			buffers->ribbon_lookup_index[fif] = zest_AcquireStorageBufferIndex(device, buffers->ribbon_lookup_buffer[fif]);
+		if (zest_ResizeBuffer(&buffers->lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes())) {
+			zest_ReleaseStorageBufferIndex(device, buffers->lookup_index[fif]);
+			buffers->lookup_index[fif] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[fif]);
 		}
 		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-		zest_imm_CopyBuffer(queue, staging, buffers->ribbon_lookup_buffer[fif], zest_BufferSize(staging));
+		zest_imm_CopyBuffer(queue, staging, buffers->lookup_buffer[fif], zest_BufferSize(staging));
 		zest_imm_EndCommandBuffer(queue);
 		zest_FreeBuffer(staging);
 		buffers->lookup_table_dirty[fif] = false;
@@ -387,10 +402,11 @@ void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffer
 	}
 }
 
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources) {
+void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
 	render_dispatch->render_resources = resources;
 	render_dispatch->buffers = buffers;
 	render_dispatch->effect_manager = effect_manager;
+	render_dispatch->global_buffers = global_buffers;
 }
 
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data) {
@@ -408,7 +424,7 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 		push->time = (float)render_dispatch->render_resources->timer.seconds_passed;
 		zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(render_dispatch->render_resources->uniform_buffer);
 		push->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
-		push->graphs_index = render_dispatch->buffers->ribbon_lookup_index[fif];
+		push->graphs_index = render_dispatch->global_buffers->lookup_index[fif];
 		push->emitters_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->emitter_buffer);
 		push->ribbon_segments_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->segment_buffer);
 		push->ribbons_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->ribbon_instance_buffer);

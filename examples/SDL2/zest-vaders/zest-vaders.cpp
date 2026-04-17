@@ -176,6 +176,7 @@ struct VadersGame {
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
 	tfx_library_render_resources_t tfx_rendering;
+	tfx_global_library_buffers_t global_buffers;
 	tfx_ribbon_buffers_t title_ribbon_buffers;
 	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
 	billboard_push_constant_t billboard_push;
@@ -442,7 +443,8 @@ void VadersGame::Init() {
 
 	//Create shared ribbon buffers sized across all effect managers
 	zest_tfx_CreateRibbonBuffers(context, &title_ribbon_buffers);
-	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering, &title_ribbon_buffers);
+	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
+	zest_tfx_InitialiseGlobalData(context, &global_buffers);
 }
 
 //Some helper functions
@@ -1285,7 +1287,7 @@ void VadersGame::Update(float ellapsed) {
 				}
 
 				if (cache_info.draw_title_ribbons) {
-					zest_tfx_SetRibbonRenderDispatch(&ribbon_render_dispatch, title_pm, &title_ribbon_buffers, &tfx_rendering);
+					zest_tfx_SetRibbonRenderDispatch(&ribbon_render_dispatch, title_pm, &title_ribbon_buffers, &tfx_rendering, &global_buffers);
 					zest_tfx_AddRibbonsToFrameGraph(&ribbon_render_dispatch, 0);
 				}
 				//----------------------------------------------------------------------------------------------------

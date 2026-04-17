@@ -18,6 +18,7 @@ typedef unsigned int u32;
 struct RenderCacheInfo {
 	bool draw_imgui;
 	bool draw_timeline_fx;
+	bool has_title_ribbons;
 };
 
 struct TimelineFXExample {
@@ -25,6 +26,7 @@ struct TimelineFXExample {
 	zest_device device;
 	tfx_library_render_resources_t tfx_rendering;
 	tfx_ribbon_buffers_t ribbon_buffers;
+	tfx_global_library_buffers_t global_buffers;
 	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
 
 	tfx_library library;
@@ -73,9 +75,9 @@ void TimelineFXExample::Init() {
 	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
 	pm = tfx_CreateEffectManager(pm_info);
 
-	//Create shared ribbon buffers sized across all effect managers and upload lookup data
 	zest_tfx_CreateRibbonBuffers(context, &ribbon_buffers);
-	zest_tfx_UploadRibbonLookupData(context, &tfx_rendering, &ribbon_buffers);
+	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
+	zest_tfx_InitialiseGlobalData(context, &global_buffers);
 
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
@@ -200,6 +202,7 @@ void MainLoop(TimelineFXExample *game) {
 
 			game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&game->imgui);
 			game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
+			game->cache_info.has_title_ribbons = tfx_HasRibbonsToDraw(game->pm);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
 
@@ -215,9 +218,6 @@ void MainLoop(TimelineFXExample *game) {
 					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", tfx_layer, false);
 					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", tfx_layer, true);
 					zest_ImportSwapchainResource();
-
-					//Connect buffers and textures
-					zest_tfx_SetRibbonRenderDispatch(&game->ribbon_render_dispatch, game->pm, &game->ribbon_buffers, &game->tfx_rendering);
 
 					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
 					zest_BeginTransferPass("Upload TFX Pass"); {
@@ -245,6 +245,8 @@ void MainLoop(TimelineFXExample *game) {
 					}
 
 					if (tfx_HasRibbonsToDraw(game->pm)) {
+						//Connect buffers and textures
+						zest_tfx_SetRibbonRenderDispatch(&game->ribbon_render_dispatch, game->pm, &game->ribbon_buffers, &game->tfx_rendering, &game->global_buffers);
 						zest_tfx_AddRibbonsToFrameGraph(&game->ribbon_render_dispatch, 0);
 					}
 

@@ -23,15 +23,11 @@ typedef struct tfx_uniform_buffer_data_t {
 } tfx_uniform_buffer_data_t;
 
 typedef struct tfx_ribbon_buffers_t {
-	zest_buffer ribbon_lookup_buffer[ZEST_MAX_FIF];
-	zest_uint ribbon_lookup_index[ZEST_MAX_FIF];
 	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer emitter_staging_buffer[ZEST_MAX_FIF];
-    zest_buffer lookup_tables_staging;
 	tfx_ribbon_buffer_info_t ribbon_buffer_info;
 	tfx_ribbon_bucket_globals_t globals;
-    bool lookup_table_dirty[ZEST_MAX_FIF];
 } tfx_ribbon_buffers_t;
 
 typedef struct tfx_ribbon_rendering_t {
@@ -47,6 +43,13 @@ typedef struct tfx_particle_rendering_t {
 	zest_shader_handle vert_shader;
 	zest_pipeline_template pipeline;
 } tfx_particle_rendering_t;
+
+typedef struct tfx_global_library_buffers_t {
+    zest_buffer lookup_tables_staging;
+	zest_buffer lookup_buffer[ZEST_MAX_FIF];
+	zest_uint lookup_index[ZEST_MAX_FIF];
+    bool lookup_table_dirty[ZEST_MAX_FIF];
+} tfx_global_library_buffers_t;
 
 typedef struct tfx_library_render_resources_s {
 	zest_layer_handle layer;
@@ -80,6 +83,7 @@ typedef struct tfx_ribbon_render_dispatch_t {
 	tfx_effect_manager effect_manager;
 	tfx_ribbon_buffers_t *buffers;
 	tfx_library_render_resources_t *render_resources;
+	tfx_global_library_buffers_t *global_buffers;
 	zest_resource_node segment_buffer;
 	zest_resource_node ribbon_instance_buffer;
 	zest_resource_node emitter_buffer;
@@ -114,13 +118,14 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 //Create a single shared set of ribbon buffers sized across all registered effect managers.
 //Call this after all effect managers have been created.
 void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_ribbon_buffers_t *buffers);
+void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
 
 //Copy ribbon data from all effect managers to staging buffers for GPU upload.
 //Handles the camera setup and HasRibbonsToDraw check internally.
 void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_effect_manager pm);
 
 zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources);
+void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 //-- Uniform buffer and rendering --
 
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
@@ -132,6 +137,7 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data);
+void zest_tfx_UploadGraphData(const zest_command_list command_list, void *user_data);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
 void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data);
 void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_render_dispatch_t *render_dispatch, zest_resource_node output_resource);
@@ -139,7 +145,7 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_render_dispatch_t *render_dispat
 //-- Low-level functions (for custom renderer integration) --
 
 void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes);
-void zest_tfx_UploadRibbonLookupData(zest_context context, tfx_library_render_resources_t *resources, tfx_ribbon_buffers_t *buffers);
+void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers);
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
 void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
 
