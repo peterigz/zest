@@ -1309,6 +1309,8 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #if defined (_WIN32)
 #include <windows.h>
 #include <direct.h>	//For creating a directory when caching shaders
+#include <sys/types.h>
+#include <sys/stat.h>
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat_s(left, size, right)
 #define zest_strcpy(left, size, right) strcpy_s(left, size, right)
@@ -2476,6 +2478,8 @@ typedef enum zest_report_category {
 	zest_report_layers,
 	zest_report_memory,
 	zest_report_wait_idle,
+	zest_report_shader_reload_error,
+	zest_report_shader_reload_success,
 } zest_report_category;
 
 typedef enum zest_binding_number_type {
@@ -3202,8 +3206,8 @@ ZEST_PRIVATE zest_uint zest__map_get_index(zest_hash_pair *map, zest_key key) { 
 #define zest_map_at_index(hash_map, index) &hash_map.data[index]
 #define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
-#define zest_map_remove(allocator, hash_map, name) { zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
-#define zest_map_remove_key(allocator, hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator->device->allocator, hash_map.free_slots, index); }
+#define zest_map_remove(allocator, hash_map, name) { zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator, hash_map.free_slots, index); }
+#define zest_map_remove_key(allocator, hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator, hash_map.free_slots, index); }
 #define zest_map_last_index(hash_map) (hash_map.last_index)
 #define zest_map_size(hash_map) (hash_map.map ? zest__vec_header(hash_map.data)->current_size : 0)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data); zest_vec_clear(hash_map.free_slots)
@@ -4787,6 +4791,22 @@ ZEST_API zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, con
 ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
+//Enable or disable hot-reload tracking for a shader created from a file. When enabled, zest_CheckShaderHotReload
+//will poll the file's modification time each time it is called and recompile if it has changed. Any pipeline
+//templates or compute pipelines that reference the shader will be rebuilt on the next use. The shader must have been
+//created via zest_CreateShaderFromFile (or a path-bearing equivalent). If the initial mtime could not be read, the
+//shader will still be marked for reload but the first check will attempt a reload.
+ZEST_API void zest_SetShaderHotReload(zest_shader_handle shader, zest_bool enable);
+//Walk all shaders with hot reload enabled and reload any whose source file has changed on disk. Call once per frame
+//(outside of frame-graph recording) from your main loop. Returns the number of shaders that were successfully reloaded.
+//On compile failure the shader keeps its previous SPIR-V so rendering continues, and the error is captured via
+//zest_GetShaderLastError and a ZEST_REPORT of category zest_report_shader_reload_error. Pipeline templates and
+//compute pipelines referencing the reloaded shader will be invalidated so they are rebuilt on next use.
+ZEST_API zest_uint zest_CheckShaderHotReload(zest_device device);
+//Return the last compile error message for a shader (or an empty string if none). Useful for displaying failures in
+//a hot-reload UI overlay. The returned pointer is owned by the shader and remains valid until the shader is freed or
+//reloaded.
+ZEST_API const char *zest_GetShaderLastError(zest_shader_handle shader);
 //Get the maximum image dimension available on the device
 ZEST_API zest_uint zest_GetMaxImageSize(zest_context context);
 //Get the device/platform associated with a context
@@ -5585,6 +5605,10 @@ zest_TimerSet(&timer);
 ZEST_API zest_file zest_ReadEntireFile(zest_device device, const char *file_name, zest_bool terminate);
 //Free the data from a file
 ZEST_API void zest_FreeFile(zest_device device, zest_file file);
+//Get the last modification time of a file on disk, used by the shader hot reload system. Returns ZEST_FALSE if
+//the file can't be stat'd. The returned value is platform-specific: nanoseconds since epoch on POSIX where
+//available, otherwise whole seconds — only valid for equality comparison against previous values.
+ZEST_PRIVATE zest_bool zest__get_file_mtime(const char *path, zest_u64 *out_mtime);
 //Get the swap chain extent which will basically be the size of the window returned in a zest_extent2d_t struct.
 ZEST_API zest_extent2d_t zest_GetSwapChainExtent(zest_context context);
 //Get the window size in a zest_extent2d_t. In most cases this is the same as the swap chain extent.
@@ -6537,7 +6561,10 @@ typedef struct zest_device_t {
 
 	//Resource storage
 	zest_resource_store_t resource_stores[zest_max_device_handle_type];
- 
+
+	//Active contexts created against this device (vec). Used for cross-context cache invalidation on shader hot reload.
+	zest_context *contexts;
+
 	//Threading
 	zest_uint thread_count;
 
@@ -6865,7 +6892,12 @@ typedef struct zest_shader_t {
 	zest_text_t file_path;
 	zest_text_t shader_code;
 	zest_text_t name;
+	zest_text_t last_error;                          //Last compile error message (empty on success). Displayable via zest_GetShaderLastError.
+	zest_u64 last_mtime;                             //File modification time at last successful load, used by hot reload
 	zest_shader_type type;
+	zest_bool hot_reload_enabled;
+	zest_pipeline_template *dependent_templates;     //Graphics pipeline templates that reference this shader (vec)
+	zest_compute *dependent_computes;                //Compute pipelines that reference this shader (vec)
 } zest_shader_t;
 
 typedef struct zest_sampler_t {
@@ -8155,6 +8187,7 @@ zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_d
 		zest__cleanup_context(context);
 		return NULL;
 	}
+	zest_vec_push(device->allocator, device->contexts, context);
     return context;
 }
 
@@ -10098,8 +10131,10 @@ void zest__cleanup_pipelines(zest_context context) {
 
 void zest__free_all_device_resource_stores(zest_device device) {
     zest__cleanup_image_store(device);
-    zest__cleanup_shader_store(device);
+    //Computes hold shader handles and unregister themselves from their shader on cleanup,
+    //so they must be torn down before the shader store's sync is destroyed.
     zest__cleanup_compute_store(device);
+    zest__cleanup_shader_store(device);
     zest__cleanup_sampler_store(device);
     zest__cleanup_view_store(device);
     zest__cleanup_view_array_store(device);
@@ -10251,6 +10286,7 @@ void zest__cleanup_device(zest_device device) {
 
 	zest_vec_free(device->allocator, device->validation_debug_stops);
     zest_vec_free(device->allocator, device->debug.frame_log);
+    zest_vec_free(device->allocator, device->contexts);
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
     zest_vec_free(device->allocator, device->extensions);
@@ -10491,6 +10527,14 @@ void zest__cleanup_view_array_store(zest_device device) {
 }
 
 void zest__cleanup_context(zest_context context) {
+    if (context->device) {
+        zest_vec_foreach(i, context->device->contexts) {
+            if (context->device->contexts[i] == context) {
+                zest_vec_erase(context->device->contexts, &context->device->contexts[i]);
+                break;
+            }
+        }
+    }
     if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
         zest__cleanup_gpu_profiler(context);
     }
@@ -10979,18 +11023,62 @@ zest_pipeline zest__create_pipeline(zest_context context) {
     return pipeline;
 }
 
+ZEST_PRIVATE void zest__register_pipeline_template_on_shader(zest_shader shader, zest_pipeline_template pipeline_template) {
+    zest_vec_foreach(i, shader->dependent_templates) {
+        if (shader->dependent_templates[i] == pipeline_template) return;
+    }
+    zest_device device = (zest_device)shader->handle.store->origin;
+    zest_vec_push(device->allocator, shader->dependent_templates, pipeline_template);
+}
+
+ZEST_PRIVATE void zest__unregister_pipeline_template_from_shader_handle(zest_shader_handle shader_handle, zest_pipeline_template pipeline_template) {
+    if (shader_handle.value == 0 || !shader_handle.store) return;
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+    if (!shader || !ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) return;
+    zest_vec_foreach(i, shader->dependent_templates) {
+        if (shader->dependent_templates[i] == pipeline_template) {
+            zest_vec_erase(shader->dependent_templates, &shader->dependent_templates[i]);
+            return;
+        }
+    }
+}
+
+ZEST_PRIVATE void zest__register_compute_on_shader(zest_shader shader, zest_compute compute) {
+    zest_vec_foreach(i, shader->dependent_computes) {
+        if (shader->dependent_computes[i] == compute) return;
+    }
+    zest_device device = (zest_device)shader->handle.store->origin;
+    zest_vec_push(device->allocator, shader->dependent_computes, compute);
+}
+
+ZEST_PRIVATE void zest__unregister_compute_from_shader_handle(zest_shader_handle shader_handle, zest_compute compute) {
+    if (shader_handle.value == 0 || !shader_handle.store) return;
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+    if (!shader || !ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) return;
+    zest_vec_foreach(i, shader->dependent_computes) {
+        if (shader->dependent_computes[i] == compute) {
+            zest_vec_erase(shader->dependent_computes, &shader->dependent_computes[i]);
+            return;
+        }
+    }
+}
+
 void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
     ZEST_ASSERT_HANDLE(pipeline_template);
     zest_shader vertex_shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);  //Not a valid vertex shader handle
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->vertex_shader, pipeline_template);
     pipeline_template->vertex_shader = shader_handle;
+    zest__register_pipeline_template_on_shader(vertex_shader, pipeline_template);
 }
 
 void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
     ZEST_ASSERT_HANDLE(pipeline_template);
     zest_shader fragment_shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     ZEST_ASSERT_HANDLE(fragment_shader);	//Not a valid fragment shader handle
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->fragment_shader, pipeline_template);
     pipeline_template->fragment_shader = shader_handle;
+    zest__register_pipeline_template_on_shader(fragment_shader, pipeline_template);
 }
 
 void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader_handle vertex_shader_handle, zest_shader_handle fragment_shader_handle) {
@@ -11000,15 +11088,21 @@ void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shad
     zest_shader fragment_shader = (zest_shader)zest__get_store_resource_checked(fragment_shader_handle.store, fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);       //Not a valid vertex shader handle
     ZEST_ASSERT_HANDLE(fragment_shader);     //Not a valid fragment shader handle
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->vertex_shader, pipeline_template);
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->fragment_shader, pipeline_template);
     pipeline_template->vertex_shader = vertex_shader_handle;
     pipeline_template->fragment_shader = fragment_shader_handle;
+    zest__register_pipeline_template_on_shader(vertex_shader, pipeline_template);
+    zest__register_pipeline_template_on_shader(fragment_shader, pipeline_template);
 }
 
 void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader_handle) {
     ZEST_ASSERT_HANDLE(pipeline_template);
     zest_shader combined_vertex_and_fragment_shader = (zest_shader)zest__get_store_resource_checked(combined_vertex_and_fragment_shader_handle.store, combined_vertex_and_fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(combined_vertex_and_fragment_shader);       //Not a valid shader handle
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->vertex_shader, pipeline_template);
     pipeline_template->vertex_shader = combined_vertex_and_fragment_shader_handle;
+    zest__register_pipeline_template_on_shader(combined_vertex_and_fragment_shader, pipeline_template);
 }
 
 void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face) {
@@ -11300,6 +11394,8 @@ zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline
 
 void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
     ZEST_ASSERT_HANDLE(pipeline_template);   //Not a valid pipeline template handle
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->vertex_shader, pipeline_template);
+    zest__unregister_pipeline_template_from_shader_handle(pipeline_template->fragment_shader, pipeline_template);
     zest__cleanup_pipeline_template(pipeline_template);
 }
 
@@ -11364,10 +11460,11 @@ zest_bool zest_CompileShader(zest_shader_handle shader_handle, zest_shader_optio
 
 zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_shader_options options, zest_bool disable_caching) {
     char *shader_code = zest_ReadEntireFile(device, file, ZEST_TRUE);
-    ZEST_ASSERT(shader_code, "Unable to load the shader code, check the path is valid."); 
+    ZEST_ASSERT(shader_code, "Unable to load the shader code, check the path is valid.");
     zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, options, disable_caching);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->file_path, file);
+    zest__get_file_mtime(file, &shader->last_mtime);
     zest_vec_free(device->allocator, shader_code);
     return shader_handle;
 }
@@ -11517,10 +11614,114 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
     zest_FreeText(device->allocator, &shader->name);
     zest_FreeText(device->allocator, &shader->shader_code);
     zest_FreeText(device->allocator, &shader->file_path);
+    zest_FreeText(device->allocator, &shader->last_error);
+    zest_vec_free(device->allocator, shader->dependent_templates);
+    zest_vec_free(device->allocator, shader->dependent_computes);
     if (shader->spv) {
         zest_vec_free(device->allocator, shader->spv);
     }
     zest__remove_store_resource(shader_handle.store, shader_handle.value);
+}
+
+void zest_SetShaderHotReload(zest_shader_handle shader_handle, zest_bool enable) {
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);                          //Not a valid shader handle
+    ZEST_ASSERT(zest_TextLength(&shader->file_path));    //Shader must have been created from a file for hot reload to work
+    shader->hot_reload_enabled = enable ? ZEST_TRUE : ZEST_FALSE;
+}
+
+const char *zest_GetShaderLastError(zest_shader_handle shader_handle) {
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);
+    return (shader->last_error.str && zest_TextLength(&shader->last_error) > 0) ? shader->last_error.str : "";
+}
+
+ZEST_PRIVATE void zest__invalidate_graphics_template_caches(zest_device device, zest_pipeline_template pipeline_template) {
+    //Walk every live context and evict any cached pipelines that reference this template. The VkPipeline
+    //handles are destroyed via the platform cleanup hook. Callers must have drained in-flight work first
+    //(zest_WaitForIdleDevice) so the pipelines are no longer referenced by the GPU. We iterate the map
+    //(not the data array) because data slots can be stale after removes — only map entries are live.
+    zest_vec_foreach(ci, device->contexts) {
+        zest_context context = device->contexts[ci];
+        for (int mi = (int)zest_vec_size(context->cached_pipelines.map) - 1; mi >= 0; --mi) {
+            zest_uint data_index = context->cached_pipelines.map[mi].index;
+            zest_pipeline pipeline = context->cached_pipelines.data[data_index];
+            if (!pipeline || pipeline->pipeline_template != pipeline_template) continue;
+            zest_key key = context->cached_pipelines.map[mi].key;
+            zest_map_remove_key(context->allocator, context->cached_pipelines, key);
+            zest__cleanup_pipeline(pipeline);
+        }
+    }
+    ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
+}
+
+ZEST_PRIVATE zest_bool zest__rebuild_compute_from_shader(zest_device device, zest_compute compute) {
+    //The caller is responsible for waiting for the device to be idle before calling this.
+    device->platform->cleanup_compute_backend(compute);
+    //new_compute_backend re-allocates the backend struct (cleanup freed it).
+    compute->backend = (zest_compute_backend)device->platform->new_compute_backend(device);
+    return device->platform->finish_compute(device, compute);
+}
+
+zest_uint zest_CheckShaderHotReload(zest_device device) {
+    ZEST_ASSERT_HANDLE(device);    //Not a valid device handle
+    zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
+    zest_uint reload_count = 0;
+    zest_bool waited_for_idle = ZEST_FALSE;
+
+    for (int i = 0; i != (int)store->data.current_size; ++i) {
+        if (!zest__resource_is_initialised(store, i)) continue;
+        zest_shader shader = zest_bucket_array_get(&store->data, zest_shader_t, i);
+        if (!shader || !ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) continue;
+        if (!shader->hot_reload_enabled) continue;
+        if (zest_TextLength(&shader->file_path) == 0) continue;
+
+        zest_u64 mtime = 0;
+        if (!zest__get_file_mtime(shader->file_path.str, &mtime)) continue;
+        if (mtime == shader->last_mtime) continue;
+
+        //Always advance the mtime so a broken file doesn't re-fire every frame.
+        shader->last_mtime = mtime;
+
+        char *new_code = zest_ReadEntireFile(device, shader->file_path.str, ZEST_TRUE);
+        if (!new_code) {
+            ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: failed to read shader file '%s'", shader->file_path.str);
+            continue;
+        }
+        zest_SetText(device->allocator, &shader->shader_code, new_code);
+        zest_vec_free(device->allocator, new_code);
+
+        //Compile into new SPIR-V. On failure the shader->spv is untouched so rendering keeps using the last good SPIR-V.
+        //compile_shader rewrites shader->spv via zest_vec_resize, which is not an atomic swap; however pipelines that already
+        //hold VkPipeline handles don't read shader->spv again — only rebuilt pipelines do. So a failed compile leaves spv in an
+        //indeterminate state, which is fine because rebuild is only triggered on success.
+        if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL)) {
+            ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: compile failed for '%s': %s", shader->name.str, shader->last_error.str ? shader->last_error.str : "(no message)");
+            continue;
+        }
+        //Success: clear last_error so the UI can tell.
+        zest_FreeText(device->allocator, &shader->last_error);
+
+        //Drain in-flight work once per check pass — not once per shader — in case multiple shaders change together.
+        if (!waited_for_idle) {
+            zest_WaitForIdleDevice(device);
+            waited_for_idle = ZEST_TRUE;
+        }
+
+        zest_vec_foreach(ti, shader->dependent_templates) {
+            zest__invalidate_graphics_template_caches(device, shader->dependent_templates[ti]);
+        }
+        zest_vec_foreach(ci, shader->dependent_computes) {
+            zest_compute compute = shader->dependent_computes[ci];
+            if (!zest__rebuild_compute_from_shader(device, compute)) {
+                ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: compute pipeline rebuild failed for shader '%s'", shader->name.str);
+            }
+        }
+
+        ZEST_REPORT(device, zest_report_shader_reload_success, "Hot reload: successfully reloaded shader '%s'", shader->name.str);
+        reload_count++;
+    }
+    return reload_count;
 }
 
 zest_uint zest_GetMaxImageSize(zest_context context) {
@@ -12490,6 +12691,26 @@ zest_file zest_ReadEntireFile(zest_device device, const char* file_name, zest_bo
 
 void zest_FreeFile(zest_device device, zest_file file) {
 	zest_vec_free(device->allocator, file);
+}
+
+zest_bool zest__get_file_mtime(const char *path, zest_u64 *out_mtime) {
+#if defined(_WIN32)
+    struct __stat64 st;
+    if (_stat64(path, &st) != 0) return ZEST_FALSE;
+    *out_mtime = (zest_u64)st.st_mtime;
+#else
+    struct stat st;
+    if (stat(path, &st) != 0) return ZEST_FALSE;
+    //Combine seconds and nanoseconds where available so sub-second edits are detected.
+    #if defined(__APPLE__)
+        *out_mtime = (zest_u64)st.st_mtimespec.tv_sec * 1000000000ull + (zest_u64)st.st_mtimespec.tv_nsec;
+    #elif defined(__linux__)
+        *out_mtime = (zest_u64)st.st_mtim.tv_sec * 1000000000ull + (zest_u64)st.st_mtim.tv_nsec;
+    #else
+        *out_mtime = (zest_u64)st.st_mtime;
+    #endif
+#endif
+    return ZEST_TRUE;
 }
 // --End General Helper Functions
 
@@ -18052,6 +18273,10 @@ zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zes
         zest__cleanup_compute(compute);
         return ZEST__ZERO_INIT(zest_compute_handle);
     }
+    zest_shader shader_ptr = (zest_shader)zest__get_store_resource_checked(shader.store, shader.value);
+    if (shader_ptr && ZEST_VALID_HANDLE(shader_ptr, zest_struct_type_shader)) {
+        zest__register_compute_on_shader(shader_ptr, compute);
+    }
 	zest__activate_resource(compute->handle.store, compute->handle.value);
     return compute->handle;
 }
@@ -18059,6 +18284,7 @@ zest_compute_handle zest_CreateCompute(zest_device device, const char *name, zes
 void zest__cleanup_compute(zest_compute compute) {
 	ZEST_ASSERT_HANDLE(compute);	//Not a valid compute handle
 	zest_device device = (zest_device)compute->handle.store->origin;
+    zest__unregister_compute_from_shader_handle(compute->shader, compute);
     device->platform->cleanup_compute_backend(compute);
     zest__remove_store_resource(compute->handle.store, compute->handle.value);
 }

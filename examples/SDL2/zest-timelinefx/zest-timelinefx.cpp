@@ -79,6 +79,8 @@ void TimelineFXExample::Init() {
 	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
 	zest_tfx_InitialiseGlobalData(context, &global_buffers);
 
+	zest_SetShaderHotReload(tfx_rendering.ribbon_rendering.comp_shader, ZEST_TRUE);
+
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
 }
@@ -122,6 +124,8 @@ void UpdateMouse(TimelineFXExample *app) {
 void MainLoop(TimelineFXExample *game) {
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
+	zest_microsecs last_hot_reload_check = zest_Microsecs();
+	const zest_microsecs hot_reload_interval = ZEST_MICROSECS_SECOND / 2;    //Poll the filesystem twice a second
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
@@ -137,6 +141,10 @@ void MainLoop(TimelineFXExample *game) {
 			frame_time -= ZEST_MICROSECS_SECOND;
 			fps = frame_count;
 			frame_count = 0;
+		}
+		if (zest_Microsecs() - last_hot_reload_check >= hot_reload_interval) {
+			last_hot_reload_check = zest_Microsecs();
+			zest_CheckShaderHotReload(game->device);
 		}
 		zest_UpdateDevice(game->device);
 

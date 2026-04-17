@@ -6245,8 +6245,10 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
 		device->backend->shaderc_compiler = shaderc_compiler_initialize();
         compiler = device->backend->shaderc_compiler;
 	}
-    
+
     if(!compiler) {
+        const char *msg = "Shader compiler unavailable";
+        zest_SetText(device->allocator, &shader->last_error, msg);
         ZEST_APPEND_LOG(device->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s", name);
         return ZEST_FALSE;
     }
@@ -6261,11 +6263,16 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), zest__to_shaderc_shader_kind(shader->type), name, "main", shaderc_options );
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
-		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
-		ZEST_ALERT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+        const char *err = shaderc_result_get_error_message(result);
+        zest_SetText(device->allocator, &shader->last_error, err ? err : "Unknown compile error");
+		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, err);
+		ZEST_ALERT("Shader compilation failed: %s, %s", name, err);
         shaderc_result_release(result);
 		return ZEST_FALSE;
     }
+
+    //Clear any previous error on success.
+    zest_FreeText(device->allocator, &shader->last_error);
 
     zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
     const char *spv_binary = shaderc_result_get_bytes(result);
