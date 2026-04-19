@@ -127,6 +127,7 @@ Core Architecture & Features
 #define ZLOC_SAFEGUARDS
 
 //Zloc_header
+
 #define zloc__Min(a, b) (((a) < (b)) ? (a) : (b))
 #define zloc__Max(a, b) (((a) > (b)) ? (a) : (b))
 
@@ -150,7 +151,6 @@ typedef void* zloc_pool;
 #include <math.h>
 #if !defined(__cplusplus) && (defined(__APPLE__) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)))
 #include <stdatomic.h>
-#define ZEST_USE_C11_ATOMICS
 #endif
 #if !defined (ZLOC_ASSERT)
 #include <assert.h>
@@ -223,8 +223,8 @@ enum zloc__constants {
 	zloc__FIRST_LEVEL_INDEX_COUNT = ZLOC_MAX_SIZE_INDEX,
 	zloc__SECOND_LEVEL_INDEX_COUNT = 1 << zloc__SECOND_LEVEL_INDEX_LOG2,
 	#ifdef ZLOC_SAFEGUARDS
-	zloc__BLOCK_POINTER_OFFSET = sizeof(void*) * 2 + sizeof(zloc_size) * 2,
-	zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size) * 2 + sizeof(void*),
+	zloc__BLOCK_POINTER_OFFSET = sizeof(void*) * 2 + sizeof(zloc_size),
+	zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size) + sizeof(void*),
 	#else
 	zloc__BLOCK_POINTER_OFFSET = sizeof(void*) + sizeof(zloc_size),
 	zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size),
@@ -266,7 +266,6 @@ typedef struct zloc_header {
 	zloc_size size;
 	#ifdef ZLOC_SAFEGUARDS
 	struct zloc_allocator *allocator;
-	zloc_size magic;
 	#endif
 	/*
 	User allocation will start here when the block is used. When the block is free prev and next
@@ -403,7 +402,7 @@ static inline int zloc__scan_forward(zloc_size bitmap)
 static inline zloc_thread_access zloc__compare_and_exchange(volatile zloc_thread_access* target, zloc_thread_access value, zloc_thread_access original) {
 	return __sync_val_compare_and_swap(target, original, value);
 }
-#elif
+#else
 
 static inline unsigned int zloc__count_bits(unsigned int n) {
 	unsigned int count = 0;
@@ -428,13 +427,14 @@ ZLOC_API int zloc_Free(zloc_allocator *allocator, void *allocation);
 ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_alloc_mem, zloc_size used_size);
 ZLOC_API zloc_bool zloc_RemovePool(zloc_allocator *allocator, zloc_pool *pool);
 ZLOC_API void zloc_SetMinimumAllocationSize(zloc_allocator *allocator, zloc_size size);
-ZLOC_API zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block);
+ZLOC_API zloc_pool_stats_t zloc_CreateMemorySnapshot(const zloc_pool *pool);
+ZLOC_API void zloc_VerifyPool(zloc_allocator *allocator, const zloc_pool *pool);
 
 //Remote memory
 ZLOC_API zloc_allocator *zloc_InitialiseAllocatorForRemote(void *memory);
 ZLOC_API void zloc_SetBlockExtensionSize(zloc_allocator *allocator, zloc_size size);
 ZLOC_API int zloc_FreeRemote(zloc_allocator *allocator, void *allocation);
-ZLOC_API void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size, zloc_size remote_alignment);
+ZLOC_API void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size);
 ZLOC_API zloc_size zloc_CalculateRemoteBlockPoolSize(zloc_allocator *allocator, zloc_size remote_pool_size);
 ZLOC_API void zloc_AddRemotePool(zloc_allocator *allocator, void *block_memory, zloc_size block_memory_size, zloc_size remote_pool_size);
 ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
@@ -468,7 +468,7 @@ static inline void zloc__map(zloc_size size, zloc_index *fli, zloc_index *sli) {
 		*sli = (int)size / (zloc__SMALLEST_CATEGORY / zloc__SECOND_LEVEL_INDEX_COUNT);
 		return;
 	}
-	size = size & ~(1 << *fli);
+	size = size & ~(ZLOC_ONE << *fli);
 	*sli = (zloc_index)(size >> (*fli - zloc__SECOND_LEVEL_INDEX_LOG2)) % zloc__SECOND_LEVEL_INDEX_COUNT;
 }
 
@@ -481,13 +481,69 @@ static inline void zloc__null_add_pool_callback(void *remote_user_data, void *bl
 static inline void zloc__null_unable_to_reallocate_callback(void *remote_user_data, zloc_header *block, zloc_header *new_block) { return; }
 static inline void zloc__unset_remote_block_limit_reached(zloc_allocator *allocator) { allocator->block_extension_size &= ~1; };
 
+static inline zloc_index zloc__find_next_size_up(zloc_fl_bitmap map, zloc_uint start) {
+	//Mask out all bits up to the start point of the scan
+	map &= (~0ULL << (start + 1));
+	return zloc__scan_forward(map);
+}
+
+static inline zloc_bool zloc__is_free_block(const zloc_header *block) {
+	return block->size & zloc__BLOCK_IS_FREE;   
+	//If you're crashing here, then you're probably trying to free
+	//something that isn't a memory block. Maybe you should be
+	//zest_vec_free or zest_map_free or maybe freeing someting twice?
+}
+
 //Debug tool to make sure that if a first level bitmap has a bit set, then the corresponding second level index should contain a value
+//It also walks every free list verifying bidirectional link integrity, free flags, and size-class membership.
+//The most common cause of asserts here is where memory has been written to the wrong address. Check for buffers where they where resized
+//but the buffer pointer that was being written too was not updated after the resize for example.
+//For complementary coverage of the physical block chain (boundary tags, merge invariants, intact prev/next links),
+//see zloc_VerifyPool.
 static inline void zloc__verify_lists(zloc_allocator *allocator) {
+	zloc_header *null_block = &allocator->null_block;
 	for (int fli = 0; fli != zloc__FIRST_LEVEL_INDEX_COUNT; ++fli) {
-		if (allocator->first_level_bitmap & (1ULL << fli)) {
+		zloc_bool fl_set = (allocator->first_level_bitmap & (ZLOC_ONE << fli)) != 0;
+		if (fl_set) {
 			//bit in first level is set but according to the second level bitmap array there are no blocks so the first level
 			//bitmap bit should have been 0
 			ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
+		} else {
+			//Conversely if the first level bit is clear, no second level bits should be set in this row
+			ZLOC_ASSERT(allocator->second_level_bitmaps[fli] == 0);
+		}
+		for (int sli = 0; sli != zloc__SECOND_LEVEL_INDEX_COUNT; ++sli) {
+			zloc_bool sl_set = (allocator->second_level_bitmaps[fli] & (1U << sli)) != 0;
+			zloc_header *head = allocator->segregated_lists[fli][sli];
+			if (!sl_set) {
+				//Bit clear so the segregated list head must point at null_block
+				ZLOC_ASSERT(head == null_block);
+				continue;
+			}
+			//Bit set so the head must hold a real free block
+			ZLOC_ASSERT(head != null_block);
+			//Walk the list, verifying each link
+			zloc_header *prev = null_block;
+			zloc_header *block = head;
+			int safety = 0;
+			while (block != null_block) {
+				//Block must be marked free
+				ZLOC_ASSERT(zloc__is_free_block(block));
+				//Block's size must map back to the list (fli, sli) it lives in
+				zloc_index block_fli, block_sli;
+				zloc__map(zloc__do_size_class_callback(block), &block_fli, &block_sli);
+				ZLOC_ASSERT(block_fli == fli && block_sli == sli);
+				//Bidirectional link integrity. The previous link of the head is null_block; for
+				//every other node, prev->next must point back to the current block.
+				ZLOC_ASSERT(block->prev_free_block == prev);
+				if (prev != null_block) {
+					ZLOC_ASSERT(prev->next_free_block == block);
+				}
+				prev = block;
+				block = block->next_free_block;
+				//Cycle / runaway list detection
+				ZLOC_ASSERT(++safety < 1000000);
+			}
 		}
 	}
 }
@@ -501,19 +557,12 @@ static inline zloc_bool zloc__is_used_block(const zloc_header *block) {
 	return !(block->size & zloc__BLOCK_IS_FREE);
 }
 
-static inline zloc_bool zloc__is_free_block(const zloc_header *block) {
-	return block->size & zloc__BLOCK_IS_FREE;   
-	//If you're crashing here, then you're probably trying to free
-	//something that isn't a memory block. Maybe you should be
-	//zest_vec_free or zest_map_free or maybe freeing someting twice?
-}
-
 static inline zloc_bool zloc__prev_is_free_block(const zloc_header *block) {
 	return block->size & zloc__PREV_BLOCK_IS_FREE;
 }
 
 static inline void* zloc__align_ptr(const void* ptr, zloc_size align) {
-	ptrdiff_t aligned = (((ptrdiff_t)ptr) + (align - 1)) & ~(align - 1);
+	uintptr_t aligned = (((uintptr_t)ptr) + (align - 1)) & ~(align - 1);
 	ZLOC_ASSERT(0 == (align & (align - 1)) && "must align to a power of two");
 	return (void*)aligned;
 }
@@ -577,12 +626,6 @@ static inline zloc_header *zloc__allocator_first_block(zloc_allocator *allocator
 
 static inline zloc_bool zloc__is_last_block_in_pool(const zloc_header *block) {
 	return zloc__block_size(block) == 0;
-}
-
-static inline zloc_index zloc__find_next_size_up(zloc_fl_bitmap map, zloc_uint start) {
-	//Mask out all bits up to the start point of the scan
-	map &= (~0ULL << (start + 1));
-	return zloc__scan_forward(map);
 }
 
 //Write functions
@@ -781,6 +824,7 @@ static inline zloc_header *zloc__maybe_split_block(zloc_allocator *allocator, zl
 	zloc__set_prev_physical_block(next_block, trimmed);
 	zloc__set_prev_physical_block(trimmed, block);
 	zloc__set_block_size(block, size + zloc__block_extension_size);
+	//Note if this callback calls back into reallocate or allocate functions then you will get a spin lock.
 	zloc__do_split_block_callback;
 	zloc__push_block(allocator, trimmed);
 	return block;
@@ -814,6 +858,7 @@ static inline zloc_header *zloc__merge_with_prev_block(zloc_allocator *allocator
 	ZLOC_ASSERT(!zloc__is_last_block_in_pool(block));
 	zloc_header *prev_block = block->prev_physical_block;
 	zloc__remove_block_from_segregated_list(allocator, prev_block);
+	//Note if this callback calls back into reallocate or allocate functions then you will get a spin lock.
 	zloc__do_merge_prev_callback;
 	zloc__set_block_size(prev_block, zloc__block_size(prev_block) + zloc__block_size(block) + zloc__BLOCK_POINTER_OFFSET);
 	zloc_header *next_block = zloc__next_physical_block(block);
@@ -831,6 +876,7 @@ static inline void zloc__merge_with_next_block(zloc_allocator *allocator, zloc_h
 	ZLOC_ASSERT(next_block->prev_physical_block == block);	//could be potentional memory corruption. Check that you're not writing outside the boundary of the block size
 	ZLOC_ASSERT(!zloc__is_last_block_in_pool(next_block));
 	zloc__remove_block_from_segregated_list(allocator, next_block);
+	//Note if this callback calls back into reallocate or allocate functions then you will get a spin lock.
 	zloc__do_merge_next_callback;
 	zloc__set_block_size(block, zloc__block_size(next_block) + zloc__block_size(block) + zloc__BLOCK_POINTER_OFFSET);
 	zloc_header *block_after_next = zloc__next_physical_block(next_block);
@@ -872,6 +918,7 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 
 	return 0;
 }
+
 //--End of internal functions
 
 //--End of header declarations
@@ -5876,9 +5923,13 @@ zloc_pool *zloc_GetPool(zloc_allocator *allocator) {
 zloc_pool *zloc_AddPool(zloc_allocator *allocator, void *memory, zloc_size size) {
 	zloc__lock_thread_access;
 
+	ZLOC_ASSERT(size <= zloc__MAXIMUM_BLOCK_SIZE && "Tried to add a memory pool that is larger then the maximum block size.");
+
 	//Offset it back by the pointer size, we don't need the prev_physical block pointer as there is none
 	//for the first block in the pool
 	zloc_header *block = zloc__first_block_in_pool((const zloc_pool*)memory);
+	//Set size to 0 to clear the block is free/prev block is free bits. Important as the zloc__set_block_size function
+	//keeps these bits set.
 	block->size = 0;
 	//Leave room for an end block
 	zloc__set_block_size(block, size - (zloc__BLOCK_POINTER_OFFSET)-zloc__BLOCK_SIZE_OVERHEAD);
@@ -5943,7 +5994,7 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 	if (ptr && size == 0) {
 		zloc__unlock_thread_access;
 		zloc_Free(allocator, ptr);
-		zloc__lock_thread_access;
+		return 0;
 	}
 
 	if (!ptr) {
@@ -5965,6 +6016,7 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 		if (allocation) {
 			zloc_size smallest_size = zloc__Min(current_size, size);
 			memcpy(allocation, ptr, smallest_size);
+			//Note if this callback calls back into reallocate or allocate then you will get a spin lock.
 			zloc__do_unable_to_reallocate_callback;
 			zloc__unlock_thread_access;
 			zloc_Free(allocator, ptr);
@@ -5996,17 +6048,17 @@ void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size 
 	if (block) {
 		void *user_ptr = zloc__block_user_ptr(block);
 		void *aligned_ptr = zloc__align_ptr(user_ptr, alignment);
-		zloc_size gap = (zloc_size)(((ptrdiff_t)aligned_ptr) - (ptrdiff_t)user_ptr);
+		zloc_size gap = (zloc_size)((uintptr_t)aligned_ptr - (uintptr_t)user_ptr);
 
 		/* If gap size is too small, offset to next aligned boundary. */
 		if (gap && gap < gap_minimum)
 		{
 			zloc_size gap_remain = gap_minimum - gap;
 			zloc_size offset = zloc__Max(gap_remain, alignment);
-			const void* next_aligned = (void*)((ptrdiff_t)aligned_ptr + offset);
+			const void* next_aligned = (void*)((uintptr_t)aligned_ptr + offset);
 
 			aligned_ptr = zloc__align_ptr(next_aligned, alignment);
-			gap = (zloc_size)((ptrdiff_t)aligned_ptr - (ptrdiff_t)user_ptr);
+			gap = (zloc_size)((uintptr_t)aligned_ptr - (uintptr_t)user_ptr);
 		}
 
 		if (gap)
@@ -6030,8 +6082,10 @@ int zloc_Free(zloc_allocator *allocator, void* allocation) {
 	if (!allocation) return 0;
 	zloc__lock_thread_access;
 	zloc_header *block = zloc__block_from_allocation(allocation);
+	#ifdef ZLOC_SAFEGUARDS
 	//Asserting here means that there's probably been a mix up between a context allocator and a device allocator.
 	ZLOC_ASSERT(block->allocator == allocator);
+	#endif
 	if (zloc__prev_is_free_block(block)) {
 		ZLOC_ASSERT(block->prev_physical_block);		//Must be a valid previous physical block
 		block = zloc__merge_with_prev_block(allocator, block);
@@ -6049,10 +6103,16 @@ ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_a
 		return 0;
 	}
 
+	if (used_size < zloc__MINIMUM_BLOCK_SIZE) {
+		return 0;
+	}
+
 	zloc__lock_thread_access;
 
 	zloc_header *block = zloc__block_from_allocation(linear_alloc_mem);
+	#ifdef ZLOC_SAFEGUARDS
 	ZLOC_ASSERT(allocator == block->allocator);	//allocator MUST match the block allocator
+	#endif
 
 	// Ensure the block is valid and currently in use.
 	if (zloc__is_free_block(block)) {
@@ -6064,7 +6124,7 @@ ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_a
 	zloc_size original_block_size = zloc__block_size(block);
 	zloc_size aligned_keep_size = zloc__adjust_size(used_size, zloc__MINIMUM_BLOCK_SIZE, zloc__MEMORY_ALIGNMENT);
 
-	if (original_block_size <= aligned_keep_size + zloc__MINIMUM_BLOCK_SIZE) {
+	if (original_block_size <= aligned_keep_size + zloc__Max(zloc__MINIMUM_BLOCK_SIZE, allocator->minimum_allocation_size)) {
 		// Not enough space to split, so we just "promote" the whole block by doing nothing.
 		zloc__unlock_thread_access;
 		return linear_alloc_mem;
@@ -6106,8 +6166,7 @@ int zloc_SafeCopy(void *dst, void *src, zloc_size size) {
 		return 0;
 	}
 	zloc_header *next_physical_block = zloc__next_physical_block(block);
-	ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
-	if (diff_check > 0) {
+	if ((char *)dst + size > (char *)next_physical_block) {
 		assert(0);  //Trying to copy outside of the memory block
 		return 0;
 	}
@@ -6118,8 +6177,7 @@ int zloc_SafeCopy(void *dst, void *src, zloc_size size) {
 int zloc_SafeCopyBlock(void *dst_block_start, void *dst, const void *src, zloc_size size) {
 	zloc_header *block = zloc__block_from_allocation(dst_block_start);
 	zloc_header *next_physical_block = zloc__next_physical_block(block);
-	ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
-	if (diff_check > 0) {
+	if ((char *)dst + size > (char *)next_physical_block) {
 		assert(0);  //Trying to copy outside of the memory block
 		return 0;
 	}
@@ -6127,9 +6185,56 @@ int zloc_SafeCopyBlock(void *dst_block_start, void *dst, const void *src, zloc_s
 	return 1;
 }
 
-zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block) {
+//Walks the physical block chain of a single pool and asserts the structural invariants that
+//zloc__verify_lists cannot see:
+//  - every block's size is aligned to zloc__MEMORY_ALIGNMENT
+//  - the chain is linked correctly: block->next_physical_block->prev_physical_block == block
+//  - boundary tags are coherent: this block's BLOCK_IS_FREE matches the next block's PREV_BLOCK_IS_FREE
+//  - no two adjacent free blocks exist (they should have been merged on free)
+//  - the terminating sentinel has size 0 and points back at the last real block
+//Use alongside zloc__verify_lists for the most thorough corruption check. The pool argument is the
+//pointer originally returned from zloc_AddPool / zloc_GetPool.
+void zloc_VerifyPool(zloc_allocator *allocator, const zloc_pool *pool) {
+	zloc_header *block = zloc__first_block_in_pool(pool);
+	zloc_header *prev = 0;
+	int safety = 0;
+	while (!zloc__is_last_block_in_pool(block)) {
+		zloc_size block_size = zloc__do_size_class_callback(block);
+		//Block size must be a multiple of the memory alignment
+		ZLOC_ASSERT(zloc__is_aligned(block_size, zloc__MEMORY_ALIGNMENT));
+		if (prev) {
+			//Physical chain link: this block must point back to the block we walked from
+			ZLOC_ASSERT(block->prev_physical_block == prev);
+			//Boundary tag coherence: PREV_BLOCK_IS_FREE on this block must match prev's actual free state
+			zloc_bool prev_was_free = zloc__is_free_block(prev);
+			zloc_bool prev_flag_says_free = zloc__prev_is_free_block(block);
+			ZLOC_ASSERT(prev_was_free == (zloc_bool)(prev_flag_says_free != 0));
+			//Two consecutive free blocks should never exist - they should have been merged on free
+			if (prev_was_free) {
+				ZLOC_ASSERT(!zloc__is_free_block(block));
+			}
+		} else {
+			//First block in a pool has no previous physical block, so its PREV_BLOCK_IS_FREE flag must be clear
+			ZLOC_ASSERT(!zloc__prev_is_free_block(block));
+		}
+		prev = block;
+		block = zloc__next_physical_block(block);
+		ZLOC_ASSERT(++safety < 10000000);
+	}
+	//Sentinel: size 0, marked as used, points back at the last real block, and its PREV_BLOCK_IS_FREE
+	//flag still has to agree with prev's free state.
+	ZLOC_ASSERT(zloc__is_used_block(block));
+	if (prev) {
+		ZLOC_ASSERT(block->prev_physical_block == prev);
+		zloc_bool prev_was_free = zloc__is_free_block(prev);
+		zloc_bool prev_flag_says_free = zloc__prev_is_free_block(block);
+		ZLOC_ASSERT(prev_was_free == (zloc_bool)(prev_flag_says_free != 0));
+	}
+}
+
+zloc_pool_stats_t zloc_CreateMemorySnapshot(const zloc_pool *pool) {
 	zloc_pool_stats_t stats = { 0 };
-	zloc_header *current_block = first_block;
+	zloc_header *current_block = zloc__first_block_in_pool(pool);;
 	while (!zloc__is_last_block_in_pool(current_block)) {
 		if (zloc__is_free_block(current_block)) {
 			stats.free_blocks++;
@@ -6234,7 +6339,7 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	if (ptr && remote_size == 0) {
 		zloc__unlock_thread_access;
 		zloc_FreeRemote(allocator, ptr);
-		zloc__lock_thread_access;
+		return 0;
 	}
 
 	if (!ptr) {
@@ -6257,6 +6362,7 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 		}
 
 		if (allocation) {
+			//Note if this callback calls back into reallocate or allocate then you will get a spin lock.
 			zloc__do_unable_to_reallocate_callback;
 			zloc__unlock_thread_access;
 			zloc_Free(allocator, ptr);
@@ -6321,13 +6427,12 @@ void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_r
 	void *aligned_address = NULL;
 
 	while (allocator) {
-		zloc_size actual_size = size_requested < zloc__MINIMUM_BLOCK_SIZE ? zloc__MINIMUM_BLOCK_SIZE : size_requested;
 		zloc_size alignment = sizeof(void *);
 
 		char *current_ptr = (char *)allocator->data + allocator->current_offset;
 		aligned_address = (void *)(((uintptr_t)current_ptr + alignment - 1) & ~(alignment - 1));
 
-		zloc_size new_offset = (zloc_size)((char *)aligned_address - (char *)allocator->data) + actual_size;
+		zloc_size new_offset = (zloc_size)((char *)aligned_address - (char *)allocator->data) + size_requested;
 
 		if (new_offset > allocator->buffer_size) {
 			if (!allocator->next) {
@@ -6353,7 +6458,7 @@ zloc_size zloc_GetMarker(zloc_linear_allocator_t *allocator) {
 void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 	ZLOC_ASSERT(allocator);     //Not a valid allocator!
 	//marker point not valid!
-	ZLOC_ASSERT(marker >= sizeof(zloc_linear_allocator_t) && marker <= allocator->current_offset && marker <= allocator->buffer_size);     //Not a valid allocator!
+	ZLOC_ASSERT(marker <= allocator->current_offset && marker <= allocator->buffer_size);     //Not a valid allocator!
 	allocator->current_offset = marker;
 }
 
@@ -6364,13 +6469,14 @@ void zloc_SetLinearAllocatorUserData(zloc_linear_allocator_t *allocator, void *u
 
 void zloc_AddNextLinearAllocator(zloc_linear_allocator_t *allocator, zloc_linear_allocator_t *next) {
 	while (allocator) {
+		ZLOC_ASSERT(allocator != next);
 		if (!allocator->next) {
 			allocator->next = next;
 			return;
 		}
 		allocator = allocator->next;
 	}
-	ZEST_ASSERT(0, "Unable to add next allocator, allocators may be currupted!");
+	ZLOC_ASSERT(0 && "Unable to add next allocator, allocators may be currupted!");
 }
 
 zloc_size zloc_GetLinearAllocatorCapacity(zloc_linear_allocator_t *allocator) {
@@ -8817,7 +8923,7 @@ void zest__destroy_device(zest_device device) {
     }
     ZEST__FREE(allocator, device->platform);
     ZEST__FREE(allocator, device);
-	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
+	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a Zest Device, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
         zest_PrintMemoryBlocks(allocator, zloc__first_block_in_pool(zloc_GetPool(allocator)), 1, zest_platform_none, zest_command_none);
@@ -10376,7 +10482,7 @@ void zest__scan_memory_and_free_resources(void *origin, zest_bool including_cont
 		memory_pool_count = context->memory_pool_count;
 		allocator = context->allocator;
 	}
-    zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
+    zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(allocator));
     if (stats.used_blocks == 0) {
         return;
     }
@@ -10641,7 +10747,7 @@ void zest__cleanup_context(zest_context context) {
 	zest_vec_free(context->allocator, context->db_overlay.indices);
 
 	context->device->platform->cleanup_context_backend(context);
-	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->allocator)));
+	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(context->allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a zest context, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after a zest context has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
         zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_platform_none, zest_command_none);

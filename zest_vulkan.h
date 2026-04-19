@@ -2663,7 +2663,7 @@ void zest__vk_cleanup_context_backend(zest_context context) {
 }
 
 void zest__vk_destroy_context_surface(zest_context context) {
-	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->allocator)));
+	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(context->allocator));
 	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, VK_NULL_HANDLE);
 }
 // -- End Backend_cleanup_functions
