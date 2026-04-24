@@ -5470,10 +5470,9 @@ ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
 ZEST_API const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index);
 ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
-ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction);
+ZEST_API zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction);
 ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
-ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index);
 ZEST_API char *zest_GetLayerInstructionPushConstants(zest_layer layer, zest_uint index);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
 ZEST_API zest_scissor_rect_t zest_GetLayerScissor(zest_layer layer);
@@ -17890,7 +17889,7 @@ zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
 	return NULL;
 }
 
-const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction_id) {
+zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction_id) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	if (instruction_id < zest_vec_size(layer->draw_instructions[layer->fif])) {
 		return &layer->draw_instructions[layer->fif][instruction_id];
