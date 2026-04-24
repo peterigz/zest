@@ -1261,6 +1261,7 @@ typedef uint64_t zest_handle;
 typedef zest_uint zest_id;
 typedef zest_uint zest_millisecs;
 typedef zest_uint zest_thread_access;
+typedef zest_uint zest_instruction_id;
 typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
 typedef zest_ull zest_size;
@@ -5411,16 +5412,13 @@ ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle);
 //id can be shared with any other frame in flight layer that will flip their frame in flight index at the same
 //time, like when ever the update loop is run.
 ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char *name, zest_size type_size, zest_uint max_instances);
-//Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
-//instance layers more easily
-ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 //Set the layer frame in flight to the next layer. Use this if you're manually setting the current fif for the layer so
 //that you can avoid uploading the staging buffers every frame and only do so when it's neccessary.
 ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //Reset and clear all of the layer instructions for a layer. Note that this is done automatically for layers when
-//zest_StartInstanceInstructions is called and the current frame in flight has changed. But for cases where you 
+//zest_StartInstanceDrawing is called and the current frame in flight has changed. But for cases where you 
 //have a closed loop outside of a zest_Begin/EndFrame you can use this to manuall reset the layer instructions.
 ZEST_API void zest_ResetLayerInstructions(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
@@ -5472,6 +5470,7 @@ ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
 ZEST_API const zest_mesh_offset_data_t *zest_GetLayerMeshOffsets(zest_layer layer, zest_uint mesh_index);
 ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
+ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction);
 ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerInstructionCount(zest_layer layer);
 ZEST_API const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index);
@@ -5493,7 +5492,7 @@ ZEST_API zest_viewport_t zest_GetLayerViewport(zest_layer layer);
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
+ZEST_API zest_instruction_id zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5543,7 +5542,7 @@ ZEST_API void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list com
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
+ZEST_API zest_instruction_id zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline);
 //Push an index to a mesh to build triangles
 ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
@@ -17534,11 +17533,6 @@ void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest
     memcpy(layer->current_instruction.push_constant, push_constants, size);
 }
 
-void zest_StartInstanceInstructions(zest_layer layer) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-    layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
-}
-
 void zest_ResetLayer(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
@@ -17879,12 +17873,6 @@ zest_viewport_t zest_GetLayerViewport(zest_layer layer) {
 	return layer->viewport;
 }
 
-const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_uint index) {
-	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
-	return &layer->draw_instructions[layer->fif][index];
-}
-
 char *zest_GetLayerInstructionPushConstants(zest_layer layer, zest_uint index) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	ZEST_ASSERT(index < zest_vec_size(layer->draw_instructions[layer->fif]));
@@ -17899,6 +17887,14 @@ zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
 		return instruction;
 	}
 	layer->instruction_index = 0;
+	return NULL;
+}
+
+const zest_layer_instruction_t *zest_GetLayerInstruction(zest_layer layer, zest_instruction_id instruction_id) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	if (instruction_id < zest_vec_size(layer->draw_instructions[layer->fif])) {
+		return &layer->draw_instructions[layer->fif][instruction_id];
+	}
 	return NULL;
 }
 
@@ -18000,7 +17996,7 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 }
 
 //-- Start Instance Drawing API
-void zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) {
+zest_instruction_id zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(pipeline); 			//ERROR: Not a valid pipeline template pointer
 	ZEST_ASSERT_HANDLE(layer); 				//ERROR: Not a valid layer pointer
 	zest_context context = layer->context;
@@ -18010,6 +18006,7 @@ void zest_StartInstanceDrawing(zest_layer layer, zest_pipeline_template pipeline
 
 	layer->current_instruction.draw_mode = zest_draw_mode_instance;
 	layer->last_draw_mode = zest_draw_mode_instance;
+	return zest_vec_size(layer->draw_instructions[layer->fif]);
 }
 
 void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
@@ -18145,7 +18142,7 @@ void zest_DrawInstanceMeshLayerWithPipeline(const zest_command_list command_list
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
+zest_instruction_id zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_pipeline_template pipeline) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
 	ZEST_ASSERT(mesh_index < zest_vec_size(layer->mesh_offsets), "Mesh index is out of bounds. Make sure you add all your meshes to the layer with zest_AddMeshToLayer");
@@ -18157,6 +18154,7 @@ void zest_StartInstanceMeshDrawing(zest_layer layer, zest_uint mesh_index, zest_
     layer->current_instruction.viewport = layer->viewport;
 	layer->current_instruction.mesh_index = mesh_index;
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
+	return zest_vec_size(layer->draw_instructions[layer->fif]);
 }
 
 void zest_PushMeshIndex(zest_mesh mesh, zest_uint index) {
