@@ -60,6 +60,7 @@ typedef struct tfx_library_render_resources_s {
 	zest_image_handle particle_texture;
 	zest_image_handle color_ramps_texture;
 	zest_sampler_handle sampler;
+	zest_instruction_id layer_ids[tfxLAYERS];
 	zest_uint color_ramps_index;
 	zest_uint particle_texture_index;
 	zest_uint image_data_index;
