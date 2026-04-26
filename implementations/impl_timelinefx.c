@@ -188,7 +188,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	zest_AddVertexInputBindingDescription(resources->particles.pipeline, 0, sizeof(tfx_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(resources->particles.pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(tfx_instance_t, position));	            // Location 0: Postion and stretch in w
 	zest_AddVertexAttribute(resources->particles.pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(tfx_instance_t, quaternion));	                // Location 1: Quaternion (packed)
-	zest_AddVertexAttribute(resources->particles.pipeline, 0, 2, zest_format_r16g16b16a16_sscaled, offsetof(tfx_instance_t, size_handle));		    // Location 3: Size and handle of the sprite
+	zest_AddVertexAttribute(resources->particles.pipeline, 0, 2, zest_format_r16g16_sscaled, offsetof(tfx_instance_t, size));		    // Location 3: Size and handle of the sprite
 	zest_AddVertexAttribute(resources->particles.pipeline, 0, 3, zest_format_r8g8b8_snorm, offsetof(tfx_instance_t, alignment));					    // Location 2: Alignment
 	zest_AddVertexAttribute(resources->particles.pipeline, 0, 4, zest_format_r16g16_sscaled, offsetof(tfx_instance_t, intensity_gradient_map));       // Location 4: 2 intensities for each color
 	zest_AddVertexAttribute(resources->particles.pipeline, 0, 5, zest_format_r8g8b8_unorm, offsetof(tfx_instance_t, curved_alpha_life));          	// Location 5: Sharpness and mix lerp value
@@ -324,6 +324,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 		push_constants->particle_texture_index = tfx_resources->particle_texture_index;
 		push_constants->sampler_index = tfx_resources->sampler_index;
 		push_constants->image_data_index = tfx_resources->image_data_index;
+		push_constants->particle_properties_index = tfx_resources->particle_properties_index;
 		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
 		push_constants->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
