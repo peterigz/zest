@@ -103,6 +103,7 @@ void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources
 
 	tfx_UpdateLibraryGPUImageData(library);
 	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
+	zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
 }
 
 tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager, int shape_count, int atlas_width, int atlas_height) {
@@ -211,9 +212,13 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	resources->sampler_index = zest_AcquireSamplerIndex(device, sampler);
 
 	//Create a buffer to store the image data on the gpu.
-	zest_buffer_info_t image_data_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &image_data_buffer_info);
+	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &storage_buffer_info);
 	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
+
+	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	resources->particle_properties = zest_CreateBuffer(device, sizeof(tfx_gpu_particle_properties_t) * 1000, &storage_buffer_info);
+	resources->particle_properties_index = zest_AcquireStorageBufferIndex(device, resources->particle_properties);
 
 	//Don't actually need this, can remove?
 	resources->timeline = zest_CreateExecutionTimeline(device);
@@ -275,6 +280,17 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_imm_EndCommandBuffer(queue);
+	zest_FreeBuffer(staging_buffer);
+}
+
+void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library) {
+	//Upload the timelinefx image data to the image data buffer created
+	zest_buffer property_buffer = tfx_rendering->particle_properties;
+	zest_device device = zest_GetContextDevice(context);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_ParticlePropertiesBufferSizeInBytes(library), tfx_ParticlePropertiesBuffer(library));
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+	zest_imm_CopyBuffer(queue, staging_buffer, property_buffer, tfx_ParticlePropertiesBufferSizeInBytes(library));
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBuffer(staging_buffer);
 }

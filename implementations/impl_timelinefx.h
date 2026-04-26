@@ -65,7 +65,9 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint particle_texture_index;
 	zest_uint image_data_index;
 	zest_uint sampler_index;
+	zest_uint particle_properties_index;
 	zest_uniform_buffer_handle uniform_buffer;
+	zest_buffer particle_properties;
 	zest_buffer image_data;
 	zest_camera_t camera;
 	zest_timer_t timer;
@@ -146,6 +148,7 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_render_dispatch_t *render_dispat
 //-- Low-level functions (for custom renderer integration) --
 
 void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes);
+void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library);
 void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers);
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
 void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
