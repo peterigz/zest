@@ -216,7 +216,6 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &storage_buffer_info);
 	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
 
-	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
 	resources->particle_properties = zest_CreateBuffer(device, sizeof(tfx_gpu_particle_properties_t) * 1000, &storage_buffer_info);
 	resources->particle_properties_index = zest_AcquireStorageBufferIndex(device, resources->particle_properties);
 
