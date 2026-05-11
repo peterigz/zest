@@ -4855,6 +4855,8 @@ ZEST_API zest_uint zest_CheckShaderHotReload(zest_device device);
 //a hot-reload UI overlay. The returned pointer is owned by the shader and remains valid until the shader is freed or
 //reloaded.
 ZEST_API const char *zest_GetShaderLastError(zest_shader_handle shader);
+ZEST_API const void *zest_GetCompiledShader(zest_shader shader);
+ZEST_API zest_size zest_GetCompiledShaderSize(zest_shader shader);
 //Get the maximum image dimension available on the device
 ZEST_API zest_uint zest_GetMaxImageSize(zest_context context);
 //Get the device/platform associated with a context
@@ -11738,6 +11740,14 @@ const char *zest_GetShaderLastError(zest_shader_handle shader_handle) {
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     ZEST_ASSERT_HANDLE(shader);
     return (shader->last_error.str && zest_TextLength(&shader->last_error) > 0) ? shader->last_error.str : "";
+}
+
+const void *zest_GetCompiledShader(zest_shader shader) {
+	return shader->spv;
+}
+
+zest_size zest_GetCompiledShaderSize(zest_shader shader) {
+	return shader->spv_size;
 }
 
 ZEST_PRIVATE void zest__invalidate_graphics_template_caches(zest_device device, zest_pipeline_template pipeline_template) {
