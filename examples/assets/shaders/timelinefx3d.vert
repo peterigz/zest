@@ -5,6 +5,8 @@
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
 //using the shaders that only handle whatever you need for the effect.
 
+//#define NO_LERP
+
 //Quad indexes
 const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 
@@ -25,18 +27,29 @@ struct ImageData {
     float max_radius;
 };
 
-struct BillboardInstance {					//52 bytes + padding to 64
+struct Properties {
+	vec2 image_handle;			
+	uint color_ramp_indexes;			//[Row of color ramp bitmap, texture array]
+	uint flags;						//Flags like billboard alignment type
+	float heat_response_boost;			//Thermal ramp values for the frag shader
+	float heat_response_sharpness;
+	float heat_response_curve;
+	uint start_frame_index;
+	float animation_frames;
+	uint padding1;
+	uint padding2;
+	uint padding3;
+};
+
+struct BillboardInstance {					//48 bytes, mirrors tfx_instance_t
 	vec4 position;							//The position of the sprite, x, y - world, z, w = captured for interpolating
 	uvec2 quaternion;			            //Rotations of the sprite packed into a 16-bit snorm quaternion: .x = X|Y, .y = Z|W
-	ivec2 size_handle;						//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint size;								//Size of the sprite in pixels packed into a u32 (2 16bit floats)
 	uint alignment;	    					//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
 	uint intensity_gradient_map;			//Multiplier for the color and the gradient map value packed into 16bit scaled floats
 	uint curved_alpha_life;					//Sharpness and dissolve amount value for fading the image plus the life of the partile packed into 3 unorms
-	uint indexes;							//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
+	uint indexes;							//[gpu property index << 16, capture flag << 15, image data index max 8191 images]
 	uint captured_index;					//Index to the sprite in the buffer from the previous frame for interpolation
-	uint p0;
-	uint p1;
-	uint p2;
 };
 
 layout(push_constant) uniform quad_index
@@ -44,6 +57,7 @@ layout(push_constant) uniform quad_index
     uint particle_texture_index;
     uint color_ramp_texture_index;
     uint image_data_index;
+    uint properties_index;
 	uint sampler_index;
     uint prev_billboards_index;
     uint index_offset;
@@ -68,13 +82,17 @@ layout (std430, set = 0, binding = 5) readonly buffer InImageData {
 	ImageData data[];
 } in_image_data[];
 
+layout (std430, set = 0, binding = 5) readonly buffer InProperties {
+	Properties data[];
+} in_properties[];
+
 //Vertex
 //layout(location = 0) in vec2 vertex_position;
 
 //Instance
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec4 in_quaternion;
-layout(location = 2) in vec4 size_handle;
+layout(location = 2) in vec2 size_in;
 layout(location = 3) in vec3 alignment;
 layout(location = 4) in vec2 intensity_gradient_map;
 layout(location = 5) in vec3 curved_alpha_life;
@@ -82,8 +100,9 @@ layout(location = 6) in uint texture_indexes;
 layout(location = 7) in uint captured_index;
 
 layout(location = 0) out vec3 out_tex_coord;
-layout(location = 1) out ivec3 out_texture_indexes;
+layout(location = 1) out flat ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
+layout(location = 3) out flat vec3 out_heat_response;
 
 mat3 QuaternionToRotationMatrix(vec4 q) {
     float xx = q.x * q.x; float xy = q.x * q.y; float xz = q.x * q.z; float xw = q.x * q.w;
@@ -97,8 +116,11 @@ mat3 QuaternionToRotationMatrix(vec4 q) {
 }
 
 void main() {
-    vec2 size = size_handle.xy * size_max_value;
-    vec2 handle = size_handle.zw * handle_max_value;
+    uint emitter_index = (texture_indexes >> 16) & 0xFFFFu;
+    Properties props = in_properties[pc.properties_index].data[emitter_index];
+
+    vec2 size = size_in * size_max_value;
+    vec2 handle = props.image_handle;
     vec4 quaternion = normalize(in_quaternion);
 
     uint prev_index = (captured_index & 0x0FFFFFFF) + pc.index_offset;  //Add on an offset if the are multiple draw instructions
@@ -109,17 +131,15 @@ void main() {
     //  It maybe cancelled becuase too much time passed since the last frame
 	float interpolate_is_active = float((texture_indexes & 0x00008000) >> 15);
 
-	uint prev_size_packed = in_prev_billboards[pc.prev_billboards_index].data[prev_index].size_handle.x;
+	uint prev_size_packed = in_prev_billboards[pc.prev_billboards_index].data[prev_index].size;
 
 	//vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp) : position.xyz;
 
-    #ifdef LOW_UPDATE_RATE
-    //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
-    //define LOW_UPDATE_RATE to compile with this instead.
-	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
-	lerped_size = mix(lerped_size, size, ub[pc.uniform_index].timer_lerp.x);
-	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp.x) : position.xyz;
-	vec4 lerped_quaternion = interpolate_is_active == 1 ? mix(normalize(vec4(unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.x), unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.y))), quaternion, ub[pc.uniform_index].timer_lerp.x) : quaternion;
+    #ifdef NO_LERP
+	vec2 lerped_size = size;
+	vec3 lerped_position = position.xyz;
+	vec4 lerped_quaternion = quaternion;
+    vec3 motion = vec3(0);
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
@@ -127,8 +147,8 @@ void main() {
 	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub[pc.uniform_index].timer_lerp.x);
     //(peviously lerped_rotation)
 	vec4 lerped_quaternion = mix(normalize(vec4(unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.x), unpackSnorm2x16(in_prev_billboards[pc.prev_billboards_index].data[prev_index].quaternion.y))), quaternion, ub[pc.uniform_index].timer_lerp.x);
-    #endif
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
+    #endif
     motion.z += 0.000001;
 	bool has_alignment = dot(alignment, alignment) > 0;
     float travel_distance = has_alignment ? .1 : length(motion); // Calculate the actual distance traveled if alignment is motion otherwise set it to a constant
@@ -138,21 +158,22 @@ void main() {
     vec3 final_alignment = has_alignment ? alignment : motion; // Use normalized motion or specified alignment
     //----
 
-    //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
+    //Info about how to align the billboard is stored in the lowest 2 bits of props.flags.
 
-    //Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
+    //Billboarding determines whether the quad will align to the camera or not. 0 means that it will
     //align to the camera. This value is determined by the first bit: 01
-    bool billboarding = (texture_indexes & uint(0x2000)) > 0;
+    uint align_flags = props.flags & 0x3u;
+    bool billboarding = (align_flags & 0x1u) > 0u;
 
     //align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
     //no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
     //will be set: 11.
-    bool align_type = (texture_indexes & uint(0x6000)) == 0x6000;
+    bool align_type = align_flags == 0x3u;
 
     //vector_align is set to 1 when we want the billboard to align to the camera and the vector
     //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
     //bit is the only bit set if this is the case: 10
-    bool vector_align = (texture_indexes & uint(0x6000)) == 0x4000;
+    bool vector_align = align_flags == 0x2u;
 
     //Calculate components needed for vector_align roll
     vec3 camera_relative_aligment = final_alignment * inverse(mat3(ub[pc.uniform_index].view));
@@ -189,7 +210,7 @@ void main() {
 	// It ignores the intrinsic roll potentially contained within lerped_quaternion.
 	// If combined roll is needed, extract roll from lerped_quaternion (complex) & combine sin/cos.
 	float final_c_roll = c_vec;
-	float final_s_roll = s_vec;
+	float final_s_roll = -s_vec;
 	// --- End Simplification ---
 
 	// Construct Z-rotation matrix using this calculated roll
@@ -197,7 +218,7 @@ void main() {
 									  -final_s_roll, final_c_roll, 0.0,
 									   0.0,          0.0,           1.0);
 
-	final_rot_mat = align_type ? align_mat * base_spin_mat : base_spin_mat;
+	final_rot_mat = align_type ? align_mat * base_spin_mat : (vector_align ? vector_align_roll_mat * base_spin_mat : base_spin_mat);
 	// --- Final Rotation ---
 
     const vec3 identity_bounds[4] = vec3[4](
@@ -248,7 +269,10 @@ void main() {
 
     //----------------
 	int life = int(curved_alpha_life.z * 255);
-	out_texture_indexes = ivec3((texture_indexes & 0xFF000000) >> 24, (texture_indexes & 0x00FF0000) >> 16, life);
+	int ramp_y = int(props.color_ramp_indexes & 0xFFu);
+	int ramp_array = int((props.color_ramp_indexes >> 8) & 0xFFu);
+	out_texture_indexes = ivec3(ramp_y, ramp_array, life);
 	out_tex_coord = vec3(uvs[index], in_image_data[pc.image_data_index].data[image_index].texture_array_index);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
+	out_heat_response = vec3(props.heat_response_boost, props.heat_response_sharpness, props.heat_response_curve);
 }

@@ -44,6 +44,20 @@ struct tfx_ribbon {
 	uint _padding[2];                   //Padding to 64 bytes for std430 alignment
 };
 
+struct tfx_emitter {
+	uvec2 quaternion;
+	uint lookup_offset;
+	uint angle_type;
+	vec3 position;
+	float heat_response_boost;
+	vec3 captured_position;
+	float heat_response_sharpness;
+	vec3 scale;
+	float heat_response_curve;
+	vec3 fixed_angle_normal;
+	int padding;
+};
+
 layout(binding = 5) readonly buffer InImageData {
 	ImageData data[];
 } images[];
@@ -55,6 +69,10 @@ layout(binding = 5) readonly buffer InRibbonSegments {
 layout(binding = 5) readonly buffer InRibbonInstances {
 	tfx_ribbon data[];
 } ribbons[];
+
+layout(binding = 5) readonly buffer InEmitters {
+	tfx_emitter data[];
+} emitters[];
 
 layout(push_constant) uniform push_constants
 {
@@ -89,6 +107,7 @@ layout(location = 4) in uint clipped;
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
+layout(location = 3) out flat vec3 out_heat_response;
 
 vec2 unpack16bit_sscaled(uint packed) {
     int x_scaled = int(packed & 0xFFFFu);
@@ -103,6 +122,7 @@ void main() {
 	float ribbon_position = float((segment_index & 0x007FF000) >> 12) / 2047.0;
 	ribbon_segment segment = segments[pc.ribbon_segments_index].data[current_segment_index];
 	tfx_ribbon ribbon = ribbons[pc.ribbons_index].data[ribbon_index];
+	tfx_emitter emitter = emitters[pc.emitters_index].data[ribbon.emitter_index];
 	uint image_index = ribbon.texture_indexes & 0x00001FFF;
 
 	//Calculate the uv coords across the width of the ribbon
@@ -146,4 +166,5 @@ void main() {
 	out_tex_coord = vec3(vec2(uv_x, uv_y), images[pc.image_data_index].data[image_index].texture_array_index);
 	out_texture_indexes = ivec3((ribbon.texture_indexes & 0xFF000000) >> 24, (ribbon.texture_indexes & 0x00FF0000) >> 16, life);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * ribbon_intensity_gradient_map.x * clipped, curved_alpha.x * ribbon_curved_alpha.x, curved_alpha.y * ribbon_curved_alpha.y, intensity_gradient_map.y * ribbon_intensity_gradient_map.y);
+	out_heat_response = vec3(emitter.heat_response_boost, emitter.heat_response_sharpness, emitter.heat_response_curve);
 }
