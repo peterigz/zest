@@ -102,7 +102,12 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 //Initialise the example and create all the necessary buffers and objects for the compute shaders and load in the effects library
 //and prepare the effect we'll use as an example.
 void InitExample(tfxPrerecordedExample *example) {
-	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, "examples/assets/shaders/timelinefx3dstatic.vert", "examples/assets/shaders/timelinefxstatic.frag", "examples/assets/shaders/ribbon_3d.vert", "examples/assets/shaders/ribbon.frag", "examples/assets/shaders/ribbons.comp");
+	zest_shader_handle particles_frag_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle particles_vert_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle ribbon_rendering_frag_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle ribbon_rendering_vert_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->device, &sampler);

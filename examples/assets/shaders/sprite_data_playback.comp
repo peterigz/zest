@@ -182,7 +182,7 @@ void main()
 	//before the sprite actually spawns. We also set it to 0 if the captured_index equals the sprite index. lerp_offset will always be 1 if the particle Sprite
 	//has been spawned for 1 or more frames.
 	float lerp_offset = float(sprite_data[pc.sprite_data_index].data[captured_index].property_index_lerp_offset & 0xFFFF) * unorm_multiplier;
-	float spawn_scale = ((lerp_offset >= (1 - lerp)) && (captured_index != sprite_data_index)) ? 1 : 0;
+	float spawn_scale = ((lerp_offset >= (1 - lerp)) && (captured_index != sprite_data_index)) ? 1 : 1;
 
 	//Do all of the interpolation for transfrom, intensity etc.
 	//If you feel that you can get away with not interpolating some of the data then you could optimise some of these out but it will largely
