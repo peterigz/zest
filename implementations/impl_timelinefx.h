@@ -102,7 +102,7 @@ extern "C" {
 //-- High-level API (recommended) --
 
 //Initialise the render resources needed for TimelineFX rendering including pipelines, shaders, layer and uniform buffer.
-void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, const char *vert_shader, const char *frag_shader, const char *ribbon_vert, const char *ribbon_frag, const char *ribbon_comp);
+void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp);
 
 //Load a TimelineFX library and create the particle image atlas. Returns the library handle so you can create effect templates.
 //Call zest_tfx_FinaliseLibrary after creating all effect templates.

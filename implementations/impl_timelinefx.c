@@ -155,7 +155,7 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	resources->emitter_properties_index = zest_AcquireStorageBufferIndex(device, resources->emitter_properties_buffer);
 }
 
-void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *resources, const char *vert_shader, const char *frag_shader, const char *ribbon_vert, const char *ribbon_frag, const char *ribbon_comp) {
+void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp) {
 	zest_device device = zest_GetContextDevice(context);
 	resources->uniform_buffer = zest_CreateUniformBuffer(context, "tfx uniform", sizeof(tfx_uniform_buffer_data_t));
 
@@ -170,11 +170,11 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	zest_tfx_UpdateUniformBuffer(context, resources);
 
 	//Compile the shaders we will use to render the particles and ribbons
-	resources->particles.frag_shader = zest_CreateShaderFromFile(device, frag_shader, "tfx_frag.spv", zest_fragment_shader, NULL, true);
-	resources->particles.vert_shader = zest_CreateShaderFromFile(device, vert_shader, "tfx_vertex.spv", zest_vertex_shader, NULL, true);
-	resources->ribbon_rendering.frag_shader = zest_CreateShaderFromFile(device, ribbon_frag, "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
-	resources->ribbon_rendering.vert_shader = zest_CreateShaderFromFile(device, ribbon_vert, "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
-	resources->ribbon_rendering.comp_shader = zest_CreateShaderFromFile(device, ribbon_comp, "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	resources->particles.frag_shader = frag_shader;
+	resources->particles.vert_shader = vert_shader;
+	resources->ribbon_rendering.frag_shader = ribbon_frag;
+	resources->ribbon_rendering.vert_shader = ribbon_vert;
+	resources->ribbon_rendering.comp_shader = ribbon_comp;
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps
