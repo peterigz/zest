@@ -390,7 +390,7 @@ int main(int argc, char *argv[]) {
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	//ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling | zest_context_init_flag_debug_overlay);
 	compute_example.context = zest_CreateContext(compute_example.device, &window_data, &create_info);
 
 	//Initialise Dear ImGui
