@@ -110,28 +110,56 @@ The compiler automatically inserts barriers, manages image layout transitions, h
 ### Multi-Pass Example
 
 ```c
-zest_BeginFrameGraph(context, "Multi pass example", 0);
+if (zest_BeginFrameGraph(app->context, "PBR Forward Renderer", &cache_key)) {
+	zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
+	zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
+	zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+	zest_resource_node swapchain_node = zest_ImportSwapchainResource();
+	zest_resource_group group = zest_CreateResourceGroup();
+	zest_AddSwapchainToGroup(group);
+	zest_AddResourceToGroup(group, depth_buffer);
 
-    zest_resource swap    = zest_ImportSwapchainResource();
-    zest_resource depth   = zest_AddTransientImageResource("depth", &depth_desc);
-    zest_resource gbuffer = zest_AddTransientImageResource("gbuffer", &gbuffer_desc);
+	//-------------------------Transfer Pass------------------------------------------------
+	//Upload instanced mesh data (mesh geometry already uploaded outside the frame graph)
+	zest_BeginTransferPass("Upload Mesh Data"); {
+		zest_ConnectOutput(mesh_layer_resource);
+		zest_ConnectOutput(skybox_layer_resource);
+		zest_SetPassTask(UploadMeshData, app);
+		zest_EndPass();
+	}
 
-    // Geometry pass -- writes gbuffer and depth
-    zest_BeginRenderPass("geometry");
-        zest_ConnectOutput(gbuffer);
-        zest_ConnectOutput(depth);
-        zest_SetPassTask(geometry_pass, user_data);
-    zest_EndPass(context);
+	//-------------------------Skybox Pass--------------------------------------------------
+	//Render skybox first 
+	zest_BeginRenderPass("Skybox Pass"); {
+		zest_ConnectInput(skybox_layer_resource);
+		zest_ConnectOutputGroup(group);
+		zest_SetPassTask(zest_DrawInstanceMeshLayer, skybox_layer);
+		zest_EndPass();
+	}
 
-    // Lighting pass -- reads gbuffer, writes to swapchain
-    zest_BeginRenderPass("lighting");
-        zest_ConnectInput(gbuffer);
-        zest_ConnectInput(depth);
-        zest_ConnectSwapChainOutput();
-        zest_SetPassTask(lighting_pass, user_data);
-    zest_EndPass();
+	//-------------------------PBR Mesh Pass------------------------------------------------
+	//Render PBR objects over skybox
+	zest_BeginRenderPass("Instance Mesh Pass"); {
+		zest_ConnectInput(mesh_layer_resource);
+		zest_ConnectOutputGroup(group);
+		zest_SetPassTask(zest_DrawInstanceMeshLayer, mesh_layer);
+		zest_EndPass();
+	}
 
-zest_EndFrameGraph();
+	//-------------------------ImGui Pass---------------------------------------------------
+	zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui, app->imgui.main_viewport); {
+		if (imgui_pass) {
+			zest_ConnectOutputGroup(group);
+		} else {
+			zest_BeginRenderPass("Draw Nothing");
+			zest_ConnectOutputGroup(group);
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+		}
+		zest_EndPass();
+	}
+
+	frame_graph = zest_EndFrameGraph();
+}
 ```
 
 Transient resources are automatically allocated, aliased where possible, and freed at the end of the frame.
@@ -139,22 +167,28 @@ Transient resources are automatically allocated, aliased where possible, and fre
 In your pass task callback you might have something like:
 
 ```c
-void DrawSprites(zest_command_list command_list, void *user_data) {
+void RecordComputeSprites(zest_command_list command_list, void *user_data) {
+	//Grab the app object from the user_data that we set in the frame graph when adding this function callback 
 	ComputeExample *app = (ComputeExample*)user_data;
-	//Retrieve the pipeline
+	//Get the pipeline from the template that we created. This will compile and cache the pipeline if it hasn't
+	//been already. Otherwise it will just fetch the cached pipeline.
 	zest_pipeline pipeline = zest_GetPipeline(app->particle_pipeline, command_list);
-	//Bind it
+	//Bind the pipeline 
 	zest_cmd_BindPipeline(command_list, pipeline);
-	//Set and send push constants for bindless descriptor lookups in the shader
+	//The shader needs to know the indexes into the descriptor array for the textures so we use push constants to
+	//do so. You could also use a uniform buffer if you wanted.
 	ParticlePushConsts push;
 	push.particle_index = app->particle_image_index;
 	push.gradient_index = app->gradient_image_index;
 	push.sampler_index = app->sampler_index;
+	//Send the push constant
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(ParticlePushConsts));
+	//Set the viewport with this helper function. Pipelines are created with dynamic viewports by default so you
+	//must always set the view port for each draw call.
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
-	//Bind the vertex buffer
+	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, app->particle_buffer);
-	//Make the drawcall
+	//Draw the point sprites
 	zest_cmd_Draw(command_list, PARTICLE_COUNT, 1, 0, 0);
 }
 ```
