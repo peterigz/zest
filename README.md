@@ -184,7 +184,7 @@ examples/
 
 Credit to Sascha Willems for some of these examples where I re-implemented his original Vulkan examples in Zest.
 
-I highly recommend checking out the examples to learn how to use the library and I all examples are heavily commented so they're a good resource to learn how to use Zest.
+I highly recommend checking out the examples to learn how to use the library, all examples are heavily commented so they're a good resource to learn how to use Zest.
 
 For convenience all examples use SDL2 for the windowing, but you can use whatever you want in your own projects.
 
