@@ -14801,7 +14801,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					zest__draw_cpu_profile_overlay(context);
 				}
 
-				if (context->db_overlay.vertex_count > 0 && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+				if (ZEST__FLAGGED(context->flags, zest_context_init_flag_debug_overlay) && context->db_overlay.vertex_count > 0 && ZEST__FLAGGED(grouped_pass->flags, zest_pass_flag_outputs_to_swapchain)) {
 					zest__draw_debug_overlay(&frame_graph->command_list);
 				}
 
