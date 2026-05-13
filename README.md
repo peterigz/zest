@@ -12,11 +12,16 @@ This is a more forward looking renderer currently in that it supports bindless d
 
 - **Minimal Setup**: drop `zest.h` and `zest_[platform]` (currently vulkan only)  into your project and go
 - **Frame graph compiler**: declare passes and resources; Zest handles barriers, semaphores, pass culling, async queue scheduling, and transient memory automatically
+- **Immediate command buffers**: For easy one off tasks like uploading data to the gpu or running a compute shader.
 - **Bindless descriptors**: one global descriptor layout, resources indexed by handle
-- **Dynamic rendering**: Vulkan 1.3 dynamic render passes, no baked render pass objects
-- **TLSF memory allocator**: low-fragmentation allocator for both CPU and GPU memory to keep memory usage neat and tidy.
+- **Dynamic rendering**: Vulkan 1.3 dynamic render passes, no baked render pass objects (legacy renderpass fallback for older cards).
+- **TLSF memory allocator**: Internal low-fragmentation allocator for both CPU and GPU memory to keep memory usage neat and tidy.
 - **Multi-window support**: one device, multiple contexts (swapchains)
-- **Cross-platform**: Windows, Linux, macOS (currently via MoltenVK)
+- **Headless contexts**: For just running compute shaders only.
+- **Cross-platform**: Windows, Linux, macOS (currently via MoltenVK until I add a metal backend)
+- **Simple profiling**: Can output to a debug overlay or a ImGui implementation
+- **Shader Hot Reloading**: Flag shaders so that modifications are monitored and hot reloaded automatically
+- **Slang implementation**: Optionally compile slang shaders
 
 ### Who is this for?
 
@@ -28,7 +33,7 @@ You should be comfortable with concepts like vertex buffers, pipelines and rende
 
 ### Current Requirements
 
-The current requirements will change overtime as I add more platform layers like DirectX, Metal and maybe even opengl to target much older graphics cards but I'm not sure right now.
+The current requirements will change overtime as I add more platform layers like DirectX and Metal.
 
 | Requirement | Minimum |
 |-------------|---------|
@@ -86,18 +91,18 @@ Optional CMake flags:
 The frame graph is the core of Zest. You declare what you want to happen, and the compiler figures out how to execute it efficiently:
 
 ```c
-zest_BeginFrameGraph(context);
+zest_BeginFrameGraph(context, "Simple example", 0);
 
     // Import the swapchain as a resource the graph can write to
-    zest_resource swap = zest_ImportSwapchainResource(context, "backbuffer");
+    zest_resource swap = zest_ImportSwapchainResource();
 
     // Declare a render pass
-    zest_BeginRenderPass(context, "main");
-        zest_ConnectSwapChainOutput(context, swap);
-        zest_SetPassTask(context, my_render_callback, user_data);
-    zest_EndPass(context);
+    zest_BeginRenderPass("main");
+        zest_ConnectSwapChainOutput();
+        zest_SetPassTask(my_render_callback, user_data);
+    zest_EndPass();
 
-zest_EndFrameGraphAndExecute(context);
+zest_EndFrameGraph();
 ```
 
 The compiler automatically inserts barriers, manages image layout transitions, handles semaphore signaling between passes, and culls unused passes. Frame graphs can be cached with `zest_InitialiseCacheKey()` to avoid recompilation when the graph structure doesn't change.
@@ -105,28 +110,28 @@ The compiler automatically inserts barriers, manages image layout transitions, h
 ### Multi-Pass Example
 
 ```c
-zest_BeginFrameGraph(context);
+zest_BeginFrameGraph(context, "Multi pass example", 0);
 
-    zest_resource swap    = zest_ImportSwapchainResource(context, "backbuffer");
-    zest_resource depth   = zest_AddTransientImageResource(context, "depth", &depth_desc);
-    zest_resource gbuffer = zest_AddTransientImageResource(context, "gbuffer", &gbuffer_desc);
+    zest_resource swap    = zest_ImportSwapchainResource();
+    zest_resource depth   = zest_AddTransientImageResource("depth", &depth_desc);
+    zest_resource gbuffer = zest_AddTransientImageResource("gbuffer", &gbuffer_desc);
 
     // Geometry pass -- writes gbuffer and depth
-    zest_BeginRenderPass(context, "geometry");
-        zest_ConnectOutput(context, gbuffer);
-        zest_ConnectOutput(context, depth);
-        zest_SetPassTask(context, geometry_pass, user_data);
+    zest_BeginRenderPass("geometry");
+        zest_ConnectOutput(gbuffer);
+        zest_ConnectOutput(depth);
+        zest_SetPassTask(geometry_pass, user_data);
     zest_EndPass(context);
 
     // Lighting pass -- reads gbuffer, writes to swapchain
-    zest_BeginRenderPass(context, "lighting");
-        zest_ConnectInput(context, gbuffer);
-        zest_ConnectInput(context, depth);
-        zest_ConnectSwapChainOutput(context, swap);
-        zest_SetPassTask(context, lighting_pass, user_data);
-    zest_EndPass(context);
+    zest_BeginRenderPass("lighting");
+        zest_ConnectInput(gbuffer);
+        zest_ConnectInput(depth);
+        zest_ConnectSwapChainOutput();
+        zest_SetPassTask(lighting_pass, user_data);
+    zest_EndPass();
 
-zest_EndFrameGraphAndExecute(context);
+zest_EndFrameGraph();
 ```
 
 Transient resources are automatically allocated, aliased where possible, and freed at the end of the frame.
@@ -156,12 +161,10 @@ void DrawSprites(zest_command_list command_list, void *user_data) {
 
 ## Current to do
 
-I'm using this library to develop my particle effects editor and library (TimelineFX) and so the next thing on my list will be to refactor that to update it this new renderer version, and so that will probably mean I have to tweak Zest as I find new bugs along the way. Other then that I'd like to:
-
-- Implement profiling for cpu and gpu.
-- Shader hot reloading.
 - There's a few more examples/tests I'd like to write to test more functionality.
 - Other platform layers: DirectX 12, Metal and maybe WebGPU and even opengl if it makes sense.
+- Multithreaded command buffer recording.
+- General bug fixes as I go.
 
 ## Project Structure
 
@@ -183,7 +186,7 @@ Credit to Sascha Willems for some of these examples where I re-implemented his o
 
 I highly recommend checking out the examples to learn how to use the library and I all examples are heavily commented so they're a good resource to learn how to use Zest.
 
-For convenience all examples use SDL2 for the windowing, but you can use whatever you want. 
+For convenience all examples use SDL2 for the windowing, but you can use whatever you want in your own projects.
 
 | Example | Description |
 |---------|-------------|
