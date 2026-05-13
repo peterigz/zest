@@ -203,8 +203,8 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 ## Project Structure
 
 ```
-zest.h                  Main API (~16K lines)
-zest_vulkan.h           Vulkan backend (~5K lines)
+zest.h                  Main API 
+zest_vulkan.h           Vulkan backend 
 zest_utilities.h        Optional helpers to support the examples. (image loading, fonts, GLFW/SDL2)
 implementations/
   impl_imgui.cpp/h      Dear ImGui integration
