@@ -395,8 +395,6 @@ void MainLoop(SimplePBRExample *app) {
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 
 			if (!frame_graph) {
-				zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
-				zest_uniform_buffer lights_buffer = zest_GetUniformBuffer(app->lights_buffer);
 				if (zest_BeginFrameGraph(app->context, "PBR Forward Renderer", &cache_key)) {
 					zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
