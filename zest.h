@@ -14448,6 +14448,8 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]);
     }
 	zest__cleanup_frame_graph_builder();
+	zloc_ResetLinearAllocator(&context->frame_graph_allocator[context->current_fif]);
+
 	return status;
 }
 
