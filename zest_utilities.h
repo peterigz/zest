@@ -250,6 +250,7 @@ ZEST_API void zest_FreeImageCollection(zest_image_collection_t *image_collection
 ZEST_API zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap);
 ZEST_API zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format);
 ZEST_API zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, int frame_width, int frame_height, int frames, zest_format format);
+ZEST_API void zest_RemoveImage(zest_image_collection_t *image_collection, zest_uint index);
 ZEST_API zest_bitmap_t *zest_GetLastBitmap(zest_image_collection_t *image_collection);
 ZEST_API zest_bool zest_GetBestFit(zest_context context, zest_image_collection_t *image_collection, zest_uint *width, zest_uint *height);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_t *image_collection, zest_uint bitmap_index);
@@ -1776,7 +1777,7 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.height, "Height has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.format, "Format has not been set in the bitmap");		//Not a valid bitmap handle
-	ZEST_ASSERT(image_collection->image_count <= image_collection->max_images);		//Run out of room in the image collection!
+	ZEST_ASSERT(image_collection->image_count < image_collection->max_images);		//Run out of room in the image collection!
 	if (bitmap) {
 		if (bitmap->meta.format != image_collection->format) {
 			zest_ConvertBitmap(bitmap, image_collection->format, 255);
@@ -1864,6 +1865,24 @@ zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *
 		}
 	}
 	return first_region;
+}
+
+void zest_RemoveImage(zest_image_collection_t *image_collection, zest_uint index) {
+	if (index >= image_collection->image_count) return;
+	zest_FreeBitmap(&image_collection->image_bitmaps[index]);
+	zest_uint tail = image_collection->image_count - index - 1;
+	if (tail) {
+		memmove(&image_collection->image_bitmaps[index],
+				&image_collection->image_bitmaps[index + 1],
+				tail * sizeof(zest_bitmap_t));
+		memmove(&image_collection->regions[index],
+				&image_collection->regions[index + 1],
+				tail * sizeof(zest_atlas_region_t));
+		for (zest_uint i = index; i < image_collection->image_count - 1; ++i) {
+			image_collection->regions[i].atlas_index = i;
+		}
+	}
+	image_collection->image_count--;
 }
 
 zest_bitmap_t *zest_GetLastBitmap(zest_image_collection_t *image_collection) {
