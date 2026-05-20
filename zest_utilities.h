@@ -2009,40 +2009,29 @@ zest_bool zest_GetBestFit(zest_context context, zest_image_collection_t *image_c
 
 zest_byte zest__calculate_texture_layers(stbrp_rect* rects, zest_uint image_count, zest_uint width, zest_uint height, const zest_uint node_count) {
     stbrp_node* nodes = (stbrp_node*)ZEST_UTILITIES_MALLOC(sizeof(stbrp_node) * node_count);
-    zest_byte layers = 0;
-    stbrp_rect* current_rects = (stbrp_rect*)ZEST_UTILITIES_MALLOC(sizeof(stbrp_rect) * image_count);
-    stbrp_rect* rects_copy = (stbrp_rect*)ZEST_UTILITIES_MALLOC(sizeof(stbrp_rect) * image_count);
-    memcpy(rects_copy, rects, sizeof(stbrp_rect) * image_count);
-	zest_uint current_rects_count = 0;
-	zest_uint copy_count = image_count;
-    while (copy_count > 0 && layers <= 255) {
+    stbrp_rect* working = (stbrp_rect*)ZEST_UTILITIES_MALLOC(sizeof(stbrp_rect) * image_count);
+    memcpy(working, rects, sizeof(stbrp_rect) * image_count);
 
+    zest_uint layers = 0;
+    zest_uint remaining = image_count;
+    while (remaining > 0 && layers < 255) {
         stbrp_context context;
         stbrp_init_target(&context, width, height, nodes, node_count);
-        stbrp_pack_rects(&context, rects_copy, (int)copy_count);
+        stbrp_pack_rects(&context, working, (int)remaining);
 
-        for(zest_uint i = 0; i != copy_count; ++i) {
-			current_rects[current_rects_count] = rects_copy[i];
-			current_rects_count++;
-        }
-
-		copy_count = 0;
-
-        for(zest_uint i = 0; i != current_rects_count; ++i) {
-            if (!current_rects[i].was_packed) {
-				rects_copy[i] = current_rects[i];
-				copy_count++;
+        zest_uint next_remaining = 0;
+        for (zest_uint i = 0; i < remaining; ++i) {
+            if (!working[i].was_packed) {
+                working[next_remaining++] = working[i];
             }
         }
-
-		current_rects_count = 0;
+        remaining = next_remaining;
         layers++;
     }
 
-	ZEST_UTILITIES_FREE(nodes);
-	ZEST_UTILITIES_FREE(rects_copy);
-	ZEST_UTILITIES_FREE(current_rects);
-    return layers;
+    ZEST_UTILITIES_FREE(nodes);
+    ZEST_UTILITIES_FREE(working);
+    return (zest_byte)layers;
 }
 
 void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, zest_uint layer_height, zest_uint max_image_size) {
