@@ -16006,7 +16006,12 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
 
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource) {
     zest_set_layout bindless_layout = command_list->frame_graph->bindless_layout;
-    ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle
+    ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle. Things to Check:
+	//When calling zest_GetPass[Input/Ouput]Resource use the correct resource name as defined in the frame graph
+	//Use the correct call depending on whether the resource was used as input or ouput ie:
+	//	zest_GetPassInputResource if it was used as input
+	//	zest_GetPassOutputResource if it was used as output
+									
     ZEST_ASSERT(resource->type & zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
 	zest_context context = zest__frame_graph_builder->context;
 	zest_device device = context->device;
