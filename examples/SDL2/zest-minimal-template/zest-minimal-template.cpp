@@ -76,15 +76,12 @@ void MainLoop(minimal_app_t *app) {
 int main(int argc, char *argv[]) {
 	//Make a config struct where you can configure zest with some options
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
-	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 
 	minimal_app_t app = {};
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
-	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Minimal Template");
 
 	//Create the device that serves all vulkan based contexts
 	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
