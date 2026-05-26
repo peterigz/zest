@@ -2235,6 +2235,12 @@ typedef enum zest_image_flag_bits {
 	// For a standard texture with mipmap generation.
 	zest_image_preset_texture_mipmaps = zest_image_preset_texture | zest_image_flag_transfer_src | zest_image_flag_generate_mipmaps,
 
+	// For a 3D volume texture loaded from CPU. Set extent.depth > 1 on the info struct, or use zest_CreateImageInfo3D.
+	zest_image_preset_texture_3d = zest_image_flag_sampled | zest_image_flag_transfer_dst | zest_image_flag_device_local,
+
+	// For a 3D volume image written by a compute shader and then sampled. Set extent.depth > 1 on the info struct, or use zest_CreateImageInfo3D.
+	zest_image_preset_storage_3d = zest_image_flag_storage | zest_image_flag_sampled | zest_image_flag_device_local,
+
 	// For a render target that can be sampled (e.g., post-processing).
 	zest_image_preset_color_attachment = zest_image_flag_color_attachment | zest_image_flag_sampled | zest_image_flag_device_local,
 
@@ -5347,6 +5353,7 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 //Create a new image info struct which you use to create a new image. Change the members of the info
 //struct to create the create that you need.
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
+ZEST_API zest_image_info_t zest_CreateImageInfo3D(zest_uint width, zest_uint height, zest_uint depth);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image image);
 ZEST_API zest_image_handle zest_CreateImage(zest_device device, zest_image_info_t *create_info);
 ZEST_API zest_image_handle zest_CreateImageWithPixels(zest_device device, void *pixels, zest_size size, zest_image_info_t *create_info);
@@ -16765,6 +16772,14 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
 		ZEST_ASSERT_OR_VALIDATE(create_info->layer_count > 0 && create_info->layer_count % 6 == 0,
 			device, "Cubemap must have layers in multiples of 6", null_handle);
 	}
+	if (create_info->extent.depth > 1) {
+		ZEST_ASSERT_OR_VALIDATE(create_info->layer_count <= 1,
+			device, "3D images (extent.depth > 1) must have layer_count of 1. Vulkan does not support arrays of 3D images.", null_handle);
+		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_cubemap),
+			device, "3D images cannot be cubemaps", null_handle);
+		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps),
+			device, "Automatic mipmap generation is not supported for 3D images. Provide pre-generated mips or specify mip_levels = 1.", null_handle);
+	}
 	//Check if the format is supported with the requested flags
 	ZEST_ASSERT_OR_VALIDATE(device->platform->is_image_format_supported(device, create_info->format, create_info->flags),
 		device, "Image format is not supported with the requested usage flags", null_handle);
@@ -16775,6 +16790,9 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
     image->info = *create_info;
     image->info.aspect_flags = zest__determine_aspect_flag_for_view(create_info->format);
     image->info.mip_levels = create_info->mip_levels > 0 ? create_info->mip_levels : 1;
+    if (image->info.layer_count == 0) {
+        image->info.layer_count = 1;
+    }
     if (ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
         image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(create_info->extent.width, create_info->extent.height))) + 1;
     }
@@ -17241,6 +17259,19 @@ zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height) {
     return info;
 }
 
+zest_image_info_t zest_CreateImageInfo3D(zest_uint width, zest_uint height, zest_uint depth) {
+    zest_image_info_t info = {
+        {width, height, depth},
+        1,
+        1,
+        zest_format_r8g8b8a8_unorm,
+        0,
+        zest_sample_count_1_bit,
+        0
+    };
+    return info;
+}
+
 zest_image_view_type zest__get_image_view_type(zest_image image) {
     zest_image_view_type view_type;
     if (image->info.extent.depth > 1) {
@@ -17266,8 +17297,9 @@ zest_image_handle zest_CreateImageWithPixels(zest_device device, void *pixels, z
 	zest_GetFormatPixelData(create_info->format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
 	zest_size blocks_x = (create_info->extent.width + block_width - 1) / block_width;
 	zest_size blocks_y = (create_info->extent.height + block_height - 1) / block_height;
-	zest_size expected_size = blocks_x * blocks_y * bytes_per_block;
-	ZEST_ASSERT(size == expected_size, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height of the image.");
+	zest_size depth = create_info->extent.depth > 0 ? create_info->extent.depth : 1;
+	zest_size expected_size = blocks_x * blocks_y * depth * bytes_per_block;
+	ZEST_ASSERT(size == expected_size, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height/depth of the image.");
 	zest_image_handle image_handle = zest__create_image(device, create_info);
 	zest_image image = zest__get_image_unsafe(image_handle);
 

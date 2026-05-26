@@ -3768,15 +3768,16 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
     create_flags |= ZEST__FLAGGED(flags, zest_image_flag_3d_as_2d_array) ? VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT : 0;
     create_flags |= ZEST__FLAGGED(flags, zest_image_flag_disjoint_planes) ? VK_IMAGE_CREATE_DISJOINT_BIT : 0;
 
+    zest_bool is_3d = (image->info.extent.depth > 1);
     VkImageCreateInfo image_info = ZEST__ZERO_INIT(VkImageCreateInfo);
     image_info.flags = create_flags;
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.imageType = is_3d ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
     image_info.extent.width = image->info.extent.width;
     image_info.extent.height = image->info.extent.height;
-    image_info.extent.depth = 1;
+    image_info.extent.depth = is_3d ? image->info.extent.depth : 1;
     image_info.mipLevels = image->info.mip_levels;
-    image_info.arrayLayers = layer_count;
+    image_info.arrayLayers = is_3d ? 1 : layer_count;
     image_info.format = (VkFormat)image->info.format;
     image_info.tiling = tiling;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -5746,6 +5747,7 @@ zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image dst_image, 
 */
 
 zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height) {
+    zest_bool is_3d = (image->info.extent.depth > 1);
     VkBufferImageCopy region = ZEST__ZERO_INIT(VkBufferImageCopy);
     region.bufferOffset = src_offset;
     region.bufferRowLength = 0;
@@ -5761,7 +5763,7 @@ zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buffer buffer, ze
     region.imageOffset.z = 0;
     region.imageExtent.width = width;
     region.imageExtent.height = height;
-    region.imageExtent.depth = 1;
+    region.imageExtent.depth = is_3d ? image->info.extent.depth : 1;
 
     vkCmdCopyBufferToImage(queue->backend->command_buffer, buffer->memory_pool->backend->vk_buffer, image->backend->vk_image, image->backend->vk_current_layout, 1, &region);
 
