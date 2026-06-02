@@ -433,11 +433,11 @@ void zest_imgui_DrawImage(zest_atlas_region_t *region, float width, float height
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
 	float region_ratio = image_size.x / image_size.y;
 	float image_ratio = width / height;
-	//if (region->width != (zest_uint)width || region->height != (zest_uint)height) {
-	           //image_size.x = region_ratio > 1 ? width : width * region_ratio;
-	           //image_size.y = region_ratio > 1 ? height / region_ratio : height;
-	//}
-	image_size = ImVec2(width, height);    
+	image_size = ImVec2(width, height);
+	if (region->width != (zest_uint)width || region->height != (zest_uint)height) {
+       image_size.x = region_ratio > 1.f ? width : width * region_ratio;
+       image_size.y = region_ratio > 1.f ? height / region_ratio : height;
+	}
 	ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
     ImGuiWindow *window = GetCurrentWindow();
 	if (callback) {
