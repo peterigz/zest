@@ -814,7 +814,6 @@ int test__compute_waw_barrier(ZestTests *tests, Test *test) {
 
 		zest_FlushFrameGraph(frame_graph);
 	}
-	zest_FreeExecutionTimeline(timeline);
 	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;

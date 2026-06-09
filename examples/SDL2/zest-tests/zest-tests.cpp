@@ -91,66 +91,7 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
-	RegisterTest(tests, { "Single Pass", test__single_pass, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->simple_create_info });
-	RegisterTest(tests, { "Blank Screen", test__blank_screen, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pass Culling", test__pass_culling, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Culling", test__resource_culling, 0, ZEST_MAX_FIF, 0, 1, tests->simple_create_info });
-	RegisterTest(tests, { "Chained Pass Culling", test__chained_pass_culling, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Transient Image", test__transient_image, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Import Image", test__import_image, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Image Barriers", test__image_barrier_tests, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Buffer Read/Write", test__buffer_read_write, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Multi Reader Barrier", test__multi_reader_barrier, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Image Write/Read", test__image_read_write, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Depth Attachment", test__depth_attachment, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Multi Queue Sync", test__multi_queue_sync, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pass Grouping", test__pass_grouping, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Cyclic Dependency", test__cyclic_dependency, ZEST_MAX_FIF, 0, 0, zest_fgs_cyclic_dependency, tests->simple_create_info });
-	RegisterTest(tests, { "Simple Graph Cache", test__simple_caching, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Stress Test Multi Queue", test__stress_multi_queue_sync, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Depth", test__pipeline_state_depth, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Blending", test__pipeline_state_blending, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Culling", test__pipeline_state_culling, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Topology", test__pipeline_state_topology, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Polygon Mode", test__pipeline_state_polygon_mode, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Front Face", test__pipeline_state_front_face, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Vertex Input", test__pipeline_state_vertex_input, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State MultiBlend", test__pipeline_state_multiblend, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Pipeline Test State Rasterization", test__pipeline_state_rasterization, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image Format Support", test__image_format_support, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image Format Edge Cases", test__image_format_validation_edge_cases, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image View Creation", test__image_view_creation, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Buffer Creation Destruction", test__buffer_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Buffer Edge Cases", test__buffer_edge_cases, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Uniform Buffer Descriptor Management", test__uniform_buffer_descriptor_management, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Uniform Buffer Edge Cases", test__uniform_buffer_edge_cases, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Staging Buffer Operations", test__staging_buffer_operations, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image With Pixels Creation", test__image_with_pixels_creation, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Sampler Creation", test__sampler_creation, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Image Array Descriptor Indexes", test__image_array_descriptor_indexes, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Resource Test Compute Shader Resources", test__compute_shader_resources, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test No Update Device", test__no_update_device, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test No End Frame", test__no_end_frame, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test No Swapchain Import", test__no_swapchain_import, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Missing End Pass", test__no_end_pass, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Bad Frame Graph Ordering", test__bad_frame_graph_ordering, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Frame Graph State Errors", test__frame_graph_state_errors, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Pass Without Task", test__pass_without_task, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Unused Imported Resource", test__unused_imported_resource, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Unused Swapchain", test__unused_swapchain, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Buffer Output In Render Pass", test__buffer_output_in_render_pass, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Multiple Swapchain Imports", test__multiple_swapchain_imports, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Transient Dependency Ordering", test__transient_dependency_ordering, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Resources Named the Same", test__resources_with_same_name, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Add the same resource twice", test__add_2_resources_the_same, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "User Test Acquire/Release Indexes", test__acquire_release_resources, 0, 1, 0, 0, tests->simple_create_info });
-	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Timeline Wait External", test__timeline_wait_external, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Timeline Timeout", test__timeline_timeout, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Immediate Execute Cached", test__immediate_execute_cached, 0, 1, 0, 0, tests->headless_create_info });
-	RegisterTest(tests, { "Compute Test Mipmap Chain", test__compute_mipmap_chain, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Compute Test WAW Barrier", test__compute_waw_barrier, 0, 1, 0, 0, tests->headless_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
@@ -241,8 +182,8 @@ int main(int argc, char *argv[]) {
 	//Initialise Zest
 	tests.context = zest_CreateContext(tests.device, &window_data, &create_info);
 
-	//InitialiseTests(&tests);
-	InitialiseSpecificTests(&tests);
+	InitialiseTests(&tests);
+	//InitialiseSpecificTests(&tests);
 
 	RunTests(&tests);
 	
