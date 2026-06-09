@@ -92,7 +92,7 @@ void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources
 	zest_device device = zest_GetContextDevice(context);
 
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
-	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
+	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
 		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
