@@ -767,6 +767,60 @@ int test__pass_grouping(ZestTests *tests, Test *test) {
 }
 
 /*
+Compute Write/Write Barrier : Two compute passes write the same transient storage image. The second pass also reads it back
+(read-modify-write feedback). They must NOT be merged into a single pass group - merging would drop the synchronisation between
+them. Verify they end up in separate groups and that a barrier is emitted on the image so the second writer is ordered after the
+first. Contrast with test__pass_grouping, where two graphics passes sharing a render target legitimately merge into one group.
+*/
+int test__compute_waw_barrier(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	info.width = 64;
+	info.height = 64;
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
+	if (zest_BeginCommandGraph(tests->context, "Compute WAW Barrier", 0)) {
+		zest_resource_node feedback_image = zest_AddTransientImageResource("Feedback Image", &info);
+		zest_FlagResourceAsEssential(feedback_image);
+
+		//First writer
+		zest_BeginComputePass("Compute A");
+		zest_ConnectOutput(feedback_image);
+		zest_SetPassTask(zest_EmptyRenderPass, NULL);
+		zest_EndPass();
+
+		//Second writer reads what A wrote and writes it back (feedback). Must be ordered after A.
+		zest_BeginComputePass("Compute B");
+		zest_ConnectInput(feedback_image);
+		zest_ConnectOutput(feedback_image);
+		zest_SetPassTask(zest_EmptyRenderPass, NULL);
+		zest_EndPass();
+
+		zest_SignalTimeline(timeline);
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+
+		//The two compute writers must not merge - expect two separate groups.
+		test->result |= zest_GetFrameGraphFinalPassCount(frame_graph) == 2 ? 0 : 1;
+
+		//And a barrier must be emitted on the image between them so B waits on A's write.
+		int found_barrier = 0;
+		zest_uint final_count = zest_GetFrameGraphFinalPassCount(frame_graph);
+		for (zest_uint i = 0; i < final_count; i++) {
+			const zest_pass_group_t *group = zest_GetFrameGraphFinalPass(frame_graph, i);
+			if (zest_vec_size(group->execution_details.barriers.acquire_image_barriers) > 0) {
+				found_barrier = 1;
+			}
+		}
+		test->result |= found_barrier ? 0 : 1;
+
+		zest_FlushFrameGraph(frame_graph);
+	}
+	zest_FreeExecutionTimeline(timeline);
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
+/*
 Cyclic Dependency : Create a graph where Pass A depends on Pass B's output, and Pass B depends on Pass A's output.The graph compiler should detect this
 cycle and return an error instead of crashing.
 */
