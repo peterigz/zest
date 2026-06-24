@@ -79,6 +79,8 @@ typedef struct tfx_library_render_resources_s {
 	zest_buffer emitter_properties_buffer;
 	zest_uint sprite_data_index;
 	zest_uint emitter_properties_index;
+	zest_uint atlas_layer_width;
+	zest_uint atlas_layer_height;
 } tfx_library_render_resources_t;
 
 typedef struct tfx_ribbon_render_dispatch_t {

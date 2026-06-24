@@ -112,7 +112,7 @@ tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_r
 
 	tfxErrorFlags result = tfx_LoadSpriteData(path, animation_manager, zest_tfx_ShapeLoader, resources);
 	if (result != 0) return result;
-
+	
 	resources->particle_texture = zest_CreateImageAtlas(context, &resources->particle_images, atlas_width, atlas_height, 0);
 	zest_image particle_image = zest_GetImage(resources->particle_texture);
 	resources->particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
@@ -175,6 +175,10 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	resources->ribbon_rendering.frag_shader = ribbon_frag;
 	resources->ribbon_rendering.vert_shader = ribbon_vert;
 	resources->ribbon_rendering.comp_shader = ribbon_comp;
+	if (resources->atlas_layer_width == 0 || resources->atlas_layer_height == 0) {
+		resources->atlas_layer_width = 1024;
+		resources->atlas_layer_height = 1024;
+	}
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps

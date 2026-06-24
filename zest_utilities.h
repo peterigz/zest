@@ -92,6 +92,8 @@ typedef struct zest_image_collection_t {
 	zest_uint max_images;
 	zest_uint image_count;
 	zest_uint array_layers;
+	int max_width_in_collection;
+	int max_height_in_collection;
 	zest_image_collection_flags flags;
 } zest_image_collection_t;
 
@@ -1789,6 +1791,8 @@ zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_col
 		region->atlas_index = image_collection->image_count;
 		image_collection->image_bitmaps[image_collection->image_count] = *bitmap;
 		image_collection->image_count++;
+		image_collection->max_width_in_collection = ZEST__MAX((int)region->width, image_collection->max_width_in_collection);
+		image_collection->max_height_in_collection = ZEST__MAX((int)region->height, image_collection->max_height_in_collection);
 		return region;
 	}
 	return NULL;
@@ -1821,6 +1825,8 @@ zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_col
 	region->atlas_index = image_collection->image_count;
 	image_collection->image_bitmaps[image_collection->image_count] = bitmap;
 	image_collection->image_count++;
+	image_collection->max_width_in_collection = ZEST__MAX(width, image_collection->max_width_in_collection);
+	image_collection->max_height_in_collection = ZEST__MAX(height, image_collection->max_height_in_collection);
 	return region;
 }
 
@@ -1844,6 +1850,9 @@ zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *
 	atlas.meta.stride = width * bytes_per_pixel;
 	atlas.meta.format = format;
 	zest_atlas_region_t *first_region = &image_collection->regions[image_collection->image_count];
+
+	image_collection->max_width_in_collection = ZEST__MAX(width, image_collection->max_width_in_collection);
+	image_collection->max_height_in_collection = ZEST__MAX(height, image_collection->max_height_in_collection);
 
 	for (zest_uint r = 0; r != rows; ++r) {
 		for (zest_uint c = 0; c != cols; ++c) {
