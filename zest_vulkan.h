@@ -2196,7 +2196,9 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     ZEST__REQUIRE(features_12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
     ZEST__REQUIRE(features_12.descriptorBindingStorageImageUpdateAfterBind, "descriptorBindingStorageImageUpdateAfterBind");
     ZEST__REQUIRE(features_12.descriptorBindingStorageBufferUpdateAfterBind, "descriptorBindingStorageBufferUpdateAfterBind");
-    ZEST__REQUIRE(features_12.descriptorBindingUniformBufferUpdateAfterBind, "descriptorBindingUniformBufferUpdateAfterBind");
+    // Note: descriptorBindingUniformBufferUpdateAfterBind is intentionally NOT required. The global
+    // bindless layout does not use UPDATE_AFTER_BIND on its uniform-buffer binding, so hardware that
+    // lacks this feature (common on older/mobile GPUs) still meets minimum spec.
     ZEST__REQUIRE(features_12.timelineSemaphore, "timelineSemaphore");
     ZEST__REQUIRE(sync2.synchronization2, "synchronization2");
     #undef ZEST__REQUIRE
@@ -2362,11 +2364,15 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 	device_features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     device_features_12.descriptorBindingPartiallyBound = VK_TRUE;
     device_features_12.runtimeDescriptorArray = VK_TRUE;
-    device_features_12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
     device_features_12.timelineSemaphore = VK_TRUE;
+    // Uniform-buffer update-after-bind is NOT required: the global bindless layout omits the
+    // UPDATE_AFTER_BIND flag on its uniform-buffer binding (see zest__vk_create_set_layout), since
+    // UBO descriptors are written once at zest_CreateUniformBuffer time and never mid-frame. Enable
+    // it only when the device offers it (harmless), so we still run on hardware that lacks it.
+    device_features_12.descriptorBindingUniformBufferUpdateAfterBind = supported_12->descriptorBindingUniformBufferUpdateAfterBind;
     // Optional bindless niceties - enable only if supported:
     device_features_12.descriptorBindingVariableDescriptorCount = supported_12->descriptorBindingVariableDescriptorCount;
     device_features_12.descriptorBindingUniformTexelBufferUpdateAfterBind = supported_12->descriptorBindingUniformTexelBufferUpdateAfterBind;
@@ -3191,7 +3197,14 @@ zest_bool zest__vk_create_set_layout(zest_device device, zest_context context, z
         binding.descriptorType = zest__vk_get_descriptor_type(desc->type);
         binding.descriptorCount = desc->count;
         bindings[i] = binding;
-		VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+		// Uniform-buffer bindings deliberately skip UPDATE_AFTER_BIND: their descriptors are written
+		// once at creation and never updated while the set is in flight, so requiring
+		// descriptorBindingUniformBufferUpdateAfterBind (unsupported on some older/mobile GPUs) would
+		// needlessly narrow hardware support. All other binding types stream in mid-frame and need it.
+		VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+		if (desc->type != zest_descriptor_type_uniform_buffer) {
+			binding_flags |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+		}
         binding_flag_list[i] = binding_flags;
     }
 

@@ -5073,6 +5073,9 @@ ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_device device, zest
 ZEST_API void zest_SetDevicePoolSize(zest_device device, const char *name, zest_buffer_usage_t property_flags, zest_size minimum_allocation_size, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
+//NOTE: create uniform buffers during setup, not mid-frame while rendering. The global bindless layout omits
+//UPDATE_AFTER_BIND on its uniform-buffer binding (to support older/mobile GPUs), so writing a UBO descriptor
+//while the set is in flight is invalid. Textures/storage buffers are unaffected and can still stream in mid-frame.
 ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const char *name, zest_size uniform_struct_size);
 //Get the pointer to a uniform buffer
 ZEST_API zest_uniform_buffer zest_GetUniformBuffer(zest_uniform_buffer_handle uniform_buffer);
