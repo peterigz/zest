@@ -234,6 +234,7 @@ ZEST_PRIVATE void zest__vk_update_bindless_storage_buffer_descriptor(zest_device
 ZEST_PRIVATE void zest__vk_update_bindless_uniform_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 
 //General renderer
+ZEST_PRIVATE zest_bool zest__vk_query_device_capabilities(zest_device device);
 ZEST_PRIVATE void zest__vk_set_depth_format(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_device device);
@@ -325,7 +326,7 @@ ZEST_PRIVATE zest_bool zest__vk_create_instance(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_create_logical_device(zest_device device);
 ZEST_PRIVATE void zest__vk_set_limit_data(zest_device device);
 ZEST_PRIVATE void zest__vk_setup_validation(zest_device device);
-ZEST_PRIVATE void zest__vk_pick_physical_device(zest_device device);
+ZEST_PRIVATE zest_bool zest__vk_pick_physical_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags);
 ZEST_PRIVATE zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
@@ -478,7 +479,12 @@ typedef struct zest_device_backend_t {
 	shaderc_compiler_t shaderc_compiler;
     VkPipelineCache pipeline_cache;
     zest_bool has_dynamic_rendering;
-    zest_map_vk_render_passes legacy_render_passes;  
+    // Supported feature structs cached by the feasibility pass (zest__vk_query_device_capabilities)
+    // and consumed by zest__vk_create_logical_device to decide what to enable.
+    VkPhysicalDeviceFeatures supported_features;
+    VkPhysicalDeviceVulkan11Features supported_features_11;
+    VkPhysicalDeviceVulkan12Features supported_features_12;
+    zest_map_vk_render_passes legacy_render_passes;
 } zest_device_backend_t;
 
 typedef struct zest_swapchain_backend_t {
@@ -695,6 +701,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->update_bindless_storage_buffer_descriptor     = zest__vk_update_bindless_storage_buffer_descriptor;
     platform->update_bindless_uniform_buffer_descriptor     = zest__vk_update_bindless_uniform_buffer_descriptor;
 
+    platform->query_device_capabilities                     = zest__vk_query_device_capabilities;
     platform->set_depth_format                              = zest__vk_set_depth_format;
     platform->initialise_context_backend                    = zest__vk_initialise_context_backend;
     platform->get_msaa_sample_count						    = zest__vk_get_msaa_sample_count;
@@ -1382,7 +1389,29 @@ VkExtent2D zest__vk_choose_swap_extent(zest_context context, VkSurfaceCapabiliti
 zest_bool zest__vk_initialise_swapchain(zest_context context) {
     ZEST_ASSERT_HANDLE(context);   //Not a valid swapchain handle!
 	zest_swapchain swapchain = context->swapchain;
-    zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(context, context->device->backend->physical_device);
+    zest_device device = context->device;
+    zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(context, device->backend->physical_device);
+
+    // Verify the surface can actually be presented to. The physical device was chosen before any
+    // surface existed (device is created ahead of the context/window), so this is the first point we
+    // can validate presentation. Zest presents on a graphics-capable queue family, so require that at
+    // least one such family supports this surface.
+    zest_bool graphics_can_present = ZEST_FALSE;
+    zest_vec_foreach(qi, device->backend->queue_families) {
+        VkBool32 present_support = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device->backend->physical_device, (zest_uint)qi, context->backend->surface, &present_support);
+        if ((device->backend->queue_families[qi].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
+            graphics_can_present = ZEST_TRUE;
+        }
+        ZEST_APPEND_LOG(device->log_path.str, "Queue family %i present support: %s", qi, present_support ? "yes" : "no");
+    }
+    if (!graphics_can_present) {
+        ZEST_APPEND_LOG(device->log_path.str, "Fatal: no graphics-capable queue family can present to this window surface.");
+        ZEST_ALERT("No graphics queue family supports presentation to the window surface.");
+        ZEST__FREE(context->allocator, swapchain_support_details.formats);
+        ZEST__FREE(context->allocator, swapchain_support_details.present_modes);
+        return ZEST_FALSE;
+    }
 
     VkSurfaceFormatKHR surfaceFormat = zest__vk_choose_swapchain_format(context, swapchain_support_details.formats, swapchain_support_details.formats_count);
     VkPresentModeKHR presentMode = zest__vk_choose_present_mode(swapchain_support_details.present_modes, swapchain_support_details.present_modes_count, context->flags & zest_context_flag_vsync_enabled);
@@ -1406,14 +1435,40 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     createInfo.surface = context->backend->surface;
 
+    // Only request usages the surface actually supports. COLOR_ATTACHMENT is guaranteed by the spec,
+    // but querying keeps us honest and logs a clear error on the pathological driver that lacks it.
+    VkImageUsageFlags desired_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkImageUsageFlags image_usage = desired_usage & swapchain_support_details.capabilities.supportedUsageFlags;
+    if (image_usage != desired_usage) {
+        ZEST_APPEND_LOG(device->log_path.str, "Swapchain: surface does not support all desired usage flags (wanted 0x%X, got 0x%X).", desired_usage, image_usage);
+    }
+
+    // Pick a supported composite alpha rather than assuming OPAQUE (not guaranteed on every compositor).
+    VkCompositeAlphaFlagBitsKHR composite_alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    VkCompositeAlphaFlagBitsKHR composite_alpha_priority[] = {
+        VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+        VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+        VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+    };
+    for (int ca = 0; ca != 4; ++ca) {
+        if (swapchain_support_details.capabilities.supportedCompositeAlpha & composite_alpha_priority[ca]) {
+            composite_alpha = composite_alpha_priority[ca];
+            break;
+        }
+    }
+    if (composite_alpha != VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+        ZEST_APPEND_LOG(device->log_path.str, "Swapchain: OPAQUE composite alpha unavailable, using 0x%X.", composite_alpha);
+    }
+
     createInfo.minImageCount = image_count;
     createInfo.imageFormat = surfaceFormat.format;
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    createInfo.imageUsage = image_usage;
     createInfo.preTransform = swapchain_support_details.capabilities.currentTransform;
-    createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    createInfo.compositeAlpha = composite_alpha;
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
     createInfo.oldSwapchain = VK_NULL_HANDLE;
@@ -1687,7 +1742,12 @@ zest_bool zest__vk_initialise_device(zest_device device) {
 	if (zest__validation_layers_are_enabled(device)) {
 		zest__vk_setup_validation(device);
 	}
-	zest__vk_pick_physical_device(device);
+	if (!zest__vk_pick_physical_device(device)) {
+        return ZEST_FALSE;
+    }
+    if (!zest__vk_query_device_capabilities(device)) {
+        return ZEST_FALSE;
+    }
     if (!zest__vk_create_logical_device(device)) {
         return ZEST_FALSE;
     }
@@ -1867,11 +1927,15 @@ void zest__vk_setup_validation(zest_device device) {
     device->backend->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(device->backend->instance, "vkSetDebugUtilsObjectNameEXT");
 }
 
-void zest__vk_pick_physical_device(zest_device device) {
+zest_bool zest__vk_pick_physical_device(zest_device device) {
     zest_uint device_count = 0;
     vkEnumeratePhysicalDevices(device->backend->instance, &device_count, ZEST_NULL);
 
-    ZEST_ASSERT(device_count);        //Failed to find GPUs with Vulkan support!
+    if (device_count == 0) {
+        ZEST_APPEND_LOG(device->log_path.str, "Fatal: no GPUs with Vulkan support were found.");
+        ZEST_ALERT("No GPUs with Vulkan support were found.");
+        return ZEST_FALSE;
+    }
 
     ZEST__ARRAY(device->allocator, devices, VkPhysicalDevice, device_count);
     vkEnumeratePhysicalDevices(device->backend->instance, &device_count, devices);
@@ -1915,9 +1979,11 @@ void zest__vk_pick_physical_device(zest_device device) {
     }
 
     if (device->backend->physical_device == VK_NULL_HANDLE) {
-        ZEST_APPEND_LOG(device->log_path.str, "Could not find a suitable device!");
+        ZEST_APPEND_LOG(device->log_path.str, "Fatal: none of the %i Vulkan device(s) found are suitable (missing required extensions or sampler anisotropy).", device_count);
+        ZEST_ALERT("No suitable GPU found. Check the log for details.");
+        ZEST__FREE(device->allocator, devices);
+        return ZEST_FALSE;
     }
-    ZEST_ASSERT(device->backend->physical_device != VK_NULL_HANDLE);    //Unable to find suitable GPU
     device->backend->msaa_samples = zest__vk_get_max_useable_sample_count(device);
 
     // Store Properties features, limits and properties of the physical ZestDevice for later use
@@ -1945,6 +2011,7 @@ void zest__vk_pick_physical_device(zest_device device) {
     }
 
     ZEST__FREE(device->allocator, devices);
+    return ZEST_TRUE;
 }
 
 ZEST_PRIVATE inline void zest__vk_get_required_extensions(zest_device device) {
@@ -2068,6 +2135,116 @@ zest_bool zest__vk_create_instance(zest_device device) {
     return ZEST_TRUE;
 }
 
+// Feasibility pass. Runs after the physical device is chosen and before the logical device is
+// created. Queries the full native feature set once, validates the required minimum spec (failing
+// with a clear log line if unmet), translates optional native features into abstract capability
+// bits, and caches the raw supported structs for zest__vk_create_logical_device. Also emits a
+// compatibility report to the log so a user's zest.txt tells you exactly what their GPU can do.
+zest_bool zest__vk_query_device_capabilities(zest_device device) {
+    VkPhysicalDevice physical_device = device->backend->physical_device;
+    const char *log = device->log_path.str;
+
+    // --- Query the full feature chain in one call ---
+    VkPhysicalDeviceVulkan12Features features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
+    features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    VkPhysicalDeviceVulkan11Features features_11 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Features);
+    features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    features_11.pNext = &features_12;
+    VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering = ZEST__ZERO_INIT(VkPhysicalDeviceDynamicRenderingFeaturesKHR);
+    dynamic_rendering.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
+    dynamic_rendering.pNext = &features_11;
+    VkPhysicalDeviceSynchronization2FeaturesKHR sync2 = ZEST__ZERO_INIT(VkPhysicalDeviceSynchronization2FeaturesKHR);
+    sync2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
+    sync2.pNext = &dynamic_rendering;
+    VkPhysicalDeviceFeatures2 features2 = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures2);
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &sync2;
+    vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+
+    VkPhysicalDeviceFeatures *base = &features2.features;
+
+    // Cache the supported structs for logical device creation.
+    device->backend->supported_features = *base;
+    device->backend->supported_features_11 = features_11;
+    device->backend->supported_features_12 = features_12;
+    device->backend->supported_features_11.pNext = NULL;
+    device->backend->supported_features_12.pNext = NULL;
+
+    // --- Log device identity + driver (invaluable for user-submitted logs) ---
+    VkPhysicalDeviceDriverProperties driver_props = ZEST__ZERO_INIT(VkPhysicalDeviceDriverProperties);
+    driver_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+    VkPhysicalDeviceProperties2 props2 = ZEST__ZERO_INIT(VkPhysicalDeviceProperties2);
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &driver_props;
+    vkGetPhysicalDeviceProperties2(physical_device, &props2);
+    VkPhysicalDeviceProperties *p = &props2.properties;
+    ZEST_APPEND_LOG(log, "=== Device Compatibility Report ===");
+    ZEST_APPEND_LOG(log, "Device: %s (type %i)", p->deviceName, p->deviceType);
+    ZEST_APPEND_LOG(log, "Vulkan API: %d.%d.%d, Driver version: %u, Vendor: 0x%04X, Device ID: 0x%04X",
+        VK_API_VERSION_MAJOR(p->apiVersion), VK_API_VERSION_MINOR(p->apiVersion), VK_API_VERSION_PATCH(p->apiVersion),
+        p->driverVersion, p->vendorID, p->deviceID);
+    ZEST_APPEND_LOG(log, "Driver: %s (%s)", driver_props.driverName, driver_props.driverInfo);
+
+    // --- Required minimum spec (no fallback exists for these) ---
+    // Descriptor indexing core (bindless), plus the update-after-bind types Zest's global bindless
+    // layout uses (see zest_vulkan.h binding flags), plus timeline semaphores and synchronization2.
+    zest_bool ok = ZEST_TRUE;
+    #define ZEST__REQUIRE(cond, name) do { if (!(cond)) { ZEST_APPEND_LOG(log, "  MISSING (required): %s", name); ok = ZEST_FALSE; } } while(0)
+    ZEST__REQUIRE(features_12.shaderSampledImageArrayNonUniformIndexing, "shaderSampledImageArrayNonUniformIndexing");
+    ZEST__REQUIRE(features_12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
+    ZEST__REQUIRE(features_12.runtimeDescriptorArray, "runtimeDescriptorArray");
+    ZEST__REQUIRE(features_12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
+    ZEST__REQUIRE(features_12.descriptorBindingStorageImageUpdateAfterBind, "descriptorBindingStorageImageUpdateAfterBind");
+    ZEST__REQUIRE(features_12.descriptorBindingStorageBufferUpdateAfterBind, "descriptorBindingStorageBufferUpdateAfterBind");
+    ZEST__REQUIRE(features_12.descriptorBindingUniformBufferUpdateAfterBind, "descriptorBindingUniformBufferUpdateAfterBind");
+    ZEST__REQUIRE(features_12.timelineSemaphore, "timelineSemaphore");
+    ZEST__REQUIRE(sync2.synchronization2, "synchronization2");
+    #undef ZEST__REQUIRE
+
+    device->capabilities.meets_minimum_spec = ok;
+    if (!ok) {
+        ZEST_APPEND_LOG(log, "Fatal: GPU does not meet the Zest minimum spec (see MISSING lines above).");
+        ZEST_ALERT("GPU does not meet the Zest minimum spec. See the log for the missing feature(s).");
+        return ZEST_FALSE;
+    }
+
+    // --- Translate optional native features into abstract capability bits ---
+    zest_capability_flags supported = 0;
+    if (base->multiDrawIndirect)                                   supported |= zest_capability_multi_draw_indirect;
+    if (features_12.bufferDeviceAddress)                          supported |= zest_capability_buffer_device_address;
+    if (features_12.shaderStorageBufferArrayNonUniformIndexing)   supported |= zest_capability_nonuniform_storage_buffer_indexing;
+    if (features_12.shaderUniformBufferArrayNonUniformIndexing)   supported |= zest_capability_nonuniform_uniform_buffer_indexing;
+    if (features_12.shaderStorageImageArrayNonUniformIndexing)    supported |= zest_capability_nonuniform_storage_image_indexing;
+    if (base->samplerAnisotropy)                                  supported |= zest_capability_anisotropic_filtering;
+    if (base->fillModeNonSolid)                                   supported |= zest_capability_wireframe;
+    if (base->tessellationShader)                                 supported |= zest_capability_tessellation;
+    if (base->geometryShader)                                     supported |= zest_capability_geometry_shader;
+    if (base->shaderInt64)                                        supported |= zest_capability_shader_int64;
+    if (base->fragmentStoresAndAtomics)                           supported |= zest_capability_fragment_stores_and_atomics;
+    device->capabilities.supported = supported;
+
+    // --- Dynamic rendering: re-check against the *selected* device (fixes multi-GPU flag bug) ---
+    zest__vk_check_device_extension_support(device, physical_device);
+    device->backend->has_dynamic_rendering = device->backend->has_dynamic_rendering && dynamic_rendering.dynamicRendering;
+    ZEST_APPEND_LOG(log, "Dynamic rendering supported: %s", device->backend->has_dynamic_rendering ? "yes" : "no (legacy render passes)");
+
+    // --- Log optional capability support ---
+    ZEST_APPEND_LOG(log, "Optional capabilities (supported by hardware):");
+    ZEST_APPEND_LOG(log, "  multi_draw_indirect: %s",                 (supported & zest_capability_multi_draw_indirect) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  buffer_device_address: %s",               (supported & zest_capability_buffer_device_address) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  nonuniform_storage_buffer_indexing: %s",  (supported & zest_capability_nonuniform_storage_buffer_indexing) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  nonuniform_uniform_buffer_indexing: %s",  (supported & zest_capability_nonuniform_uniform_buffer_indexing) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  nonuniform_storage_image_indexing: %s",   (supported & zest_capability_nonuniform_storage_image_indexing) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  anisotropic_filtering: %s",               (supported & zest_capability_anisotropic_filtering) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  wireframe: %s",                           (supported & zest_capability_wireframe) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  tessellation (opt-in): %s",               (supported & zest_capability_tessellation) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  geometry_shader (opt-in): %s",            (supported & zest_capability_geometry_shader) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  shader_int64 (opt-in): %s",               (supported & zest_capability_shader_int64) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  fragment_stores_and_atomics (opt-in): %s",(supported & zest_capability_fragment_stores_and_atomics) ? "yes" : "no");
+
+    return ZEST_TRUE;
+}
+
 zest_bool zest__vk_create_logical_device(zest_device device) {
     zest_uint queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(device->backend->physical_device, &queue_family_count, ZEST_NULL);
@@ -2149,56 +2326,63 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 
 	zest_map_insert_key(device->allocator, device->queue_names, VK_QUEUE_FAMILY_IGNORED, "Ignored");
 
-	// Check for bindless support
-    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features = ZEST__ZERO_INIT(VkPhysicalDeviceDescriptorIndexingFeaturesEXT);
-    descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-    // No pNext needed for querying this specific struct usually, unless querying other chained features too
-    VkPhysicalDeviceFeatures2 physical_device_features2 = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures2);
-    physical_device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    physical_device_features2.pNext = &descriptor_indexing_features; // Chain it
-    vkGetPhysicalDeviceFeatures2(device->backend->physical_device, &physical_device_features2);
-    if (!descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing ||
-        !descriptor_indexing_features.descriptorBindingPartiallyBound ||
-        !descriptor_indexing_features.runtimeDescriptorArray) {
-        ZEST_APPEND_LOG(device->log_path.str, "Fatal Error: Required descriptor indexing features not supported by this GPU!");
-        return 0;
-    }
+	// Capabilities were validated and translated by the feasibility pass
+	// (zest__vk_query_device_capabilities). Resolve which optional features to enable using the
+	// backend-agnostic hybrid policy: required always on, auto-on-if-supported, opt-in-if-requested.
+	const VkPhysicalDeviceFeatures *supported_base = &device->backend->supported_features;
+	const VkPhysicalDeviceVulkan12Features *supported_12 = &device->backend->supported_features_12;
+	const VkPhysicalDeviceVulkan11Features *supported_11 = &device->backend->supported_features_11;
+	zest_capability_flags supported = device->capabilities.supported;
+	zest_capability_flags requested = device->setup_info.requested_features;
+
+	zest_capability_flags enabled = (ZEST_CAPABILITY_AUTO_MASK & supported)
+	                              | (requested & ZEST_CAPABILITY_OPT_IN_MASK & supported);
+	// Warn about opt-in features that were requested but the hardware can't provide.
+	zest_capability_flags dropped = requested & ZEST_CAPABILITY_OPT_IN_MASK & ~supported;
+	if (dropped) {
+		ZEST_APPEND_LOG(device->log_path.str, "Requested opt-in features not supported by this GPU (0x%X) - they will be disabled.", dropped);
+	}
+	device->capabilities.enabled = enabled;
 
 	VkPhysicalDeviceFeatures device_features = ZEST__ZERO_INIT(VkPhysicalDeviceFeatures);
-    device_features.samplerAnisotropy = VK_TRUE;
-    device_features.multiDrawIndirect = VK_TRUE;
-    device_features.shaderInt64 = VK_TRUE;
-    // Enable features needed for comprehensive pipeline testing
-    device_features.fillModeNonSolid = VK_TRUE;
-    //device_features.geometryShader = VK_TRUE;
-    device_features.tessellationShader = VK_TRUE;
-    device_features.shaderTessellationAndGeometryPointSize = VK_TRUE;
-    if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
+    device_features.samplerAnisotropy = (enabled & zest_capability_anisotropic_filtering) ? VK_TRUE : VK_FALSE;
+    device_features.multiDrawIndirect = (enabled & zest_capability_multi_draw_indirect) ? VK_TRUE : VK_FALSE;
+    device_features.fillModeNonSolid = (enabled & zest_capability_wireframe) ? VK_TRUE : VK_FALSE;
+    device_features.shaderInt64 = (enabled & zest_capability_shader_int64) ? VK_TRUE : VK_FALSE;
+    device_features.tessellationShader = (enabled & zest_capability_tessellation) ? VK_TRUE : VK_FALSE;
+    device_features.geometryShader = (enabled & zest_capability_geometry_shader) ? VK_TRUE : VK_FALSE;
+    device_features.fragmentStoresAndAtomics = (enabled & zest_capability_fragment_stores_and_atomics) ? VK_TRUE : VK_FALSE;
+    // Only valid when tessellation or geometry is on, and only if actually supported (often false on MoltenVK).
+    device_features.shaderTessellationAndGeometryPointSize =
+        ((enabled & (zest_capability_tessellation | zest_capability_geometry_shader)) && supported_base->shaderTessellationAndGeometryPointSize) ? VK_TRUE : VK_FALSE;
+
     VkPhysicalDeviceVulkan12Features device_features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    //For bindless descriptor sets:
+    // Required bindless core (guaranteed present - feasibility pass would have failed otherwise):
 	device_features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-    device_features_12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE; 
-    device_features_12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE; 
-    device_features_12.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE; 
-    device_features_12.descriptorBindingPartiallyBound = VK_TRUE; 
-    device_features_12.descriptorBindingVariableDescriptorCount = VK_TRUE; 
-    device_features_12.runtimeDescriptorArray = VK_TRUE; 
+    device_features_12.descriptorBindingPartiallyBound = VK_TRUE;
+    device_features_12.runtimeDescriptorArray = VK_TRUE;
     device_features_12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-    device_features_12.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
-    device_features_12.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
-    device_features_12.bufferDeviceAddress = VK_TRUE;
     device_features_12.timelineSemaphore = VK_TRUE;
-    device_features_12.samplerMirrorClampToEdge = VK_TRUE;
-    device_features_12.hostQueryReset = VK_TRUE;
+    // Optional bindless niceties - enable only if supported:
+    device_features_12.descriptorBindingVariableDescriptorCount = supported_12->descriptorBindingVariableDescriptorCount;
+    device_features_12.descriptorBindingUniformTexelBufferUpdateAfterBind = supported_12->descriptorBindingUniformTexelBufferUpdateAfterBind;
+    device_features_12.descriptorBindingStorageTexelBufferUpdateAfterBind = supported_12->descriptorBindingStorageTexelBufferUpdateAfterBind;
+    device_features_12.samplerMirrorClampToEdge = supported_12->samplerMirrorClampToEdge;
+    device_features_12.hostQueryReset = supported_12->hostQueryReset;
+    // Abstract optional capabilities resolved above:
+    device_features_12.shaderStorageImageArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_storage_image_indexing) ? VK_TRUE : VK_FALSE;
+    device_features_12.shaderStorageBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_storage_buffer_indexing) ? VK_TRUE : VK_FALSE;
+    device_features_12.shaderUniformBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_uniform_buffer_indexing) ? VK_TRUE : VK_FALSE;
+    device_features_12.bufferDeviceAddress = (enabled & zest_capability_buffer_device_address) ? VK_TRUE : VK_FALSE;
 
 	VkPhysicalDeviceVulkan11Features device_features_11 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Features);
 	device_features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
 	device_features_11.pNext = NULL;
-	device_features_11.multiview = VK_TRUE;
+	device_features_11.multiview = supported_11->multiview;    // core 1.1, enable if present
 
 	VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features = ZEST__ZERO_INIT(VkPhysicalDeviceSynchronization2FeaturesKHR);
 	sync2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;

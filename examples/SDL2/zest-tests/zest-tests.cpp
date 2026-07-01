@@ -174,6 +174,10 @@ int main(int argc, char *argv[]) {
 	zest_DeviceBuilderLogToConsole(device_builder);
 	zest_DeviceBuilderLogToMemory(device_builder);
 	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
+	// The pipeline-state tests exercise tessellation/geometry/wireframe pipelines, so opt in to
+	// those optional device features here (shipping examples do not request them).
+	zest_RequestDeviceFeature(device_builder, zest_capability_tessellation);
+	zest_RequestDeviceFeature(device_builder, zest_capability_geometry_shader);
 	tests.device = zest_EndDeviceBuilder(device_builder);
 
 	// Clean up the extensions array

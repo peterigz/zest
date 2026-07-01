@@ -2261,6 +2261,55 @@ typedef enum zest_image_flag_bits {
 typedef zest_uint zest_image_flags;
 typedef zest_uint zest_capability_flags;
 
+// Abstract, backend-agnostic device capabilities. Each rendering backend
+// (Vulkan/DX12/Metal) translates its native feature set into these bits during
+// its feasibility pass. Nothing platform-specific belongs here. The "required"
+// capabilities that the whole engine depends on (bindless descriptor indexing,
+// timeline semaphores, swapchain) have no fallback and are validated internally
+// by the backend, so they are NOT listed here as toggles.
+typedef enum zest_device_capability_bits {
+	zest_capability_none                               = 0,
+	// --- Auto-enabled when supported (cheap/common, no opt-in needed) ---
+	zest_capability_multi_draw_indirect                = 1 << 0,
+	zest_capability_buffer_device_address              = 1 << 1,
+	zest_capability_nonuniform_storage_buffer_indexing = 1 << 2,
+	zest_capability_nonuniform_uniform_buffer_indexing = 1 << 3,
+	zest_capability_nonuniform_storage_image_indexing  = 1 << 4,
+	zest_capability_anisotropic_filtering              = 1 << 5,
+	zest_capability_wireframe                          = 1 << 6,
+	// --- Opt-in via zest_RequestDeviceFeature (heavy/niche, off by default) ---
+	zest_capability_tessellation                       = 1 << 7,
+	zest_capability_geometry_shader                    = 1 << 8,
+	zest_capability_shader_int64                       = 1 << 9,
+	zest_capability_fragment_stores_and_atomics        = 1 << 10,
+} zest_device_capability_bits;
+
+// Populated once during device creation and queryable thereafter via
+// zest_DeviceSupports (what the hardware can do) and zest_DeviceFeatureEnabled
+// (what Zest actually turned on - the flag developers should branch on).
+typedef struct zest_device_capabilities_t {
+	zest_capability_flags supported;    // what the physical device reports
+	zest_capability_flags enabled;      // what Zest requested and enabled
+	zest_bool meets_minimum_spec;       // required capability set was satisfied
+} zest_device_capabilities_t;
+
+// Backend-agnostic enable policy. Auto capabilities are turned on whenever the
+// hardware supports them; opt-in capabilities are only turned on if the app asks
+// for them via zest_RequestDeviceFeature AND the hardware supports them.
+#define ZEST_CAPABILITY_AUTO_MASK ( \
+	zest_capability_multi_draw_indirect | \
+	zest_capability_buffer_device_address | \
+	zest_capability_nonuniform_storage_buffer_indexing | \
+	zest_capability_nonuniform_uniform_buffer_indexing | \
+	zest_capability_nonuniform_storage_image_indexing | \
+	zest_capability_anisotropic_filtering | \
+	zest_capability_wireframe )
+#define ZEST_CAPABILITY_OPT_IN_MASK ( \
+	zest_capability_tessellation | \
+	zest_capability_geometry_shader | \
+	zest_capability_shader_int64 | \
+	zest_capability_fragment_stores_and_atomics )
+
 typedef enum {
 	zest_buffer_type_staging,		//Used to upload data from CPU side to GPU
 	zest_buffer_type_vertex,		//Any kind of data for storing vertices used in vertex shaders
@@ -3701,6 +3750,7 @@ typedef struct zest_device_builder_t {
 	zest_uint bindless_storage_buffer_count;
 	zest_uint bindless_storage_image_count;
 	zest_uint bindless_uniform_buffer_count;
+	zest_capability_flags requested_features;	//Opt-in device features (see zest_RequestDeviceFeature)
 	int graphics_queue_count;	//For testing only
 	int transfer_queue_count;	//For testing only
 	int compute_queue_count;	//For testing only
@@ -4347,6 +4397,7 @@ typedef struct zest_platform_t {
 	//Device/OS
 	void                  	   (*wait_for_idle_device)(zest_device device);
 	zest_bool 				   (*initialise_device)(zest_device device);
+	zest_bool				   (*query_device_capabilities)(zest_device device);
 	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_context context);
 	//Shader Compiling
@@ -4740,6 +4791,15 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
+//Request an optional device feature. If the chosen GPU supports it, Zest will enable it and
+//zest_DeviceFeatureEnabled will return true. If it isn't supported the request is ignored (logged),
+//device creation still succeeds, and you should branch on zest_DeviceFeatureEnabled at runtime.
+ZEST_API void zest_RequestDeviceFeature(zest_device_builder builder, zest_device_capability_bits capability);
+//Query whether the physical device reports support for a capability (regardless of whether Zest enabled it).
+ZEST_API zest_bool zest_DeviceSupports(zest_device device, zest_device_capability_bits capability);
+//Query whether a capability was actually enabled on the device. This is the flag to branch on before
+//using an optional feature - using a supported-but-not-enabled feature is undefined behaviour.
+ZEST_API zest_bool zest_DeviceFeatureEnabled(zest_device device, zest_device_capability_bits capability);
 //Finish and create the device
 ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 //Create a new zest_create_context_info_t struct with default values for initialising Zest
@@ -6615,6 +6675,7 @@ typedef struct zest_device_t {
 	zest_size min_uniform_buffer_offset_alignment;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
+	zest_device_capabilities_t capabilities;
 
 	zest_device_init_flags init_flags;
 
@@ -8355,6 +8416,21 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	}
 }
 
+void zest_RequestDeviceFeature(zest_device_builder builder, zest_device_capability_bits capability) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	builder->requested_features |= (zest_capability_flags)capability;
+}
+
+zest_bool zest_DeviceSupports(zest_device device, zest_device_capability_bits capability) {
+	ZEST_ASSERT_HANDLE(device);
+	return ZEST__FLAGGED(device->capabilities.supported, (zest_capability_flags)capability);
+}
+
+zest_bool zest_DeviceFeatureEnabled(zest_device device, zest_device_capability_bits capability) {
+	ZEST_ASSERT_HANDLE(device);
+	return ZEST__FLAGGED(device->capabilities.enabled, (zest_capability_flags)capability);
+}
+
 void zest_AddDeviceBuilderValidation(zest_device_builder builder) {
     ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers);
 	ZEST__FLAG(builder->flags, zest_device_init_flag_enable_validation_layers_with_sync);
@@ -8416,6 +8492,10 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     device->memory_pools[0] = memory_pool;
     device->memory_pool_sizes[0] = builder->memory_pool_size;
     device->memory_pool_count = 1;
+    // Back-compat: the old fragment-stores init flag now maps to a requestable capability.
+    if (ZEST__FLAGGED(builder->flags, zest_device_init_flag_enable_fragment_stores_and_atomics)) {
+        builder->requested_features |= zest_capability_fragment_stores_and_atomics;
+    }
     device->setup_info = *builder;
 	device->setup_info.allocator = NULL;
     void *scratch_memory = ZEST__ALLOCATE(device->allocator, zloc__MEGABYTE(1));
