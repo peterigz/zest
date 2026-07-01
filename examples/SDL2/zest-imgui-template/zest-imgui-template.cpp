@@ -70,18 +70,14 @@ void InitImGui(ImGuiApp *app, zest_context context, zest_imgui_t *imgui) {
 	//fonts from ImGui's font atlas.
 	io.Fonts->Clear();
 	float font_size = 16.f;
-	unsigned char *font_data;
-	int tex_width, tex_height;
 	ImFontConfig config;
 	config.PixelSnapH = true;
 	//Load the font file. You can add multiple fonts by calling AddFontFromFileTTF multiple times.
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
-	//Build the font atlas and get the pixel data
-	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
-	//After changing fonts you must rebuild Zest's font texture with the new atlas data.
-	//This uploads the font texture to the GPU and updates the descriptor index.
-	zest_imgui_RebuildFontTexture(imgui, tex_width, tex_height, font_data);
+	//As of ImGui 1.92 the font atlas texture is created and uploaded to the GPU automatically
+	//by Zest's backend (see zest_imgui_UpdateTextures), so there's no need to fetch the pixel
+	//data or rebuild the font texture manually here.
 
 	//Create a timer to limit how often we update the UI. This is optional but can help
 	//reduce CPU/GPU usage when the UI doesn't need to update every frame.

@@ -63,6 +63,7 @@ void zest_imgui_DrawImage2(zest_atlas_region_t *image, float width, float height
 void zest_imgui_DrawTexturedRect(zest_atlas_region_t *image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region_t *image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels);
+void zest_imgui_UpdateTextures(zest_imgui_t *imgui);
 zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport);
 void zest_imgui_DrawImGuiViewportRenderPass(const zest_command_list context, void *user_data);
 void zest_imgui_UploadImGuiPass(const zest_command_list context, void *user_data);

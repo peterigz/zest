@@ -57,15 +57,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
 	float font_size = 16.f;
-	unsigned char *font_data;
-	int tex_width, tex_height;
 	ImFontConfig config;
 	config.PixelSnapH = true;
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
-	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->loader_thread = std::thread(LoadSprite, app, "examples/assets/wabbit_alpha.png");
 	//LoadSprite(app, "examples/assets/wabbit_alpha.png");

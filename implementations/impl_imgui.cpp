@@ -16,28 +16,19 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     io.DisplaySize = ImVec2(zest_ScreenWidthf(context), zest_ScreenHeightf(context));
 	float dpi_scale = zest_DPIScale(context);
     io.DisplayFramebufferScale = ImVec2(dpi_scale, dpi_scale);
-    unsigned char *pixels;
-    int width, height;
-    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-    int upload_size = width * height * 4 * sizeof(char);
-
 	zest_device device = zest_GetContextDevice(context);
 
-	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
-    image_info.flags = zest_image_preset_texture | zest_image_flag_force_image_array;
-    imgui->font_texture = zest_CreateImage(device, &image_info);
-	imgui->font_region = {};
-	zest_image font_image = zest_GetImage(imgui->font_texture);
-    zest_CopyBitmapToImage(device, pixels, upload_size, font_image, width, height);
+	// ImGui 1.92+ manages all textures (including the font atlas) dynamically through the
+	// texture request system. We advertise support for it and honour the create/update/destroy
+	// requests in zest_imgui_UpdateTextures(). ImGui queues the font atlas for creation on the
+	// first frame, so we no longer build the font texture manually here.
+	io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
 
-    zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    imgui->font_sampler = zest_CreateSampler(device, &sampler_info);
+	// All ImGui-managed textures share a single sampler.
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	imgui->font_sampler = zest_CreateSampler(device, &sampler_info);
 	zest_sampler font_sampler = zest_GetSampler(imgui->font_sampler);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(device, font_image, zest_texture_array_binding);
-    imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(device, font_sampler);
-	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_array_binding);
-    io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
-    zest_atlas_region_t *test = &imgui->font_region;
+	imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(device, font_sampler);
 
     //imgui->vertex_shader = zest_CreateShaderSPVMemory(imgui->spv", shaderc_vertex_shader);
     //imgui->fragment_shader = zest_CreateShaderSPVMemory(imgui->spv", shaderc_fragment_shader);
@@ -81,28 +72,90 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 }
 
 //Dear ImGui helper functions
-void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels) {
-    int upload_size = width * height * 4 * sizeof(char);
 
-    // MoltenVK workaround: Free the texture from 2 rebuilds ago instead of the current one.
-    // This gives MoltenVK's argument buffers more time to release their reference to the
-    // old texture, preventing "Metal object being destroyed while still required" errors.
-    if (imgui->font_texture_previous.value) {
-        zest_FreeImage(imgui->font_texture_previous);
+// Per-texture backend data for an ImGui-managed texture (font atlas or any texture ImGui
+// requests us to create). The atlas region is embedded so its address can be handed back to
+// ImGui as the ImTextureID and cast directly to a zest_atlas_region_t* in the draw loop.
+typedef struct zest_imgui_backend_texture_t {
+    zest_image_handle image;
+    zest_uint binding_index;
+    zest_atlas_region_t region;
+} zest_imgui_backend_texture_t;
+
+// Create (or recreate) the GPU texture backing an ImGui ImTextureData request. Used for both
+// ImTextureStatus_WantCreate and ImTextureStatus_WantUpdates: in either case we (re)upload the
+// whole RGBA32 bitmap, which keeps layout handling on the well-tested fresh-create path.
+static void zest__imgui_create_or_update_texture(zest_imgui_t *imgui, ImTextureData *tex) {
+    zest_device device = imgui->device;
+    zest_imgui_backend_texture_t *backend = (zest_imgui_backend_texture_t *)tex->BackendUserData;
+
+    if (!backend) {
+        backend = (zest_imgui_backend_texture_t *)zest_AllocateMemory(device, sizeof(zest_imgui_backend_texture_t));
+        *backend = {};
+        tex->BackendUserData = backend;
+    } else if (backend->image.value) {
+        // MoltenVK note: zest_FreeImage defers the free by ZEST_MAX_FIF frames, so the old
+        // texture stays alive long enough for in-flight frames to finish referencing it.
+        zest_FreeImage(backend->image);
+        backend->image = {};
     }
-    imgui->font_texture_previous = imgui->font_texture;
 
-	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
+    int width = tex->Width;
+    int height = tex->Height;
+    zest_size upload_size = (zest_size)tex->GetSizeInBytes();
+
+    zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture | zest_image_flag_force_image_array;
-    imgui->font_texture = zest_CreateImage(imgui->device, &image_info);
-	zest_image font_image = zest_GetImage(imgui->font_texture);
-	imgui->font_region = {};
-    zest_CopyBitmapToImage(imgui->device, pixels, upload_size, font_image, width, height);
-    imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->device, font_image, zest_texture_array_binding);
-	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, font_image, zest_texture_array_binding);
+    backend->image = zest_CreateImage(device, &image_info);
+    zest_image image = zest_GetImage(backend->image);
+    zest_CopyBitmapToImage(device, tex->GetPixels(), upload_size, image, width, height);
+    backend->binding_index = zest_AcquireSampledImageIndex(device, image, zest_texture_array_binding);
+    backend->region = {};
+    zest_BindAtlasRegionToImage(&backend->region, imgui->font_sampler_binding_index, image, zest_texture_array_binding);
 
-    ImGuiIO &io = ImGui::GetIO();
-    io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
+    tex->SetTexID((ImTextureID)&backend->region);
+    tex->SetStatus(ImTextureStatus_OK);
+}
+
+static void zest__imgui_destroy_texture(zest_imgui_t *imgui, ImTextureData *tex) {
+    zest_imgui_backend_texture_t *backend = (zest_imgui_backend_texture_t *)tex->BackendUserData;
+    if (backend) {
+        if (backend->image.value) {
+            zest_FreeImage(backend->image);
+        }
+        zest_FreeMemory(imgui->device, backend);
+    }
+    tex->SetTexID(ImTextureID_Invalid);
+    tex->BackendUserData = NULL;
+    tex->SetStatus(ImTextureStatus_Destroyed);
+}
+
+// Honour ImGui's queued texture create/update/destroy requests. Must be called each frame after
+// ImGui::Render() and before the GPU samples the textures. The texture list is global (shared by
+// all viewports) so a single call handles the main window and every platform window.
+void zest_imgui_UpdateTextures(zest_imgui_t *imgui) {
+    ImGui::SetCurrentContext(imgui->imgui_context);
+    for (ImTextureData *tex : ImGui::GetPlatformIO().Textures) {
+        switch (tex->Status) {
+        case ImTextureStatus_WantCreate:
+        case ImTextureStatus_WantUpdates:
+            zest__imgui_create_or_update_texture(imgui, tex);
+            break;
+        case ImTextureStatus_WantDestroy:
+            zest__imgui_destroy_texture(imgui, tex);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels) {
+    (void)imgui; (void)width; (void)height; (void)pixels;
+    // ImGui 1.92+ recreates the font atlas GPU texture automatically via the texture request
+    // system (handled in zest_imgui_UpdateTextures). After changing fonts you only need to
+    // rebuild ImGui's font atlas; the GPU texture follows on the next frame. Kept for API
+    // compatibility with older callers.
 }
 
 bool zest_imgui_HasGuiToDraw(zest_imgui_t *imgui) {
@@ -120,6 +173,12 @@ void zest_imgui_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_w
 }
 
 zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui, zest_imgui_viewport_t *viewport) {
+    // Honour any queued ImGui texture create/update/destroy requests before the pass records draw
+    // commands that reference them. This is the common entry point for both the simplified
+    // zest_imgui_RenderViewport() path and examples that build the frame graph themselves, so the
+    // font atlas (and any other ImGui-managed texture) is always uploaded before it is sampled.
+    zest_imgui_UpdateTextures(imgui);
+
     ImDrawData *imgui_draw_data = viewport->imgui_viewport->DrawData;
     ImDrawData *all_draw_data =  ImGui::GetDrawData();
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
@@ -249,7 +308,10 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
             {
                 ImDrawCmd *pcmd = &cmd_list->CmdBuffer[j];
 
-                zest_atlas_region_t *current_image = (zest_atlas_region_t*)pcmd->TextureId;
+                // An ImGui-managed texture (font atlas etc.) has a backing ImTextureData; a
+                // user-supplied texture passed via ImGui::Image() only carries a raw ImTextureID.
+                bool is_imgui_texture = (pcmd->TexRef._TexData != NULL);
+                zest_atlas_region_t *current_image = (zest_atlas_region_t*)pcmd->GetTexID();
                 if (!current_image) {
                     //This means we're trying to draw a render target
                     assert(pcmd->UserCallbackData);
@@ -271,7 +333,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 					continue;
 				}
 
-				if (current_image == &imgui_viewport->imgui->font_region) {
+				if (is_imgui_texture) {
 					zest_pipeline pipeline = zest_GetPipeline(imgui_viewport->imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {
 						render_state.pipeline = pipeline;
@@ -348,6 +410,11 @@ void zest__imgui_create_viewport(ImGuiViewport* viewport) {
 void zest__imgui_render_viewport(ImGuiViewport* vp, void* render_arg) {
 	zest_imgui_t *imgui = (zest_imgui_t*)render_arg;
 	zest_imgui_viewport_t* viewport = (zest_imgui_viewport_t*)vp->RendererUserData;
+
+	// Handle texture requests up front: on frames that reuse a cached frame graph, zest_imgui_BeginPass
+	// (which also calls this) is skipped, so we must ensure textures are uploaded here as well. The
+	// call is idempotent - already-created textures report ImTextureStatus_OK and are skipped.
+	zest_imgui_UpdateTextures(imgui);
 
 	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(viewport->context, 0, 0);
@@ -1152,6 +1219,14 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 }
 
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
+	// Release the GPU textures and backend book-keeping we created for ImGui's dynamically
+	// managed textures (font atlas etc.) before tearing down the ImGui context.
+	ImGui::SetCurrentContext(imgui->imgui_context);
+	for (ImTextureData *tex : ImGui::GetPlatformIO().Textures) {
+		if (tex->BackendUserData) {
+			zest__imgui_destroy_texture(imgui, tex);
+		}
+	}
 	ImGui::DestroyContext();
 	zest_FreeImage(imgui->font_texture);
 	if (imgui->font_texture_previous.value) {

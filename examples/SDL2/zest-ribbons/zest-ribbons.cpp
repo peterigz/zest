@@ -40,13 +40,9 @@ void InitImGuiApp(Ribbons *app) {
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
 	float font_size = 15.f;
-	unsigned char *font_data;
-	int tex_width, tex_height;
 	ImFontConfig config;
 	config.PixelSnapH = true;
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
-	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
-	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->sync_refresh = true;
 

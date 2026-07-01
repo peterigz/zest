@@ -35,18 +35,14 @@ void InitImGuiApp(ImGuiApp *app) {
 	//fonts from ImGui's font atlas.
 	io.Fonts->Clear();
 	float font_size = 15.f;
-	unsigned char *font_data;
-	int tex_width, tex_height;
 	ImFontConfig config;
 	config.PixelSnapH = true;
 	//Load the font file
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
 	//Build the font atlas and get the pixel data
-	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//After changing fonts you must rebuild Zest's font texture with the new atlas data.
 	//This uploads the font texture to the GPU and updates the descriptor index.
-	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->sync_refresh = true;
 
