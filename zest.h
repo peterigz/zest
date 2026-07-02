@@ -3547,11 +3547,14 @@ typedef struct zest_debug_t {
 	zest_log_entry_t *frame_log;
 } zest_debug_t;
 
+//Describes the kind of buffer you want to create. Use zest_CreateBufferInfo(type, usage) to build this struct;
+//that is the supported, backend-neutral way to configure buffers. Setting property_flags directly is an advanced
+//use case: the exact meaning of memory property combinations is backend-defined (they map to memory types on
+//Vulkan, heap types on D3D12, storage modes on Metal).
 typedef struct zest_buffer_info_t {
 	zest_image_usage_flags image_usage_flags;
 	zest_buffer_usage_flags buffer_usage_flags;                    //The usage state_flags of the memory block.
 	zest_memory_property_flags property_flags;
-	zest_uint memory_type_bits;
 	zest_size alignment;
 	zest_uint frame_in_flight;
 	zest_memory_pool_flags flags;
@@ -3566,7 +3569,6 @@ typedef struct zest_buffer_pool_size_t {
 typedef struct zest_buffer_usage_t {
 	zest_memory_property_flags property_flags;
 	zest_memory_pool_type memory_pool_type;
-	zest_uint memory_type_index;
 	zest_size alignment;
 } zest_buffer_usage_t;
 
@@ -4352,11 +4354,15 @@ typedef struct zest_platform_t {
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
-	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
+	//backend_memory_bits is a backend-defined value describing which device memory the allocation is compatible
+	//with (Vulkan: VkMemoryRequirements::memoryTypeBits). It's produced by the backend when it creates a resource
+	//and passed back to it at allocation time; shared code never interprets it. 0 when the backend can derive the
+	//requirements itself (plain buffer allocations).
+	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 	void*                      (*create_buffer_linear_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
-	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
-	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory);
+	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer);
+	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
@@ -4575,12 +4581,12 @@ ZEST_PRIVATE void *zest__allocate_aligned(zloc_allocator *allocator, zest_size s
 ZEST_PRIVATE void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size);
 ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size);
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
-ZEST_PRIVATE zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info);
+ZEST_PRIVATE zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key, zest_uint backend_memory_bits);
 ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
-ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
+ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
@@ -5051,13 +5057,16 @@ ZEST_API zloc__error_codes zloc_VerifyAllRemoteBlocks(zest_context context, zloc
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //---------
-//Create a new buffer configured with the zest_buffer_info_t that you pass into the function. 
-//You can use helper functions to create commonly used buffer types such as zest_CreateVertexBufferInfo below, and you can just use
-//helper functions to create the buffers without needed to create the zest_buffer_info_t, see functions just below this one.
+//Create a new buffer configured with the zest_buffer_info_t that you pass into the function.
+//Build the zest_buffer_info_t with zest_CreateBufferInfo (see below) - that is the supported way to configure
+//buffers and is portable across backends. Filling the struct fields manually (in particular property_flags) is
+//an advanced use case with backend-defined behaviour.
 ZEST_API zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(zest_device device, zest_size size, void *data);
-//Generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
+//Generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with. This is the
+//documented way to build buffer infos: describe what you need with zest_buffer_type and zest_memory_usage and
+//each backend maps that to its own memory model (memory types on Vulkan, heap types on D3D12, storage modes on Metal).
 ZEST_API zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usage usage);
 //Grow a buffer if the minium_bytes is more then the current buffer size.
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
@@ -7173,7 +7182,6 @@ typedef struct zest_device_memory_pool_t {
 	zest_size size;
 	zest_size minimum_allocation_size;
 	zest_size alignment;
-	zest_uint memory_type_index;
 	void* mapped;
 } zest_device_memory_pool_t;
 
@@ -9509,7 +9517,7 @@ zest_size zest__get_minimum_block_size(zest_size pool_size) {
     return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
-zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key) {
+zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key, zest_uint backend_memory_bits) {
 	zloc_allocator *allocator = context ? context->allocator : device->allocator;
 	zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)ZEST__NEW(allocator, zest_buffer_allocator);
 	*buffer_allocator = ZEST__ZERO_INIT(zest_buffer_allocator_t);
@@ -9529,7 +9537,7 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 	}
 	ZEST_ASSERT(pre_defined_pool_size.pool_size);
 	buffer_allocator->pre_defined_pool_size = pre_defined_pool_size;
-	buffer_allocator->backend = (zest_buffer_allocator_backend)device->platform->create_buffer_allocator_backend(device, context, pre_defined_pool_size.pool_size, buffer_info);
+	buffer_allocator->backend = (zest_buffer_allocator_backend)device->platform->create_buffer_allocator_backend(device, context, pre_defined_pool_size.pool_size, buffer_info, backend_memory_bits);
 	buffer_allocator->name = pre_defined_pool_size.name;
 	buffer_allocator->allocator = (zloc_allocator *)ZEST__ALLOCATE(allocator, zloc_AllocatorSize());
 	buffer_allocator->allocator = zloc_InitialiseAllocatorForRemote(buffer_allocator->allocator);
@@ -9582,7 +9590,7 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
         }
     }
     else {
-        result = device->platform->create_image_memory_pool(device, context, buffer_pool->size, &buffer_allocator->buffer_info, buffer_pool);
+        result = device->platform->create_image_memory_pool(device, context, buffer_pool->size, buffer_allocator, buffer_pool);
         if (result != ZEST_TRUE) {
             ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate memory for image memory pool. Tried to allocate %llu.", buffer_pool->size);
             goto cleanup;
@@ -9600,11 +9608,11 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
     return ZEST_FALSE;
 }
 
-zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info) {
+zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits) {
     zest_device_memory memory = (zest_device_memory)ZEST__NEW(device->allocator, zest_device_memory);
     *memory = ZEST__ZERO_INIT(zest_device_memory_t);
 	memory->backend = (zest_device_memory_backend)device->platform->new_memory_backend(device);
-	if (!device->platform->create_device_memory(device, size, buffer_info, memory)) {
+	if (!device->platform->create_device_memory(device, size, buffer_info, backend_memory_bits, memory)) {
 		device->platform->cleanup_memory_backend(memory);
 		ZEST__FREE(device->allocator, memory);
 		return NULL;
@@ -9720,7 +9728,7 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
     return count;
 }
 
-zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info) {
+zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info, zest_uint backend_memory_bits) {
 	zest_device device = context->device;
 	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
 	zest_map_buffer_allocators *buffer_allocators = &context->buffer_allocators;
@@ -9741,7 +9749,7 @@ zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, 
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_key pool_key = zest_map_hash_ptr(&usage, sizeof(zest_buffer_usage_t));
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, context, buffer_info, key, pool_key);
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, context, buffer_info, key, pool_key, backend_memory_bits);
 		buffer_allocator->usage = usage;
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
 			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",
@@ -9809,7 +9817,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_key pool_key = zest_map_hash_ptr(&usage, sizeof(zest_buffer_usage_t));
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, pool_key);
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, pool_key, 0);
 		buffer_allocator->usage = usage;
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
 			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",
@@ -13229,7 +13237,7 @@ zest_bool zest__create_transient_resource(zest_context context, zest_resource_no
 		zest_vec_linear_push(zest__frame_graph_builder->allocator, frame_graph->deferred_image_destruction, resource);
     } else if (ZEST__FLAGGED(resource->type, zest_resource_type_buffer) && resource->storage_buffer == NULL) {
 		resource->buffer_desc.buffer_info.frame_in_flight = context->current_fif;
-		resource->storage_buffer = zest__create_transient_buffer(context, resource->buffer_desc.size, &resource->buffer_desc.buffer_info);
+		resource->storage_buffer = zest__create_transient_buffer(context, resource->buffer_desc.size, &resource->buffer_desc.buffer_info, 0);
 		#ifdef ZEST_DEBUGGING
 		resource->buffer_identifier = context->device->platform->get_resource_ptr(resource);
 		#endif

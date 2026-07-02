@@ -207,11 +207,11 @@ ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtils
 ZEST_PRIVATE VkResult zest__vk_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
 
 //Buffers and memory
-ZEST_PRIVATE void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
+ZEST_PRIVATE void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 ZEST_PRIVATE zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
-ZEST_PRIVATE zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
-ZEST_PRIVATE zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory);
+ZEST_PRIVATE zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer);
+ZEST_PRIVATE zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory);
 ZEST_PRIVATE zest_bool zest__vk_map_memory(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 ZEST_PRIVATE void zest__vk_unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__vk_flush_used_buffers(zest_context context, zest_uint fif);
@@ -425,6 +425,7 @@ typedef struct zest_device_memory_pool_backend_t {
     VkBuffer vk_buffer;
     VkDeviceMemory memory;
     VkBufferCreateInfo buffer_info;
+    zest_uint memory_type_index;
 } zest_device_memory_pool_backend_t;
 
 typedef struct zest_device_memory_backend_t {
@@ -2935,7 +2936,7 @@ void zest__vk_unmap_memory(zest_device_memory_pool memory_allocation) {
 	vkUnmapMemory(device->backend->logical_device, memory_allocation->backend->memory);
 }
 
-void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info) {
+void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits) {
 	zloc_allocator *allocator = context ? context->allocator : device->allocator;
     zest_buffer_allocator_backend backend = (zest_buffer_allocator_backend)ZEST__NEW(allocator, zest_buffer_allocator_backend);
     *backend = ZEST__ZERO_INIT(zest_buffer_allocator_backend_t);
@@ -2960,8 +2961,10 @@ void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context 
 		backend->buffer_info = create_buffer_info;
 		backend->property_flags = buffer_info->property_flags;
 	} else {
+		//Image allocator: the memory type bits were queried from the image that triggered the creation of this
+		//allocator and are needed again each time a pool is added in zest__vk_create_image_memory_pool.
 		backend->memory_requirements.alignment = buffer_info->alignment;
-		backend->memory_requirements.memoryTypeBits = buffer_info->memory_type_bits;
+		backend->memory_requirements.memoryTypeBits = backend_memory_bits;
 		backend->memory_requirements.size = size;
 	}
 
@@ -3060,7 +3063,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
 
     memory_pool->size = memory_requirements.size;
     memory_pool->minimum_allocation_size = ZEST__MAX(memory_pool->alignment, memory_pool->minimum_allocation_size);
-    memory_pool->memory_type_index = alloc_info.memoryTypeIndex;
+    memory_pool->backend->memory_type_index = alloc_info.memoryTypeIndex;
     memory_pool->backend->buffer_info = create_buffer_info;
 	memory_pool->alignment = memory_requirements.alignment;
 
@@ -3073,21 +3076,23 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool pool) {
+zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool pool) {
+    zest_buffer_info_t *buffer_info = &buffer_allocator->buffer_info;
+    zest_uint memory_type_bits = buffer_allocator->backend->memory_requirements.memoryTypeBits;
     VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = size_in_bytes;
-    alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, buffer_info->memory_type_bits, buffer_info->property_flags);
+    alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_type_bits, buffer_info->property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
 
     pool->size = size_in_bytes;
     pool->alignment = buffer_info->alignment;
     pool->minimum_allocation_size = ZEST__MAX(pool->alignment, pool->minimum_allocation_size);
-    pool->memory_type_index = alloc_info.memoryTypeIndex;
+    pool->backend->memory_type_index = alloc_info.memoryTypeIndex;
 
     VkAllocationCallbacks *allocation_callbacks = context ? &context->backend->allocation_callbacks : &device->backend->allocation_callbacks;
 
-    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)buffer_info->alignment, buffer_info->memory_type_bits);
+    ZEST_APPEND_LOG(device->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)buffer_info->alignment, memory_type_bits);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_allocate_memory_pool);
 	} else {
@@ -3098,11 +3103,11 @@ zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context con
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory memory) {
+zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory) {
     VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = size_in_bytes;
-    alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, buffer_info->memory_type_bits, buffer_info->property_flags);
+    alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, backend_memory_bits, buffer_info->property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
 
     memory->size = size_in_bytes;
@@ -4009,19 +4014,18 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
     zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);
     buffer_info.image_usage_flags = usage;
     buffer_info.property_flags = memory_properties;
-    buffer_info.memory_type_bits = memory_requirements.memoryTypeBits;
     buffer_info.alignment = memory_requirements.alignment;
 	VkDeviceMemory vk_memory = VK_NULL_HANDLE;
 	VkDeviceSize offset = 0;
 	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
 		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
 		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
-		zest_buffer buffer = zest__create_transient_buffer(context, memory_requirements.size, &buffer_info);
+		zest_buffer buffer = zest__create_transient_buffer(context, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
 		image->buffer = (void*)buffer;
 		vk_memory = zest__vk_get_buffer_device_memory(buffer);
 		offset = buffer->memory_offset;
 	} else {
-		zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info);
+		zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
 		image->buffer = (void*)memory;
 		vk_memory = memory->backend->memory;
 	}
