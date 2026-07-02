@@ -1417,6 +1417,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 
 //Enums_and_flags
 typedef enum zest_platform_type {
+	zest_platform_none = 0,		//No platform set. Device builders must be created with a platform-specific begin function like zest_BeginVulkanDeviceBuilder
 	zest_platform_vulkan,
 	zest_platform_d3d12,
 	zest_platform_metal,
@@ -1984,9 +1985,9 @@ typedef enum zest_struct_type {
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
-	zest_platform_none = 0,
-	zest_platform_context = 1,
-	zest_platform_device = 2,
+	zest_memory_context_none = 0,
+	zest_memory_context_context = 1,
+	zest_memory_context_device = 2,
 } zest_platform_memory_context;
 
 typedef enum zest_platform_command {
@@ -2091,7 +2092,7 @@ typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_log_validation_errors_to_console = 1 << 5,
 	zest_device_init_flag_log_validation_errors_to_memory = 1 << 6,
 	zest_device_init_flag_output_memory_pool_info = 1 << 7,
-	zest_device_init_flag_force_legacy_render_pass = 1 << 8,
+	zest_device_init_flag_force_legacy_render_pass = 1 << 8,	//Vulkan backend only, set with zest_DeviceBuilderForceLegacyRenderPass
 	zest_device_init_flag_using_legacy_render_pass = 1 << 9,
 } zest_device_init_flag_bits;
 
@@ -3776,7 +3777,8 @@ typedef struct zest_device_builder_t {
 	const char *log_path;                               //path to the log to store log and validation messages
 	const char *cached_shader_path;
 
-	// User-provided list of required instance extensions (e.g., from GLFW)
+	// Vulkan backend only: required instance extensions (e.g., the surface extensions reported by
+	// GLFW/SDL). Set with zest_AddDeviceBuilderExtension(s); other backends ignore this list.
 	const char** required_instance_extensions;
 } zest_device_builder_t;
 
@@ -3790,7 +3792,6 @@ typedef struct zest_create_context_info_t {
 	zest_millisecs max_semaphore_timeout_ms;            //The maximum amount of time to wait before giving up
 	zest_format color_format;                   		//The format to use for the swapchain
 	zest_context_init_flags flags;                      //Set flags to apply different initialisation options
-	zest_platform_type platform;
 	zest_size memory_pool_size;
 } zest_create_context_info_t;
 
@@ -4411,7 +4412,6 @@ typedef struct zest_platform_t {
 	void                  	   (*wait_for_idle_device)(zest_device device);
 	zest_bool 				   (*initialise_device)(zest_device device);
 	zest_bool				   (*query_device_capabilities)(zest_device device);
-	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_context context);
 	//Shader Compiling
 	zest_bool				   (*validate_shader)(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
@@ -4789,18 +4789,21 @@ ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, 
 //-----------------------------------------------
 //        Essential_setup_functions
 //-----------------------------------------------
-//Device creation builder
+//Device creation builder. Each backend has its own begin function (defined by its platform header).
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags);
-//Add a required extension to the device builder. This will be used to find a suitable GPU in the machine
+//Add a required Vulkan instance extension, e.g. the surface extensions reported by
+//glfwGetRequiredInstanceExtensions or SDL_Vulkan_GetInstanceExtensions. Vulkan only: other
+//backends have no instance extensions and ignore this list, so calling this is a no-op there.
 ZEST_API void zest_AddDeviceBuilderExtension(zest_device_builder builder, const char *extension_name);
-ZEST_API void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int cout);
+ZEST_API void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int count);
 ZEST_API void zest_AddDeviceBuilderValidation(zest_device_builder builder);
 ZEST_API void zest_AddDeviceBuilderFullValidation(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogToConsole(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderPrintMemoryInfo(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogToMemory(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path);
-//Force legacy VkRenderPass/VkFramebuffer usage even when dynamic rendering is available (for testing)
+//Force legacy VkRenderPass/VkFramebuffer usage even when dynamic rendering is available (for testing).
+//Vulkan only: does nothing on other platforms.
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
@@ -4852,8 +4855,6 @@ ZEST_API void zest__register_platform(zest_platform_type type, zest__platform_se
 //        Platform_Helper_Functions
 //        These functions are for more advanced customisation of the render where more knowledge of how graphics APIs work is required.
 //-----------------------------------------------
-//Add an instance extension. You don't really need to worry about this function unless you're looking to customise the render with some specific extensions
-ZEST_API void zest_AddInstanceExtension(zest_device device, const char *extension);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
 ZEST_API zest_bool zest_CreateDescriptorPoolForLayout(zest_set_layout layout, zest_uint max_set_count);
@@ -8417,7 +8418,8 @@ zest_device_builder zest__begin_device_builder() {
 	zest_device_builder builder = (zest_device_builder)ZEST__NEW(allocator, zest_device_builder);
 	*builder = ZEST__ZERO_INIT(zest_device_builder_t);
 	builder->magic = zest_INIT_MAGIC(zest_struct_type_device_builder);
-	builder->platform = zest_platform_vulkan;
+	//builder->platform is left as zest_platform_none; the platform-specific begin function
+	//(e.g. zest_BeginVulkanDeviceBuilder) sets it. zest_EndDeviceBuilder asserts if it was never set.
 	builder->allocator = allocator;
 	builder->memory_pool_size = zloc__MEGABYTE(64);
 	builder->thread_count = zest_GetDefaultThreadCount();
@@ -8449,12 +8451,7 @@ void zest_AddDeviceBuilderExtension(zest_device_builder builder, const char *ext
 void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int count) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	for (int i = 0; i != count; ++i) {
-		const char *extension_name = extension_names[i];
-		size_t len = strlen(extension_name) + 1;
-		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
-		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
-		memcpy(name_copy, extension_name, len);
-		zest_vec_push(builder->allocator, builder->required_instance_extensions, name_copy);
+		zest_AddDeviceBuilderExtension(builder, extension_names[i]);
 	}
 }
 
@@ -8501,6 +8498,7 @@ void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path
 }
 
 void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST__FLAG(builder->flags, zest_device_init_flag_force_legacy_render_pass);
 }
 
@@ -8561,9 +8559,16 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 				return NULL;
 			}
 			break;
-			default: {
-				ZEST_ASSERT(0, "Platform not implemented yet.");
-			}
+		}
+		case zest_platform_none: {
+			ZEST_ASSERT(0, "The device builder has no platform set. Create the builder with a platform-specific begin function such as zest_BeginVulkanDeviceBuilder.");
+			ZEST__FREE_POOL(memory_pool);
+			return NULL;
+		}
+		default: {
+			ZEST_ASSERT(0, "Platform not implemented yet.");
+			ZEST__FREE_POOL(memory_pool);
+			return NULL;
 		}
 	}
 
@@ -8990,10 +8995,6 @@ Functions that create a vulkan device
 */
 
 
-void zest_AddInstanceExtension(zest_device device, const char* extension) {
-    zest_vec_push(device->allocator, device->extensions, extension);
-}
-
 void zest__initialise_device_stores(zest_device device) {
 	for (int i = 0; i != zest_max_device_handle_type; ++i) {
 		switch ((zest_device_handle_type)i) {
@@ -9060,7 +9061,7 @@ void zest__destroy_device(zest_device device) {
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a Zest Device, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
-        zest_PrintMemoryBlocks(allocator, zloc__first_block_in_pool(zloc_GetPool(allocator)), 1, zest_platform_none, zest_command_none);
+        zest_PrintMemoryBlocks(allocator, zloc__first_block_in_pool(zloc_GetPool(allocator)), 1, zest_memory_context_none, zest_command_none);
     } else {
 		ZEST_PRINT("Successful shutdown of Zest Device.");
     }
@@ -10882,7 +10883,7 @@ void zest__cleanup_context(zest_context context) {
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(context->allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a zest context, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after a zest context has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
-        zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_platform_none, zest_command_none);
+        zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_memory_context_none, zest_command_none);
     }
 	for (int i = 0; i != context->memory_pool_count; i++) {
 		ZEST__FREE(context->device->allocator, context->memory_pools[i]);
@@ -12869,7 +12870,6 @@ zest_create_context_info_t zest_CreateContextInfo() {
 	create_info.max_semaphore_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10);
 	create_info.color_format = zest_format_b8g8r8a8_unorm;
 	create_info.flags = 0;
-	create_info.platform = zest_platform_vulkan;
 	create_info.memory_pool_size = zloc__MEGABYTE(8);
     return create_info;
 }
@@ -18792,8 +18792,8 @@ const char *zest__platform_command_to_string(zest_platform_command command) {
 
 const char *zest__platform_context_to_string(zest_platform_memory_context context) {
     switch (context) {
-		case zest_platform_context         : return "Renderer"; break;
-		case zest_platform_device           : return "Device"; break;
+		case zest_memory_context_context         : return "Renderer"; break;
+		case zest_memory_context_device           : return "Device"; break;
 		default: return "UNKNOWN"; break;
     }
     return "UNKNOWN";
@@ -18853,9 +18853,9 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
 			zest_uint mem_context = (vulkan_info->context_info & 0xff0000) >> 16;
 			zest_uint command = (vulkan_info->context_info & 0xff000000) >> 24;
             if (ZEST_IS_INTITIALISED(vulkan_info->context_info)) {
-                if (mem_context == zest_platform_device) {
+                if (mem_context == zest_memory_context_device) {
                     zest_stats.device_allocations++;
-                } else if (mem_context == zest_platform_context) {
+                } else if (mem_context == zest_memory_context_context) {
                     zest_stats.renderer_allocations++;
                 }
                 if (command_filter == command && context_filter == mem_context) {
@@ -18883,9 +18883,9 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
         zest_uint mem_context = (vulkan_info->context_info & 0xff0000) >> 16;
         zest_uint command = (vulkan_info->context_info & 0xff000000) >> 24;
         if (ZEST_IS_INTITIALISED(vulkan_info->context_info)) {
-            if (mem_context == zest_platform_device) {
+            if (mem_context == zest_memory_context_device) {
                 zest_stats.device_allocations++;
-            } else if (mem_context == zest_platform_context) {
+            } else if (mem_context == zest_memory_context_context) {
                 zest_stats.renderer_allocations++;
             }
             if (command_filter == command && context_filter == mem_context) {

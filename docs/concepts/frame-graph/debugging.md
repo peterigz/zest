@@ -245,7 +245,7 @@ Enable Vulkan validation layers during development:
 
 ```cpp
 zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-// Add your required extensions
+// Add your required Vulkan instance extensions
 zest_AddDeviceBuilderExtensions(device_builder, extensions, count);
 zest_AddDeviceBuilderValidation(device_builder);
 zest_DeviceBuilderLogToConsole(device_builder);

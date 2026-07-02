@@ -21,7 +21,7 @@ If you need more control, you can use the device builder directly:
 ```cpp
 // Create the device using Vulkan as the platform layer
 zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-// Add your required extensions here
+// Add your required Vulkan instance extensions here (no-op on non-Vulkan backends)
 zest_AddDeviceBuilderExtensions(device_builder, extensions, count);
 if (enable_validation) {
 	zest_AddDeviceBuilderValidation(device_builder);
