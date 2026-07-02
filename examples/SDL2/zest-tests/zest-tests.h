@@ -8,7 +8,7 @@
 #include <imgui/backends/imgui_impl_sdl2.h>
 
 #define TEST_COUNT 71
-#define MAX_TEST_RESOURCES 1000
+#define MAX_TEST_RESOURCES 500
 
 struct ZestTests;
 struct Test;
