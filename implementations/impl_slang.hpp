@@ -226,7 +226,7 @@ inline zest_shader_handle zest_slang_CreateShader(zest_device device, const char
     zest_uint spv_size = (zest_uint)compiled_shader->getBufferSize();
     const void *spv_binary = compiled_shader->getBufferPointer();
 
-    zest_shader_handle shader_handle = zest_AddShaderFromSPVMemory(device, name, spv_binary, spv_size, type);
+    zest_shader_handle shader_handle = zest_CreateShaderFromBinary(device, name, spv_binary, spv_size, type);
     if (!shader_handle.value) {
 		return {};
     }

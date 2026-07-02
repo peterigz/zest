@@ -4360,7 +4360,7 @@ typedef struct zest_platform_t {
 	zest_image_view 		   (*create_image_view)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_image_view_array 	   (*create_image_views_per_mip)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_bool 				   (*copy_buffer_regions_to_image)(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
-	zest_bool 				   (*transition_image_layout)(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+	zest_bool 				   (*transition_image)(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 	zest_bool 				   (*create_sampler)(zest_sampler sampler);
 	int 	  				   (*get_image_raw_layout)(zest_image image);
 	zest_bool  				   (*image_layout_is_valid_for_descriptor)(zest_image image);
@@ -4461,8 +4461,8 @@ typedef struct zest_platform_t {
 	void*	      			   (*get_swapchain_identifier)(zest_swapchain swapchain);
 	void					   (*create_test_render_pass)(zest_device device, const zest_command_list_t *command_list);
 	//Command recording
-	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
-	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
+	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages);
+	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages);
 	void                       (*insert_compute_image_barrier)(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 	void                       (*set_screensized_viewport)(const zest_command_list command_list, float min_depth, float max_depth);
 	void                       (*scissor)(const zest_command_list command_list, zest_scissor_rect_t *scissor);
@@ -4791,6 +4791,9 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
+//Set the folder where compiled shader binaries are cached. The default is set by the platform builder
+//(the Vulkan backend uses "./spv/"). Pass NULL to disable the prefix entirely.
+ZEST_API void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path);
 //Request an optional device feature. If the chosen GPU supports it, Zest will enable it and
 //zest_DeviceFeatureEnabled will return true. If it isn't supported the request is ignored (logged),
 //device creation still succeeds, and you should branch on zest_DeviceFeatureEnabled at runtime.
@@ -4878,14 +4881,16 @@ ZEST_API zest_shader_options zest_CreateShaderOptions(zest_device device);
 ZEST_API void zest_AddMacroDefinition(zest_shader_options options, const char *name, const char *value);
 //Free shader options from memory
 ZEST_API void zest_FreeShaderOptions(zest_shader_options options);
-//Validate a shader from a string and add it to the library of shaders in the renderer
+//Validate a shader from a source code string. The source language is defined by the device's backend
+//(GLSL for the Vulkan backend). Returns true if the shader compiles.
 ZEST_API zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
-//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
+//Creates and compiles a new shader from a source code string and adds it to the library of shaders in the renderer.
+//The source language is defined by the device's backend (GLSL for the Vulkan backend). For backend-portable shaders
+//use the Slang integration (implementations/impl_slang.hpp) or load precompiled binaries with zest_CreateShaderFromBinary.
 ZEST_API zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching);
-//Creates a shader from a file containing the shader glsl code
+//Creates a shader from a file containing shader source code. The source language is defined by the device's
+//backend (GLSL for the Vulkan backend).
 ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_shader_options options, zest_bool disable_caching);
-//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type);
 //Get a shader pointer that you can use to pass in to functions. Curently there's no real use for this so may
 //remove in the future.
 ZEST_API zest_shader zest_GetShader(zest_shader_handle shader_handle);
@@ -4896,13 +4901,15 @@ ZEST_API zest_shader zest_GetShader(zest_shader_handle shader_handle);
 ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
-//Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
-//pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type);
-//Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
-//If a path prefix is set (context->device->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
-//This prefix will be prepending to the name you pass in here.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
+//Add a shader straight from a precompiled binary file and return a handle to the shader. The binary format is
+//defined by the device's backend (SPIR-V for the Vulkan backend). Note that no prefix is added to the filename here
+//so pass in the full path to the file relative to the executable being run.
+ZEST_API zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device, const char *filename, zest_shader_type type);
+//Add a precompiled shader binary straight from memory and return a handle to the shader. The binary format is
+//defined by the device's backend (SPIR-V for the Vulkan backend). Note that the name should just be the name of the
+//shader; if a shader cache path is set on the device builder (zest_SetDeviceBuilderCacheShaderPath or the platform
+//default) then that prefix will be prepended to the name you pass in here.
+ZEST_API zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
 //Enable or disable hot-reload tracking for a shader created from a file. When enabled, zest_CheckShaderHotReload
@@ -4913,7 +4920,7 @@ ZEST_API void zest_FreeShader(zest_shader_handle shader);
 ZEST_API void zest_SetShaderHotReload(zest_shader_handle shader, zest_bool enable);
 //Walk all shaders with hot reload enabled and reload any whose source file has changed on disk. Call once per frame
 //(outside of frame-graph recording) from your main loop. Returns the number of shaders that were successfully reloaded.
-//On compile failure the shader keeps its previous SPIR-V so rendering continues, and the error is captured via
+//On compile failure the shader keeps its previous compiled binary so rendering continues, and the error is captured via
 //zest_GetShaderLastError and a ZEST_REPORT of category zest_report_shader_reload_error. Pipeline templates and
 //compute pipelines referencing the reloaded shader will be invalidated so they are rebuilt on next use.
 ZEST_API zest_uint zest_CheckShaderHotReload(zest_device device);
@@ -4921,6 +4928,8 @@ ZEST_API zest_uint zest_CheckShaderHotReload(zest_device device);
 //a hot-reload UI overlay. The returned pointer is owned by the shader and remains valid until the shader is freed or
 //reloaded.
 ZEST_API const char *zest_GetShaderLastError(zest_shader_handle shader);
+//Get the compiled shader blob and its size. The binary format is defined by the device's backend
+//(SPIR-V for the Vulkan backend).
 ZEST_API const void *zest_GetCompiledShader(zest_shader shader);
 ZEST_API zest_size zest_GetCompiledShaderSize(zest_shader shader);
 //Get the maximum image dimension available on the device
@@ -4961,7 +4970,7 @@ ZEST_API void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template
 ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template, zest_topology topology);
 ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
 ZEST_API void zest_SetPipelinePolygonFillMode(zest_pipeline_template pipeline_template, zest_polygon_mode polygon_mode);
-//Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
+//Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same shader binary)
 ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader);
 //Add a new binding description which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
@@ -5836,7 +5845,11 @@ ZEST_API void zest_imm_FillBuffer (zest_queue queue, zest_buffer buffer, zest_ui
 ZEST_API void zest_imm_UpdateBuffer (zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size);
 //Copies an area of a zest_texture to another zest_texture
 //ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image src_image, zest_image target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-ZEST_API zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+//Transition an image (or a subresource range of it) to a new resource state, for example to make an image
+//shader-readable after uploading to it (zest_resource_state_shader_read), or writable from a compute shader
+//(zest_resource_state_unordered_access). The backend translates the state to its own synchronization primitives
+//(image layouts on Vulkan).
+ZEST_API zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_API zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_image image_handle);
 ZEST_API zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image_handle);
 //Clear a color image to the specified color value. Image must be a color format.
@@ -5860,8 +5873,11 @@ ZEST_API zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_co
 // All these functions are called inside a frame graph context in callbacks in order to perform commands
 // on the GPU. These all require a platform specific implementation
 //-----------------------------------------------
-ZEST_API void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
-ZEST_API void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
+//Blit or copy a single mip level between two image resources inside a pass callback. read_by_stages declares
+//which shader stage(s) will read the images after the operation (e.g. zest_shader_compute_stage when a compute
+//shader samples the result next) so the backend can synchronize correctly.
+ZEST_API void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages);
+ZEST_API void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages);
 // -- Helper functions to insert barrier functions within pass callbacks
 ZEST_API void zest_cmd_InsertComputeImageBarrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 //Set a screen sized viewport and scissor command in the render pass
@@ -7064,8 +7080,8 @@ typedef struct zest_shader_options_t {
 typedef struct zest_shader_t {
 	int magic;
 	zest_shader_handle handle;
-	char *spv;
-	zest_size spv_size;
+	char *binary;                                    //Compiled shader blob; format is backend-defined (SPIR-V on Vulkan)
+	zest_size binary_size;
 	zest_text_t file_path;
 	zest_text_t shader_code;
 	zest_text_t name;
@@ -8385,7 +8401,9 @@ zest_device_builder zest__begin_device_builder() {
 	builder->memory_pool_size = zloc__MEGABYTE(64);
 	builder->thread_count = zest_GetDefaultThreadCount();
 	builder->log_path = "./";
-	builder->cached_shader_path = "./spv/";
+	//cached_shader_path is set by the platform builder (e.g. zest_BeginVulkanDeviceBuilder) so that
+	//different backends never share cache files for different binary formats.
+	builder->cached_shader_path = NULL;
 	builder->bindless_sampler_count = 64;
 	builder->bindless_texture_2d_count = 1024;
 	builder->bindless_texture_cube_count = 1024;
@@ -8469,6 +8487,11 @@ void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size 
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST_ASSERT(size > zloc__MEGABYTE(2));	//Size for the memory pool must be greater than 2 megabytes
 	builder->memory_pool_size = size;
+}
+
+void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	builder->cached_shader_path = path;
 }
 
 zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
@@ -8586,9 +8609,9 @@ void zest__create_default_images(zest_device device, zest_device_builder builder
     zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, &pixel);
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	zest_imm_TransitionImage(queue, device->default_image_cube, zest_image_layout_transfer_dst_optimal, 0, 1, 0, 6);
+	zest_imm_TransitionImage(queue, device->default_image_cube, zest_resource_state_copy_dst, 0, 1, 0, 6);
 	zest_imm_CopyBufferRegionsToImage(queue, regions, 6, staging_buffer, device->default_image_cube);
-    zest_imm_TransitionImage(queue, device->default_image_cube, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 6);
+    zest_imm_TransitionImage(queue, device->default_image_cube, zest_resource_state_shader_read, 0, 1, 0, 6);
 	zest_imm_EndCommandBuffer(queue);
 
 	for (int i = 0; i != builder->bindless_texture_2d_count; i++) {
@@ -8653,9 +8676,9 @@ void zest__initialise_debug_font(zest_device device) {
 	}
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, 1, 0, char_count);
+	zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, 1, 0, char_count);
 	zest_imm_CopyBufferRegionsToImage(queue, regions, char_count, staging_buffer, image);
-	zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, char_count);
+	zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, char_count);
 	zest_imm_EndCommandBuffer(queue);
 
 	zest_FreeBuffer(staging_buffer);
@@ -9861,17 +9884,15 @@ void zest__release_queue(zest_queue queue) {
 	zest__atomic_fetch_add(&queue_manager->free_queues, 1);
 }
 
-zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	mip_levels = ZEST__MIN(mip_levels, image->info.mip_levels);
 	layer_count = ZEST__MIN(layer_count, image->info.layer_count);
 	zest_device device = queue->device;
-	if (device->platform->transition_image_layout(queue, image, new_layout, base_mip_index, mip_levels, base_array_index, layer_count)) {
-		image->info.layout = new_layout;
-		return ZEST_TRUE;
-	}
-	return ZEST_FALSE;
+	//The backend maps the resource state to its own synchronization primitives and updates the
+	//image's tracked layout/state.
+	return device->platform->transition_image(queue, image, new_state, base_mip_index, mip_levels, base_array_index, layer_count);
 }
 
 zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer staging_buffer, zest_image image) {
@@ -11691,9 +11712,9 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
     shader->name = shader_name;
     if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
-        shader->spv = zest_ReadEntireFile(device, shader->name.str, ZEST_FALSE);
-        if (shader->spv) {
-            shader->spv_size = zest_vec_size(shader->spv);
+        shader->binary = zest_ReadEntireFile(device, shader->name.str, ZEST_FALSE);
+        if (shader->binary) {
+            shader->binary_size = zest_vec_size(shader->binary);
 			zest_SetText(device->allocator, &shader->shader_code, shader_code);
 			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache.", name);
 			zest__activate_resource(shader_handle.store, shader_handle.value);
@@ -11722,32 +11743,12 @@ void zest__cache_shader(zest_device device, zest_shader shader) {
         ZEST_APPEND_LOG(device->log_path.str, "Failed to open file for writing: %s", shader->name.str);
         return;
     }
-    size_t written = fwrite(shader->spv, 1, shader->spv_size, shader_file);
-    if (written != shader->spv_size) {
+    size_t written = fwrite(shader->binary, 1, shader->binary_size, shader_file);
+    if (written != shader->binary_size) {
         ZEST_APPEND_LOG(device->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
         fclose(shader_file);
     }
     fclose(shader_file);
-}
-
-zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type) {
-	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
-    ZEST_ASSERT(shader_code);   //No shader code!
-    ZEST_ASSERT(name);     //You must give the shader a name
-    zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
-    if (zest_TextSize(&device->cached_shaders_path)) {
-        zest_SetTextf(device->allocator, &shader_name, "%s%s", device->cached_shaders_path, name);
-    } else {
-        zest_SetTextf(device->allocator, &shader_name, "%s", name);
-    }
-    zest_shader_handle shader_handle = zest__new_shader(device, type);
-    zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
-    zest_vec_resize(device->allocator, shader->spv, spv_length);
-    memcpy(shader->spv, shader_code, spv_length);
-    shader->spv_size = spv_length;
-    zest_FreeText(device->allocator, &shader_name);
-	zest__activate_resource(shader_handle.store, shader_handle.value);
-    return shader_handle;
 }
 
 zest_shader zest_GetShader(zest_shader_handle shader_handle) {
@@ -11767,21 +11768,21 @@ zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
     return handle;
 }
 
-zest_shader_handle zest_CreateShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type) {
+zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device, const char *filename, zest_shader_type type) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(filename);     //You must give the shader a name
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
-    shader->spv = zest_ReadEntireFile(device, filename, ZEST_FALSE);
-    ZEST_ASSERT(shader->spv);   //File not found, could not load this shader!
-    shader->spv_size = zest_vec_size(shader->spv);
+    shader->binary = zest_ReadEntireFile(device, filename, ZEST_FALSE);
+    ZEST_ASSERT(shader->binary);   //File not found, could not load this shader!
+    shader->binary_size = zest_vec_size(shader->binary);
 	zest_SetText(device->allocator, &shader->name, filename);
 	ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
 	zest__activate_resource(shader_handle.store, shader_handle.value);
 	return shader_handle;
 }
 
-zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type) {
+zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
@@ -11794,10 +11795,10 @@ zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *n
 		else {
 			zest_SetTextf(device->allocator, &shader->name, "%s", name);
 		}
-		zest_vec_resize(device->allocator, shader->spv, size);
-		memcpy(shader->spv, buffer, size);
+		zest_vec_resize(device->allocator, shader->binary, size);
+		memcpy(shader->binary, buffer, size);
         ZEST_APPEND_LOG(device->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
-        shader->spv_size = size;
+        shader->binary_size = size;
 		zest__activate_resource(shader_handle.store, shader_handle.value);
         return shader_handle;
     }
@@ -11813,8 +11814,8 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
     zest_FreeText(device->allocator, &shader->last_error);
     zest_vec_free(device->allocator, shader->dependent_templates);
     zest_vec_free(device->allocator, shader->dependent_computes);
-    if (shader->spv) {
-        zest_vec_free(device->allocator, shader->spv);
+    if (shader->binary) {
+        zest_vec_free(device->allocator, shader->binary);
     }
     zest__remove_store_resource(shader_handle.store, shader_handle.value);
 }
@@ -11833,11 +11834,11 @@ const char *zest_GetShaderLastError(zest_shader_handle shader_handle) {
 }
 
 const void *zest_GetCompiledShader(zest_shader shader) {
-	return shader->spv;
+	return shader->binary;
 }
 
 zest_size zest_GetCompiledShaderSize(zest_shader shader) {
-	return shader->spv_size;
+	return shader->binary_size;
 }
 
 ZEST_PRIVATE void zest__invalidate_graphics_template_caches(zest_device device, zest_pipeline_template pipeline_template) {
@@ -11895,10 +11896,10 @@ zest_uint zest_CheckShaderHotReload(zest_device device) {
         zest_SetText(device->allocator, &shader->shader_code, new_code);
         zest_vec_free(device->allocator, new_code);
 
-        //Compile into new SPIR-V. On failure the shader->spv is untouched so rendering keeps using the last good SPIR-V.
-        //compile_shader rewrites shader->spv via zest_vec_resize, which is not an atomic swap; however pipelines that already
-        //hold VkPipeline handles don't read shader->spv again — only rebuilt pipelines do. So a failed compile leaves spv in an
-        //indeterminate state, which is fine because rebuild is only triggered on success.
+        //Compile into a new binary. On failure the shader->binary is untouched so rendering keeps using the last good binary.
+        //compile_shader rewrites shader->binary via zest_vec_resize, which is not an atomic swap; however pipelines that already
+        //hold backend pipeline handles don't read shader->binary again — only rebuilt pipelines do. So a failed compile leaves the
+        //binary in an indeterminate state, which is fine because rebuild is only triggered on success.
         if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL)) {
             ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: compile failed for '%s': %s", shader->name.str, shader->last_error.str ? shader->last_error.str : "(no message)");
             continue;
@@ -16903,7 +16904,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
 	image->info.layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
         zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-        zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
+        zest_imm_TransitionImage(queue, image, zest_resource_state_unordered_access, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);
         zest_imm_EndCommandBuffer(queue);
     }
     zest_image_view_type view_type = zest__get_image_view_type(image);
@@ -19884,7 +19885,7 @@ void zest_cmd_ViewPort(const zest_command_list command_list, zest_viewport_t *vi
 	command_list->context->device->platform->viewport(command_list, viewport);
 }
 
-void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage) {
+void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT_HANDLE(src);
     ZEST_ASSERT_HANDLE(dst);
@@ -19893,10 +19894,10 @@ void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_n
     ZEST_ASSERT(src->image.info.extent.width == dst->image.info.extent.width);
     ZEST_ASSERT(src->image.info.extent.height == dst->image.info.extent.height);
     ZEST_ASSERT(src->image.info.mip_levels == dst->image.info.mip_levels);
-	command_list->context->device->platform->blit_image_mip(command_list, src, dst, mip_to_blit, pipeline_stage);
+	command_list->context->device->platform->blit_image_mip(command_list, src, dst, mip_to_blit, read_by_stages);
 }
 
-void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_pipeline_stage_flags pipeline_stage) {
+void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_shader_stages read_by_stages) {
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT_HANDLE(src);
     ZEST_ASSERT_HANDLE(dst);
@@ -19912,7 +19913,7 @@ void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_n
     //usage flags set will result in validation errors.
     ZEST_ASSERT(src->image.info.flags & zest_image_flag_transfer_src);
     ZEST_ASSERT(dst->image.info.flags & zest_image_flag_transfer_dst);
-	command_list->context->device->platform->copy_image_mip(command_list, src, dst, mip_to_copy, pipeline_stage);
+	command_list->context->device->platform->copy_image_mip(command_list, src, dst, mip_to_copy, read_by_stages);
 }
 
 void zest_cmd_Clip(const zest_command_list command_list, float x, float y, float width, float height, float min_depth, float max_depth) {

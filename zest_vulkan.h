@@ -333,7 +333,7 @@ ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_device device, z
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image);
 ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
-ZEST_PRIVATE zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+ZEST_PRIVATE zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__vk_create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__vk_get_image_raw_layout(zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_image_layout_is_valid_for_desriptor(zest_image image);
@@ -377,8 +377,8 @@ void zest__vk_dispatch_compute(const zest_command_list command_list, zest_uint g
 void zest__vk_set_screen_sized_viewport(const zest_command_list command_list, float min_depth, float max_depth);
 void zest__vk_scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor);
 void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *viewport);
-void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
-void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_pipeline_stage_flags pipeline_stage);
+void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages);
+void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_shader_stages read_by_stages);
 void zest__vk_clip(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
 void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer);
 void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer);
@@ -678,7 +678,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->create_image_view         				    = zest__vk_create_image_view;
 	platform->create_image_views_per_mip		 		    = zest__vk_create_image_views_per_mip;
 	platform->copy_buffer_regions_to_image		 		    = zest__vk_copy_buffer_regions_to_image;
-	platform->transition_image_layout			 		    = zest__vk_transition_image_layout;
+	platform->transition_image				 		        = zest__vk_transition_image;
 	platform->create_sampler		 					    = zest__vk_create_sampler;
 	platform->get_image_raw_layout		 				    = zest__vk_get_image_raw_layout;
 	platform->image_layout_is_valid_for_descriptor			= zest__vk_image_layout_is_valid_for_desriptor;
@@ -1015,7 +1015,16 @@ ZEST_PRIVATE inline VkSampleCountFlagBits zest__to_vk_sample_count(VkSampleCount
 }
 
 ZEST_PRIVATE inline shaderc_shader_kind zest__to_shaderc_shader_kind(zest_shader_type type) {
-    return (shaderc_shader_kind)type;
+    //Explicit mapping rather than a cast: zest_shader_type is backend-agnostic and new members
+    //(tessellation/geometry etc.) must not silently mistranslate to shaderc values.
+    switch (type) {
+        case zest_vertex_shader: return shaderc_vertex_shader;
+        case zest_fragment_shader: return shaderc_fragment_shader;
+        case zest_compute_shader: return shaderc_compute_shader;
+        default: break;
+    }
+    ZEST_ASSERT(0, "Unhandled zest_shader_type in zest__to_shaderc_shader_kind");
+    return shaderc_vertex_shader;
 }
 
 ZEST_PRIVATE inline VkPipelineBindPoint zest__to_vk_pipeline_bind_point(zest_pipeline_bind_point bind_point) {
@@ -1725,12 +1734,14 @@ zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
 // -- Initialisation_functions
 zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags) {
 	zest__register_platform(zest_platform_vulkan, zest__vk_initialise_platform_callbacks);
-    void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
 	zest_device_builder builder = zest__begin_device_builder();
 	builder->graphics_queue_count = -1;
 	builder->compute_queue_count = -1;
 	builder->transfer_queue_count = -1;
 	builder->platform = zest_platform_vulkan;
+	//The Vulkan backend caches compiled shaders as SPIR-V. Each platform sets its own cache
+	//folder so different backends never collide on the same cache files.
+	builder->cached_shader_path = "./spv/";
 	builder->flags = flags;
 	return builder;
 }
@@ -2634,8 +2645,8 @@ zest_bool zest__vk_finish_compute(zest_device device, zest_compute compute) {
 	VkPipelineShaderStageCreateInfo compute_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(compute->shader.store, compute->shader.value);
 
-	ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
-	ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->spv, &shader_module));
+	ZEST_ASSERT(shader->binary);   //Compile the shader first before making the compute pipeline
+	ZEST_CLEANUP_ON_FAIL(device, zest__vk_create_shader_module(device, shader->binary, &shader_module));
 	compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	compute_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
 	compute_shader_stage_info.module = shader_module;
@@ -3511,12 +3522,12 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	VkResult result = VK_SUCCESS;
     if (ZEST_VALID_HANDLE(vert_shader, zest_struct_type_shader)) {
-        if (!vert_shader->spv) {
+        if (!vert_shader->binary) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline_template->name);
             result = VK_ERROR_UNKNOWN;
             goto cleanup;
         }
-        result = zest__vk_create_shader_module(context->device, vert_shader->spv, &vert_shader_module);
+        result = zest__vk_create_shader_module(context->device, vert_shader->binary, &vert_shader_module);
         vert_shader_stage_info.module = vert_shader_module;
 		stage_count++;
     }
@@ -3525,12 +3536,12 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 		frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
 	}
     if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
-        if (!frag_shader->spv) {
+        if (!frag_shader->binary) {
             ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
             result = VK_ERROR_UNKNOWN;
             goto cleanup;
         }
-        result = zest__vk_create_shader_module(context->device, frag_shader->spv, &frag_shader_module);
+        result = zest__vk_create_shader_module(context->device, frag_shader->binary, &frag_shader_module);
         frag_shader_stage_info.module = frag_shader_module;
 		frag_shader_stage_info.pName = pipeline_template->fragShaderFunctionName;
 		stage_count++;
@@ -3728,12 +3739,12 @@ zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_li
 	VkPipelineShaderStageCreateInfo vert_shader_stage_info = ZEST__ZERO_INIT(VkPipelineShaderStageCreateInfo);
 	VkResult result = VK_SUCCESS;
 	if (ZEST_VALID_HANDLE(vert_shader, zest_struct_type_shader)) {
-		if (!vert_shader->spv) {
+		if (!vert_shader->binary) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline_template->name);
 			result = VK_ERROR_UNKNOWN;
 			goto legacy_cleanup;
 		}
-		result = zest__vk_create_shader_module(context->device, vert_shader->spv, &vert_shader_module);
+		result = zest__vk_create_shader_module(context->device, vert_shader->binary, &vert_shader_module);
 		vert_shader_stage_info.module = vert_shader_module;
 		stage_count++;
 	}
@@ -3742,12 +3753,12 @@ zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_li
 		frag_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->fragment_shader.store, pipeline_template->fragment_shader.value);
 	}
 	if (ZEST_VALID_HANDLE(frag_shader, zest_struct_type_shader)) {
-		if (!frag_shader->spv) {
+		if (!frag_shader->binary) {
 			ZEST_APPEND_LOG(context->device->log_path.str, "Fragment shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, pipeline_template->name);
 			result = VK_ERROR_UNKNOWN;
 			goto legacy_cleanup;
 		}
-		result = zest__vk_create_shader_module(context->device, frag_shader->spv, &frag_shader_module);
+		result = zest__vk_create_shader_module(context->device, frag_shader->binary, &frag_shader_module);
 		frag_shader_stage_info.module = frag_shader_module;
 		frag_shader_stage_info.pName = pipeline_template->fragShaderFunctionName;
 		stage_count++;
@@ -4134,13 +4145,47 @@ VkPipelineStageFlags zest__vk_get_stage_for_layout(VkImageLayout layout, zest_de
     }
 }
 
-zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+//Map a backend-agnostic resource state to the VkImageLayout the Vulkan backend uses for it.
+//The mapping is aspect-aware: shader_read picks the depth/stencil read-only layout for depth formats.
+VkImageLayout zest__vk_image_layout_from_resource_state(zest_resource_state state, zest_image image) {
+    switch (state) {
+        case zest_resource_state_undefined:             return VK_IMAGE_LAYOUT_UNDEFINED;
+        case zest_resource_state_shader_read:
+            if (zest__vk_has_depth_format(zest__to_vk_format(image->info.format))) {
+                return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+            }
+            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case zest_resource_state_unordered_access:      return VK_IMAGE_LAYOUT_GENERAL;
+        case zest_resource_state_copy_src:              return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        case zest_resource_state_copy_dst:              return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        case zest_resource_state_render_target:         return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        case zest_resource_state_depth_stencil_write:   return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        case zest_resource_state_depth_stencil_read:    return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        case zest_resource_state_present:               return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        default: break;
+    }
+    ZEST_ASSERT(0, "This resource state is not valid for an image transition (buffer states cannot be applied to images).");
+    return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+//Map backend-agnostic shader stage bits to Vulkan pipeline stages.
+VkPipelineStageFlags2 zest__vk_stages_from_shader_stages(zest_supported_shader_stages stages) {
+    VkPipelineStageFlags2 flags = 0;
+    if (stages & zest_shader_vertex_stage)   flags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+    if (stages & zest_shader_fragment_stage) flags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    if (stages & zest_shader_compute_stage)  flags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    return flags ? flags : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+}
+
+zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
     ZEST_ASSERT(queue);    //No queue was acquired
+
+    VkImageLayout new_vk_layout = zest__vk_image_layout_from_resource_state(new_state, image);
 
     VkImageMemoryBarrier barrier = ZEST__ZERO_INIT(VkImageMemoryBarrier);
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = image->backend->vk_current_layout;
-    barrier.newLayout = zest__to_vk_image_layout(new_layout);
+    barrier.newLayout = new_vk_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image->backend->vk_image;
@@ -4161,15 +4206,15 @@ zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, z
     }
 
     barrier.srcAccessMask = zest__vk_get_access_mask_for_layout(image->backend->vk_current_layout);
-    barrier.dstAccessMask = zest__vk_get_access_mask_for_layout(zest__to_vk_image_layout(new_layout));
+    barrier.dstAccessMask = zest__vk_get_access_mask_for_layout(new_vk_layout);
     zest_device_queue_type queue_type = queue->manager->type;
     VkPipelineStageFlags source_stage = zest__vk_get_stage_for_layout(image->backend->vk_current_layout, queue_type);
-    VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(zest__to_vk_image_layout(new_layout), queue_type);
+    VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(new_vk_layout, queue_type);
 
     vkCmdPipelineBarrier(queue->backend->command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
-    image->backend->vk_current_layout = (VkImageLayout)new_layout;
-	image->info.layout = new_layout;
+    image->backend->vk_current_layout = new_vk_layout;
+	image->info.layout = (zest_image_layout)new_vk_layout;
 
     return ZEST_TRUE;
 }
@@ -5567,7 +5612,7 @@ void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *v
 	vkCmdSetViewport(command_list->backend->command_buffer, 0, 1, &vk_viewport);
 }
 
-void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage) {
+void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages) {
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
     VkImage src_image = src->image.backend->vk_image;
@@ -5628,11 +5673,13 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         dst_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, same_size ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
 
+	VkPipelineStageFlags2 read_stages = zest__vk_stages_from_shader_stages(read_by_stages);
+
     blit_src_barrier = zest__vk_create_image_memory_barrier(src_image,
         VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         VK_ACCESS_2_SHADER_READ_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		read_stages,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
         src->image.info.aspect_flags,
@@ -5643,7 +5690,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
         VK_ACCESS_2_TRANSFER_WRITE_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         VK_ACCESS_2_SHADER_READ_BIT,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		read_stages,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
         dst->image.info.aspect_flags,
@@ -5651,7 +5698,7 @@ void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource
 	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
 }
 
-void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_pipeline_stage_flags pipeline_stage) {
+void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_shader_stages read_by_stages) {
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
     //You must ensure that when creating the images that you use usage hints to indicate that you intend to copy
@@ -5714,7 +5761,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         dst_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);
 
-	VkPipelineStageFlags2 vk_pipeline_stage_flags = zest__to_vk_pipeline_stage(pipeline_stage);
+	VkPipelineStageFlags2 vk_pipeline_stage_flags = zest__vk_stages_from_shader_stages(read_by_stages);
 
     blit_src_barrier = zest__vk_create_image_memory_barrier(src_image,
         VK_ACCESS_2_TRANSFER_READ_BIT,
@@ -6475,9 +6522,9 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
 
     zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
     const char *spv_binary = shaderc_result_get_bytes(result);
-    zest_vec_resize(device->allocator, shader->spv, spv_size);
-    memcpy(shader->spv, spv_binary, spv_size);
-    shader->spv_size = spv_size;
+    zest_vec_resize(device->allocator, shader->binary, spv_size);
+    memcpy(shader->binary, spv_binary, spv_size);
+    shader->binary_size = spv_size;
     shaderc_result_release(result);
 	return ZEST_TRUE;
 }

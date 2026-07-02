@@ -56,15 +56,15 @@ zest_shader_handle vert = zest_CreateShaderFromFile(
     false                     // Whether to disable caching (false = enable caching)
 );
 
-// From pre-compiled SPIR-V file
-zest_shader_handle frag = zest_CreateShaderFromSPVFile(
+// From a pre-compiled binary file (SPIR-V on the Vulkan backend)
+zest_shader_handle frag = zest_CreateShaderFromBinaryFile(
     device,
     "shaders/sprite.frag.spv",
     zest_fragment_shader
 );
 
-// From SPIR-V in memory
-zest_shader_handle comp = zest_AddShaderFromSPVMemory(
+// From a pre-compiled binary in memory (SPIR-V on the Vulkan backend)
+zest_shader_handle comp = zest_CreateShaderFromBinary(
     device,
     "compute.spv",            // Name
     spirv_data,               // Buffer
