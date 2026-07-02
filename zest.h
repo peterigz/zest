@@ -1881,20 +1881,17 @@ typedef enum {
 	zest_store_op_dont_care,
 } zest_store_op;
 
+//Backend-neutral descriptor types. Samplers and images are always separate (no combined image sampler
+//type): D3D12 and Metal have no combined equivalent and Zest's own global bindless layout uses separate
+//sampler/image bindings. Combine them in the shader instead (e.g. GLSL: sampler2D(textures[i], samplers[j])).
 typedef enum {
 	zest_descriptor_type_sampler,
 	zest_descriptor_type_sampled_image,
-	zest_descriptor_type_combined_image_sampler,
 	zest_descriptor_type_storage_image,
 	zest_descriptor_type_uniform_buffer,
 	zest_descriptor_type_storage_buffer,
 	zest_descriptor_type_count,
 } zest_descriptor_type;
-
-typedef enum {
-	zest_set_layout_builder_flag_none = 0,
-	zest_set_layout_builder_flag_update_after_bind = 1,
-} zest_set_layout_builder_flag_bits;
 
 typedef enum {
 	zest_set_layout_flag_none = 0,
@@ -1907,7 +1904,6 @@ typedef enum {
 	zest_semaphore_status_error
 } zest_semaphore_status;
 
-typedef zest_uint zest_set_layout_builder_flags;
 typedef zest_uint zest_set_layout_flags;
 
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
@@ -2591,6 +2587,19 @@ typedef enum zest_report_category {
 	zest_report_shader_reload_success,
 } zest_report_category;
 
+//The binding slots of Zest's global bindless descriptor layout. These slot numbers are part of the API
+//contract and will not change: indexes acquired with zest_Acquire*Index functions index into the descriptor
+//array at the corresponding slot.
+//Shader-side, how a slot is declared depends on the backend's shader language:
+//  - GLSL/SPIR-V (Vulkan, today):  layout(set = 0, binding = <slot>), e.g.
+//        layout(set = 0, binding = 0) uniform sampler samplers[];
+//        layout(set = 0, binding = 1) uniform texture2D textures[];
+//        layout(set = 0, binding = 6, rgba16f) uniform image2D storage_images[];
+//  - HLSL (D3D12, future):         mapped to register/space by the backend (one space per slot).
+//  - MSL (Metal, future):          mapped to argument buffer ids ([[id(<slot>)]]).
+//User code only deals in slot numbers and bindless indexes, so it is unchanged across backends; only the
+//shader declarations are per-language. Writing shaders in Slang (implementations/impl_slang.hpp) lets you
+//declare them once and target every backend.
 typedef enum zest_binding_number_type {
 	zest_sampler_binding = 0,
 	zest_texture_2d_binding,
@@ -3845,7 +3854,6 @@ typedef struct zest_set_layout_builder_t {
 	zloc_allocator *allocator;
 	zest_descriptor_binding_desc_t *bindings;
 	zest_u64 binding_capacity;
-	zest_set_layout_builder_flags flags;
 } zest_set_layout_builder_t;
 
 typedef int (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
@@ -4140,14 +4148,6 @@ typedef struct zest_descriptor_indices_t {
 	zest_uint capacity;
 	zest_descriptor_type descriptor_type;
 } zest_descriptor_indices_t;
-
-typedef struct zest_layout_type_counts_t {
-	zest_uint sampler_count;
-	zest_uint sampler_image_count;
-	zest_uint uniform_buffer_count;
-	zest_uint storage_buffer_count;
-	zest_uint combined_image_sampler_count;
-} zest_layout_type_counts_t;
 
 typedef struct zest_uniform_buffer_data_t {
 	zest_matrix4 view;
@@ -4863,7 +4863,12 @@ ZEST_API zest_set_layout_builder_t zest_BeginSetLayoutBuilder(zloc_allocator *al
 
 ZEST_API void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_descriptor_binding_desc_t description);
 
-//Build the descriptor set layout and add it to the renderer. This is for large global descriptor set layouts
+//Build the descriptor set layout and add it to the renderer. This is for large global descriptor set layouts.
+//Descriptor update behaviour is managed by the backend, not by the caller: bindless layouts allow descriptors
+//to be written while the set is bound (Vulkan: UPDATE_AFTER_BIND) wherever the hardware supports it. The one
+//exception is uniform-buffer bindings, which must be written at creation time and not updated mid-frame (see
+//the note on zest_CreateUniformBuffer). Other backends may ignore this entirely where their descriptor model
+//already permits updates after binding (D3D12 heaps, Metal argument buffers).
 ZEST_API zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
 ZEST_API zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name, ...);

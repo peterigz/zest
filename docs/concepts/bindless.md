@@ -62,6 +62,26 @@ Zest's bindless system supports:
 
 Take note of the binding numbers as that's what you need to use to correctly set up your shaders.
 
+### Cross-backend binding contract
+
+The slot numbers above are part of Zest's API contract and will not change. Your application code only
+deals in slot numbers (`zest_binding_number_type`) and the indexes returned by the `zest_Acquire*Index`
+functions, so it is identical on every backend. Only the shader-side declaration is per-language:
+
+- **GLSL/SPIR-V (Vulkan, today):** `layout(set = 0, binding = <slot>)` as shown in the examples below.
+- **HLSL (D3D12, future):** the backend maps each slot to a register/space (one space per slot).
+- **MSL (Metal, future):** the backend maps each slot to an argument buffer id (`[[id(<slot>)]]`).
+
+Writing shaders in [Slang](../../implementations/impl_slang.hpp) lets you declare bindings once and target
+every backend.
+
+Note also that samplers and images are always separate bindings — there is no combined image sampler
+descriptor type (D3D12 and Metal have no equivalent). Combine them at sample time in the shader, e.g.
+`texture(sampler2D(textures[i], samplers[j]), uv)`.
+
+Descriptor update-after-bind behaviour is handled by the backend automatically: you can acquire new
+indexes mid-frame for everything except uniform buffers (see [Uniform Buffers](#uniform-buffers) below).
+
 ## Acquiring Indices
 
 ### Sampled Images (Textures)
@@ -104,6 +124,10 @@ zest_uniform_buffer_handle ubo_handle = zest_CreateUniformBuffer(context, "camer
 zest_uniform_buffer ubo = zest_GetUniformBuffer(ubo_handle);
 zest_uint ubo_index = zest_GetUniformBufferDescriptorIndex(ubo);
 ```
+
+Create uniform buffers during setup, not mid-frame. Their descriptors are written once at creation and
+must not be updated while the set is in flight (the global layout deliberately supports older/mobile GPUs
+here). All other resource types can be acquired mid-frame.
 
 ## Shader Setup
 

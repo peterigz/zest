@@ -3185,7 +3185,6 @@ inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) 
     case zest_descriptor_type_storage_image: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     case zest_descriptor_type_uniform_buffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     case zest_descriptor_type_storage_buffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    case zest_descriptor_type_combined_image_sampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     default:
         ZEST_ASSERT(ZEST_FALSE);  //Unknown descriptor type
         return VK_DESCRIPTOR_TYPE_MAX_ENUM; 
