@@ -1788,6 +1788,12 @@ typedef enum {
 	zest_image_view_type_cube_array = 6,
 } zest_image_view_type;
 
+//-----------------------------------------------------------------------------------------------------------
+//INTERNAL: The following image layout, access mask and pipeline stage enums are internal synchronization
+//vocabulary used by the frame graph compiler and the platform backends (they mirror Vulkan's model, which
+//backends translate to their own primitives). They are not used by any public API function - use
+//zest_resource_state and zest_supported_shader_stages in application code instead.
+//-----------------------------------------------------------------------------------------------------------
 typedef enum {
 	zest_image_layout_undefined = 0,
 	zest_image_layout_general = 1,
@@ -3657,7 +3663,6 @@ typedef struct zest_image_info_t {
 	zest_image_aspect_flags aspect_flags;
 	zest_sample_count_flags sample_count;
 	zest_image_flags flags;
-	zest_image_layout layout;
 } zest_image_info_t;
 
 typedef struct zest_sampler_info_t {
@@ -3710,6 +3715,8 @@ typedef struct zest_window_data_t {
 	zest_get_window_sizes_callback window_sizes_callback;
 } zest_window_data_t;
 
+//INTERNAL: describes how a pass uses a resource. Built by the frame graph compiler from the connect API
+//(zest_ConnectInput/zest_ConnectOutput) - applications never construct this directly.
 typedef struct zest_resource_usage_t {
 	zest_resource_node resource_node;
 	zest_pipeline_stage_flags stage_mask;   // Pipeline stages this usage pertains to
@@ -7111,6 +7118,7 @@ typedef struct zest_image_t {
 	#endif
 	zest_uint bindless_index[zest_max_global_binding_number];
 	zest_image_info_t info;
+	zest_image_layout layout;     //Internal tracking of the image's current layout/state, maintained by the backend
 	zest_image_view default_view;
 } zest_image_t;
 
@@ -12811,12 +12819,12 @@ zest_bool zest__create_transient_image(zest_context context, zest_resource_node 
         return ZEST_FALSE;
     }
 	image->handle.store = &context->device->resource_stores[zest_handle_type_images];
-    image->info.layout = resource->image_layout = zest_image_layout_undefined;
+    image->layout = resource->image_layout = zest_image_layout_undefined;
     zest_image_view_type view_type = zest__get_image_view_type(image);
     image->default_view = context->device->platform->create_image_view(context->device, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, zest__frame_graph_builder->allocator);
 	image->default_view->handle.store = &context->device->resource_stores[zest_handle_type_views];
     resource->view = image->default_view;
-	resource->linked_layout = &image->info.layout;
+	resource->linked_layout = &image->layout;
 
 	if (resource->name && context->device->platform->set_image_name) {
 		context->device->platform->set_image_name(context->device, image, resource->name);
@@ -15802,8 +15810,8 @@ zest_resource_node zest_ImportImageResource(const char *name, zest_image image, 
 	ZEST__FLAG(resource.flags, zest_resource_node_flag_imported);
     resource.image_provider = provider;
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
-	node->image_layout = image->info.layout;
-    node->linked_layout = &image->info.layout;
+	node->image_layout = image->layout;
+    node->linked_layout = &image->layout;
     return node;
 }
 
@@ -16901,7 +16909,7 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
         zest__cleanup_image(image);
         return ZEST__ZERO_INIT(zest_image_handle);
     }
-	image->info.layout = zest_image_layout_undefined;
+	image->layout = zest_image_layout_undefined;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_storage)) {
         zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
         zest_imm_TransitionImage(queue, image, zest_resource_state_unordered_access, 0, ZEST__ALL_MIPS, 0, ZEST__ALL_LAYERS);

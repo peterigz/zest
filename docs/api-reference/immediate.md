@@ -197,9 +197,9 @@ zest_bool zest_imm_CopyBufferToImage(
 zest_buffer staging = zest_CreateStagingBuffer(device, pixel_size, pixels);
 
 zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-zest_imm_TransitionImage(queue, texture, zest_image_layout_transfer_dst_optimal, 0, 1, 0, 1);
+zest_imm_TransitionImage(queue, texture, zest_resource_state_copy_dst, 0, 1, 0, 1);
 zest_imm_CopyBufferToImage(queue, staging, texture, pixel_size);
-zest_imm_TransitionImage(queue, texture, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 1);
+zest_imm_TransitionImage(queue, texture, zest_resource_state_shader_read, 0, 1, 0, 1);
 zest_imm_EndCommandBuffer(queue);
 
 zest_FreeBuffer(staging);
@@ -237,9 +237,9 @@ zest_buffer_image_copy_t regions[6];
 // ... configure regions for each face ...
 
 zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-zest_imm_TransitionImage(queue, cube_map, zest_image_layout_transfer_dst_optimal, 0, 1, 0, 6);
+zest_imm_TransitionImage(queue, cube_map, zest_resource_state_copy_dst, 0, 1, 0, 6);
 zest_imm_CopyBufferRegionsToImage(queue, regions, 6, staging, cube_map);
-zest_imm_TransitionImage(queue, cube_map, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 6);
+zest_imm_TransitionImage(queue, cube_map, zest_resource_state_shader_read, 0, 1, 0, 6);
 zest_imm_EndCommandBuffer(queue);
 ```
 
@@ -247,13 +247,13 @@ zest_imm_EndCommandBuffer(queue);
 
 ### zest_imm_TransitionImage
 
-Transition an image to a new layout with full control over mip levels and array layers. Required before and after many image operations. Failure to transition images correctly will result in validation errors and undefined behaviour.
+Transition an image to a new resource state with full control over mip levels and array layers. Required before and after many image operations. The backend translates the state to its own synchronization primitives (image layouts on Vulkan). Failure to transition images correctly will result in validation errors and undefined behaviour.
 
 ```cpp
 zest_bool zest_imm_TransitionImage(
     zest_queue queue,
     zest_image image,
-    zest_image_layout new_layout,
+    zest_resource_state new_state,
     zest_uint base_mip_index,
     zest_uint mip_levels,
     zest_uint base_array_index,
@@ -264,7 +264,7 @@ zest_bool zest_imm_TransitionImage(
 **Parameters:**
 - `queue` - Queue handle from `zest_imm_BeginCommandBuffer`
 - `image` - Image to transition
-- `new_layout` - Target layout (e.g., `zest_image_layout_shader_read_only_optimal`)
+- `new_state` - Target state (e.g., `zest_resource_state_shader_read`)
 - `base_mip_index` - First mip level to transition
 - `mip_levels` - Number of mip levels (use `ZEST__ALL_MIPS` for all)
 - `base_array_index` - First array layer to transition
@@ -272,13 +272,13 @@ zest_bool zest_imm_TransitionImage(
 
 **Returns:** `ZEST_TRUE` on success.
 
-**Common layouts:**
-- `zest_image_layout_undefined` - Initial/don't care
-- `zest_image_layout_transfer_dst_optimal` - Destination for copies
-- `zest_image_layout_transfer_src_optimal` - Source for copies
-- `zest_image_layout_shader_read_only_optimal` - Sampling in shaders
-- `zest_image_layout_general` - Storage images
-- `zest_image_layout_color_attachment_optimal` - Render target
+**Common states:**
+- `zest_resource_state_undefined` - Initial/don't care
+- `zest_resource_state_copy_dst` - Destination for copies
+- `zest_resource_state_copy_src` - Source for copies
+- `zest_resource_state_shader_read` - Sampling in shaders
+- `zest_resource_state_unordered_access` - Storage images (read/write in shaders)
+- `zest_resource_state_render_target` - Render target
 
 ---
 
@@ -330,9 +330,9 @@ zest_bool zest_imm_ClearColorImage(
 zest_clear_value_t clear = { .color = { 0.0f, 0.0f, 0.0f, 1.0f } };
 
 zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, 1, 0, 1);
+zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, 1, 0, 1);
 zest_imm_ClearColorImage(queue, image, clear);
-zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 1);
+zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, 1);
 zest_imm_EndCommandBuffer(queue);
 ```
 
@@ -507,9 +507,9 @@ void upload_texture(zest_device device, zest_image texture, void *pixels, zest_s
 
     // Upload to GPU
     zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-    zest_imm_TransitionImage(queue, texture, zest_image_layout_transfer_dst_optimal, 0, 1, 0, 1);
+    zest_imm_TransitionImage(queue, texture, zest_resource_state_copy_dst, 0, 1, 0, 1);
     zest_imm_CopyBufferToImage(queue, staging, texture, size);
-    zest_imm_TransitionImage(queue, texture, zest_image_layout_transfer_src_optimal, 0, 1, 0, 1);
+    zest_imm_TransitionImage(queue, texture, zest_resource_state_copy_src, 0, 1, 0, 1);
     zest_imm_EndCommandBuffer(queue);
 
     // Generate mipmaps (requires graphics queue for blit)

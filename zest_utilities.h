@@ -750,9 +750,9 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
 	image = zest_GetImage(image_handle);
 
 	queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
+	zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, image_collection.buffer_copy_regions, bitmap_array->size_of_array, staging_buffer, image);
-    zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
+    zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, layer_count);
 	zest_imm_EndCommandBuffer(queue);
 
     zest_FreeBitmapArray(bitmap_array);
@@ -2210,12 +2210,12 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
     }
 
 	queue = zest_imm_BeginCommandBuffer(context->device, zest_queue_graphics);
-    zest_imm_TransitionImage(queue, image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, layer_count);
+    zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, layer_count);
 	zest_imm_CopyBufferRegionsToImage(queue, atlas->buffer_copy_regions, atlas->bitmap_array.size_of_array, staging_buffer, image);
 	if (mip_levels > 1) {
 		zest_imm_GenerateMipMaps(queue, image);
 	} else {
-		zest_imm_TransitionImage(queue, image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, layer_count);
+		zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, layer_count);
 	}
 	zest_imm_EndCommandBuffer(queue);
 

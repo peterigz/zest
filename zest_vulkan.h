@@ -334,6 +334,7 @@ ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_contex
 ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
+ZEST_PRIVATE zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, VkImageLayout new_vk_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__vk_create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__vk_get_image_raw_layout(zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_image_layout_is_valid_for_desriptor(zest_image image);
@@ -4177,10 +4178,10 @@ VkPipelineStageFlags2 zest__vk_stages_from_shader_stages(zest_supported_shader_s
     return flags ? flags : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 }
 
-zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+//Internal worker used by the backend when it needs to transition to a specific Vulkan layout
+//(e.g. restoring a previous layout). The platform entry point is zest__vk_transition_image below.
+zest_bool zest__vk_transition_image_layout(zest_queue queue, zest_image image, VkImageLayout new_vk_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
     ZEST_ASSERT(queue);    //No queue was acquired
-
-    VkImageLayout new_vk_layout = zest__vk_image_layout_from_resource_state(new_state, image);
 
     VkImageMemoryBarrier barrier = ZEST__ZERO_INIT(VkImageMemoryBarrier);
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -4214,9 +4215,14 @@ zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_res
     vkCmdPipelineBarrier(queue->backend->command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
     image->backend->vk_current_layout = new_vk_layout;
-	image->info.layout = (zest_image_layout)new_vk_layout;
+	image->layout = (zest_image_layout)new_vk_layout;
 
     return ZEST_TRUE;
+}
+
+zest_bool zest__vk_transition_image(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+    VkImageLayout new_vk_layout = zest__vk_image_layout_from_resource_state(new_state, image);
+    return zest__vk_transition_image_layout(queue, image, new_vk_layout, base_mip_index, mip_levels, base_array_index, layer_count);
 }
 
 zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image) {
@@ -4503,7 +4509,7 @@ zest_bool zest__vk_generate_mipmaps(zest_queue queue, zest_image image) {
 
     // Update the image's current layout
     image->backend->vk_current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	image->info.layout = zest_image_layout_shader_read_only_optimal;
+	image->layout = zest_image_layout_shader_read_only_optimal;
 
     return ZEST_TRUE;
 }
@@ -6385,13 +6391,13 @@ zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size ima
 		return ZEST_FALSE;
 	}
 
-	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, dst_image, zest_image_layout_transfer_dst_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
 	ZEST_CLEANUP_ON_FALSE(zest__vk_copy_buffer_to_image(queue, staging_buffer, staging_buffer->memory_offset, dst_image, width, height));
     if (dst_image->info.mip_levels > 1) {
         ZEST_CLEANUP_ON_FALSE(zest__vk_generate_mipmaps(queue, dst_image));
     }
-	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, dst_image, zest_image_layout_shader_read_only_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, dst_image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
     ZEST_CLEANUP_ON_FALSE(zest_imm_EndCommandBuffer(queue));
 
@@ -6422,7 +6428,7 @@ zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void 
 		return ZEST_FALSE;
 	}
 
-	zest_image_layout original_layout = src_image->info.layout;
+	VkImageLayout original_layout = src_image->backend->vk_current_layout;
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	if (!queue) {
@@ -6432,7 +6438,7 @@ zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void 
 
 	VkBufferImageCopy region = ZEST__ZERO_INIT(VkBufferImageCopy);
 
-	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, src_image, zest_image_layout_transfer_src_optimal, 0, 1, 0, 1));
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(queue, src_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0, 1, 0, 1));
 
 	region.bufferOffset = staging_buffer->memory_offset;
 	region.bufferRowLength = 0;

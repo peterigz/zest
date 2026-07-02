@@ -292,7 +292,7 @@ Within a frame graph, blit from one mip level to another:
 ```cpp
 void BlitCallback(zest_command_list cmd, void* data) {
     zest_cmd_BlitImageMip(cmd, src_resource, dst_resource, mip_to_blit,
-        zest_pipeline_stage_fragment_shader_bit);
+        zest_shader_fragment_stage);
 }
 ```
 

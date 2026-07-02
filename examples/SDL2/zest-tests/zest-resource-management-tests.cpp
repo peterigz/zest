@@ -1667,7 +1667,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			phase_total++;
 
 			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
-			zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 4);
+			zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, 4);
 			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index with array binding
@@ -1704,7 +1704,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			phase_total++;
 
 			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
-			zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 6);
+			zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, 6);
 			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index with cube binding
@@ -1766,7 +1766,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 			zest_image image = zest_GetImage(image_handle);
 
 			zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
-			zest_imm_TransitionImage(queue, image, zest_image_layout_general, 0, 1, 0, 1);
+			zest_imm_TransitionImage(queue, image, zest_resource_state_unordered_access, 0, 1, 0, 1);
 			zest_imm_EndCommandBuffer(queue);
 
 			// Acquire sampled index
@@ -1807,7 +1807,7 @@ int test__image_array_descriptor_indexes(ZestTests *tests, Test *test) {
 				zest_image image = zest_GetImage(images[i]);
 
 				zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_graphics);
-				zest_imm_TransitionImage(queue, image, zest_image_layout_read_only_optimal, 0, 1, 0, 1);
+				zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, 1);
 				zest_imm_EndCommandBuffer(queue);
 
 				indexes[i] = zest_AcquireSampledImageIndex(tests->device, image, zest_texture_2d_binding);

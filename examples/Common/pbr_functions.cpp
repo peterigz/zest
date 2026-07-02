@@ -85,7 +85,7 @@ zest_image_handle CreateBRDFLUT(zest_context context) {
 	zest_imm_BindComputePipeline(queue, compute);
 	zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
 	// Transition image from storage layout to shader-read-only for sampling in render passes
-	zest_imm_TransitionImage(queue, brd_image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 1);
+	zest_imm_TransitionImage(queue, brd_image, zest_resource_state_shader_read, 0, 1, 0, 1);
 	zest_imm_EndCommandBuffer(queue);
 
 	// Clean up temporary resources - the texture itself is returned for use but we
@@ -156,7 +156,7 @@ zest_image_handle CreateIrradianceCube(zest_context context, zest_image_handle s
 	zest_imm_BindComputePipeline(queue, compute);
 	zest_imm_DispatchCompute(queue, group_count_x, group_count_y, 6);
 	// Transition all 6 layers to shader-read-only layout
-	zest_imm_TransitionImage(queue, irr_image, zest_image_layout_shader_read_only_optimal, 0, 1, 0, 6);
+	zest_imm_TransitionImage(queue, irr_image, zest_resource_state_shader_read, 0, 1, 0, 6);
 	zest_imm_EndCommandBuffer(queue);
 
 	// Clean up - storage binding no longer needed, compute resources can be freed
@@ -245,7 +245,7 @@ zest_image_handle CreatePrefilteredCube(zest_context context, zest_image_handle 
 	}
 
 	// Transition all mip levels of all 6 faces to shader-read-only
-	zest_imm_TransitionImage(queue, prefiltered_image, zest_image_layout_shader_read_only_optimal, 0, prefiltered_image_info->mip_levels, 0, 6);
+	zest_imm_TransitionImage(queue, prefiltered_image, zest_resource_state_shader_read, 0, prefiltered_image_info->mip_levels, 0, 6);
 	zest_imm_EndCommandBuffer(queue);
 
 	// Clean up temporary resources

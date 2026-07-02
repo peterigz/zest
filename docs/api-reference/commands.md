@@ -548,7 +548,7 @@ void zest_cmd_BlitImageMip(
     zest_resource_node src,
     zest_resource_node dst,
     zest_uint mip_to_blit,
-    zest_pipeline_stage_flags pipeline_stage
+    zest_supported_shader_stages read_by_stages
 );
 ```
 
@@ -558,7 +558,7 @@ void zest_cmd_BlitImageMip(
 - `src`: Source image resource node from the frame graph
 - `dst`: Destination image resource node from the frame graph
 - `mip_to_blit`: The mip level index to blit
-- `pipeline_stage`: Pipeline stage for synchronization
+- `read_by_stages`: The shader stage(s) that will read the images after the blit (e.g. `zest_shader_compute_stage`), so the backend can synchronize correctly
 
 **Typical Usage:** Generating mipmaps, downsampling for bloom, or copying between render targets.
 
@@ -574,7 +574,7 @@ void zest_cmd_CopyImageMip(
     zest_resource_node src,
     zest_resource_node dst,
     zest_uint mip_to_copy,
-    zest_pipeline_stage_flags pipeline_stage
+    zest_supported_shader_stages read_by_stages
 );
 ```
 
@@ -584,7 +584,7 @@ void zest_cmd_CopyImageMip(
 - `src`: Source image resource node
 - `dst`: Destination image resource node
 - `mip_to_copy`: The mip level index to copy
-- `pipeline_stage`: Pipeline stage for synchronization
+- `read_by_stages`: The shader stage(s) that will read the images after the copy (e.g. `zest_shader_compute_stage`), so the backend can synchronize correctly
 
 **Typical Usage:** Copying render results between images, or backing up image contents.
 

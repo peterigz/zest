@@ -145,7 +145,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_uint mip_to_blit = mip_levels - 1;
 
 	//Seed the upsampler with the smallest downsampled mip as the starting point
-	zest_cmd_CopyImageMip(command_list, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_stage_compute_shader_bit);
+	zest_cmd_CopyImageMip(command_list, downsampler_target, upsampler_target, mip_to_blit, zest_shader_compute_stage);
 
 	zest_compute upsampler_compute = zest_GetCompute(example->upsampler_compute);
 
