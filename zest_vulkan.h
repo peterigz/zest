@@ -3058,7 +3058,13 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
 	} else {
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
 	}
-    ZEST_VK_ASSERT_RESULT(device, vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &memory_pool->backend->memory));
+	VkResult pool_alloc_result = vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &memory_pool->backend->memory);
+	if (pool_alloc_result != VK_SUCCESS) {
+		//Don't leak the buffer used to query the memory requirements when the allocation fails
+		//(for example when the device is out of memory).
+		vkDestroyBuffer(device->backend->logical_device, temp_buffer, allocation_callbacks);
+	}
+    ZEST_VK_ASSERT_RESULT(device, pool_alloc_result);
 
     memory_pool->size = memory_requirements.size;
     memory_pool->minimum_allocation_size = ZEST__MAX(memory_pool->alignment, memory_pool->minimum_allocation_size);
@@ -4009,6 +4015,11 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
 	VkDeviceMemory vk_memory = VK_NULL_HANDLE;
 	VkDeviceSize offset = 0;
 	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
+		//Key transient image memory per frame in flight, the same as transient buffers: memory
+		//freed while recording this frame must not be handed to the next frame's transients while
+		//this frame may still be executing on the GPU. The FIF slot's CPU wait guarantees the
+		//memory is idle by the time the same slot records again.
+		buffer_info.frame_in_flight = context->current_fif;
 		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
 		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
 		zest_buffer buffer = zest__create_transient_buffer(context, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);

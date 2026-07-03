@@ -485,8 +485,14 @@ int test__stress_multi_queue_sync(ZestTests *tests, Test *test) {
 			for (int i = 0; i != MAX_TEST_RESOURCES; i++) {
 				zest_size random_size = rand() % 100000 + 1000;
 				info.size = sizeof(TestData) * random_size;
-				zest_uint random_width = rand() % 1024 + 256;
-				zest_uint random_height = rand() % 1024 + 256;
+				//Every transient in this graph is alive at the same time (all created in the first
+				//wave, only freed after the read passes), and transient pools are keyed per frame
+				//in flight for cross-frame safety, so the test's peak footprint is ~2x the sum of
+				//all resources with no chance for the allocator to alias any memory. Keep the image
+				//sizes moderate so the test measures multi-queue synchronisation rather than VRAM
+				//capacity.
+				zest_uint random_width = rand() % 512 + 128;
+				zest_uint random_height = rand() % 512 + 128;
 				zest_image_resource_info_t image_info = {
 					zest_format_r8g8b8a8_uint,
 					zest_resource_usage_hint_copyable,

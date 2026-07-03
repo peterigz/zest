@@ -2326,3 +2326,166 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+/*
+Transient Aliasing Dependency:
+Verifies the safety invariant for transient memory aliasing within a single frame graph:
+if a transient resource's memory range is reused by another transient created in a later pass,
+then the acquiring pass's first barrier for the new resource must have a src scope that covers
+the previous owner's last use. Without that dependency the GPU is free to overlap the new
+resource's writes with the old resource's reads/writes (a WAR/WAW hazard through memory).
+
+Note: Vulkan sync validation cannot catch this class of hazard - it tracks hazards per
+VkImage/VkBuffer handle and does not model memory aliasing between distinct handles, so a
+clean validation run does not prove the aliasing is safe.
+
+Graph shape (all graphics queue, three separate pass groups):
+  Write X: outputs transient Image X
+  Read X:  samples Image X, outputs transient Image Out       <- X's last use, X freed after this pass records
+  Write Y: samples Image Out, outputs transient Image Y (+swapchain) <- Y created here, TLSF hands back X's block
+*/
+struct TransientAliasingCapture {
+	zest_device_memory_pool x_pool;
+	zest_size x_offset;
+	zest_size x_size;
+	zest_device_memory_pool y_pool;
+	zest_size y_offset;
+	zest_size y_size;
+	int captured;
+};
+
+void tst__aliasing_capture_x(const zest_command_list command_list, void *user_data) {
+	TransientAliasingCapture *capture = (TransientAliasingCapture *)user_data;
+	zest_resource_node node_x = zest_GetPassInputResource(command_list, "Image X");
+	if (node_x && node_x->image.buffer) {
+		zest_buffer buffer = (zest_buffer)node_x->image.buffer;
+		capture->x_pool = buffer->memory_pool;
+		capture->x_offset = buffer->memory_offset;
+		capture->x_size = buffer->size;
+		capture->captured |= 1;
+	}
+}
+
+void tst__aliasing_capture_y(const zest_command_list command_list, void *user_data) {
+	TransientAliasingCapture *capture = (TransientAliasingCapture *)user_data;
+	zest_resource_node node_y = zest_GetPassOutputResource(command_list, "Image Y");
+	if (node_y && node_y->image.buffer) {
+		zest_buffer buffer = (zest_buffer)node_y->image.buffer;
+		capture->y_pool = buffer->memory_pool;
+		capture->y_offset = buffer->memory_offset;
+		capture->y_size = buffer->size;
+		capture->captured |= 2;
+	}
+}
+
+int test__transient_aliasing_dependency(ZestTests *tests, Test *test) {
+	static TransientAliasingCapture capture;
+	memset(&capture, 0, sizeof(capture));
+	//X and Out are larger than Y: TLSF's good-fit search rounds an exact-size request up a
+	//size class, so a Y the same size as X can skip X's freed block and allocate from the
+	//pool remainder instead. A smaller Y reliably lands inside X's freed block, which is the
+	//memory reuse case this test verifies.
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	info.width = 512;
+	info.height = 512;
+	zest_image_resource_info_t small_info = { zest_format_r8g8b8a8_unorm };
+	small_info.width = 256;
+	small_info.height = 256;
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		zest_pipeline_stage_flags y_src_stage = 0;
+		zest_access_flags y_src_access = 0;
+		int y_barrier_found = 0;
+		if (zest_BeginFrameGraph(tests->context, "Transient Aliasing", 0)) {
+			zest_ImportSwapchainResource();
+			zest_resource_node image_x = zest_AddTransientImageResource("Image X", &info);
+			zest_resource_node image_out = zest_AddTransientImageResource("Image Out", &info);
+			zest_resource_node image_y = zest_AddTransientImageResource("Image Y", &small_info);
+			zest_FlagResourceAsEssential(image_y);
+
+			zest_BeginRenderPass("Write X");
+			zest_ConnectOutput(image_x);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Read X");
+			zest_ConnectInput(image_x);
+			zest_ConnectOutput(image_out);
+			zest_SetPassTask(tst__aliasing_capture_x, &capture);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Write Y");
+			zest_ConnectInput(image_out);
+			zest_ConnectOutput(image_y);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(tst__aliasing_capture_y, &capture);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+
+			//Find the pass group that creates Image Y and record the src scope of Y's
+			//undefined-layout acquire barrier. The barrier arrays live in the frame graph's
+			//linear allocator so read them before EndFrame.
+			zest_uint final_pass_count = zest_GetFrameGraphFinalPassCount(frame_graph);
+			for (zest_uint pass_index = 0; pass_index < final_pass_count; ++pass_index) {
+				const zest_pass_group_t *group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+				const zest_execution_barriers_t *barriers = &group->execution_details.barriers;
+				zest_vec_foreach(barrier_index, barriers->acquire_image_barrier_nodes) {
+					if (barriers->acquire_image_barrier_nodes[barrier_index] == image_y) {
+						const zest_image_barrier_t *barrier = &barriers->acquire_image_barriers[barrier_index];
+						if (barrier->old_layout == zest_image_layout_undefined) {
+							y_src_stage = barrier->src_stage;
+							y_src_access = barrier->src_access_mask;
+							y_barrier_found = 1;
+						}
+					}
+				}
+			}
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+
+		//The pass callbacks have now run (execution happens inside EndFrame), so the captures are valid.
+		if (capture.captured != 3) {
+			//Could not capture both resources - test is inconclusive, flag it so it gets looked at.
+			ZEST_PRINT("Transient Aliasing: could not capture both resources (captured mask = %i)", capture.captured);
+			test->result |= 4;
+		} else {
+			zest_bool memory_reused = capture.x_pool == capture.y_pool &&
+				capture.y_offset < capture.x_offset + capture.x_size &&
+				capture.x_offset < capture.y_offset + capture.y_size;
+			ZEST_PRINT("Transient Aliasing: X pool %p offset %llu size %llu | Y pool %p offset %llu size %llu | reused: %s | Y barrier: %s src_stage: 0x%x src_access: 0x%x",
+				(void *)capture.x_pool, (zest_ull)capture.x_offset, (zest_ull)capture.x_size,
+				(void *)capture.y_pool, (zest_ull)capture.y_offset, (zest_ull)capture.y_size,
+				memory_reused ? "YES" : "no",
+				y_barrier_found ? "found" : "none",
+				(zest_uint)y_src_stage, (zest_uint)y_src_access);
+			if (memory_reused) {
+				if (!y_barrier_found) {
+					//Memory was reused but Y has no acquire barrier at all - nothing orders the reuse.
+					test->result |= 8;
+				} else if ((y_src_stage == 0 || y_src_stage == zest_pipeline_stage_top_of_pipe_bit) && y_src_access == 0) {
+					//Memory was reused but the acquire barrier has no src execution scope
+					//(stage none/top-of-pipe with no access): the GPU may overlap Y's writes
+					//with X's last read. This is the aliasing hazard.
+					test->result |= 8;
+				}
+			}
+			//If the memory was not reused the invariant holds trivially and the test passes,
+			//but that would also mean the aliasing optimisation isn't happening for this shape.
+		}
+	}
+	//Run settle frames so this test's deferred frees and bindless index releases complete
+	//before the next test snapshots resource counts.
+	for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
+		zest_UpdateDevice(tests->device);
+		if (zest_BeginFrame(tests->context)) {
+			zest_EndFrame(tests->context, 0);
+		}
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

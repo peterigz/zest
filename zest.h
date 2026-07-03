@@ -7328,6 +7328,14 @@ typedef struct zest_resource_node_t {
 	zest_access_flags access_mask;
 	zest_pipeline_stage_flags last_stage_mask;
 
+	//Conservative aliasing scope for transient resources, computed at compile time (see
+	//Plan_transient_aliasing): the union of last-use stage/write-access of every transient of the
+	//same kind freed in an earlier pass group of the same submission batch. Folded into this
+	//resource's first acquire barrier so that when the allocator reuses freed transient memory the
+	//new owner's work is ordered after the previous owner's.
+	zest_pipeline_stage_flags aliasing_src_stage_mask;
+	zest_access_flags aliasing_src_access_mask;
+
 	zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
 	int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
 	int *consumer_pass_indices;                     // Dynamic array of pass indices that read this
@@ -13321,20 +13329,25 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
         zest_uint src_queue_family_index = resource->current_queue_family_index;
         zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
         if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
+			//Fold in the conservative aliasing scope (see Plan_transient_aliasing): if this is a
+			//transient whose memory may reuse a previously freed transient's block, the src scope
+			//must cover the previous owner's last use.
+			zest_access_flags src_access = resource->access_mask | resource->aliasing_src_access_mask;
+			zest_pipeline_stage_flags src_stage = resource->last_stage_mask | resource->aliasing_src_stage_mask;
             if (resource->image_layout != current_usage_layout ||
-                (resource->access_mask & zest_access_write_bits_general) &&
+                (src_access & zest_access_write_bits_general) &&
                 (current_usage->access_mask & zest_access_read_bits_general)) {
                 context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
-																		 resource->access_mask, current_usage->access_mask,
+																		 src_access, current_usage->access_mask,
 																		 resource->image_layout, current_usage_layout,
 																		 src_queue_family_index, dst_queue_family_index,
-																		 resource->last_stage_mask, current_usage->stage_mask);
+																		 src_stage, current_usage->stage_mask);
 				#ifdef ZEST_DEBUGGING
                 zest__add_image_barrier(resource, barriers, ZEST_TRUE,
-										resource->access_mask, current_usage->access_mask,
+										src_access, current_usage->access_mask,
 										resource->image_layout, current_usage_layout,
 										src_queue_family_index, dst_queue_family_index,
-										resource->last_stage_mask, current_usage->stage_mask);
+										src_stage, current_usage->stage_mask);
 				#endif
             }
         } else {
@@ -14240,6 +14253,61 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
 
+    //Plan_transient_aliasing
+    //Transient memory freed after a pass group records is handed back to the allocator and can be
+    //reused by a transient created in a later group of the same batch. The old and new owners of
+    //that memory have no resource dependency between them, so without extra scope in the new
+    //owner's first barrier the GPU could overlap the new owner's writes with the old owner's last
+    //use (a WAR/WAW hazard through memory that sync validation cannot see because it tracks
+    //per-handle, not per-memory). Record a conservative src scope on each transient: the union of
+    //last-use stage/write-access of every transient of the same kind (images and buffers never
+    //share pools) freed in an earlier group of the same batch. Reuse across waves needs no barrier
+    //because the wave semaphores order it, and reuse between different batches of the same wave is
+    //prevented at record time with pending free lists (those batches execute concurrently, no
+    //barrier could fix that).
+    {
+        zest_uint aliasing_batch_id = ZEST_INVALID;
+        zest_pipeline_stage_flags freed_image_stages = 0;
+        zest_access_flags freed_image_access = 0;
+        zest_pipeline_stage_flags freed_buffer_stages = 0;
+        zest_access_flags freed_buffer_access = 0;
+        zest_vec_foreach(order_index, frame_graph->pass_execution_order) {
+            zest_pass_group_t *group = frame_graph->pass_execution_order[order_index];
+            zest_uint batch_id = group->submission_id >> 16;    //wave index + queue index identify the batch
+            if (batch_id != aliasing_batch_id) {
+                aliasing_batch_id = batch_id;
+                freed_image_stages = 0;
+                freed_image_access = 0;
+                freed_buffer_stages = 0;
+                freed_buffer_access = 0;
+            }
+            //Creates are processed before frees when the group records, so memory freed in this
+            //group is not available to this group's own creates - only earlier groups' frees are.
+            zest_vec_foreach(resource_index, group->transient_resources_to_create) {
+                zest_resource_node resource = group->transient_resources_to_create[resource_index];
+                if (resource->type & zest_resource_type_is_image_or_depth) {
+                    resource->aliasing_src_stage_mask |= freed_image_stages;
+                    resource->aliasing_src_access_mask |= freed_image_access;
+                } else if (resource->type & zest_resource_type_buffer) {
+                    resource->aliasing_src_stage_mask |= freed_buffer_stages;
+                    resource->aliasing_src_access_mask |= freed_buffer_access;
+                }
+            }
+            zest_vec_foreach(resource_index, group->transient_resources_to_free) {
+                zest_resource_node resource = group->transient_resources_to_free[resource_index];
+                if (!zest_vec_size(resource->journey)) continue;
+                zest_resource_state_t *last_state = &zest_vec_back(resource->journey);
+                if (resource->type & zest_resource_type_is_image_or_depth) {
+                    freed_image_stages |= last_state->usage.stage_mask;
+                    freed_image_access |= last_state->usage.access_mask & zest_access_write_bits_general;
+                } else if (resource->type & zest_resource_type_buffer) {
+                    freed_buffer_stages |= last_state->usage.stage_mask;
+                    freed_buffer_access |= last_state->usage.access_mask & zest_access_write_bits_general;
+                }
+            }
+        }
+    }
+
     //Plan_resource_barriers
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
         zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
@@ -14274,17 +14342,23 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_uint src_queue_family_index = resource->current_queue_family_index;
                     zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
                     if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
-                        if ((resource->access_mask & zest_access_write_bits_general) &&
+						//Fold in the conservative aliasing scope (see Plan_transient_aliasing). A
+						//fresh transient buffer has no access mask of its own, so when it may reuse
+						//freed transient memory the aliasing scope is what forces the barrier here.
+						zest_access_flags src_access = resource->access_mask | resource->aliasing_src_access_mask;
+						zest_pipeline_stage_flags src_stage = resource->last_stage_mask | resource->aliasing_src_stage_mask;
+                        if (resource->aliasing_src_stage_mask ||
+                            (src_access & zest_access_write_bits_general) &&
                             (current_usage->access_mask & zest_access_read_bits_general)) {
                             context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
-																					  resource->access_mask, current_usage->access_mask,
+																					  src_access, current_usage->access_mask,
 																					  src_queue_family_index, dst_queue_family_index,
-																					  resource->last_stage_mask, current_state->usage.stage_mask);
+																					  src_stage, current_state->usage.stage_mask);
 							#ifdef ZEST_DEBUGGING
                             zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
-													 resource->access_mask, current_usage->access_mask,
+													 src_access, current_usage->access_mask,
 													 src_queue_family_index, dst_queue_family_index,
-													 resource->last_stage_mask, current_state->usage.stage_mask);
+													 src_stage, current_state->usage.stage_mask);
 							#endif
                         }
                     } else {
@@ -14793,6 +14867,15 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 	zest_bool using_legacy_render_pass = zest__using_legacy_render_pass(device);
 	
+	//Transient frees are not returned to the allocator immediately: memory freed while recording
+	//one batch must not be reused by a later batch of the same wave because those batches execute
+	//concurrently on different queues with no synchronization between them. Frees are held in the
+	//batch's pending list and flushed at the next pass group of the same batch (same-batch reuse is
+	//ordered by the aliasing scope in first-use acquire barriers - see Plan_transient_aliasing),
+	//and any frees still pending when the batch ends are flushed when the wave ends (cross-wave
+	//reuse is ordered by the wave semaphores).
+	zest_resource_node *wave_pending_frees = 0;
+
     zest_vec_foreach(submission_index, frame_graph->submissions) {
 		ZEST_CPU_PROFILE_BEGIN(context, "Wave Submission %i", submission_index);
         zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
@@ -14808,6 +14891,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 batch->queue->next_buffer = 0;
                 batch->queue->last_reset_frame = context->device_frame_counter;
             }
+
+			//Frees from earlier pass groups in this batch, made available again at the next group.
+			zest_resource_node *batch_pending_frees = 0;
 
             zest_pipeline_stage_flags timeline_wait_stage;
 
@@ -14862,6 +14948,14 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 				}
 
 				ZEST_CPU_PROFILE_BEGIN(context, "Create Transients");
+				//Return transient memory freed by earlier pass groups in this batch to the
+				//allocator so this group's transients can reuse it. The reuse is safe because
+				//first-use acquire barriers carry the aliasing scope of everything freed earlier
+				//in the batch (see Plan_transient_aliasing).
+				zest_vec_foreach(r, batch_pending_frees) {
+					zest__free_transient_resource(batch_pending_frees[r]);
+				}
+				zest_vec_clear(batch_pending_frees);
                 //Create any transient resources where they're first used in this grouped_pass
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
@@ -14987,9 +15081,12 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 				device->platform->release_barrier(&frame_graph->command_list, exe_details);
 
+				//Transients whose last use is this group are not freed to the allocator yet - they
+				//go on the batch pending list and become reusable at the next group of this batch,
+				//or after the wave ends if this was the batch's last group.
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_free) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_free[r];
-                    zest__free_transient_resource(resource);
+					zest_vec_linear_push(allocator, batch_pending_frees, resource);
                 }
                 //End pass
 				ZEST_CPU_PROFILE_END(context); //Pass profile
@@ -14999,14 +15096,28 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
 			ZEST_CPU_PROFILE_END(context);
 
+			//This batch's remaining frees must wait for the wave to complete before their memory
+			//can be reused: other batches in this wave run concurrently on other queues.
+			zest_vec_foreach(r, batch_pending_frees) {
+				zest_vec_linear_push(allocator, wave_pending_frees, batch_pending_frees[r]);
+			}
+			zest_vec_clear(batch_pending_frees);
+
 			ZEST_CPU_PROFILE_END(context); //Batch queue profile
         }   //Batch
 
         //For each batch in the last wave add the queue semaphores that were used so that the next batch submissions can wait on them
         device->platform->carry_over_semaphores(frame_graph, wave_submission, backend);
 
+		//The wave is fully recorded and the next wave's batches wait on this wave's semaphores, so
+		//the transient memory freed by this wave's batches is now safe to reuse.
+		zest_vec_foreach(r, wave_pending_frees) {
+			zest__free_transient_resource(wave_pending_frees[r]);
+		}
+		zest_vec_clear(wave_pending_frees);
+
 		ZEST_CPU_PROFILE_END(context);
-    }   //Wave 
+    }   //Wave
 
     zest_map_foreach(i, queues) {
         zest_context_queue queue = queues.data[i];
