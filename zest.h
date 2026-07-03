@@ -9,7 +9,7 @@
  * 
 	[About_Zest]
 	[Zloc_header - Zloc_implementation] TLSF allocator. Handles all allocations in Zest.
-    [Terminus_Font]                     Just a bunch of typedefs and macro definitions
+    [Terminus_Font]                     Debug font
     [Macro_Defines]                     Just a bunch of typedefs and macro definitions
     [Typedefs_for_numbers]          
     [Platform_specific_code]            Windows/Mac specific, no linux yet
