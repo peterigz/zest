@@ -75,10 +75,9 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_slang.hpp
 		)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
-	elseif(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
-		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR 
-		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR 
-		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR 
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
 		file(GLOB TIMELINEFX_SOURCE 
 			${TIMELINEFX}timelinefx.h
@@ -160,7 +159,7 @@ function(buildExample EXAMPLE_NAME)
 	target_link_libraries(${EXAMPLE_NAME} freetype)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include)
 
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
 		# TimelineFX uses AVX SIMD intrinsics and has some MSVC-specific C++ patterns
 		if(NOT MSVC)

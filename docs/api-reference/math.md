@@ -457,12 +457,14 @@ zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar)
 - `aspect` - Aspect ratio (width / height)
 - `zNear, zFar` - Near and far clipping planes
 
-**Usage:** Standard 3D perspective rendering.
+**Usage:** Standard 3D perspective rendering. Right-handed with 0..1 depth; flip the Y
+scale for Zest's Y-down NDC (see [Rendering Conventions](../concepts/rendering-conventions.md)).
 
 ```cpp
 float fov = zest_Radians(60.0f);
 float aspect = (float)width / (float)height;
 zest_matrix4 proj = zest_Perspective(fov, aspect, 0.1f, 1000.0f);
+proj.v[1].y *= -1.f;   // Flip Y for Zest's Y-down NDC
 ```
 
 #### `zest_Ortho`
@@ -474,11 +476,14 @@ zest_matrix4 zest_Ortho(float left, float right, float bottom, float top,
                          float z_near, float z_far);
 ```
 
-**Usage:** 2D rendering, UI, shadow maps, or isometric views.
+**Usage:** 2D rendering, UI, shadow maps, or isometric views. Right-handed with 0..1
+depth; like `zest_Perspective` the matrix maps +Y up in clip space, so for Zest's Y-down
+NDC either flip the Y scale or pass the bottom/top arguments accordingly (see
+[Rendering Conventions](../concepts/rendering-conventions.md)).
 
 ```cpp
-// Screen-space orthographic for UI
-zest_matrix4 ortho = zest_Ortho(0, screen_width, screen_height, 0, -1, 1);
+// Screen-space orthographic for UI: y = 0 at the top of the screen
+zest_matrix4 ortho = zest_Ortho(0, screen_width, 0, screen_height, -1, 1);
 
 // Centered orthographic
 float hw = width * 0.5f;

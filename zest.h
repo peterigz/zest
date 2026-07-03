@@ -1425,6 +1425,13 @@ typedef enum zest_platform_type {
 	zest_max_platforms
 } zest_platform_type;
 
+/*
+Image/vertex data formats. The numeric values are frozen API: they mirror VkFormat and are
+also the serialization contract for anything that stores a format (shader caches, cached
+frame graph keys, user file formats). Never renumber or remove members; new formats must be
+appended with explicit values. Backends that don't support a format simply report it as
+unsupported (image creation validates via the is_image_format_supported platform hook).
+*/
 typedef enum zest_format {
 	zest_format_undefined = 0,
 	zest_format_r4g4_unorm_pack8 = 1,
@@ -2515,6 +2522,12 @@ typedef enum zest_pipeline_bind_point {
 	zest_bind_point_none = 0xFFFFFFFF
 } zest_pipeline_bind_point;
 
+/*
+Winding is measured in framebuffer space, where the origin is the top-left corner and +Y
+points down (see docs/concepts/rendering-conventions.md). Future backends compensate
+internally so the same front-face setting selects the same triangles on every backend.
+The pipeline template default is zest_front_face_clockwise with culling disabled.
+*/
 typedef enum zest_front_face {
 	zest_front_face_counter_clockwise,
 	zest_front_face_clockwise,
@@ -4504,8 +4517,6 @@ typedef struct zest_platform_t {
 	void                       (*flush_legacy_framebuffers)(zest_context context, zest_uint fif);
 } zest_platform_t;
 
-extern zest_platform_t ZestPlatform;
-
 typedef struct zest_generic_handle {
 	zest_u64 value;
 	zest_resource_store_t *store;
@@ -5329,9 +5340,13 @@ ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
 ZEST_API float zest_DotProduct3(const zest_vec3 a, const zest_vec3 b);
 //Get the dot product between 2 vec4s
 ZEST_API float zest_DotProduct4(const zest_vec4 a, const zest_vec4 b);
-//Create a 4x4 matrix to look at a point
+//Create a right-handed view matrix looking from eye to center (the camera looks down -Z in
+//view space, matching GLM's lookAt).
 ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up);
-//Create a 4x4 matrix for orthographic projection
+//Create a right-handed orthographic projection with 0..1 depth. Like zest_Perspective, the
+//matrix maps +Y up in clip space, but Zest's NDC has +Y pointing down: either negate the Y
+//scale afterwards (m.v[1].y *= -1.f) or swap the bottom/top arguments to get Y-down
+//screen-space coordinates. See docs/concepts/rendering-conventions.md.
 ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far);
 //Get the distance between 2 points
 ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
@@ -5430,7 +5445,11 @@ ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, floa
 ZEST_API zest_vec2 zest_WorldToScreen(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view);
 //Convert world orthographic 3d coordinates into screen x and y coordinates
 ZEST_API zest_vec2 zest_WorldToScreenOrtho(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view);
-//Create a perspective 4x4 matrix passing in the fov in radians, aspect ratio of the viewport and te near/far values
+//Create a right-handed perspective projection with 0..1 depth, passing in the fov in radians,
+//the aspect ratio of the viewport and the near/far values. The matrix maps +Y up in clip
+//space (GLM style), but Zest's NDC has +Y pointing down, so for a Y-up world flip the Y scale
+//after building it: proj.v[1].y *= -1.f; (as the examples do). See
+//docs/concepts/rendering-conventions.md.
 ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar);
 //Calculate the 6 planes of the camera fustrum
 ZEST_API void zest_CalculateFrustumPlanes(zest_matrix4 *view_matrix, zest_matrix4 *proj_matrix, zest_vec4 planes[6]);

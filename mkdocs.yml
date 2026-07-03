@@ -81,6 +81,7 @@ nav:
     - Layers: concepts/layers.md
     - Bindless Descriptors: concepts/bindless.md
     - Memory Management: concepts/memory.md
+    - Rendering Conventions: concepts/rendering-conventions.md
   - Tutorials:
     - tutorials/index.md
     - Minimal Template: tutorials/01-minimal-template.md
