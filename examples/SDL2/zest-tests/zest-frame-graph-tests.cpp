@@ -893,5 +893,144 @@ int test__simple_caching(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Cached Transient Persistence:
+A cached frame graph's transient images should persist across executions - the whole point of the
+arena placement is that when nothing about a transient changes, the image, view and binding stay
+alive instead of being recreated every frame. This test caches a graph with two transient images:
+one with a fixed size and one whose size is driven by an image provider (the pattern used for
+variable-size render targets that track a UI panel). It runs for six frames, resizing the
+provider-driven image once at frame 3, then verifies:
+  - the fixed-size image keeps the same backend (i.e. the same API image) across all executions
+    of the same frame-in-flight slot
+  - the provider-driven image is recreated exactly when its size changes (per FIF slot, so one
+    frame apart for the two slots) and then persists again at the new size
+*/
+struct CachedPersistenceCapture {
+	void *stable_backend[8];
+	void *resize_backend[8];
+	zest_uint resize_width[8];
+	int frame;
+};
+
+static zest_uint tst__resize_target_width = 128;
+static zest_uint tst__resize_target_height = 128;
+
+zest_image_view tst__resize_provider(zest_context context, zest_resource_node node) {
+	zest_SetResourceWidth(node, tst__resize_target_width);
+	zest_SetResourceHeight(node, tst__resize_target_height);
+	return NULL;
+}
+
+void tst__persistence_capture(const zest_command_list command_list, void *user_data) {
+	CachedPersistenceCapture *capture = (CachedPersistenceCapture *)user_data;
+	zest_resource_node stable = zest_GetPassInputResource(command_list, "Stable Image");
+	zest_resource_node resize = zest_GetPassInputResource(command_list, "Resize Target");
+	if (stable && resize && capture->frame < 8) {
+		capture->stable_backend[capture->frame] = (void *)stable->image.backend;
+		capture->resize_backend[capture->frame] = (void *)resize->image.backend;
+		capture->resize_width[capture->frame] = resize->image.info.extent.width;
+		capture->frame++;
+	}
+}
+
+int test__cached_transient_persistence(ZestTests *tests, Test *test) {
+	static CachedPersistenceCapture capture;
+	if (test->frame_count == 0) {
+		memset(&capture, 0, sizeof(capture));
+		tst__resize_target_width = 128;
+		tst__resize_target_height = 128;
+	}
+	if (test->frame_count == 3) {
+		//Resize the provider-driven target mid-run without recompiling the graph
+		tst__resize_target_width = 320;
+		tst__resize_target_height = 200;
+	}
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, "Cached Transients", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_image_resource_info_t stable_info = { zest_format_r8g8b8a8_unorm };
+				stable_info.width = 256;
+				stable_info.height = 256;
+				zest_image_resource_info_t resize_info = { zest_format_r8g8b8a8_unorm };
+				resize_info.width = 128;
+				resize_info.height = 128;
+				zest_resource_node stable = zest_AddTransientImageResource("Stable Image", &stable_info);
+				zest_resource_node resize = zest_AddTransientImageResource("Resize Target", &resize_info);
+				zest_SetResourceImageProvider(resize, tst__resize_provider);
+
+				//The two images have different sizes so they must be rendered in separate passes
+				//(color attachments of one render pass share the framebuffer dimensions)
+				zest_BeginRenderPass("Write Stable");
+				zest_ConnectOutput(stable);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Write Resize");
+				zest_ConnectOutput(resize);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Images");
+				zest_ConnectInput(stable);
+				zest_ConnectInput(resize);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(tst__persistence_capture, &capture);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count) {
+		if (test->cache_count == 0) {
+			test->result |= 2;   //The graph never came from the cache
+		}
+		if (capture.frame < 6) {
+			ZEST_PRINT("Cached Transients: only %i executions were captured", capture.frame);
+			test->result |= 4;
+		} else {
+			//Executions alternate frame-in-flight slots, so compare captures two frames apart.
+			//The stable image must never be recreated:
+			int stable_persisted =
+				capture.stable_backend[2] == capture.stable_backend[0] &&
+				capture.stable_backend[4] == capture.stable_backend[0] &&
+				capture.stable_backend[3] == capture.stable_backend[1] &&
+				capture.stable_backend[5] == capture.stable_backend[1];
+			//The resized image must be recreated exactly once per FIF slot (executions 3 and 4)
+			//and then persist at the new size:
+			int resize_recreated =
+				capture.resize_backend[2] == capture.resize_backend[0] &&   //stable before the resize
+				capture.resize_backend[3] != capture.resize_backend[1] &&   //recreated when the size changed
+				capture.resize_backend[4] != capture.resize_backend[2] &&   //and for the other FIF slot too
+				capture.resize_backend[5] == capture.resize_backend[3];     //stable again after
+			int resize_applied = capture.resize_width[5] == 320 && capture.resize_width[2] == 128;
+			ZEST_PRINT("Cached Transients: stable persisted: %s | resize recreated: %s | resize applied: %s",
+				stable_persisted ? "yes" : "NO", resize_recreated ? "yes" : "NO", resize_applied ? "yes" : "NO");
+			test->result |= stable_persisted ? 0 : 8;
+			test->result |= resize_recreated ? 0 : 16;
+			test->result |= resize_applied ? 0 : 32;
+		}
+		//Settle frames so deferred releases don't disturb the next test
+		for (int frame = 0; frame < ZEST_MAX_FIF + 1; frame++) {
+			zest_UpdateDevice(tests->device);
+			if (zest_BeginFrame(tests->context)) {
+				zest_EndFrame(tests->context, 0);
+			}
+		}
+	}
+	return test->result;
+}
+
 
 

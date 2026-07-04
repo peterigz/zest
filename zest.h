@@ -2689,6 +2689,13 @@ typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 typedef struct zest_buffer_linear_allocator_t zest_buffer_linear_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
 typedef struct zest_buffer_t zest_buffer_t;
+typedef struct zest_transient_placement_t zest_transient_placement_t;
+typedef struct zest_transient_arena_t zest_transient_arena_t;
+typedef struct zest_transient_image_slot_t zest_transient_image_slot_t;
+//The maximum number of distinct arena categories a single frame graph can reference (two buffer
+//categories plus however many image memory types its transient images resolve to - more than a
+//couple is already unusual).
+#define ZEST_MAX_GRAPH_ARENAS 8
 typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
 typedef struct zest_device_memory_t zest_device_memory_t;
 typedef struct zest_timer_t zest_timer_t;
@@ -3829,11 +3836,17 @@ typedef struct zest_device_destruction_queue_t {
 	zest_buffer *buffers[ZEST_MAX_FIF];
 } zest_device_destruction_queue_t;
 
+//A retired transient arena image awaiting deferred destruction (defined after zest_image_t; the
+//queue below only holds a pointer to an array of them).
+typedef struct zest_transient_image_release_t zest_transient_image_release_t;
+
 typedef struct zest_context_destruction_queue_t {
 	void **resources[ZEST_MAX_FIF];
 	zest_image_t *transient_images[ZEST_MAX_FIF];
 	zest_image_view_array_t *transient_view_arrays[ZEST_MAX_FIF];
 	zest_binding_index_for_release_t *transient_binding_indexes[ZEST_MAX_FIF];
+	zest_transient_image_release_t *arena_images[ZEST_MAX_FIF];
+	zest_device_memory_pool *arena_backings[ZEST_MAX_FIF];
 } zest_context_destruction_queue_t;
 
 typedef struct zest_report_t {
@@ -4340,6 +4353,15 @@ zest_hash_map(zest_sampler_handle) zest_map_samplers;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_frame_graph) zest_map_frame_graphs;
 
+//Memory requirements for a transient resource, reported by the backend so the frame graph's
+//placement pass can pack it into an arena. The category selects which arena the resource must
+//live in (see the ZEST_ARENA_CATEGORY_ defines); image categories are backend defined.
+typedef struct zest_transient_memory_info_t {
+	zest_size size;
+	zest_size alignment;
+	zest_uint category;
+} zest_transient_memory_info_t;
+
 // -- Platform_callbacks_struct
 typedef struct zest_platform_t {
 	//Frame Graph Platform Commands
@@ -4366,7 +4388,9 @@ typedef struct zest_platform_t {
 	zest_bool                  (*present_frame)(zest_context context, zest_context_queue present_queue);
 	zest_bool                  (*dummy_submit_for_present_only)(zest_context context);
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
-	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
+	//Pass a NULL allocator to allocate the backend from the device heap instead of frame-linear
+	//memory (used for transient arena images that persist across executions of cached graphs).
+	void*                  	   (*new_frame_graph_image_backend)(zest_device device, zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
 	//backend_memory_bits is a backend-defined value describing which device memory the allocation is compatible
 	//with (Vulkan: VkMemoryRequirements::memoryTypeBits). It's produced by the backend when it creates a resource
@@ -4384,6 +4408,14 @@ typedef struct zest_platform_t {
 	//Images
 	zest_bool 				   (*is_image_format_supported)(zest_device device, zest_format format, zest_image_flags flags);
 	zest_bool 				   (*create_image)(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+	//Transient arena hooks: create an image without binding memory (reporting its requirements so
+	//the placement pass can pack it), bind it to an arena backing at an offset, and manage the
+	//backings themselves (one device memory allocation per category, plus a buffer for the buffer
+	//categories which transient buffers suballocate from).
+	zest_bool 				   (*create_transient_image_unbound)(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, zest_transient_memory_info_t *info);
+	zest_bool 				   (*bind_image_arena)(zest_device device, zest_image image, zest_device_memory_pool backing, zest_size offset);
+	zest_device_memory_pool    (*create_arena_backing)(zest_device device, zest_context context, zest_uint category, zest_size size);
+	void                       (*free_arena_backing)(zest_device device, zest_context context, zest_device_memory_pool backing);
 	zest_image_view 		   (*create_image_view)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_image_view_array 	   (*create_image_views_per_mip)(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_bool 				   (*copy_buffer_regions_to_image)(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer buffer, zest_size src_offset, zest_image image);
@@ -4592,7 +4624,6 @@ ZEST_PRIVATE void *zest__allocate_aligned(zloc_allocator *allocator, zest_size s
 ZEST_PRIVATE void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size);
 ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size);
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
-ZEST_PRIVATE zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key, zest_uint backend_memory_bits);
@@ -4672,7 +4703,11 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_context context, zest_layer m
 
 // --Misc_Helper_Functions
 ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
-ZEST_PRIVATE zest_bool zest__create_transient_image(zest_context context, zest_resource_node node);
+ZEST_PRIVATE zest_transient_arena_t *zest__checkout_transient_arena(zest_context context, zest_frame_graph frame_graph, zest_uint category);
+ZEST_PRIVATE zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_t *arena, zest_uint fif, zest_size required);
+ZEST_PRIVATE void zest__retire_transient_image_slot(zest_context context, zest_resource_node resource, zest_transient_image_slot_t *slot);
+ZEST_PRIVATE zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE void zest__release_frame_graph_transients(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_uint zest__next_fif(zest_context context);
 ZEST_PRIVATE zloc_linear_allocator_t *zest__get_scratch_arena(zest_device device);
 // --End Misc_Helper_Functions
@@ -4753,7 +4788,6 @@ ZEST_PRIVATE zest_bool zest__is_depth_stencil_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_compressed_format(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
-ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_frame_graph frame_graph, zest_image image);
 ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
@@ -4761,8 +4795,6 @@ ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_res
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource);
-ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, zest_bool is_command_graph);
@@ -6883,6 +6915,10 @@ typedef struct zest_context_t {
 
 	//Frame Graph Cache Storage
 	zest_map_cached_frame_graphs cached_frame_graphs;
+	//Transient memory arenas, one per (category, frame in flight). Frame graphs check these out
+	//for the duration of an execution; cached graphs keep their checkout so their transient
+	//images can stay bound across frames.
+	zest_transient_arena_t **transient_arenas;
 	zest_map_frame_graph_semaphores cached_frame_graph_semaphores;
 	zest_map_frame_graph_queues cached_frame_graph_queues[ZEST_QUEUE_COUNT];
  
@@ -7019,7 +7055,12 @@ typedef struct zest_frame_graph_t {
 	zest_resource_node *resources_to_update;
 	zest_pass_group_t **pass_execution_order;
 
-	zest_resource_node *deferred_image_destruction;
+	//Transient placement schedule, built at compile time in first-use order (see
+	//Plan_transient_schedule). Offsets and sizes within are re-assigned each execution.
+	zest_transient_placement_t *transient_schedule;
+	//Arenas this graph has checked out from the context, looked up by category
+	zest_transient_arena_t *arenas[ZEST_MAX_GRAPH_ARENAS];
+	zest_uint arena_count;
 
 	zest_descriptor_set *descriptor_sets;
 	zest_pipeline_layout pipeline_layout;
@@ -7217,6 +7258,80 @@ typedef struct zest_buffer_t {
 	zest_buffer_usage_flags usage_flags;	//Usage flags of the buffer so that frame graphs can create appropriate barriers
 } zest_buffer_t;
 
+//Transient arena categories. Buffers and images never share an arena (D3D12 tier 1 heap rules and
+//Vulkan bufferImageGranularity both want this). Image categories are backend defined: on Vulkan
+//each distinct memory type index gets its own arena, which also guarantees an image is never bound
+//to a memory type that isn't in its own memoryTypeBits.
+#define ZEST_ARENA_CATEGORY_GPU_BUFFERS 0
+#define ZEST_ARENA_CATEGORY_CPU_BUFFERS 1
+#define ZEST_ARENA_CATEGORY_IMAGE_BASE  2
+//Offset granularity for transient buffer suballocations. 256 covers every Vulkan minimum offset
+//alignment limit (uniform/storage/texel) and the D3D12 constant buffer view rule.
+#define ZEST_ARENA_BUFFER_GRANULARITY   256
+
+//A retired transient arena image awaiting deferred destruction: carries the old backend (which
+//owns the API image handle) and the old heap-allocated view. Both structs are freed after the
+//API objects are destroyed.
+struct zest_transient_image_release_t {
+	zest_image_t image;
+	zest_image_view view;
+};
+
+//Per frame-in-flight persistent state for a transient image placement. The backend and view are
+//heap allocated (device allocator) so they can outlive the frame for cached frame graphs; they are
+//released through the context's deferred queues when the image is recreated or the graph is
+//evicted from the cache.
+typedef struct zest_transient_image_slot_t {
+	zest_image_backend backend;         //Owns the API image handle, heap allocated
+	zest_image_view view;               //Default view, heap allocated (single block with its backend)
+	zest_extent3d_t extent;             //What the image was created with, to detect provider resizes
+	zest_format format;
+	zest_uint mip_levels;
+	zest_uint layer_count;
+	zest_size offset;                   //Arena offset the image is bound at
+	zest_uint generation;               //Arena backing generation the image was bound against
+	zest_size size;                     //Cached memory requirements from when the image was created,
+	zest_size alignment;                //reused when the image parameters are unchanged so the
+	zest_uint category;                 //packer doesn't need to query the backend again
+	zest_bool in_use;                   //True once the slot holds a live image
+} zest_transient_image_slot_t;
+
+//One entry in a frame graph's transient placement schedule. The schedule is built once at compile
+//time (order, lifetimes and hazard info are size-independent) and lives in the frame graph's
+//memory, so for cached graphs it persists in the frozen block. Sizes and offsets are re-assigned
+//every execution after the resource providers have run, because providers can change a transient's
+//size on any frame without recompiling the graph.
+typedef struct zest_transient_placement_t {
+	zest_resource_node resource;
+	zest_uint category;                 //Arena category; images resolve theirs at first materialisation
+	zest_size size;                     //This execution's size, rounded to alignment
+	zest_size alignment;
+	zest_size offset;                   //Assigned by the per-execution packer
+	zest_uint first_use_idx;            //Global execution order indexes of the first/last use pass
+	zest_uint last_use_idx;             //groups, for lifetime overlap tests in the packer
+	zest_uint first_use_batch;          //(submission_id >> 16) of the first/last use pass groups:
+	zest_uint last_use_batch;           //wave index + queue index, which identifies the batch
+	zest_uint first_wave;
+	zest_uint last_wave;
+	zest_bool placed;                   //False when skipped this execution (provider supplied a buffer or zero size)
+	zest_image_backend pending_backend; //Images only: freshly created unbound image awaiting bind this execution
+	zest_buffer_t buffer_proxy;         //Buffers only: resource->storage_buffer points here when placed
+	zest_transient_image_slot_t images[ZEST_MAX_FIF];  //Images only: persistent per-FIF images
+} zest_transient_placement_t;
+
+//A transient memory arena owned by the context: one device memory backing per frame in flight for
+//a single category. A frame graph checks arenas out for the duration of its execution (cached
+//graphs keep their checkout for the life of the cache entry so their images can stay bound), so
+//two graphs never place transients in the same bytes - independent graphs have no barriers or
+//semaphores between each other, so sharing would be a data race.
+typedef struct zest_transient_arena_t {
+	zest_uint category;
+	zest_bool checked_out;
+	zest_uint generation[ZEST_MAX_FIF];             //Bumped when the backing is reallocated; images bound against an older generation must recreate
+	zest_size high_water[ZEST_MAX_FIF];
+	zest_device_memory_pool backing[ZEST_MAX_FIF];  //Created lazily, grown when a graph's watermark exceeds it
+} zest_transient_arena_t;
+
 typedef struct zest_uniform_buffer_t {
 	int magic;
 	const char *name;
@@ -7335,6 +7450,8 @@ typedef struct zest_resource_node_t {
 	//new owner's work is ordered after the previous owner's.
 	zest_pipeline_stage_flags aliasing_src_stage_mask;
 	zest_access_flags aliasing_src_access_mask;
+	//Index into the frame graph's transient_schedule (ZEST_INVALID for non-transients)
+	zest_uint placement_index;
 
 	zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
 	int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
@@ -9155,6 +9272,33 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 		zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]);
     }
 
+	//Retired transient arena images: destroy the API objects and free the heap allocated backend
+	//and view structs that kept them alive across frames.
+	if (zest_vec_size(context->deferred_resource_freeing_list.arena_images[context->current_fif])) {
+		zest_vec_foreach(i, context->deferred_resource_freeing_list.arena_images[context->current_fif]) {
+			zest_transient_image_release_t *release = &context->deferred_resource_freeing_list.arena_images[context->current_fif][i];
+			void *backend_memory = release->image.backend;
+			context->device->platform->cleanup_image_backend(&release->image);
+			if (backend_memory) {
+				ZEST__FREE(context->device->allocator, backend_memory);
+			}
+			if (release->view) {
+				context->device->platform->cleanup_image_view_backend(release->view);
+				ZEST__FREE(context->device->allocator, release->view);
+			}
+		}
+		zest_vec_clear(context->deferred_resource_freeing_list.arena_images[context->current_fif]);
+	}
+
+	//Transient arena backings replaced by larger ones during growth
+	if (zest_vec_size(context->deferred_resource_freeing_list.arena_backings[context->current_fif])) {
+		zest_vec_foreach(i, context->deferred_resource_freeing_list.arena_backings[context->current_fif]) {
+			zest_device_memory_pool backing = context->deferred_resource_freeing_list.arena_backings[context->current_fif][i];
+			context->device->platform->free_arena_backing(context->device, context, backing);
+		}
+		zest_vec_clear(context->deferred_resource_freeing_list.arena_backings[context->current_fif]);
+	}
+
     if (zest_vec_size(context->deferred_resource_freeing_list.resources[context->current_fif])) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.resources[context->current_fif]) {
             void *handle = context->deferred_resource_freeing_list.resources[context->current_fif][i];
@@ -9759,64 +9903,6 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
         count++;
     }
     return count;
-}
-
-zest_buffer zest__create_transient_buffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info, zest_uint backend_memory_bits) {
-	zest_device device = context->device;
-	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
-	zest_map_buffer_allocators *buffer_allocators = &context->buffer_allocators;
-
-	if (buffer_info->image_usage_flags) {
-		usage.memory_pool_type = zest_memory_pool_type_transient_images;
-		usage.alignment = buffer_info->alignment;
-	} else if(size > device->setup_info.max_small_buffer_size) {
-		usage.memory_pool_type =  zest_memory_pool_type_transient_buffers;
-	} else {
-		usage.memory_pool_type = zest_memory_pool_type_small_buffers;
-	}
-	zest_buffer_allocator_key_t usage_key;
-	usage_key.usage = usage;
-	usage_key.context = context;
-    usage_key.frame_in_flight = buffer_info->frame_in_flight;
-    zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
-    if (!zest_map_valid_key((*buffer_allocators), key)) {
-        //If an allocator doesn't exist yet for this combination of buffer properties then create one.
-		zest_key pool_key = zest_map_hash_ptr(&usage, sizeof(zest_buffer_usage_t));
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, context, buffer_info, key, pool_key, backend_memory_bits);
-		buffer_allocator->usage = usage;
-		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",
-					   buffer_allocator->name,
-					   zest__memory_property_to_string(usage.property_flags),
-					   zest__memory_type_to_string(usage.memory_pool_type)
-					   );
-		}
-        zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
-			return 0;
-        }
-    }
-
-    zest_buffer_allocator buffer_allocator = *zest_map_at_key((*buffer_allocators), key);
-    zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
-    if (!buffer) {
-        zest_device_memory_pool buffer_pool = 0;
-        if(zest__add_gpu_memory_pool(buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
-            return 0;
-        }
-
-        buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
-        if (!buffer) {    //Unable to allocate memory. Out of memory?
-            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %llu of memory.", size);
-            return 0;
-        }
-		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-			ZEST_REPORT(device, zest_report_memory, "Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %llu. ", buffer_allocator->name, (size_t)buffer_pool->size);
-		}
-    }
-
-	buffer->usage_flags = buffer_info->buffer_usage_flags;
-    return buffer;
 }
 
 zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_info_t* buffer_info) {
@@ -10883,8 +10969,47 @@ void zest__cleanup_context(zest_context context) {
 
     zest_map_foreach(i, context->cached_frame_graphs) {
         zest_cached_frame_graph_t *cached_graph = &context->cached_frame_graphs.data[i];
+		//Cached graphs hold persistent transient images and arena checkouts; retire them first
+		//(the device is idle at this point so the deferred queues below destroy them immediately)
+		zest__release_frame_graph_transients(context, cached_graph->frame_graph);
         ZEST__FREE(context->allocator, cached_graph->memory);
     }
+
+	//Destroy anything the arena system still has pending or live. The device is idle during
+	//context cleanup so immediate destruction is safe.
+	zest_ForEachFrameInFlight(fif) {
+		if (zest_vec_size(context->deferred_resource_freeing_list.arena_images[fif])) {
+			zest_vec_foreach(i, context->deferred_resource_freeing_list.arena_images[fif]) {
+				zest_transient_image_release_t *release = &context->deferred_resource_freeing_list.arena_images[fif][i];
+				void *backend_memory = release->image.backend;
+				context->device->platform->cleanup_image_backend(&release->image);
+				if (backend_memory) {
+					ZEST__FREE(context->device->allocator, backend_memory);
+				}
+				if (release->view) {
+					context->device->platform->cleanup_image_view_backend(release->view);
+					ZEST__FREE(context->device->allocator, release->view);
+				}
+			}
+		}
+		zest_vec_free(context->allocator, context->deferred_resource_freeing_list.arena_images[fif]);
+		if (zest_vec_size(context->deferred_resource_freeing_list.arena_backings[fif])) {
+			zest_vec_foreach(i, context->deferred_resource_freeing_list.arena_backings[fif]) {
+				context->device->platform->free_arena_backing(context->device, context, context->deferred_resource_freeing_list.arena_backings[fif][i]);
+			}
+		}
+		zest_vec_free(context->allocator, context->deferred_resource_freeing_list.arena_backings[fif]);
+	}
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *arena = context->transient_arenas[i];
+		zest_ForEachFrameInFlight(fif) {
+			if (arena->backing[fif]) {
+				context->device->platform->free_arena_backing(context->device, context, arena->backing[fif]);
+			}
+		}
+		ZEST__FREE(context->allocator, arena);
+	}
+	zest_vec_free(context->allocator, context->transient_arenas);
 
     zest_ForEachFrameInFlight(fif) {
 		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[fif];
@@ -12838,40 +12963,375 @@ zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int off
     return rect2D;
 }
 
-zest_bool zest__create_transient_image(zest_context context, zest_resource_node resource) {
-    zest_image image = &resource->image;
-    image->magic = zest_INIT_MAGIC(zest_struct_type_image);
-    image->backend = (zest_image_backend)context->device->platform->new_frame_graph_image_backend(zest__frame_graph_builder->allocator, image, NULL);
-    for (int i = 0; i != zest_max_global_binding_number; ++i) {
-        image->bindless_index[i] = ZEST_INVALID;
-    }
-    image->info.flags |= zest_image_flag_transient;
-    image->info.flags |= zest_image_flag_device_local;
-    image->info.aspect_flags = zest__determine_aspect_flag_for_view(resource->image.info.format);
-    image->info.mip_levels = resource->image.info.mip_levels > 0 ? resource->image.info.mip_levels : 1;
-    if (ZEST__FLAGGED(image->info.flags, zest_image_flag_cubemap)) {
-        ZEST_ASSERT(image->info.layer_count > 0 && image->info.layer_count % 6 == 0); // Cubemap must have layers in multiples of 6!
-    }
-    if (ZEST__FLAGGED(resource->image.info.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
-        image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(resource->image.info.extent.width, resource->image.info.extent.height))) + 1;
-    }
-    if (!context->device->platform->create_image(context->device, context, image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
-		context->device->platform->cleanup_image_backend(image);
-        return ZEST_FALSE;
-    }
-	image->handle.store = &context->device->resource_stores[zest_handle_type_images];
-    image->layout = resource->image_layout = zest_image_layout_undefined;
-    zest_image_view_type view_type = zest__get_image_view_type(image);
-    image->default_view = context->device->platform->create_image_view(context->device, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, zest__frame_graph_builder->allocator);
-	image->default_view->handle.store = &context->device->resource_stores[zest_handle_type_views];
-    resource->view = image->default_view;
-	resource->linked_layout = &image->layout;
+/*
+Transient arena placement (see ROADMAP-MEMORY.md, stage B).
 
-	if (resource->name && context->device->platform->set_image_name) {
-		context->device->platform->set_image_name(context->device, image, resource->name);
+The compile phase builds a placement schedule (lifetimes, batch/wave hazard info) which is size
+independent and therefore valid for the whole life of a cached frame graph. Every execution, after
+the resource providers have run (they can resize transients without a recompile), the placement
+pass below packs the schedule into per-category arenas owned by the context and materialises the
+results: transient buffers become suballocations of the arena's buffer, transient images bind to
+the arena memory at their packed offset. Images persist across executions of cached graphs and are
+only recreated when their size, offset or arena backing changed.
+
+Aliasing safety: within a batch, reuse is ordered by the conservative aliasing scope folded into
+first-use acquire barriers at compile time (Plan_transient_aliasing); across waves it is ordered
+by the wave semaphores; reuse between different batches of the same wave is forbidden by the
+packer's hazard rule because those batches execute concurrently. Across frames, arenas are keyed
+per frame in flight, gated by the FIF slot's CPU wait.
+
+Note: executing the same cached graph more than once within a single frame would place both
+executions at the same offsets with no synchronization between them; that pattern is not
+supported (build a second graph or use separate cache keys instead).
+*/
+
+typedef struct zest__arena_free_range_t {
+	zest_size offset;
+	zest_size size;
+	zest_uint donor_last_batch;   //Hazard info of the resource that last occupied these bytes
+	zest_uint donor_last_wave;
+} zest__arena_free_range_t;
+
+typedef struct zest__arena_pack_state_t {
+	zest_uint category;
+	zest_size watermark;
+	zest__arena_free_range_t *free_ranges;   //Scratch, frame-linear
+	zest_uint *active;                       //Schedule indices still alive at the sweep point
+} zest__arena_pack_state_t;
+
+zest_transient_arena_t *zest__checkout_transient_arena(zest_context context, zest_frame_graph frame_graph, zest_uint category) {
+	for (zest_uint i = 0; i != frame_graph->arena_count; ++i) {
+		if (frame_graph->arenas[i]->category == category) {
+			return frame_graph->arenas[i];
+		}
+	}
+	zest_transient_arena_t *arena = 0;
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *candidate = context->transient_arenas[i];
+		if (candidate->category == category && !candidate->checked_out) {
+			arena = candidate;
+			break;
+		}
+	}
+	if (!arena) {
+		arena = (zest_transient_arena_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_transient_arena_t));
+		*arena = ZEST__ZERO_INIT(zest_transient_arena_t);
+		arena->category = category;
+		zest_vec_push(context->allocator, context->transient_arenas, arena);
+	}
+	arena->checked_out = ZEST_TRUE;
+	ZEST_ASSERT(frame_graph->arena_count < ZEST_MAX_GRAPH_ARENAS);	//Frame graph transients resolve to more arena categories than expected
+	frame_graph->arenas[frame_graph->arena_count++] = arena;
+	return arena;
+}
+
+zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_t *arena, zest_uint fif, zest_size required) {
+	arena->high_water[fif] = ZEST__MAX(arena->high_water[fif], required);
+	if (arena->backing[fif] && arena->backing[fif]->size >= required) {
+		return ZEST_TRUE;
+	}
+	if (arena->backing[fif]) {
+		//The backing must grow. Defer freeing the old one (this FIF slot's GPU work from the
+		//previous cycle may still reference it) and bump the generation so any images bound
+		//against the old backing recreate this execution.
+		zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_backings[fif], arena->backing[fif]);
+		arena->backing[fif] = 0;
+		arena->generation[fif]++;
+	}
+	zest_size new_size = zest_GetNextPower(ZEST__MAX(required, (zest_size)zloc__MEGABYTE(1)));
+	arena->backing[fif] = context->device->platform->create_arena_backing(context->device, context, arena->category, new_size);
+	if (!arena->backing[fif]) {
+		ZEST_APPEND_LOG(context->device->log_path.str, "Failed to allocate a transient arena backing of %llu bytes for category %u.", (zest_ull)new_size, arena->category);
+		return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+//Retire the image held in a placement slot: queue its API objects for deferred destruction (the
+//GPU may still be using them for up to ZEST_MAX_FIF frames) and clear the slot.
+void zest__retire_transient_image_slot(zest_context context, zest_resource_node resource, zest_transient_image_slot_t *slot) {
+	if (!slot->in_use) return;
+	zest_transient_image_release_t release = ZEST__ZERO_INIT(zest_transient_image_release_t);
+	release.image = resource->image;
+	release.image.backend = slot->backend;
+	release.image.buffer = 0;             //Arena images have no TLSF buffer to free
+	release.image.default_view = 0;       //The view is destroyed through release.view below
+	release.view = slot->view;
+	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_images[context->current_fif], release);
+	slot->in_use = ZEST_FALSE;
+	slot->backend = 0;
+	slot->view = 0;
+}
+
+zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator) {
+	if (!zest_vec_size(frame_graph->transient_schedule)) {
+		return ZEST_TRUE;
+	}
+	zest_device device = context->device;
+	zest_uint fif = context->current_fif;
+
+	//Phase A: resolve this execution's sizes and categories. Image sizes come from the backend's
+	//memory requirements, which means creating the (unbound) image now when there is no matching
+	//persistent image from a previous execution.
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+		zest_resource_node resource = entry->resource;
+		entry->placed = ZEST_FALSE;
+		entry->pending_backend = 0;
+		if (resource->type & zest_resource_type_buffer) {
+			if (resource->storage_buffer) continue;   //A provider supplied an external buffer this execution
+			if (!resource->buffer_desc.size) continue;
+			entry->size = (resource->buffer_desc.size + entry->alignment - 1) & ~(entry->alignment - 1);
+			entry->placed = ZEST_TRUE;
+		} else {
+			zest_image image = &resource->image;
+			//Per-execution info fixup (providers may have changed the extent)
+			image->info.flags |= zest_image_flag_transient;
+			image->info.flags |= zest_image_flag_device_local;
+			image->info.aspect_flags = zest__determine_aspect_flag_for_view(image->info.format);
+			image->info.mip_levels = image->info.mip_levels > 0 ? image->info.mip_levels : 1;
+			if (ZEST__FLAGGED(image->info.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
+				image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(image->info.extent.width, image->info.extent.height))) + 1;
+			}
+			zest_transient_image_slot_t *slot = &entry->images[fif];
+			zest_bool matches = slot->in_use &&
+				slot->extent.width == image->info.extent.width &&
+				slot->extent.height == image->info.extent.height &&
+				slot->extent.depth == image->info.extent.depth &&
+				slot->format == image->info.format &&
+				slot->mip_levels == image->info.mip_levels &&
+				slot->layer_count == image->info.layer_count;
+			if (matches) {
+				//Same image parameters as the persistent image: requirements are identical by
+				//spec, so reuse them. Whether the image itself can be reused depends on the
+				//offset the packer assigns below.
+				entry->size = slot->size;
+				entry->alignment = slot->alignment;
+				entry->category = slot->category;
+			} else {
+				image->magic = zest_INIT_MAGIC(zest_struct_type_image);
+				image->backend = (zest_image_backend)device->platform->new_frame_graph_image_backend(device, NULL, image, NULL);
+				zest_transient_memory_info_t info;
+				if (!device->platform->create_transient_image_unbound(device, context, image, image->info.layer_count, zest_sample_count_1_bit, image->info.flags, &info)) {
+					return ZEST_FALSE;
+				}
+				entry->size = info.size;
+				entry->alignment = info.alignment;
+				entry->category = info.category;
+				entry->pending_backend = image->backend;
+			}
+			entry->placed = ZEST_TRUE;
+		}
 	}
 
-    return ZEST_TRUE;
+	//Phase B: pack. The schedule is in first-use order; sweep it maintaining, per category, the
+	//set of still-live placements and the free ranges left behind by dead ones. A free range may
+	//only be reused when the hazard rule allows: same batch (ordered by the compile-time aliasing
+	//scope in the new owner's first acquire barrier) or a strictly earlier wave (ordered by the
+	//wave semaphores). Ranges from concurrent batches of the same wave are never eligible.
+	zest__arena_pack_state_t pack_states[ZEST_MAX_GRAPH_ARENAS];
+	zest_uint pack_state_count = 0;
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+		if (!entry->placed) continue;
+
+		zest__arena_pack_state_t *state = 0;
+		for (zest_uint i = 0; i != pack_state_count; ++i) {
+			if (pack_states[i].category == entry->category) {
+				state = &pack_states[i];
+				break;
+			}
+		}
+		if (!state) {
+			ZEST_ASSERT(pack_state_count < ZEST_MAX_GRAPH_ARENAS);	//Frame graph transients resolve to more arena categories than expected
+			state = &pack_states[pack_state_count++];
+			state->category = entry->category;
+			state->watermark = 0;
+			state->free_ranges = 0;
+			state->active = 0;
+		}
+
+		//Expire live placements that ended before this one begins; their ranges become
+		//candidates for reuse, tagged with the hazard info of their last use.
+		for (zest_uint i = 0; i != zest_vec_size(state->active); ) {
+			zest_transient_placement_t *live = &frame_graph->transient_schedule[state->active[i]];
+			if (live->last_use_idx < entry->first_use_idx) {
+				zest__arena_free_range_t range;
+				range.offset = live->offset;
+				range.size = live->size;
+				range.donor_last_batch = live->last_use_batch;
+				range.donor_last_wave = live->last_wave;
+				zest_vec_linear_push(allocator, state->free_ranges, range);
+				state->active[i] = zest_vec_back(state->active);
+				zest_vec_pop(state->active);
+			} else {
+				++i;
+			}
+		}
+
+		//Best fit among the eligible free ranges
+		int best_index = -1;
+		zest_size best_waste = (zest_size)-1;
+		zest_size best_offset = 0;
+		zest_vec_foreach(i, state->free_ranges) {
+			zest__arena_free_range_t *range = &state->free_ranges[i];
+			zest_bool eligible = range->donor_last_batch == entry->first_use_batch || range->donor_last_wave < entry->first_wave;
+			if (!eligible) continue;
+			zest_size aligned_offset = (range->offset + entry->alignment - 1) & ~(entry->alignment - 1);
+			if (aligned_offset + entry->size > range->offset + range->size) continue;
+			zest_size waste = range->size - entry->size;
+			if (waste < best_waste) {
+				best_waste = waste;
+				best_index = (int)i;
+				best_offset = aligned_offset;
+			}
+		}
+		if (best_index != -1) {
+			zest__arena_free_range_t taken = state->free_ranges[best_index];
+			state->free_ranges[best_index] = zest_vec_back(state->free_ranges);
+			zest_vec_pop(state->free_ranges);
+			entry->offset = best_offset;
+			//Return any head and tail fragments to the free list; they keep the donor's hazard
+			//info since the donor last touched those bytes.
+			if (best_offset > taken.offset) {
+				zest__arena_free_range_t head = taken;
+				head.size = best_offset - taken.offset;
+				zest_vec_linear_push(allocator, state->free_ranges, head);
+			}
+			if (best_offset + entry->size < taken.offset + taken.size) {
+				zest__arena_free_range_t tail = taken;
+				tail.offset = best_offset + entry->size;
+				tail.size = (taken.offset + taken.size) - tail.offset;
+				zest_vec_linear_push(allocator, state->free_ranges, tail);
+			}
+		} else {
+			entry->offset = (state->watermark + entry->alignment - 1) & ~(entry->alignment - 1);
+			state->watermark = entry->offset + entry->size;
+		}
+		zest_vec_linear_push(allocator, state->active, (zest_uint)schedule_index);
+	}
+
+	//Phase C: check out the arenas this graph needs and make sure their backings are big enough
+	for (zest_uint i = 0; i != pack_state_count; ++i) {
+		if (!pack_states[i].watermark) continue;
+		zest_transient_arena_t *arena = zest__checkout_transient_arena(context, frame_graph, pack_states[i].category);
+		if (!zest__ensure_arena_backing(context, arena, fif, pack_states[i].watermark)) {
+			return ZEST_FALSE;
+		}
+	}
+
+	//Phase D: materialise. Buffers become suballocations of the arena buffer; images bind to the
+	//arena memory, reusing the persistent image when nothing about it changed.
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+		if (!entry->placed) continue;
+		zest_resource_node resource = entry->resource;
+		zest_transient_arena_t *arena = 0;
+		for (zest_uint i = 0; i != frame_graph->arena_count; ++i) {
+			if (frame_graph->arenas[i]->category == entry->category) {
+				arena = frame_graph->arenas[i];
+				break;
+			}
+		}
+		ZEST_ASSERT(arena);   //Phase C checked out an arena for every category with a watermark
+		zest_device_memory_pool backing = arena->backing[fif];
+
+		if (resource->type & zest_resource_type_buffer) {
+			entry->buffer_proxy.size = entry->size;
+			entry->buffer_proxy.memory_offset = entry->offset;
+			entry->buffer_proxy.memory_pool = backing;
+			entry->buffer_proxy.usage_flags = resource->buffer_desc.buffer_info.buffer_usage_flags;
+			resource->storage_buffer = &entry->buffer_proxy;
+			#ifdef ZEST_DEBUGGING
+			resource->buffer_identifier = (void *)&entry->buffer_proxy;
+			#endif
+			resource->access_mask = 0;
+			resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
+		} else {
+			zest_image image = &resource->image;
+			zest_transient_image_slot_t *slot = &entry->images[fif];
+			zest_bool needs_bind = entry->pending_backend != 0;
+			if (!needs_bind && slot->in_use && (slot->offset != entry->offset || slot->generation != arena->generation[fif])) {
+				//Same image parameters but a different offset or a reallocated backing: memory
+				//binding is immutable, so the image has to be recreated to move.
+				image->magic = zest_INIT_MAGIC(zest_struct_type_image);
+				image->backend = (zest_image_backend)device->platform->new_frame_graph_image_backend(device, NULL, image, NULL);
+				zest_transient_memory_info_t info;
+				if (!device->platform->create_transient_image_unbound(device, context, image, image->info.layer_count, zest_sample_count_1_bit, image->info.flags, &info)) {
+					return ZEST_FALSE;
+				}
+				entry->pending_backend = image->backend;
+				needs_bind = ZEST_TRUE;
+			}
+			if (needs_bind) {
+				zest__retire_transient_image_slot(context, resource, slot);
+				image->backend = entry->pending_backend;
+				image->magic = zest_INIT_MAGIC(zest_struct_type_image);
+				image->handle.store = &device->resource_stores[zest_handle_type_images];
+				if (!device->platform->bind_image_arena(device, image, backing, entry->offset)) {
+					return ZEST_FALSE;
+				}
+				zest_image_view_type view_type = zest__get_image_view_type(image);
+				zest_image_view view = device->platform->create_image_view(device, image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, NULL);
+				if (!view) {
+					return ZEST_FALSE;
+				}
+				view->handle.store = &device->resource_stores[zest_handle_type_views];
+				slot->backend = image->backend;
+				slot->view = view;
+				slot->extent = image->info.extent;
+				slot->format = image->info.format;
+				slot->mip_levels = image->info.mip_levels;
+				slot->layer_count = image->info.layer_count;
+				slot->offset = entry->offset;
+				slot->generation = arena->generation[fif];
+				slot->size = entry->size;
+				slot->alignment = entry->alignment;
+				slot->category = entry->category;
+				slot->in_use = ZEST_TRUE;
+				if (resource->name && device->platform->set_image_name) {
+					device->platform->set_image_name(device, image, resource->name);
+				}
+			}
+			//Point the resource at this frame in flight's image
+			image->backend = slot->backend;
+			image->default_view = slot->view;
+			image->buffer = 0;   //Arena images bind directly; there is no TLSF proxy to free
+			image->magic = zest_INIT_MAGIC(zest_struct_type_image);
+			image->handle.store = &device->resource_stores[zest_handle_type_images];
+			for (int i = 0; i != zest_max_global_binding_number; ++i) {
+				image->bindless_index[i] = ZEST_INVALID;
+			}
+			//Transient contents are discarded every execution: the first use transitions from
+			//undefined, which is what the compiled barriers expect.
+			image->layout = zest_image_layout_undefined;
+			resource->image_layout = zest_image_layout_undefined;
+			resource->view = slot->view;
+			resource->linked_layout = &image->layout;
+			resource->access_mask = 0;
+			resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
+			#ifdef ZEST_DEBUGGING
+			resource->buffer_identifier = (void *)slot->backend;
+			#endif
+		}
+	}
+	return ZEST_TRUE;
+}
+
+//Retire every persistent transient image a graph holds and return its arenas to the context.
+//Called when a non-cached graph finishes executing and when a cached graph is evicted.
+void zest__release_frame_graph_transients(zest_context context, zest_frame_graph frame_graph) {
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+		if (entry->resource->type & zest_resource_type_buffer) continue;
+		zest_ForEachFrameInFlight(fif) {
+			zest__retire_transient_image_slot(context, entry->resource, &entry->images[fif]);
+		}
+	}
+	for (zest_uint i = 0; i != frame_graph->arena_count; ++i) {
+		frame_graph->arenas[i]->checked_out = ZEST_FALSE;
+	}
+	frame_graph->arena_count = 0;
 }
 
 zest_uint zest__next_fif(zest_context context) {
@@ -13042,6 +13502,9 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	ZEST_ASSERT(result, "Unable to allocate a new frame graph allocator.");
     if (zest_map_valid_key(context->cached_frame_graphs, frame_graph->cache_key)) {
         zest_cached_frame_graph_t *cached_graph = zest_map_at_key(context->cached_frame_graphs, frame_graph->cache_key);
+		//The graph being replaced holds persistent transient images and arena checkouts - retire
+		//them (deferred) before its memory goes away.
+		zest__release_frame_graph_transients(context, cached_graph->frame_graph);
         ZEST__FREE(context->allocator, cached_graph->memory);
         *cached_graph = new_cached_graph;
     } else {
@@ -13094,6 +13557,9 @@ zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph
 void zest_FlushCachedFrameGraphs(zest_context context) {
 	zest_map_foreach(i, context->cached_frame_graphs) {
 		zest_cached_frame_graph_t cached_graph = context->cached_frame_graphs.data[i];
+		//Retire the graph's persistent transient images (deferred - the GPU may still be using
+		//them) and return its arena checkouts before the graph memory is freed.
+		zest__release_frame_graph_transients(context, cached_graph.frame_graph);
 		ZEST__FREE(context->allocator, cached_graph.memory);
 	}
 	zest_map_clear(context->cached_frame_graphs);
@@ -13246,44 +13712,8 @@ zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to
     return ZEST_TRUE; 
 }
 
-void zest__free_transient_resource(zest_resource_node resource) {
-    if (resource->type & zest_resource_type_buffer) {
-        zest_FreeBufferNow(resource->storage_buffer);
-        resource->storage_buffer = 0;
-    } else if (resource->type & zest_resource_type_is_image_or_depth) {
-        zest_FreeBufferNow((zest_buffer)resource->image.buffer);
-        resource->image.buffer = 0;
-    }
-}
-
-zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource) {
-    if (resource->type & zest_resource_type_is_image) {
-        if (!zest__create_transient_image(context, resource)) {
-            return ZEST_FALSE;
-        }
-
-        resource->image_layout = zest_image_layout_undefined;
-        resource->access_mask = 0;
-        resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
-		zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-		zest_vec_linear_push(zest__frame_graph_builder->allocator, frame_graph->deferred_image_destruction, resource);
-    } else if (ZEST__FLAGGED(resource->type, zest_resource_type_buffer) && resource->storage_buffer == NULL) {
-		resource->buffer_desc.buffer_info.frame_in_flight = context->current_fif;
-		resource->storage_buffer = zest__create_transient_buffer(context, resource->buffer_desc.size, &resource->buffer_desc.buffer_info, 0);
-		#ifdef ZEST_DEBUGGING
-		resource->buffer_identifier = context->device->platform->get_resource_ptr(resource);
-		#endif
-        if (!resource->storage_buffer) {
-            return ZEST_FALSE;
-        }
-        resource->access_mask = 0;
-        resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
-    }
-    return ZEST_TRUE;
-}
-
 #ifdef ZEST_DEBUGGING
-void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
+void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire,
 							 zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
 							 zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
 	zest_context context = resource->frame_graph->command_list.context;
@@ -14308,6 +14738,46 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
 
+    //Plan_transient_schedule
+    //Build the transient placement schedule: one entry per live transient, in first-use order
+    //(walking the create lists in execution order gives that for free). The schedule captures
+    //everything about placement that does not depend on sizes - lifetimes and the batch/wave
+    //hazard info the per-execution packer needs - so it can live in the frozen block of a cached
+    //graph while sizes and offsets are re-assigned on every execution after the resource
+    //providers have run.
+    {
+        zest_bucket_array_foreach(resource_index, frame_graph->resources) {
+            zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
+            resource->placement_index = ZEST_INVALID;
+        }
+        zest_vec_foreach(order_index, frame_graph->pass_execution_order) {
+            zest_pass_group_t *group = frame_graph->pass_execution_order[order_index];
+            zest_vec_foreach(resource_index, group->transient_resources_to_create) {
+                zest_resource_node resource = group->transient_resources_to_create[resource_index];
+                zest_pass_group_t *last_group = frame_graph->pass_execution_order[resource->last_usage_pass_idx];
+                zest_transient_placement_t entry = ZEST__ZERO_INIT(zest_transient_placement_t);
+                entry.resource = resource;
+                entry.first_use_idx = (zest_uint)order_index;
+                entry.last_use_idx = resource->last_usage_pass_idx;
+                entry.first_use_batch = group->submission_id >> 16;
+                entry.last_use_batch = last_group->submission_id >> 16;
+                entry.first_wave = ZEST__SUBMISSION_INDEX(group->submission_id);
+                entry.last_wave = ZEST__SUBMISSION_INDEX(last_group->submission_id);
+                if (resource->type & zest_resource_type_buffer) {
+                    entry.category = ZEST__FLAGGED(resource->buffer_desc.buffer_info.property_flags, zest_memory_property_host_visible_bit)
+                        ? ZEST_ARENA_CATEGORY_CPU_BUFFERS : ZEST_ARENA_CATEGORY_GPU_BUFFERS;
+                    entry.alignment = ZEST_ARENA_BUFFER_GRANULARITY;
+                } else {
+                    //Image categories depend on the backend's memory requirements which are only
+                    //known once an image is created, so they resolve at first materialisation.
+                    entry.category = ZEST_INVALID;
+                }
+                resource->placement_index = zest_vec_size(frame_graph->transient_schedule);
+                zest_vec_linear_push(allocator, frame_graph->transient_schedule, entry);
+            }
+        }
+    }
+
     //Plan_resource_barriers
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
         zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
@@ -14781,10 +15251,6 @@ void zest__deferr_resource_destruction(zest_context context, void* handle) {
     zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.resources[context->current_fif], handle);
 }
 
-void zest__deferr_image_destruction(zest_context context, zest_frame_graph frame_graph, zest_image image) {
-	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_images[context->current_fif], *image);
-}
-
 void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array) {
 	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif], *view_array);
 }
@@ -14865,17 +15331,18 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 	ZEST_CPU_PROFILE_END(context);
 
+	//Place the transients for this execution now that the providers have fixed this frame's
+	//sizes: pack them into the context's arenas and materialise buffers and images.
+	ZEST_CPU_PROFILE_BEGIN(context, "Place Transients");
+	if (!zest__place_transient_resources(context, frame_graph, allocator)) {
+		frame_graph->error_status |= zest_fgs_transient_resource_failure;
+		ZEST_CPU_PROFILE_END(context);
+		return ZEST_FALSE;
+	}
+	ZEST_CPU_PROFILE_END(context);
+
 	zest_bool using_legacy_render_pass = zest__using_legacy_render_pass(device);
 	
-	//Transient frees are not returned to the allocator immediately: memory freed while recording
-	//one batch must not be reused by a later batch of the same wave because those batches execute
-	//concurrently on different queues with no synchronization between them. Frees are held in the
-	//batch's pending list and flushed at the next pass group of the same batch (same-batch reuse is
-	//ordered by the aliasing scope in first-use acquire barriers - see Plan_transient_aliasing),
-	//and any frees still pending when the batch ends are flushed when the wave ends (cross-wave
-	//reuse is ordered by the wave semaphores).
-	zest_resource_node *wave_pending_frees = 0;
-
     zest_vec_foreach(submission_index, frame_graph->submissions) {
 		ZEST_CPU_PROFILE_BEGIN(context, "Wave Submission %i", submission_index);
         zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
@@ -14891,9 +15358,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 batch->queue->next_buffer = 0;
                 batch->queue->last_reset_frame = context->device_frame_counter;
             }
-
-			//Frees from earlier pass groups in this batch, made available again at the next group.
-			zest_resource_node *batch_pending_frees = 0;
 
             zest_pipeline_stage_flags timeline_wait_stage;
 
@@ -14947,24 +15411,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					break;
 				}
 
-				ZEST_CPU_PROFILE_BEGIN(context, "Create Transients");
-				//Return transient memory freed by earlier pass groups in this batch to the
-				//allocator so this group's transients can reuse it. The reuse is safe because
-				//first-use acquire barriers carry the aliasing scope of everything freed earlier
-				//in the batch (see Plan_transient_aliasing).
-				zest_vec_foreach(r, batch_pending_frees) {
-					zest__free_transient_resource(batch_pending_frees[r]);
-				}
-				zest_vec_clear(batch_pending_frees);
-                //Create any transient resources where they're first used in this grouped_pass
-                zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
-                    zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
-                    if (!zest__create_transient_resource(context, resource)) {
-                        frame_graph->error_status |= zest_fgs_transient_resource_failure;
-                        return ZEST_FALSE;
-                    }
-                }
-				ZEST_CPU_PROFILE_END(context);
+                //Transient resources were placed and materialised before recording started (see
+                //zest__place_transient_resources), so there is nothing to create per pass here.
 
                 //Batch execute acquire barriers for images and buffers
 				device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
@@ -15081,13 +15529,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 				device->platform->release_barrier(&frame_graph->command_list, exe_details);
 
-				//Transients whose last use is this group are not freed to the allocator yet - they
-				//go on the batch pending list and become reusable at the next group of this batch,
-				//or after the wave ends if this was the batch's last group.
-                zest_vec_foreach(r, grouped_pass->transient_resources_to_free) {
-                    zest_resource_node resource = grouped_pass->transient_resources_to_free[r];
-					zest_vec_linear_push(allocator, batch_pending_frees, resource);
-                }
                 //End pass
 				ZEST_CPU_PROFILE_END(context); //Pass profile
             }
@@ -15096,25 +15537,11 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
 			ZEST_CPU_PROFILE_END(context);
 
-			//This batch's remaining frees must wait for the wave to complete before their memory
-			//can be reused: other batches in this wave run concurrently on other queues.
-			zest_vec_foreach(r, batch_pending_frees) {
-				zest_vec_linear_push(allocator, wave_pending_frees, batch_pending_frees[r]);
-			}
-			zest_vec_clear(batch_pending_frees);
-
 			ZEST_CPU_PROFILE_END(context); //Batch queue profile
         }   //Batch
 
         //For each batch in the last wave add the queue semaphores that were used so that the next batch submissions can wait on them
         device->platform->carry_over_semaphores(frame_graph, wave_submission, backend);
-
-		//The wave is fully recorded and the next wave's batches wait on this wave's semaphores, so
-		//the transient memory freed by this wave's batches is now safe to reuse.
-		zest_vec_foreach(r, wave_pending_frees) {
-			zest__free_transient_resource(wave_pending_frees[r]);
-		}
-		zest_vec_clear(wave_pending_frees);
 
 		ZEST_CPU_PROFILE_END(context);
     }   //Wave
@@ -15138,17 +15565,27 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 	}
 	ZEST_CPU_PROFILE_END(context);
 
-	ZEST_CPU_PROFILE_BEGIN(context, "Free Transient Images");
-	zest_vec_foreach(i, frame_graph->deferred_image_destruction) {
-		zest_resource_node resource = frame_graph->deferred_image_destruction[i];
-		zest__deferr_image_destruction(context, frame_graph, &resource->image);
-		if (resource->view_array) zest__deferr_view_array_destruction(context, frame_graph, resource->view_array);
-		resource->view_array = 0;
-		resource->view = 0;
+	ZEST_CPU_PROFILE_BEGIN(context, "Retire Transient Views");
+	//Per-mip view arrays and their bindless index lists are built lazily during pass execution
+	//from frame-linear memory, so they must be retired and cleared every execution - for cached
+	//graphs the pointers would otherwise dangle into reset frame memory on the next execution.
+	//The images themselves persist in their placement slots.
+	zest_vec_foreach(i, frame_graph->transient_schedule) {
+		zest_resource_node resource = frame_graph->transient_schedule[i].resource;
+		if (resource->view_array) {
+			zest__deferr_view_array_destruction(context, frame_graph, resource->view_array);
+			resource->view_array = 0;
+		}
 		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
 	}
-	frame_graph->deferred_image_destruction = 0;
 	ZEST_CPU_PROFILE_END(context);
+
+	if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
+		//This graph will not execute again: retire its transient images (deferred - the GPU is
+		//still using them) and return its arenas to the context. Cached graphs keep both so
+		//their transient images stay bound across executions.
+		zest__release_frame_graph_transients(context, frame_graph);
+	}
 
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_executed);
 

@@ -273,7 +273,7 @@ ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_image_backend(zest_device device);
 ZEST_PRIVATE void *zest__vk_new_swapchain_image_backend(zest_context context);
-ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
+ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zest_device device, zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
 ZEST_PRIVATE void *zest__vk_new_set_layout_backend(zloc_allocator *allocator);
 ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(zloc_allocator *allocator);
 ZEST_PRIVATE void *zest__vk_new_sampler_backend(zest_device device);
@@ -329,6 +329,10 @@ ZEST_PRIVATE void zest__vk_setup_validation(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_pick_physical_device(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags);
 ZEST_PRIVATE zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+ZEST_PRIVATE zest_bool zest__vk_create_transient_image_unbound(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, zest_transient_memory_info_t *info);
+ZEST_PRIVATE zest_bool zest__vk_bind_image_arena(zest_device device, zest_image image, zest_device_memory_pool backing, zest_size offset);
+ZEST_PRIVATE zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_context context, zest_uint category, zest_size size);
+ZEST_PRIVATE void zest__vk_free_arena_backing(zest_device device, zest_context context, zest_device_memory_pool backing);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image);
 ZEST_PRIVATE zest_image_view_array_t *zest__vk_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *allocator);
@@ -677,6 +681,10 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 
 	platform->is_image_format_supported					    = zest__vk_is_image_format_supported;
 	platform->create_image 								    = zest__vk_create_image;
+	platform->create_transient_image_unbound			    = zest__vk_create_transient_image_unbound;
+	platform->bind_image_arena							    = zest__vk_bind_image_arena;
+	platform->create_arena_backing						    = zest__vk_create_arena_backing;
+	platform->free_arena_backing						    = zest__vk_free_arena_backing;
 	platform->create_image_view         				    = zest__vk_create_image_view;
 	platform->create_image_views_per_mip		 		    = zest__vk_create_image_views_per_mip;
 	platform->copy_buffer_regions_to_image		 		    = zest__vk_copy_buffer_regions_to_image;
@@ -2589,8 +2597,14 @@ void *zest__vk_new_swapchain_image_backend(zest_context context) {
     return image_backend;
 }
 
-void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image) {
-    node_image->backend = (zest_image_backend)zest__linear_allocate(allocator, sizeof(zest_image_backend_t));
+void *zest__vk_new_frame_graph_image_backend(zest_device device, zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image) {
+    if (allocator) {
+        node_image->backend = (zest_image_backend)zest__linear_allocate(allocator, sizeof(zest_image_backend_t));
+    } else {
+        //Heap allocation for arena images that persist across executions of cached graphs; freed
+        //explicitly when the image is retired.
+        node_image->backend = (zest_image_backend)zest__allocate(device->allocator, sizeof(zest_image_backend_t));
+    }
     *node_image->backend = ZEST__ZERO_INIT(zest_image_backend_t);
 	if (imported_image) {
 		node_image->backend->vk_format = (VkFormat)imported_image->info.format;
@@ -3958,8 +3972,11 @@ zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format for
 	return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
-
+//Shared front half of image creation: build the create info from the image flags, create the
+//VkImage (unbound) and report its memory requirements and required memory properties. Used by
+//both the standard create path (which then allocates and binds its own memory) and the transient
+//arena path (which packs the image into an arena and binds it later).
+ZEST_PRIVATE zest_bool zest__vk_create_image_handle(zest_device device, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, VkMemoryRequirements *out_requirements, VkMemoryPropertyFlags *out_properties, VkImageUsageFlags *out_usage) {
     VkImageUsageFlags usage = ZEST__FLAGGED(flags, zest_image_flag_sampled) ? VK_IMAGE_USAGE_SAMPLED_BIT : 0;
     usage |= ZEST__FLAGGED(flags, zest_image_flag_storage) ? VK_IMAGE_USAGE_STORAGE_BIT : 0;
     usage |= ZEST__FLAGGED(flags, zest_image_flag_color_attachment) ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0;
@@ -4005,39 +4022,174 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
     ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_device, zest_command_image);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkCreateImage(device->backend->logical_device, &image_info, &device->backend->allocation_callbacks, &image->backend->vk_image));
 
+    vkGetImageMemoryRequirements(device->backend->logical_device, image->backend->vk_image, out_requirements);
+    *out_properties = memory_properties;
+    *out_usage = usage;
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_create_transient_image_unbound(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, zest_transient_memory_info_t *info) {
     VkMemoryRequirements memory_requirements;
-    vkGetImageMemoryRequirements(device->backend->logical_device, image->backend->vk_image, &memory_requirements);
+    VkMemoryPropertyFlags memory_properties;
+    VkImageUsageFlags usage;
+    if (!zest__vk_create_image_handle(device, image, layer_count, num_samples, flags, &memory_requirements, &memory_properties, &usage)) {
+        return ZEST_FALSE;
+    }
+    zest_uint memory_type_index = zest__vk_find_memory_type(device, memory_requirements.memoryTypeBits, memory_properties);
+    if (memory_type_index == ZEST_INVALID) {
+        vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
+        image->backend->vk_image = VK_NULL_HANDLE;
+        return ZEST_FALSE;
+    }
+    //Round the size up to the alignment so packed offsets stay aligned by induction
+    info->size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
+    info->alignment = memory_requirements.alignment;
+    info->category = ZEST_ARENA_CATEGORY_IMAGE_BASE + memory_type_index;
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_bind_image_arena(zest_device device, zest_image image, zest_device_memory_pool backing, zest_size offset) {
+    ZEST_RETURN_FALSE_ON_FAIL(device, vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, backing->backend->memory, offset));
+    return ZEST_TRUE;
+}
+
+zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_context context, zest_uint category, zest_size size) {
+    zloc_allocator *allocator = context->allocator;
+    VkAllocationCallbacks *allocation_callbacks = &context->backend->allocation_callbacks;
+    zest_device_memory_pool pool = (zest_device_memory_pool)ZEST__NEW(allocator, zest_device_memory_pool);
+    *pool = ZEST__ZERO_INIT(zest_device_memory_pool_t);
+    pool->magic = zest_INIT_MAGIC(zest_struct_type_device_memory_pool);
+    pool->device = device;
+    pool->backend = (zest_device_memory_pool_backend)ZEST__NEW(allocator, zest_device_memory_pool_backend);
+    *pool->backend = ZEST__ZERO_INIT(zest_device_memory_pool_backend_t);
+
+    if (category == ZEST_ARENA_CATEGORY_GPU_BUFFERS || category == ZEST_ARENA_CATEGORY_CPU_BUFFERS) {
+        //Buffer arenas get one buffer with the union of all buffer usages; transient buffers are
+        //suballocated from it by offset.
+        VkBufferCreateInfo create_buffer_info = ZEST__ZERO_INIT(VkBufferCreateInfo);
+        create_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        create_buffer_info.size = size;
+        create_buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT       	|
+                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT        |
+                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT       |
+                                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT        |
+                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT      |
+                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT      |
+                                    VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT     |
+                                    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+        create_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_buffer);
+        if (vkCreateBuffer(device->backend->logical_device, &create_buffer_info, allocation_callbacks, &pool->backend->vk_buffer) != VK_SUCCESS) {
+            goto cleanup;
+        }
+
+        VkMemoryRequirements memory_requirements;
+        vkGetBufferMemoryRequirements(device->backend->logical_device, pool->backend->vk_buffer, &memory_requirements);
+
+        VkMemoryPropertyFlags properties = category == ZEST_ARENA_CATEGORY_CPU_BUFFERS
+            ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+            : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        //The arena buffer is created with SHADER_DEVICE_ADDRESS usage, and when the buffer device
+        //address feature is enabled the spec requires the memory to be allocated with the matching
+        //allocate flag (VUID-vkBindBufferMemory-bufferDeviceAddress-03339).
+        VkMemoryAllocateFlagsInfo alloc_flags = ZEST__ZERO_INIT(VkMemoryAllocateFlagsInfo);
+        alloc_flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+        alloc_flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+
+        VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.pNext = &alloc_flags;
+        alloc_info.allocationSize = memory_requirements.size;
+        alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_requirements.memoryTypeBits, properties);
+        if (alloc_info.memoryTypeIndex == ZEST_INVALID) {
+            goto cleanup;
+        }
+
+        ZEST_APPEND_LOG(device->log_path.str, "Allocating transient buffer arena, size: %llu type: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex);
+        ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_allocate_memory_pool);
+        if (vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
+            goto cleanup;
+        }
+        vkBindBufferMemory(device->backend->logical_device, pool->backend->vk_buffer, pool->backend->memory, 0);
+
+        pool->size = size;
+        pool->alignment = memory_requirements.alignment;
+        pool->backend->memory_type_index = alloc_info.memoryTypeIndex;
+        if (category == ZEST_ARENA_CATEGORY_CPU_BUFFERS) {
+            if (vkMapMemory(device->backend->logical_device, pool->backend->memory, 0, VK_WHOLE_SIZE, 0, &pool->mapped) != VK_SUCCESS) {
+                goto cleanup;
+            }
+        }
+    } else {
+        //Image arenas are one memory allocation of the category's memory type; images bind at
+        //their packed offsets.
+        VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
+        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc_info.allocationSize = size;
+        alloc_info.memoryTypeIndex = category - ZEST_ARENA_CATEGORY_IMAGE_BASE;
+
+        ZEST_APPEND_LOG(device->log_path.str, "Allocating transient image arena, size: %llu type: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex);
+        ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_allocate_memory_pool);
+        if (vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
+            goto cleanup;
+        }
+        pool->size = size;
+        pool->backend->memory_type_index = alloc_info.memoryTypeIndex;
+    }
+
+    return pool;
+
+    cleanup:
+    if (pool->backend->vk_buffer) {
+        vkDestroyBuffer(device->backend->logical_device, pool->backend->vk_buffer, allocation_callbacks);
+    }
+    if (pool->backend->memory) {
+        vkFreeMemory(device->backend->logical_device, pool->backend->memory, allocation_callbacks);
+    }
+    ZEST__FREE(allocator, pool->backend);
+    ZEST__FREE(allocator, pool);
+    return NULL;
+}
+
+void zest__vk_free_arena_backing(zest_device device, zest_context context, zest_device_memory_pool backing) {
+    VkAllocationCallbacks *allocation_callbacks = &context->backend->allocation_callbacks;
+    if (backing->backend->vk_buffer) {
+        vkDestroyBuffer(device->backend->logical_device, backing->backend->vk_buffer, allocation_callbacks);
+    }
+    if (backing->backend->memory) {
+        vkFreeMemory(device->backend->logical_device, backing->backend->memory, allocation_callbacks);
+    }
+    ZEST__FREE(context->allocator, backing->backend);
+    ZEST__FREE(context->allocator, backing);
+}
+
+zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
+    VkMemoryRequirements memory_requirements;
+    VkMemoryPropertyFlags memory_properties;
+    VkImageUsageFlags usage;
+    if (!zest__vk_create_image_handle(device, image, layer_count, num_samples, flags, &memory_requirements, &memory_properties, &usage)) {
+        return ZEST_FALSE;
+    }
+
+    //Transient images are created through create_transient_image_unbound and bound to a frame
+    //graph arena instead - this path is for standalone images which get a dedicated allocation.
+    ZEST_ASSERT(ZEST__NOT_FLAGGED(flags, zest_image_flag_transient));
 
     zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);
     buffer_info.image_usage_flags = usage;
     buffer_info.property_flags = memory_properties;
     buffer_info.alignment = memory_requirements.alignment;
-	VkDeviceMemory vk_memory = VK_NULL_HANDLE;
-	VkDeviceSize offset = 0;
-	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
-		//Key transient image memory per frame in flight, the same as transient buffers: memory
-		//freed while recording this frame must not be handed to the next frame's transients while
-		//this frame may still be executing on the GPU. The FIF slot's CPU wait guarantees the
-		//memory is idle by the time the same slot records again.
-		buffer_info.frame_in_flight = context->current_fif;
-		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
-		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
-		zest_buffer buffer = zest__create_transient_buffer(context, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
-		image->buffer = (void*)buffer;
-		vk_memory = zest__vk_get_buffer_device_memory(buffer);
-		offset = buffer->memory_offset;
-	} else {
-		zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
-		image->buffer = (void*)memory;
-		vk_memory = memory->backend->memory;
-	}
+	zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
+	image->buffer = (void*)memory;
 
 	#ifdef ZEST_DEBUGGING
 	image->buffer_identifier = (void*)image->backend->vk_image;
 	#endif
 
     if (image->buffer) {
-        vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, vk_memory, offset);
+        vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, memory->backend->memory, 0);
     } else {
         // Destroy the image handle before returning to prevent a leak
         vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
@@ -5318,27 +5470,11 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     // Set signal semaphores for this batch
     zest_context_queue queue = batch->queue;
 
-    zest_uint queue_fif = queue->fif;
-
-    //Increment the queue count for the timeline semaphores if the queue hasn't been used yet this frame graph
-    zest_u64 wait_value = 0;
-    zest_uint wait_index = queue->fif;
-    if (zest_map_valid_key((*queues), (zest_key)queue)) {
-        //Intraframe timeline semaphore required. This will happen if there are more than one batch for a queue family
-        wait_value = *zest_map_at_key((*queues), (zest_key)queue)->signal_value;
-    } else {
-        //Interframe timeline semaphore required. Has to connect to the semaphore value in the previous frame that this
-        //queue was ran.
-        wait_index = (queue_fif + ZEST_MAX_FIF - 1) % ZEST_MAX_FIF;
-        wait_value = queue->current_count[wait_index];
-    }
-
-    zest_u64 signal_value = wait_value + 1;
-    queue->signal_value = signal_value;
-    queue->current_count[queue_fif] = signal_value;
-
     zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 
+    //Track which queues this frame graph used so their frame-in-flight indexes cycle at the end
+    //of execution. (An interframe timeline wait was once computed here but never attached to any
+    //semaphore; cross-frame transient safety is handled by per-FIF arenas instead.)
     zest_map_insert_linear_key(allocator, (*queues), (zest_key)queue, queue);
 
     //We need to mix the binary semaphores in the batches with the timeline semaphores in the queue,

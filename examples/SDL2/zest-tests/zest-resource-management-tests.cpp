@@ -2354,14 +2354,28 @@ struct TransientAliasingCapture {
 	int captured;
 };
 
+//Capture where a transient image landed in the arena: its placement entry carries the packed
+//offset and size, and the arena backing (the memory pool) identifies which memory it's in.
+zest_device_memory_pool tst__aliasing_backing(const zest_command_list command_list, zest_resource_node node) {
+	zest_frame_graph frame_graph = node->frame_graph;
+	zest_transient_placement_t *entry = &frame_graph->transient_schedule[node->placement_index];
+	zest_context context = zest_GetContext(command_list);
+	for (zest_uint i = 0; i != frame_graph->arena_count; ++i) {
+		if (frame_graph->arenas[i]->category == entry->category) {
+			return frame_graph->arenas[i]->backing[context->current_fif];
+		}
+	}
+	return 0;
+}
+
 void tst__aliasing_capture_x(const zest_command_list command_list, void *user_data) {
 	TransientAliasingCapture *capture = (TransientAliasingCapture *)user_data;
 	zest_resource_node node_x = zest_GetPassInputResource(command_list, "Image X");
-	if (node_x && node_x->image.buffer) {
-		zest_buffer buffer = (zest_buffer)node_x->image.buffer;
-		capture->x_pool = buffer->memory_pool;
-		capture->x_offset = buffer->memory_offset;
-		capture->x_size = buffer->size;
+	if (node_x && node_x->placement_index != ZEST_INVALID) {
+		zest_transient_placement_t *entry = &node_x->frame_graph->transient_schedule[node_x->placement_index];
+		capture->x_pool = tst__aliasing_backing(command_list, node_x);
+		capture->x_offset = entry->offset;
+		capture->x_size = entry->size;
 		capture->captured |= 1;
 	}
 }
@@ -2369,11 +2383,11 @@ void tst__aliasing_capture_x(const zest_command_list command_list, void *user_da
 void tst__aliasing_capture_y(const zest_command_list command_list, void *user_data) {
 	TransientAliasingCapture *capture = (TransientAliasingCapture *)user_data;
 	zest_resource_node node_y = zest_GetPassOutputResource(command_list, "Image Y");
-	if (node_y && node_y->image.buffer) {
-		zest_buffer buffer = (zest_buffer)node_y->image.buffer;
-		capture->y_pool = buffer->memory_pool;
-		capture->y_offset = buffer->memory_offset;
-		capture->y_size = buffer->size;
+	if (node_y && node_y->placement_index != ZEST_INVALID) {
+		zest_transient_placement_t *entry = &node_y->frame_graph->transient_schedule[node_y->placement_index];
+		capture->y_pool = tst__aliasing_backing(command_list, node_y);
+		capture->y_offset = entry->offset;
+		capture->y_size = entry->size;
 		capture->captured |= 2;
 	}
 }

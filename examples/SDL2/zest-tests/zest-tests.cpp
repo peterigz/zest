@@ -87,6 +87,7 @@ void InitialiseTests(ZestTests *tests) {
 	//images), which the Acquire/Release Indexes test is sensitive to as it releases hardcoded
 	//index values.
 	RegisterTest(tests, { "Resource Test Transient Aliasing Dependency", test__transient_aliasing_dependency, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Cached Transient Persistence", test__cached_transient_persistence, 0, 6, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
