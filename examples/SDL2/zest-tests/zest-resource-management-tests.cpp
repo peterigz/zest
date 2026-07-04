@@ -2626,3 +2626,49 @@ int test__image_allocator_memory_type_keying(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//A gpu_to_cpu (readback) buffer larger than max_small_buffer_size selects the large-buffer pool
+//type with host_visible|host_cached properties, which used to have no default pool size registered
+//and hit the pool-size assert in zest__create_buffer_allocator (any screenshot-sized readback
+//reproduced it). There is now a "GPU Read Buffers (large)" default, and unregistered usage
+//combinations in general fall back to a pool config derived from the request instead of asserting.
+int test__large_readback_buffer(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_size granularity = tests->device->buffer_offset_granularity;
+
+	//Screenshot-sized readback: 8MB is well over max_small_buffer_size (64KB)
+	zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer readback = zest_CreateBuffer(tests->device, zloc__MEGABYTE(8), &info);
+	if (!readback) {
+		failed_count++;
+	} else {
+		//Must have been served by the registered default, not the derived fallback
+		if (strcmp(readback->memory_pool->allocator->name, "GPU Read Buffers (large)") != 0) failed_count++;
+		if (readback->size < zloc__MEGABYTE(8)) failed_count++;
+		if (readback->memory_offset % granularity) failed_count++;
+		if (readback->size % granularity) failed_count++;
+		//Readback memory is host visible so it must be mapped and writable
+		memset(zest_BufferData(readback), 0xCD, zloc__MEGABYTE(8));
+	}
+
+	//A usage combination with no registered pool size must fall back to a derived config instead
+	//of asserting: image-pool requests with host-visible properties have no default.
+	zest_buffer_info_t unregistered = ZEST__ZERO_INIT(zest_buffer_info_t);
+	unregistered.image_usage_flags = zest_image_usage_sampled_bit;
+	unregistered.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
+	unregistered.alignment = 4096;
+	unregistered.backend_memory_bits = 0xFFFFFFFFu;
+	zest_buffer fallback = zest_CreateBuffer(tests->device, zloc__KILOBYTE(256), &unregistered);
+	if (!fallback) {
+		failed_count++;
+	} else {
+		if (strcmp(fallback->memory_pool->allocator->name, "Derived Pool") != 0) failed_count++;
+	}
+
+	zest_FreeBuffer(readback);
+	zest_FreeBuffer(fallback);
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

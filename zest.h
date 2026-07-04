@@ -4634,7 +4634,7 @@ ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zes
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key, zest_uint backend_memory_bits);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits);
 ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
@@ -9197,6 +9197,8 @@ void zest__set_default_pool_sizes(zest_device device) {
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit;
 	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
     zest_SetDevicePoolSize(device, "GPU Read Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+	usage.memory_pool_type = zest_memory_pool_type_buffers;
+    zest_SetDevicePoolSize(device, "GPU Read Buffers (large)", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
 
     ZEST_APPEND_LOG(device->log_path.str, "Set device pool sizes");
 }
@@ -9709,7 +9711,7 @@ zest_size zest__get_minimum_block_size(zest_size pool_size) {
     return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
-zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_key pool_key, zest_uint backend_memory_bits) {
+zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits) {
 	zloc_allocator *allocator = context ? context->allocator : device->allocator;
 	zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)ZEST__NEW(allocator, zest_buffer_allocator);
 	*buffer_allocator = ZEST__ZERO_INIT(zest_buffer_allocator_t);
@@ -9719,15 +9721,29 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 	buffer_allocator->context = context;
 	zest_buffer_pool_size_t pre_defined_pool_size = ZEST__ZERO_INIT(zest_buffer_pool_size_t);
 	if (buffer_info->image_usage_flags) {
+		//Image pool sizes are registered without the alignment that keys the allocator
 		zest_buffer_usage_t usage_key = ZEST__ZERO_INIT(zest_buffer_usage_t);
 		usage_key.property_flags = buffer_info->property_flags;
 		usage_key.memory_pool_type = zest_memory_pool_type_transient_images;
 		zest_key image_key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_usage_t));
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, image_key);
 	} else {
+		zest_key pool_key = zest_map_hash_ptr(usage, sizeof(zest_buffer_usage_t));
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, pool_key);
 	}
-	ZEST_ASSERT(pre_defined_pool_size.pool_size);
+	if (!pre_defined_pool_size.pool_size) {
+		//No pool size is registered for this usage combination. zest_SetDevicePoolSize is public, so
+		//unregistered combinations are reachable legitimately; derive a pool config from the request
+		//rather than failing. The pool still grows past this size on demand like any other pool.
+		pre_defined_pool_size.name = "Derived Pool";
+		pre_defined_pool_size.pool_size = ZEST__MAX(zest_RoundUpToNearestPower(size), (zest_size)zloc__MEGABYTE(4));
+		pre_defined_pool_size.minimum_allocation_size = ZEST__MIN(zest__get_minimum_block_size(pre_defined_pool_size.pool_size), (zest_size)zloc__KILOBYTE(64));
+		ZEST_REPORT(device, zest_report_memory, "No device pool size is registered for property flags: %s, intended use: %s. Derived a pool config from the request instead (pool size: %llu, minimum allocation size: %llu). Call zest_SetDevicePoolSize to configure a pool size for this combination.",
+				zest__memory_property_to_string(usage->property_flags),
+				zest__memory_type_to_string(usage->memory_pool_type),
+				pre_defined_pool_size.pool_size,
+				pre_defined_pool_size.minimum_allocation_size);
+	}
 	//Image pools additionally need their offsets aligned to the image alignment requirement that
 	//keys this allocator. zest_SetDevicePoolSize is public, so also round the configured minimum
 	//allocation size up to the granularity or the rounded-size induction breaks when the minimum
@@ -9960,8 +9976,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
-		zest_key pool_key = zest_map_hash_ptr(&usage, sizeof(zest_buffer_usage_t));
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, pool_key, buffer_info->backend_memory_bits);
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, &usage, size, buffer_info->backend_memory_bits);
 		buffer_allocator->usage = usage;
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
 			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",

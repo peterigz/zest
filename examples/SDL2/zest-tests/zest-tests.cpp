@@ -93,6 +93,7 @@ void InitialiseTests(ZestTests *tests) {
 	//bindless index pool runs out, which adds exhaustion reports to its context.
 	RegisterTest(tests, { "Resource Test Buffer Offset Alignment", test__buffer_offset_alignment, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Allocator Memory Type Keying", test__image_allocator_memory_type_keying, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Resource Test Large Readback Buffer", test__large_readback_buffer, 0, 1, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
@@ -108,6 +109,8 @@ void InitialiseSpecificTests(ZestTests *tests) {
 }
 
 void RegisterTest(ZestTests *tests, Test test) {
+	//Overflowing the fixed test array silently corrupts the fields after it in ZestTests
+	ZEST_ASSERT(tests->test_count < TEST_COUNT);
 	tests->tests[tests->test_count] = test;
 	tests->test_count++;
 }
