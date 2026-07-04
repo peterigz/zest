@@ -1032,5 +1032,93 @@ int test__cached_transient_persistence(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Cached Transient Placement: a cached frame graph with two transient buffers written by the same
+transfer pass every frame. "Grow Buffer" has a buffer provider (which resets storage_buffer each
+execution) and grows after the first execution; "Stale Buffer" has no provider. Transient buffers
+are placed as suballocations of the persistent per-FIF arena backings, and the placement pass must
+re-place every transient buffer on every execution of a cached graph: a resource that keeps the
+proxy from a previous execution stays bound to that execution's FIF backing and offset, so it both
+writes into the wrong frame-in-flight's memory and overlaps whatever transient was re-placed over
+those bytes. Sync validation catches the overlap as a WRITE_AFTER_WRITE between the two copies
+once the FIF slot of the first execution comes around again and the grown buffer covers the stale
+one's bytes.
+*/
+struct StalePlacementState {
+	int execution_count;
+};
+
+zest_buffer tst__grow_buffer_provider(zest_context context, zest_resource_node node) {
+	StalePlacementState *state = (StalePlacementState *)zest_GetResourceUserData(node);
+	//256 bytes on the first execution, 66000 from then on so the re-placed buffer grows over the
+	//bytes the stale buffer was given on the first execution.
+	zest_SetResourceBufferSize(node, state->execution_count == 0 ? 256 : 66000);
+	return NULL;
+}
+
+void tst__transfer_to_arena_buffers(const zest_command_list command_list, void *user_data) {
+	StalePlacementState *state = (StalePlacementState *)user_data;
+	zest_resource_node grow_buffer = zest_GetPassOutputResource(command_list, "Grow Buffer");
+	zest_resource_node stale_buffer = zest_GetPassOutputResource(command_list, "Stale Buffer");
+	zest_size grow_size = state->execution_count == 0 ? 256 : 66000;
+	zest_buffer grow_staging = zest_CreateStagingBuffer(command_list->device, grow_size, 0);
+	zest_cmd_CopyBuffer(command_list, grow_staging, zest_GetResourceBuffer(grow_buffer), grow_size);
+	zest_FreeBuffer(grow_staging);
+	zest_buffer stale_staging = zest_CreateStagingBuffer(command_list->device, 512, 0);
+	zest_cmd_CopyBuffer(command_list, stale_staging, zest_GetResourceBuffer(stale_buffer), 512);
+	zest_FreeBuffer(stale_staging);
+	state->execution_count++;
+}
+
+int test__cached_transient_placement(ZestTests *tests, Test *test) {
+	static StalePlacementState state;
+	if (test->frame_count == 0) {
+		state.execution_count = 0;
+	}
+	zest_buffer_resource_info_t grow_info = {};
+	grow_info.size = 256;
+	zest_buffer_resource_info_t stale_info = {};
+	stale_info.size = 512;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, "Cached Transient Placement", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_resource_node grow_buffer = zest_AddTransientBufferResource("Grow Buffer", &grow_info);
+				zest_SetResourceUserData(grow_buffer, &state);
+				zest_SetResourceBufferProvider(grow_buffer, tst__grow_buffer_provider);
+				zest_resource_node stale_buffer = zest_AddTransientBufferResource("Stale Buffer", &stale_info);
+
+				zest_BeginTransferPass("Upload Pass");
+				zest_ConnectOutput(grow_buffer);
+				zest_ConnectOutput(stale_buffer);
+				zest_SetPassTask(tst__transfer_to_arena_buffers, &state);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Pass");
+				zest_ConnectInput(grow_buffer);
+				zest_ConnectInput(stale_buffer);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count && test->cache_count == 0) {
+		test->result |= 2;   //The graph never came from the cache so the stale-proxy path was not exercised
+	}
+	return test->result;
+}
+
 
 

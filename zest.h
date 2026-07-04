@@ -13128,6 +13128,13 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 		entry->placed = ZEST_FALSE;
 		entry->pending_backend = 0;
 		if (resource->type & zest_resource_type_buffer) {
+			if (resource->storage_buffer == &entry->buffer_proxy) {
+				//A cached graph re-execution: this is our own proxy from the previous execution,
+				//not an external buffer. Clear it so the buffer is re-placed - offsets and the
+				//FIF backing change between executions, so a stale proxy would write into the
+				//previous execution's slot and overlap whatever was re-placed over those bytes.
+				resource->storage_buffer = 0;
+			}
 			if (resource->storage_buffer) continue;   //A provider supplied an external buffer this execution
 			if (!resource->buffer_desc.size) continue;
 			entry->size = (resource->buffer_desc.size + entry->alignment - 1) & ~(entry->alignment - 1);
