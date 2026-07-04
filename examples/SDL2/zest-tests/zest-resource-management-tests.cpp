@@ -2573,3 +2573,56 @@ int test__buffer_offset_alignment(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//Image pool allocators used to store the memoryTypeBits of whichever image happened to create the
+//allocator while the allocator key only covered {property flags, pool type, alignment}, so an
+//image with different memoryTypeBits but matching alignment could be bound to a memory type not in
+//its own bits (invalid on hardware where formats have disjoint bits). The allocator key must
+//include the backend memory bits so incompatible images get separate allocators and pools.
+int test__image_allocator_memory_type_keying(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+
+	//Keep the image pools this test creates small; nothing else in the suite allocates pooled
+	//images so this config override affects no other test.
+	zest_buffer_usage_t pool_usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
+	pool_usage.property_flags = zest_memory_property_device_local_bit;
+	pool_usage.memory_pool_type = zest_memory_pool_type_transient_images;
+	zest_SetDevicePoolSize(tests->device, "Test Image Pool", pool_usage, zloc__KILOBYTE(64), zloc__MEGABYTE(4));
+
+	//Image-style buffer infos: image_usage_flags routes zest_CreateBuffer to the image pool path
+	//and backend_memory_bits stands in for the image's memory compatibility bits (Vulkan:
+	//VkMemoryRequirements::memoryTypeBits). All-bits is compatible with every memory type on any
+	//device. The second pattern clears the top bit: it resolves to the same memory type everywhere
+	//(no device has 32 memory types), but because the bits differ it must be served by a separate
+	//allocator with its own pools.
+	zest_buffer_info_t info_a = ZEST__ZERO_INIT(zest_buffer_info_t);
+	info_a.image_usage_flags = zest_image_usage_sampled_bit;
+	info_a.property_flags = zest_memory_property_device_local_bit;
+	info_a.alignment = 4096;
+	info_a.backend_memory_bits = 0xFFFFFFFFu;
+	zest_buffer_info_t info_b = info_a;
+	info_b.backend_memory_bits = 0x7FFFFFFFu;
+
+	zest_buffer a1 = zest_CreateBuffer(tests->device, 4096, &info_a);
+	zest_buffer a2 = zest_CreateBuffer(tests->device, 4096, &info_a);
+	zest_buffer b1 = zest_CreateBuffer(tests->device, 4096, &info_b);
+	if (!a1 || !a2 || !b1) {
+		failed_count++;
+	} else {
+		//Identical bits share an allocator (and its pools)...
+		if (a1->memory_pool->allocator != a2->memory_pool->allocator) failed_count++;
+		//...different bits must never share one, even though every other key field matches
+		if (b1->memory_pool->allocator == a1->memory_pool->allocator) failed_count++;
+		if (b1->memory_pool == a1->memory_pool) failed_count++;
+		//Image pool allocators fold the image alignment into the offset granularity
+		if (a2->memory_offset % 4096) failed_count++;
+	}
+
+	zest_FreeBuffer(a1);
+	zest_FreeBuffer(a2);
+	zest_FreeBuffer(b1);
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

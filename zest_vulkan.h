@@ -3106,11 +3106,18 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
 zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool pool) {
     zest_buffer_info_t *buffer_info = &buffer_allocator->buffer_info;
     zest_uint memory_type_bits = buffer_allocator->backend->memory_requirements.memoryTypeBits;
+    //Image allocators are keyed by their memoryTypeBits, so every image sub-allocating from this
+    //allocator's pools shares exactly these bits and any memory type chosen from them is valid
+    //for all of them. Zero bits means the caller never queried the image's memory requirements.
+    ZEST_ASSERT(memory_type_bits);
     VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = size_in_bytes;
     alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_type_bits, buffer_info->property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
+    //Defensive: the pool's memory type must be one of the compatibility bits the allocator is
+    //keyed by, or binding an image from this pool would be invalid.
+    ZEST_ASSERT((1u << alloc_info.memoryTypeIndex) & memory_type_bits);
 
     pool->size = size_in_bytes;
     pool->alignment = buffer_info->alignment;

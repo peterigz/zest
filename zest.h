@@ -3588,6 +3588,11 @@ typedef struct zest_buffer_info_t {
 	zest_size alignment;
 	zest_uint frame_in_flight;
 	zest_memory_pool_flags flags;
+	//Backend-defined memory compatibility bits (Vulkan: VkMemoryRequirements::memoryTypeBits).
+	//Required when image_usage_flags is set: image pool allocators are keyed by these bits so
+	//images with incompatible memory requirements never share a memory pool. Leave 0 for plain
+	//buffers (the backend derives the requirements itself).
+	zest_uint backend_memory_bits;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {
@@ -3604,8 +3609,11 @@ typedef struct zest_buffer_usage_t {
 
 typedef struct zest_buffer_allocator_key_t {
 	zest_buffer_usage_t usage;
-	zest_context context;	
+	zest_context context;
 	zest_uint frame_in_flight;
+	//Image allocators only: images whose memory compatibility bits differ must not share an
+	//allocator, or an image could be bound to a memory type not present in its own bits.
+	zest_uint backend_memory_bits;
 } zest_buffer_allocator_key_t;
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
@@ -9935,6 +9943,8 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 	zest_map_buffer_allocators *buffer_allocators = &device->buffer_allocators;
 
 	if (buffer_info->image_usage_flags) {
+		ZEST_ASSERT_OR_VALIDATE(buffer_info->backend_memory_bits, device,
+								"Image buffer infos must set backend_memory_bits (the image's memory compatibility bits, queried from the backend) so the allocation can be matched to a compatible memory pool.", NULL);
 		usage.memory_pool_type = zest_memory_pool_type_transient_images;
 		usage.alignment = buffer_info->alignment;
 	} else if(size > device->setup_info.max_small_buffer_size) {
@@ -9942,15 +9952,16 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 	} else {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_small_transient_buffers : zest_memory_pool_type_small_buffers;
 	}
-	zest_buffer_allocator_key_t usage_key;
+	zest_buffer_allocator_key_t usage_key = ZEST__ZERO_INIT(zest_buffer_allocator_key_t);
 	usage_key.usage = usage;
 	usage_key.context = 0;
     usage_key.frame_in_flight = buffer_info->frame_in_flight;
+    usage_key.backend_memory_bits = buffer_info->backend_memory_bits;
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_key pool_key = zest_map_hash_ptr(&usage, sizeof(zest_buffer_usage_t));
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, pool_key, 0);
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, pool_key, buffer_info->backend_memory_bits);
 		buffer_allocator->usage = usage;
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
 			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",
@@ -9966,6 +9977,10 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     }
 
     zest_buffer_allocator buffer_allocator = *zest_map_at_key((*buffer_allocators), key);
+	//Defensive: the allocator's pools were created for the memory compatibility bits it was keyed
+	//by, so a request with different bits must never land here (would bind the resource to a memory
+	//type not present in its own bits). Catches key hash collisions.
+	ZEST_ASSERT(buffer_allocator->buffer_info.backend_memory_bits == buffer_info->backend_memory_bits);
 	//Round the size to the offset granularity so that sub-allocation offsets in the pool stay
 	//aligned by induction (offsets are byte-exact sums of the preceding block sizes).
 	size = zloc__align_size_up(size, buffer_allocator->offset_granularity);
