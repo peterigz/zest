@@ -6684,6 +6684,10 @@ typedef struct zest_buffer_allocator_t {
     zest_device_memory_pool *memory_pools;
     zest_pool_range *range_pools;
 	zest_buffer_pool_size_t pre_defined_pool_size;
+	//Every allocation size is rounded up to this granularity so that sub-allocation offsets (which
+	//are byte-exact sums of the preceding block sizes) stay aligned by induction. Offsets feed
+	//descriptor buffer infos, index buffer binds and indirect draws directly.
+	zest_size offset_granularity;
 } zest_buffer_allocator_t;
 
 typedef struct zest_buffer_linear_allocator_t {
@@ -6765,6 +6769,7 @@ typedef struct zest_device_t {
 	zest_uint max_image_size;
 	zest_uint max_multiview_view_count;
 	zest_size min_uniform_buffer_offset_alignment;
+	zest_size buffer_offset_granularity;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
 	zest_device_capabilities_t capabilities;
@@ -7265,9 +7270,11 @@ typedef struct zest_buffer_t {
 #define ZEST_ARENA_CATEGORY_GPU_BUFFERS 0
 #define ZEST_ARENA_CATEGORY_CPU_BUFFERS 1
 #define ZEST_ARENA_CATEGORY_IMAGE_BASE  2
-//Offset granularity for transient buffer suballocations. 256 covers every Vulkan minimum offset
-//alignment limit (uniform/storage/texel) and the D3D12 constant buffer view rule.
-#define ZEST_ARENA_BUFFER_GRANULARITY   256
+//Floor for the buffer offset granularity. 256 covers every Vulkan minimum offset alignment limit
+//(uniform/storage/texel) and the D3D12 constant buffer view rule. The actual granularity used for
+//all buffer suballocation (pools and transient arenas) is device->buffer_offset_granularity,
+//which is the max of this and the device reported minimums.
+#define ZEST_BUFFER_OFFSET_GRANULARITY   256
 
 //A retired transient arena image awaiting deferred destruction: carries the old backend (which
 //owns the API image handle) and the old heap-allocated view. Both structs are freed after the
@@ -9713,6 +9720,12 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, pool_key);
 	}
 	ZEST_ASSERT(pre_defined_pool_size.pool_size);
+	//Image pools additionally need their offsets aligned to the image alignment requirement that
+	//keys this allocator. zest_SetDevicePoolSize is public, so also round the configured minimum
+	//allocation size up to the granularity or the rounded-size induction breaks when the minimum
+	//clamp kicks in.
+	buffer_allocator->offset_granularity = ZEST__MAX(device->buffer_offset_granularity, buffer_info->image_usage_flags ? buffer_info->alignment : 0);
+	pre_defined_pool_size.minimum_allocation_size = zloc__align_size_up(pre_defined_pool_size.minimum_allocation_size, buffer_allocator->offset_granularity);
 	buffer_allocator->pre_defined_pool_size = pre_defined_pool_size;
 	buffer_allocator->backend = (zest_buffer_allocator_backend)device->platform->create_buffer_allocator_backend(device, context, pre_defined_pool_size.pool_size, buffer_info, backend_memory_bits);
 	buffer_allocator->name = pre_defined_pool_size.name;
@@ -9913,8 +9926,9 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient), 
 							device, "Transient buffers are for use in frame graphs only. Just simply zest_FreeBuffer after use if you're done with it.", NULL);
 	if (buffer_info->buffer_usage_flags & zest_buffer_usage_uniform_buffer_bit) {
-		buffer_info->alignment = ZEST__MAX(buffer_info->alignment, device->min_uniform_buffer_offset_alignment);
-		size = zloc__adjust_size(size, size, buffer_info->alignment);
+		//No need to round the size for uniform buffers specifically: every allocation size is
+		//rounded to the allocator's offset granularity below, which covers the uniform offset
+		//alignment requirement.
 		ZEST_ASSERT_OR_VALIDATE(size <= device->max_uniform_buffer_size, device, "Trying to allocate a uniform buffer large then the maximum size.", NULL);
 	}
 	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
@@ -9952,6 +9966,9 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     }
 
     zest_buffer_allocator buffer_allocator = *zest_map_at_key((*buffer_allocators), key);
+	//Round the size to the offset granularity so that sub-allocation offsets in the pool stay
+	//aligned by induction (offsets are byte-exact sums of the preceding block sizes).
+	size = zloc__align_size_up(size, buffer_allocator->offset_granularity);
     zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
     if (!buffer) {
         zest_device_memory_pool buffer_pool = 0;
@@ -10089,6 +10106,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     }
 	zest_device device = (*buffer)->memory_pool->device;
     zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
+	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	//Preserve the bindless array index
     if (new_buffer) {
@@ -10115,6 +10133,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     }
 	zest_device device = (*buffer)->memory_pool->device;
     zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
+	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
     if (new_buffer) {
         *buffer = new_buffer;
@@ -14766,7 +14785,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 if (resource->type & zest_resource_type_buffer) {
                     entry.category = ZEST__FLAGGED(resource->buffer_desc.buffer_info.property_flags, zest_memory_property_host_visible_bit)
                         ? ZEST_ARENA_CATEGORY_CPU_BUFFERS : ZEST_ARENA_CATEGORY_GPU_BUFFERS;
-                    entry.alignment = ZEST_ARENA_BUFFER_GRANULARITY;
+                    entry.alignment = context->device->buffer_offset_granularity;
                 } else {
                     //Image categories depend on the backend's memory requirements which are only
                     //known once an image is created, so they resolve at first materialisation.

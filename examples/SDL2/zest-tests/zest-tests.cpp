@@ -88,6 +88,10 @@ void InitialiseTests(ZestTests *tests) {
 	//index values.
 	RegisterTest(tests, { "Resource Test Transient Aliasing Dependency", test__transient_aliasing_dependency, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Persistence", test__cached_transient_persistence, 0, 6, 0, 0, tests->simple_create_info });
+	//Also registered after the Acquire/Release Indexes test: that test expects an exact report
+	//count, and inserting any test before it shifts the point where the (independently leaking)
+	//bindless index pool runs out, which adds exhaustion reports to its context.
+	RegisterTest(tests, { "Resource Test Buffer Offset Alignment", test__buffer_offset_alignment, 0, 1, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();

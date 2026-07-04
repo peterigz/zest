@@ -2015,6 +2015,14 @@ zest_bool zest__vk_pick_physical_device(zest_device device) {
     device->min_uniform_buffer_offset_alignment = device->backend->properties.limits.minUniformBufferOffsetAlignment;
     device->max_uniform_buffer_size = device->backend->properties.limits.maxUniformBufferRange;
     device->max_storage_buffer_size = device->backend->properties.limits.maxStorageBufferRange;
+    //Buffer suballocation offset granularity: every buffer allocation size is rounded up to this
+    //so that pool offsets satisfy every descriptor offset alignment rule. The spec caps each of
+    //these limits at 256 so on conformant drivers this resolves to 256.
+    device->buffer_offset_granularity = ZEST_BUFFER_OFFSET_GRANULARITY;
+    device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.minUniformBufferOffsetAlignment);
+    device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.minStorageBufferOffsetAlignment);
+    device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.minTexelBufferOffsetAlignment);
+    device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.nonCoherentAtomSize);
     // Memory properties are used regularly for creating all kinds of buffers
     vkGetPhysicalDeviceMemoryProperties(device->backend->physical_device, &device->backend->memory_properties);
 

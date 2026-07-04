@@ -2503,3 +2503,73 @@ int test__transient_aliasing_dependency(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//Sub-allocation offsets in the pooled buffer allocators are byte-exact sums of the preceding block
+//sizes, and they feed VkDescriptorBufferInfo.offset, vkCmdBindIndexBuffer and indirect draws
+//directly. Every allocation size must therefore be rounded up to the device offset granularity so
+//offsets stay aligned by induction. All buffer types share pools (the allocator key ignores usage
+//flags), so interleave odd-sized buffers of different types and check every offset and size,
+//including after grow/resize which reallocate through the same path.
+int test__buffer_offset_alignment(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_size granularity = tests->device->buffer_offset_granularity;
+
+	//The device value must honour the 256 floor (covers all Vulkan minimums and D3D12 CBVs)
+	if (granularity < ZEST_BUFFER_OFFSET_GRANULARITY) failed_count++;
+
+	//Odd sizes deliberately misalign the next offset if sizes were not rounded. The two large
+	//sizes select the large-buffer pools; the rest share the small-buffer pools.
+	struct { zest_buffer_type type; zest_memory_usage usage; zest_size size; } cases[] = {
+		{ zest_buffer_type_vertex,   zest_memory_usage_gpu_only,   4097 },
+		{ zest_buffer_type_storage,  zest_memory_usage_gpu_only,   1234 },
+		{ zest_buffer_type_uniform,  zest_memory_usage_cpu_to_gpu, 3333 },
+		{ zest_buffer_type_index,    zest_memory_usage_gpu_only,   2049 },
+		{ zest_buffer_type_storage,  zest_memory_usage_gpu_only,   70001 },
+		{ zest_buffer_type_vertex,   zest_memory_usage_gpu_only,   65537 },
+		{ zest_buffer_type_uniform,  zest_memory_usage_cpu_to_gpu, 1025 },
+		{ zest_buffer_type_staging,  zest_memory_usage_cpu_to_gpu, 12345 },
+		{ zest_buffer_type_indirect, zest_memory_usage_gpu_only,   999 },
+	};
+	const int case_count = sizeof(cases) / sizeof(cases[0]);
+	zest_buffer buffers[16] = { 0 };
+	int non_zero_offsets = 0;
+	for (int i = 0; i < case_count; i++) {
+		zest_buffer_info_t info = zest_CreateBufferInfo(cases[i].type, cases[i].usage);
+		buffers[i] = zest_CreateBuffer(tests->device, cases[i].size, &info);
+		if (!buffers[i]) {
+			failed_count++;
+			continue;
+		}
+		if (buffers[i]->memory_offset % granularity) failed_count++;
+		if (buffers[i]->size % granularity) failed_count++;
+		if (buffers[i]->size < cases[i].size) failed_count++;
+		if (buffers[i]->memory_offset) non_zero_offsets++;
+	}
+	//At least one buffer must have landed at a non-zero offset or the test proved nothing
+	if (!non_zero_offsets) failed_count++;
+
+	//Growing with an odd unit size reallocates to a non-granular request; the invariant must hold
+	if (buffers[1]) {
+		zest_size old_size = zest_GetBufferSize(buffers[1]);
+		if (!zest_GrowBuffer(&buffers[1], 48, 0)) failed_count++;
+		if (zest_GetBufferSize(buffers[1]) <= old_size) failed_count++;
+		if (buffers[1]->memory_offset % granularity) failed_count++;
+		if (buffers[1]->size % granularity) failed_count++;
+	}
+
+	//Resizing to an odd size likewise
+	if (buffers[0]) {
+		if (!zest_ResizeBuffer(&buffers[0], 9999)) failed_count++;
+		if (zest_GetBufferSize(buffers[0]) < 9999) failed_count++;
+		if (buffers[0]->memory_offset % granularity) failed_count++;
+		if (buffers[0]->size % granularity) failed_count++;
+	}
+
+	for (int i = 0; i < case_count; i++) {
+		zest_FreeBuffer(buffers[i]);
+	}
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

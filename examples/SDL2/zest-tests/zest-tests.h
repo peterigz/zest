@@ -7,7 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
 
-#define TEST_COUNT 73
+#define TEST_COUNT 74
 #define MAX_TEST_RESOURCES 500
 
 struct ZestTests;
