@@ -74,6 +74,10 @@ void MainLoop(ImGuiApp *app) {
 
 			//Finalize the ImGui frame and prepare draw data for rendering
 			ImGui::Render();
+			//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+			//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+			//being found.
+			zest_imgui_UpdateTextures(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		//Begin a new frame. This function is essential for rendering to the window.

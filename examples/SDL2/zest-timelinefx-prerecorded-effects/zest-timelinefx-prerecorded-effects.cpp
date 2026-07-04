@@ -184,6 +184,10 @@ void BuildUI(tfxPrerecordedExample *example, zest_uint fps) {
 	ImGui::End();
 	zest_imgui_DrawProfileWindow(example->context);
 	ImGui::Render();
+	//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+	//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+	//being found.
+	zest_imgui_UpdateTextures(&example->imgui);
 }
 
 //The callback function called for each instance that is being updated.

@@ -433,8 +433,15 @@ void UpdateImGui(CascadingShadowsExample *app) {
 				app->sync_refresh = true;
 			}
 		}
+		if (ImGui::Button("Print Frame Graph")) {
+			app->print_frame_graph = true;
+		}
 		ImGui::End();
 		ImGui::Render();
+		//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+		//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+		//being found.
+		zest_imgui_UpdateTextures(&app->imgui);
 		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 	} zest_EndTimerLoop(app->timer);
 }
@@ -618,6 +625,10 @@ void MainLoop(CascadingShadowsExample *app) {
 			}
 
 			zest_EndFrame(app->context, frame_graph);
+			if (app->print_frame_graph) {
+				zest_PrintCompiledFrameGraph(frame_graph);
+				app->print_frame_graph = false;
+			}
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {

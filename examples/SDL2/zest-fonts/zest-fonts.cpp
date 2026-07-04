@@ -113,6 +113,10 @@ void MainLoop(zest_fonts_example *app) {
 
 			ImGui::End();
 			ImGui::Render();
+			//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+			//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+			//being found.
+			zest_imgui_UpdateTextures(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		// Get the font layer for this frame

@@ -287,6 +287,10 @@ void UpdateImGui(IndirectDrawExample *app) {
 		}
 		ImGui::End();
 		ImGui::Render();
+		//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+		//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+		//being found.
+		zest_imgui_UpdateTextures(&app->imgui);
 		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);
 	} zest_EndTimerLoop(app->timer);
 }

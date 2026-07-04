@@ -328,6 +328,10 @@ void UpdateImGui(SimplePBRExample *app) {
 		}
 		ImGui::End();
 		ImGui::Render();
+		//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+		//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+		//being found.
+		zest_imgui_UpdateTextures(&app->imgui);
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 		UpdateCameraPosition(&app->timer, &app->new_camera_position, &app->old_camera_position, &app->camera, 5.f);

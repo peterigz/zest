@@ -116,6 +116,10 @@ void BuildUI(TimelineFXExample *game, zest_uint fps) {
 	ImGui::End();
 
 	ImGui::Render();
+	//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
+	//for fonts. If this function is not called then you will hit an assert in imgui about no texture
+	//being found.
+	zest_imgui_UpdateTextures(&game->imgui);
 }
 
 void UpdateMouse(TimelineFXExample *app) {
