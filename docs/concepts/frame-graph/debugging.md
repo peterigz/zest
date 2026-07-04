@@ -33,6 +33,9 @@ Image: Imgui Font (0000021801EDB578) - Size: 512 x 64
 Buffer: Viewport Vertex Buffer (0000000000000000) - Size: 5840, Offset: 0
 Buffer: Viewport Index Buffer (0000000000000000) - Size: 5840, Offset: 0
 
+Transient Placement Schedule: 0 transient resource(s)
+  (none - every resource in this graph is imported or persistent)
+
 Graph Wave Layout ([G]raphics, [C]ompute, [T]ransfer)
 Wave Index      G       C       T       Pass Count
 0                       X       X       2
@@ -107,6 +110,85 @@ Wave Submission Index 1:
   Timeline Semaphore: 0000021801EDB190, Stage: BOTTOM_OF_PIPE_BIT, Value: 15308
 
 --- End of Report ---```
+
+### Reading the Transient Placement Schedule
+
+The **Transient Placement Schedule** block reports how the compiler placed
+transient buffers and images into memory. Transients no longer allocate from a
+record-time pool; instead the compiler builds a size-independent *schedule*
+(order, lifetimes, and batch/wave hazard info) once, and a per-execution packer
+assigns byte offsets into per-category, per-frame-in-flight **arenas** after the
+resource providers have set that frame's sizes. Everything printed is for the
+current frame in flight, so it reflects the offsets and sizes the GPU is
+actually running with.
+
+The graph above has no transients, so the block collapses to a single line. A
+post-process chain with a few transient targets looks like this instead:
+
+```
+Transient Placement Schedule: 4 transient resource(s)
+  Arena usage by category (FIF 1):
+    Category               Backing        This Graph     High-Water     Gen
+    Image[mem type 0]      8388608        7864320        7864320        0
+      Aliasing reclaimed 3932160 bytes (33%): 11796480 bytes of resources packed into 7864320 peak.
+    GPU Buffers            2097152        4096           4096           0
+
+  Placement (first-use order, FIF 1):
+    #   Resource             Kind Category             Size         Offset       Lifetime    Wave      Batch
+    0   Scene Colour         Img  Image[mem type 0]    3932160      0x00000000   [ 0.. 1]  0..0      0..0
+    1   Bloom Scratch        Img  Image[mem type 0]    3932160      0x003c0000   [ 1.. 2]  0..1      0..256
+    2   Reduce Buffer        Buf  GPU Buffers          4096         0x00000000   [ 1.. 2]  0..1      0..256
+          buffer proxy: suballocation of arena backing, usage 0xa3
+    3   Blur Target          Img  Image[mem type 0]    3932160      0x00000000   [ 2.. 3]  1..1      256..256
+```
+
+**Arena usage by category** — one row per arena category the graph touched.
+Buffers and images never share an arena; on Vulkan each distinct memory type
+index gets its own image arena (shown as `Image[mem type N]`), and buffers split
+into `GPU Buffers` (device-local) and `CPU Buffers` (host-visible).
+
+| Column | Meaning |
+|--------|---------|
+| `Backing` | Size of the device-memory allocation the context holds for this category, in bytes. Grows to cover the high-water mark; never shrinks (yet). |
+| `This Graph` | Peak bytes this graph's transients occupy this execution (the highest end offset). |
+| `High-Water` | Largest watermark this arena has ever needed across all graphs that used it. |
+| `Gen` | Backing generation. Bumps when the backing is reallocated (grown), which forces bound images to be recreated. |
+
+The **Aliasing reclaimed** line appears when interval packing overlapped
+non-conflicting lifetimes onto the same bytes. In the example, three 3.75 MB
+images sum to 11.25 MB of requests but pack into a 7.5 MB peak because
+`Blur Target` reuses the memory `Scene Colour` vacated — 33% saved. That reuse
+is exactly what the compile-time aliasing barriers make safe.
+
+**Placement (first-use order)** — one row per transient, in the order the
+packer walks them (first use):
+
+| Column | Meaning |
+|--------|---------|
+| `#` | Index into the schedule. |
+| `Resource` / `Kind` | Name and whether it is an image (`Img`) or buffer (`Buf`). |
+| `Category` | Which arena it was placed in. |
+| `Size` / `Offset` | This execution's size (bytes) and the assigned offset within the arena (hex). Two resources sharing an offset range but with disjoint lifetimes are aliasing the same memory. |
+| `Lifetime` | The `[first..last]` pass-group interval the resource is live over. |
+| `Wave` | The execution waves of the first and last use. |
+| `Batch` | An opaque identifier (derived from the pass group's `submission_id`, combining wave and queue) for the submission batch the first and last use run in. The packer uses it to apply the hazard rule: same-batch reuse needs an aliasing barrier, cross-wave reuse is already covered by wave semaphores. |
+
+A resource marked `(not placed)` was skipped this execution because a provider
+supplied its own buffer or a zero size — it occupies no arena memory that frame.
+
+Where present, the indented detail line under an entry shows the backing:
+
+- **Buffers** are a suballocation of the arena's single fat buffer, so an offset
+  that differs from last frame costs nothing. The `usage` value is the buffer
+  usage flags.
+- **Images** print their persistent per-FIF slot: extent, format, mips, layers,
+  the offset they are bound at, and the arena generation they were bound
+  against. For a **cached** graph with stable sizes this same image `backend`
+  survives across executions (visible via `zest_PrintCachedFrameGraph`) — that
+  persistence is the CPU win the arena design buys, since the per-frame image
+  create → bindless-write → destroy cycle disappears. For a non-cached graph the
+  slot is retired right after execution, so this line only appears while the
+  image is still live.
 
 ## Checking Compilation Results
 

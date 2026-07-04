@@ -15697,6 +15697,20 @@ zest_size zest_GetFrameGraphCachedSize(zest_frame_graph frame_graph) {
 	return frame_graph->cached_size;
 }
 
+#ifdef ZEST_DEBUGGING
+//Human readable name for a transient arena category (see the ZEST_ARENA_CATEGORY_ defines). Buffer
+//categories are fixed; image categories encode the resolved backend memory type index.
+static void zest__format_arena_category(zest_uint category, char *out, zest_size out_size) {
+    if (category == ZEST_ARENA_CATEGORY_GPU_BUFFERS) {
+        zest_strcpy(out, (int)out_size, "GPU Buffers");
+    } else if (category == ZEST_ARENA_CATEGORY_CPU_BUFFERS) {
+        zest_strcpy(out, (int)out_size, "CPU Buffers");
+    } else {
+        zest_snprintf(out, out_size, "Image[mem type %u]", category - ZEST_ARENA_CATEGORY_IMAGE_BASE);
+    }
+}
+#endif
+
 void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 #ifdef ZEST_DEBUGGING
     if (!ZEST_VALID_HANDLE(frame_graph, zest_struct_type_frame_graph)) {
@@ -15744,10 +15758,131 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 					   resource->name, resource_ptr, resource->image.info.extent.width, resource->image.info.extent.height);
         } else if (resource->type == zest_resource_type_swap_chain_image) {
 			void *resource_ptr = device->platform->get_swapchain_identifier(frame_graph->swapchain);
-            ZEST_PRINT("Swapchain Image: %s (%p)", 
+            ZEST_PRINT("Swapchain Image: %s (%p)",
 					   resource->name, resource_ptr);
         }
     }
+
+	// --- Transient placement / arena usage ---
+	// Transient buffers and images no longer come from record-time TLSF churn: the compiler builds
+	// a size-independent placement schedule (order + lifetimes + batch hazard info) once, and a
+	// per-execution packer assigns offsets into per-category, per-FIF arenas after the resource
+	// providers have set this frame's sizes. The numbers below are for the current FIF's last
+	// placement pass, so they reflect the offsets/sizes the GPU is actually running with.
+	ZEST_PRINT("");
+	zest_uint transient_count = zest_vec_size(frame_graph->transient_schedule);
+	ZEST_PRINT("Transient Placement Schedule: %u transient resource(s)", transient_count);
+	if (transient_count == 0) {
+		ZEST_PRINT("  (none - every resource in this graph is imported or persistent)");
+	} else {
+		char category_name[48];
+
+		// Per-category arena summary, derived from the placement schedule (which persists in the
+		// graph, so this reports correctly even though a non-cached graph has already returned its
+		// arenas to the context pool by the time the graph is printed after execution). Backing/
+		// High-Water/Gen come from the still-pooled arena on the context if it can be found; the
+		// packing figures (This Graph peak, aliasing saving) come straight from the schedule.
+		ZEST_PRINT("  Arena usage by category (FIF %i):", context->current_fif);
+		ZEST_PRINT("    %-22s %-14s %-14s %-14s %s", "Category", "Backing", "This Graph", "High-Water", "Gen");
+		zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+			zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+			if (!entry->placed) continue;
+			// Only process each category once, on its first placed appearance in the schedule.
+			zest_bool already_reported = ZEST_FALSE;
+			for (zest_uint prev = 0; prev != schedule_index; ++prev) {
+				if (frame_graph->transient_schedule[prev].placed &&
+					frame_graph->transient_schedule[prev].category == entry->category) {
+					already_reported = ZEST_TRUE;
+					break;
+				}
+			}
+			if (already_reported) continue;
+
+			zest_uint category = entry->category;
+			// Sum of this execution's placed sizes and the peak end offset for this category.
+			zest_size category_bytes = 0;
+			zest_size category_peak = 0;
+			zest_vec_foreach(other_index, frame_graph->transient_schedule) {
+				zest_transient_placement_t *e = &frame_graph->transient_schedule[other_index];
+				if (!e->placed || e->category != category) continue;
+				category_bytes += e->size;
+				if (e->offset + e->size > category_peak) category_peak = e->offset + e->size;
+			}
+
+			// Find the pooled arena backing this category (whether or not it is still checked out).
+			zest_transient_arena_t *arena = 0;
+			zest_vec_foreach(i, context->transient_arenas) {
+				if (context->transient_arenas[i]->category == category) {
+					arena = context->transient_arenas[i];
+					break;
+				}
+			}
+			zest_device_memory_pool backing = arena ? arena->backing[context->current_fif] : 0;
+			zest_size backing_size = backing ? backing->size : 0;
+			zest_size high_water = arena ? arena->high_water[context->current_fif] : category_peak;
+			zest_uint generation = arena ? arena->generation[context->current_fif] : 0;
+
+			zest__format_arena_category(category, category_name, sizeof(category_name));
+			ZEST_PRINT("    %-22s %-14llu %-14llu %-14llu %u", category_name,
+					   (zest_ull)backing_size, (zest_ull)category_peak,
+					   (zest_ull)high_water, generation);
+			// Aliasing win: how much peak memory the interval packing reclaimed by overlapping
+			// non-conflicting lifetimes onto the same bytes (sum of live sizes vs. the peak).
+			if (category_bytes > category_peak) {
+				zest_size saved = category_bytes - category_peak;
+				ZEST_PRINT("      Aliasing reclaimed %llu bytes (%.0f%%): %llu bytes of resources packed into %llu peak.",
+						   (zest_ull)saved, (double)saved * 100.0 / (double)category_bytes,
+						   (zest_ull)category_bytes, (zest_ull)category_peak);
+			}
+		}
+
+		// Per-resource placement in first-use order (the order the packer walks). Lifetime is the
+		// [first..last] pass-group interval; Wave/Batch identify where the endpoints run so the
+		// hazard rule (same-batch reuse needs an aliasing barrier, cross-wave reuse is covered by
+		// wave semaphores) can be followed.
+		ZEST_PRINT("");
+		ZEST_PRINT("  Placement (first-use order, FIF %i):", context->current_fif);
+		ZEST_PRINT("    %-3s %-20s %-4s %-20s %-12s %-12s %-11s %-9s %s",
+				   "#", "Resource", "Kind", "Category", "Size", "Offset", "Lifetime", "Wave", "Batch");
+		zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+			zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+			zest_resource_node resource = entry->resource;
+			zest_bool is_image = (resource->type & zest_resource_type_image) != 0;
+			zest__format_arena_category(entry->category, category_name, sizeof(category_name));
+			if (!entry->placed) {
+				// Skipped this execution: a provider supplied its own buffer or a zero size, so the
+				// packer left it out and it occupies no arena memory this frame.
+				ZEST_PRINT("    %-3u %-20s %-4s %-20s %-12s %-12s [%2u..%2u]  %u..%-6u %u..%u  (not placed)",
+						   schedule_index, resource->name, is_image ? "Img" : "Buf", category_name,
+						   "-", "-", entry->first_use_idx, entry->last_use_idx,
+						   entry->first_wave, entry->last_wave, entry->first_use_batch, entry->last_use_batch);
+				continue;
+			}
+			ZEST_PRINT("    %-3u %-20s %-4s %-20s %-12llu 0x%08llx   [%2u..%2u]  %u..%-6u %u..%u",
+					   schedule_index, resource->name, is_image ? "Img" : "Buf", category_name,
+					   (zest_ull)entry->size, (zest_ull)entry->offset,
+					   entry->first_use_idx, entry->last_use_idx,
+					   entry->first_wave, entry->last_wave,
+					   entry->first_use_batch, entry->last_use_batch);
+			if (is_image) {
+				// The persistent per-FIF image slot: for cached graphs with stable sizes this same
+				// backend/view survives across executions (bound at slot->offset against arena
+				// generation slot->generation), which is the CPU win the arena redesign buys.
+				zest_transient_image_slot_t *slot = &entry->images[context->current_fif];
+				if (slot->in_use) {
+					ZEST_PRINT("          image slot: %ux%u fmt %u, mips %u, layers %u, bound @ 0x%08llx (arena gen %u), backend %p",
+							   slot->extent.width, slot->extent.height, slot->format,
+							   slot->mip_levels, slot->layer_count, (zest_ull)slot->offset,
+							   slot->generation, (void *)slot->backend);
+				}
+			} else {
+				// Buffers are just a suballocation of the arena's single fat-usage buffer - no
+				// per-buffer backend object, so an offset that differs from last frame is free.
+				ZEST_PRINT("          buffer proxy: suballocation of arena backing, usage 0x%x",
+						   (unsigned int)entry->buffer_proxy.usage_flags);
+			}
+		}
+	}
 
     ZEST_PRINT("");
 	ZEST_PRINT("Graph Wave Layout ([G]raphics, [C]ompute, [T]ransfer)");
