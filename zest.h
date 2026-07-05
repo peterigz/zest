@@ -2133,10 +2133,12 @@ typedef enum zest_buffer_upload_flag_bits {
 
 typedef zest_uint zest_buffer_upload_flags;
 
+//Note: there is deliberately no "single buffer" flag here: every buffer memory pool keeps
+//exactly one fat-usage buffer bound at offset 0 and sub-allocates from it, which is also
+//what the D3D12/Metal backends want.
 typedef enum zest_memory_pool_flags_bits{
 	zest_memory_pool_flag_none = 0,
-	zest_memory_pool_flag_single_buffer = 1 << 0,
-	zest_memory_pool_flag_transient = 2 << 0,
+	zest_memory_pool_flag_transient = 1 << 0,
 } zest_memory_pool_flag_bits;
 
 typedef enum zest_memory_pool_type {
@@ -10202,7 +10204,7 @@ zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usag
 	}
 
 	switch (type) {
-		case zest_buffer_type_staging: buffer_info.flags = zest_memory_pool_flag_single_buffer; break;
+		case zest_buffer_type_staging: break;	//Transfer src/dst only, set above
 		case zest_buffer_type_vertex: buffer_info.buffer_usage_flags |= zest_buffer_usage_vertex_buffer_bit; break;
 		case zest_buffer_type_index: buffer_info.buffer_usage_flags |= zest_buffer_usage_index_buffer_bit; break;
 		case zest_buffer_type_uniform: buffer_info.buffer_usage_flags |= zest_buffer_usage_uniform_buffer_bit; break;
@@ -10213,8 +10215,6 @@ zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usag
 		default: break;
 	}
 
-	buffer_info.flags = zest_memory_pool_flag_single_buffer;
-    
 	return buffer_info;
 }
 
@@ -16481,7 +16481,7 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
         node.buffer_desc.buffer_info.buffer_usage_flags |= zest_buffer_usage_transfer_src_bit;
     }
     node.frame_graph = frame_graph;
-	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_single_buffer | zest_memory_pool_flag_transient;
+	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_transient;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.producer_pass_idx = -1;

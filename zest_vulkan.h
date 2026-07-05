@@ -3094,12 +3094,8 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     memory_pool->backend->buffer_info = create_buffer_info;
 	memory_pool->alignment = memory_requirements.alignment;
 
-    if (ZEST__FLAGGED(create_buffer_info.flags, zest_memory_pool_flag_single_buffer)) {
-        vkDestroyBuffer(device->backend->logical_device, temp_buffer, allocation_callbacks);
-    } else {
-        memory_pool->backend->vk_buffer = temp_buffer;
-        vkBindBufferMemory(device->backend->logical_device, memory_pool->backend->vk_buffer, memory_pool->backend->memory, 0);
-    }
+    memory_pool->backend->vk_buffer = temp_buffer;
+    vkBindBufferMemory(device->backend->logical_device, memory_pool->backend->vk_buffer, memory_pool->backend->memory, 0);
     return ZEST_TRUE;
 }
 
