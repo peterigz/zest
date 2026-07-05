@@ -2144,10 +2144,7 @@ typedef enum zest_memory_pool_flags_bits{
 typedef enum zest_memory_pool_type {
 	zest_memory_pool_type_buffers,
 	zest_memory_pool_type_images,
-	zest_memory_pool_type_transient_buffers,
-	zest_memory_pool_type_transient_images,
 	zest_memory_pool_type_small_buffers,
-	zest_memory_pool_type_small_transient_buffers,
 } zest_memory_pool_type;
 
 typedef zest_uint zest_memory_pool_flags;
@@ -5207,8 +5204,6 @@ ZEST_API zest_size zest_BufferSize(zest_buffer buffer);
 //creating a device and before you actually create any buffers.
 ZEST_API void zest_SetGPUBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetGPUSmallBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
-ZEST_API void zest_SetGPUTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
-ZEST_API void zest_SetGPUSmallTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetSmallHostBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 ZEST_API void zest_SetStagingBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size);
 
@@ -9218,10 +9213,6 @@ void zest__set_default_pool_sizes(zest_device device) {
 	zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
 	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
 	zest_SetDevicePoolSize(device, "Small Device Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
-	usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
-	zest_SetDevicePoolSize(device, "Transient Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
-	usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
-	zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
@@ -9442,10 +9433,7 @@ const char *zest__memory_type_to_string(zest_memory_pool_type memory_type) {
 	switch (memory_type) {
 		case zest_memory_pool_type_images: return "Images"; break;
 		case zest_memory_pool_type_buffers: return "Large Buffers"; break;
-		case zest_memory_pool_type_transient_buffers: return "Temporary buffers"; break;
-		case zest_memory_pool_type_transient_images: return "Temporary images"; break;
 		case zest_memory_pool_type_small_buffers: return "Small buffers."; break;
-		case zest_memory_pool_type_small_transient_buffers: return "Temporary small buffers"; break;
 		default: return "Unknown";
 	}
 }
@@ -9619,13 +9607,9 @@ void zest__add_context_memory_pool(zest_context context, zest_size size) {
 
 void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
-	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 2079544) {
-		int d = 0;
-	}
-	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
-	// it should print out the offset from the allocator, you can use that offset to break here and 
-	// find out what's being allocated.
+	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then
+	// it should print out the offset from the allocator; compute (allocation - allocator) here and
+	// break on the offending offset to find out what's being allocated.
 	if (!allocation) {
 		zest__add_memory_pool(allocator, size);
 		allocation = zloc_Allocate(allocator, size);
@@ -9823,10 +9807,16 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
     buffer_pool->backend = (zest_device_memory_pool_backend)device->platform->new_memory_pool_backend(buffer_allocator);
 	buffer_pool->allocator = buffer_allocator;
     zest_bool result = ZEST_TRUE;
-	buffer_pool->size = buffer_allocator->pre_defined_pool_size.pool_size > minimum_size ? buffer_allocator->pre_defined_pool_size.pool_size : zest_RoundUpToNearestPower(minimum_size);
+	zest_size base_pool_size = buffer_allocator->pre_defined_pool_size.pool_size > minimum_size ? buffer_allocator->pre_defined_pool_size.pool_size : zest_RoundUpToNearestPower(minimum_size);
+	buffer_pool->size = base_pool_size;
 	zest_uint pool_count = zest_vec_size(buffer_allocator->memory_pools);
 	if (pool_count) {
-		buffer_pool->size += zest_vec_back(buffer_allocator->memory_pools)->size;
+		//Grow each subsequent pool so a repeatedly-expanding allocator needs fewer allocations, but
+		//cap the progressive term at the base pool size. Uncapped it added the whole previous pool's
+		//size, so pools ratcheted linearly (64->128->192MB...) multiplied across every
+		//per-alignment/per-FIF allocator; capped, the growth tops out at 2x the base pool size.
+		zest_size previous_size = zest_vec_back(buffer_allocator->memory_pools)->size;
+		buffer_pool->size += previous_size < base_pool_size ? previous_size : base_pool_size;
 	}
 	zest_context context = buffer_allocator->context;
 	buffer_pool->minimum_allocation_size = buffer_allocator->pre_defined_pool_size.minimum_allocation_size;
@@ -9999,9 +9989,9 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 		usage.memory_pool_type = zest_memory_pool_type_images;
 		usage.alignment = buffer_info->alignment;
 	} else if(size > device->setup_info.max_small_buffer_size) {
-		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_transient_buffers : zest_memory_pool_type_buffers;
+		usage.memory_pool_type = zest_memory_pool_type_buffers;
 	} else {
-		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_small_transient_buffers : zest_memory_pool_type_small_buffers;
+		usage.memory_pool_type = zest_memory_pool_type_small_buffers;
 	}
 	zest_buffer_allocator_key_t usage_key = ZEST__ZERO_INIT(zest_buffer_allocator_key_t);
 	usage_key.usage = usage;
@@ -12336,24 +12326,6 @@ void zest_SetGPUSmallBufferPoolSize(zest_device device, zest_size minimum_size, 
 	minimum_size = zest_RoundUpToNearestPower(minimum_size);
 	usage.memory_pool_type = zest_memory_pool_type_small_buffers;
 	zest_SetDevicePoolSize(device, "Small Device Buffers", usage, minimum_size, pool_size);
-}
-
-void zest_SetGPUTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
-    zest_buffer_usage_t usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
-    usage.property_flags = zest_memory_property_device_local_bit;
-	pool_size = zest_RoundUpToNearestPower(pool_size);
-	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
-	zest_SetDevicePoolSize(device, "Transient Buffers", usage, minimum_size, pool_size);
-}
-
-void zest_SetGPUSmallTransientBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {
-    zest_buffer_usage_t usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
-    usage.property_flags = zest_memory_property_device_local_bit;
-	pool_size = zest_RoundUpToNearestPower(pool_size);
-	minimum_size = zest_RoundUpToNearestPower(minimum_size);
-	usage.memory_pool_type = zest_memory_pool_type_small_transient_buffers;
-	zest_SetDevicePoolSize(device, "Small Transient Buffers", usage, minimum_size, pool_size);
 }
 
 void zest_SetStagingBufferPoolSize(zest_device device, zest_size minimum_size, zest_size pool_size) {

@@ -3002,13 +3002,20 @@ void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context 
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_buffer);
 		device->backend->last_result = vkCreateBuffer(device->backend->logical_device, &create_buffer_info, &device->backend->allocation_callbacks, &temp_buffer);
 
-		VkMemoryRequirements memory_requirements;
-		vkGetBufferMemoryRequirements(device->backend->logical_device, temp_buffer, &memory_requirements);
-		vkDestroyBuffer(device->backend->logical_device, temp_buffer, &device->backend->allocation_callbacks);
+		//Only query/destroy the temp buffer if creation succeeded: on failure temp_buffer is
+		//undefined and calling vkGetBufferMemoryRequirements on it is undefined behaviour. The
+		//backend is left with zero memory_requirements, which fails cleanly later at pool creation.
+		if (device->backend->last_result == VK_SUCCESS) {
+			VkMemoryRequirements memory_requirements;
+			vkGetBufferMemoryRequirements(device->backend->logical_device, temp_buffer, &memory_requirements);
+			vkDestroyBuffer(device->backend->logical_device, temp_buffer, &device->backend->allocation_callbacks);
 
-		backend->memory_requirements = memory_requirements;
-		backend->buffer_info = create_buffer_info;
-		backend->property_flags = buffer_info->property_flags;
+			backend->memory_requirements = memory_requirements;
+			backend->buffer_info = create_buffer_info;
+			backend->property_flags = buffer_info->property_flags;
+		} else {
+			zest__log_vulkan_error(device, device->backend->last_result, __FILE__, __LINE__);
+		}
 	} else {
 		//Image allocator: the memory type bits were queried from the image that triggered the creation of this
 		//allocator and are needed again each time a pool is added in zest__vk_create_image_memory_pool.
@@ -3049,9 +3056,10 @@ void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_s
 		alloc_info.allocationSize = memory_requirements.size;
 		alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_requirements.memoryTypeBits, buffer_info->property_flags);
 		ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
-		if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
-			alloc_info.pNext = &flags;
-		}
+		//The buffer is created with SHADER_DEVICE_ADDRESS usage, so the spec requires the matching
+		//allocate flag whenever the memory backs it (VUID-vkBindBufferMemory-bufferDeviceAddress-03339),
+		//not just under validation. Always attach it, as the transient arena path does.
+		alloc_info.pNext = &flags;
 		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits);
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
 		zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
@@ -3099,9 +3107,10 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
     alloc_info.allocationSize = memory_requirements.size;
     alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_requirements.memoryTypeBits, buffer_allocator->buffer_info.property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
-    if (zest__validation_layers_are_enabled(device) && device->api_version == VK_API_VERSION_1_2) {
-        alloc_info.pNext = &flags;
-    }
+    //The buffer is created with SHADER_DEVICE_ADDRESS usage, so the spec requires the matching
+    //allocate flag whenever the memory backs it (VUID-vkBindBufferMemory-bufferDeviceAddress-03339),
+    //not just under validation. Always attach it, as the transient arena path does.
+    alloc_info.pNext = &flags;
     ZEST_APPEND_LOG(device->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i, Buffer: %p", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits, temp_buffer);
 	if (context) {
 		ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_allocate_memory_pool);

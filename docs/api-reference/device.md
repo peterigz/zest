@@ -176,50 +176,6 @@ Configures the memory pool for small GPU-only buffers. This is a separate pool f
 
 ---
 
-### zest_SetGPUTransientBufferPoolSize
-
-Sets the pool size for transient GPU buffer allocations.
-
-```cpp
-void zest_SetGPUTransientBufferPoolSize(
-    zest_device device,
-    zest_size minimum_size,
-    zest_size pool_size
-);
-```
-
-Configures the memory pool for transient GPU buffers—temporary buffers that are allocated and freed frequently within a frame or across frames. These are GPU-local buffers optimized for short-lived allocations.
-
-**Parameters:**
-
-- `device` - The device handle
-- `minimum_size` - Minimum allocation granularity
-- `pool_size` - Total pool size (must be power of 2)
-
----
-
-### zest_SetGPUSmallTransientBufferPoolSize
-
-Sets the pool size for small transient GPU buffer allocations.
-
-```cpp
-void zest_SetGPUSmallTransientBufferPoolSize(
-    zest_device device,
-    zest_size minimum_size,
-    zest_size pool_size
-);
-```
-
-Configures the memory pool for small transient GPU buffers, combining the characteristics of both small and transient pools. Ideal for applications that frequently allocate and free many small temporary buffers.
-
-**Parameters:**
-
-- `device` - The device handle
-- `minimum_size` - Minimum allocation granularity
-- `pool_size` - Total pool size (must be power of 2)
-
----
-
 ### zest_SetSmallHostBufferPoolSize
 
 Sets the pool size for small host-visible buffer allocations.
