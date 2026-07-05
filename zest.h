@@ -4640,6 +4640,7 @@ ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device dev
 ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
+ZEST_PRIVATE zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
 //End Buffer Management
@@ -5127,9 +5128,24 @@ ZEST_API zest_buffer zest_CreateStagingBuffer(zest_device device, zest_size size
 //documented way to build buffer infos: describe what you need with zest_buffer_type and zest_memory_usage and
 //each backend maps that to its own memory model (memory types on Vulkan, heap types on D3D12, storage modes on Metal).
 ZEST_API zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usage usage);
-//Grow a buffer if the minium_bytes is more then the current buffer size.
+//Grow a buffer if minimum_bytes is more than the current buffer size. The new size is the current
+//unit count grown by half again (in multiples of unit_size) or minimum_bytes, whichever is larger.
+//Returns ZEST_TRUE if the buffer grew.
+//Contract (applies to zest_ResizeBuffer too): growing can relocate the buffer to a different
+//memory block, so its memory_offset can change and anything caching it (descriptors, recorded
+//copies) must be refreshed after a successful grow.
+// - Host visible buffers: contents are preserved (copied CPU-side when the buffer relocates).
+// - Device local buffers: contents are NOT preserved - the buffer always relocates and you must
+//   fully re-upload it after growing. The old block is freed deferred (per frame in flight) so
+//   in-flight GPU reads of the old block are safe; nothing reuses its memory until this
+//   frame-in-flight slot has been fenced.
+//Safe usage patterns: per frame-in-flight host visible buffers, and device local buffers that are
+//fully re-uploaded after growth.
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
-//Resize a buffer if the new size if more than the current size of the buffer. Returns true if the buffer was resized successfully.
+//Resize a buffer if new_size is more than the current size of the buffer (this never shrinks a
+//buffer). Returns ZEST_TRUE if the buffer was resized successfully. See the contract on
+//zest_GrowBuffer: contents are preserved for host visible buffers only; device local buffers
+//relocate with a deferred free of the old block and must be fully re-uploaded.
 ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
 //Get the size of a buffer
 ZEST_API zest_size zest_GetBufferSize(zest_buffer buffer);
@@ -10125,6 +10141,53 @@ void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size si
     memcpy(zest_BufferData(dst_staging_buffer), src_data, size);
 }
 
+//Shared reallocation path for zest_GrowBuffer/zest_ResizeBuffer (see the contract documented on
+//those declarations). Host visible buffers reallocate through the TLSF allocator: they grow in
+//place when the adjacent block is free, otherwise they relocate and zest__on_reallocation_copy
+//copies the contents CPU-side. Device local buffers can't be copied CPU-side and the GPU may still
+//be reading the old block from a frame in flight, so they always relocate to a fresh allocation
+//with the old block's free deferred per FIF (an immediate free inside the realloc would let the
+//next allocation reuse memory the GPU is still reading). Device local contents are not preserved.
+zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
+    zest_buffer_allocator_t *buffer_allocator = (*buffer)->memory_pool->allocator;
+	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
+    if (new_size <= (*buffer)->size) {
+        //The rounded request is already satisfied by the current block
+        return ZEST_TRUE;
+    }
+	//A relocation lands on a block whose extension data doesn't carry the usage flags, so carry
+	//them over (frame graphs read them to plan barriers).
+	zest_buffer_usage_flags usage_flags = (*buffer)->usage_flags;
+    zest_buffer new_buffer = 0;
+    if (ZEST__NOT_FLAGGED(buffer_allocator->buffer_info.property_flags, zest_memory_property_host_visible_bit)) {
+        new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
+        if (!new_buffer) {
+            //Create a new memory pool and try again
+            zest_device_memory_pool buffer_pool = 0;
+            if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+                return ZEST_FALSE;
+            }
+            new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
+            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
+        }
+        zest_FreeBuffer(*buffer);
+    } else {
+        new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+        if (!new_buffer) {
+            //Create a new memory pool and try again
+            zest_device_memory_pool buffer_pool = 0;
+            if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+                return ZEST_FALSE;
+            }
+            new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
+        }
+    }
+    new_buffer->usage_flags = usage_flags;
+    *buffer = new_buffer;
+    return ZEST_TRUE;
+}
+
 zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size minimum_bytes) {
     ZEST_ASSERT(unit_size);
     if (minimum_bytes && (*buffer)->size > minimum_bytes) {
@@ -10136,26 +10199,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     if (new_size <= (*buffer)->size) {
         return ZEST_FALSE;
     }
-	zest_device device = (*buffer)->memory_pool->device;
-    zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
-	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
-    zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-	//Preserve the bindless array index
-    if (new_buffer) {
-        *buffer = new_buffer;
-    }
-    else {
-        //Create a new memory pool and try again
-        zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
-            return ZEST_FALSE;
-        } else {
-            new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-            *buffer = new_buffer;
-        }
-    }
-    return new_buffer ? ZEST_TRUE : ZEST_FALSE;
+    return zest__reallocate_buffer(buffer, new_size);
 }
 
 zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
@@ -10163,25 +10207,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     if ((*buffer)->size > new_size) {
         return ZEST_FALSE;
     }
-	zest_device device = (*buffer)->memory_pool->device;
-    zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
-	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
-    zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-    if (new_buffer) {
-        *buffer = new_buffer;
-    }
-    else {
-        //Create a new memory pool and try again
-        zest_device_memory_pool buffer_pool = 0;
-        if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
-            return ZEST_FALSE;
-        } else {
-            new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-            *buffer = new_buffer;
-        }
-    }
-    return new_buffer ? ZEST_TRUE : ZEST_FALSE;
+    return zest__reallocate_buffer(buffer, new_size);
 }
 
 zest_size zest_GetBufferSize(zest_buffer buffer) {

@@ -2672,3 +2672,77 @@ int test__large_readback_buffer(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//zest_GrowBuffer/zest_ResizeBuffer contract: device-local buffers always relocate on grow (their
+//contents can't be copied CPU-side, so callers must re-upload) and the old block's free must be
+//deferred per FIF rather than immediate - the realloc used to free the old block straight back to
+//TLSF, letting the next allocation reuse memory an in-flight frame was still reading. Host-visible
+//buffers keep the realloc path, which copies contents CPU-side when the buffer relocates. In both
+//cases a relocation must carry the buffer's usage flags to the new block (the extension data of a
+//fresh block doesn't have them and frame graphs read them to plan barriers).
+int test__buffer_grow_contract(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_device device = tests->device;
+	zest_size granularity = device->buffer_offset_granularity;
+
+	//Device-local: grow must relocate to a fresh block and defer-free the old one
+	zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer buffer = zest_CreateBuffer(device, zloc__KILOBYTE(128), &info);
+	if (!buffer) {
+		failed_count++;
+	} else {
+		zest_buffer old_buffer = buffer;
+		zest_buffer_usage_flags usage_flags = buffer->usage_flags;
+		if (!zest_GrowBuffer(&buffer, 1, zloc__KILOBYTE(512))) failed_count++;
+		if (buffer == old_buffer) failed_count++;                 //Device-local growth always relocates
+		if (buffer->size < zloc__KILOBYTE(512)) failed_count++;
+		if (buffer->memory_offset % granularity) failed_count++;
+		if (buffer->size % granularity) failed_count++;
+		if (buffer->usage_flags != usage_flags) failed_count++;   //Flags must survive the relocation
+		//The old block must still be allocated (its free is deferred, not immediate)...
+		void *proxy_allocation = (char *)old_buffer - zloc__MINIMUM_BLOCK_SIZE;
+		zloc_header *proxy_header = zloc__block_from_allocation(proxy_allocation);
+		if (zloc__is_free_block(proxy_header)) failed_count++;
+		//...and it must be queued on this frame's deferred free list
+		zest_uint fif = device->frame_counter % ZEST_MAX_FIF;
+		bool old_buffer_deferred = false;
+		zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers[fif]) {
+			if (device->deferred_resource_freeing_list.buffers[fif][i] == old_buffer) {
+				old_buffer_deferred = true;
+			}
+		}
+		if (!old_buffer_deferred) failed_count++;
+		zest_FreeBuffer(buffer);
+	}
+
+	//Host-visible: contents must survive a grow (copied CPU-side on relocation, trivially kept when
+	//the buffer grows in place). The blocker allocated right behind the staging buffer makes
+	//in-place growth unlikely so the relocation-copy path is what usually runs here.
+	zest_buffer staging = zest_CreateStagingBuffer(device, zloc__KILOBYTE(64), 0);
+	zest_buffer blocker = zest_CreateStagingBuffer(device, zloc__KILOBYTE(64), 0);
+	if (!staging || !blocker) {
+		failed_count++;
+	} else {
+		zest_byte *data = (zest_byte *)zest_BufferData(staging);
+		for (zest_size i = 0; i < zloc__KILOBYTE(64); ++i) {
+			data[i] = (zest_byte)(i * 31 + 7);
+		}
+		zest_buffer_usage_flags usage_flags = staging->usage_flags;
+		if (!zest_ResizeBuffer(&staging, zloc__KILOBYTE(256))) failed_count++;
+		if (staging->size < zloc__KILOBYTE(256)) failed_count++;
+		if (staging->usage_flags != usage_flags) failed_count++;
+		data = (zest_byte *)zest_BufferData(staging);
+		for (zest_size i = 0; i < zloc__KILOBYTE(64); ++i) {
+			if (data[i] != (zest_byte)(i * 31 + 7)) {
+				failed_count++;
+				break;
+			}
+		}
+	}
+	zest_FreeBuffer(staging);
+	zest_FreeBuffer(blocker);
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

@@ -85,9 +85,15 @@ zest_buffer zest_CreateStagingBuffer(
 
 ### zest_GrowBuffer
 
-A convenience function you can use to grow a buffer. It will grow the buffer to at least `minimum_bytes`, growing by `unit_size` increments. Returns true if the buffer was reallocated.
-**Note:** If the buffer is memory that is GPU only then the existing data is not kept, otherwise for host memory the data is kept.
+A convenience function you can use to grow a buffer. It will grow the buffer to at least `minimum_bytes`, growing by `unit_size` increments. Returns true if the buffer grew.
 You could use this function if you are incrementally writing data to a staging buffer and planning to upload to a device buffer at some point. If the buffer runs out of space you can call this to grow the memory.
+
+**Contract (applies to `zest_ResizeBuffer` too):** growing can relocate the buffer to a different memory block, so `memory_offset` can change and anything caching it (descriptors, recorded copies) must be refreshed after a successful grow.
+
+- **Host visible buffers:** contents are preserved (copied CPU-side when the buffer relocates).
+- **Device local buffers:** contents are **not** preserved — the buffer always relocates and you must fully re-upload it after growing. The old block is freed deferred (per frame in flight), so in-flight GPU reads of the old block are safe.
+
+Safe usage patterns: per frame-in-flight host visible buffers, and device local buffers that are fully re-uploaded after growth.
 
 ```cpp
 zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
@@ -97,8 +103,7 @@ zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size mi
 
 ### zest_ResizeBuffer
 
-Resize buffer (may reallocate). Resizes to the exact size that you pass in to the function. Returns true if the buffer was reallocated.
-**Note:** If the buffer is memory that is GPU only then the existing data is not kept, otherwise for host memory the data is kept.
+Resize buffer (may reallocate). Resizes to at least the size that you pass in to the function (sizes are rounded up to the pool's offset granularity) and never shrinks a buffer. Returns true if the buffer was resized successfully. See the contract on `zest_GrowBuffer`: contents are preserved for host visible buffers only; device local buffers relocate with a deferred free of the old block and must be fully re-uploaded.
 
 ```cpp
 zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
@@ -116,7 +121,7 @@ zest_size zest_GetBufferSize(zest_buffer buffer);
 
 ### zest_FreeBuffer
 
-Frees the buffer and makes the space used immediately available for reuse.
+Frees the buffer. The free is deferred per frame in flight, so the memory is not reused while the GPU may still be reading it.
 
 ```cpp
 void zest_FreeBuffer(zest_buffer buffer);

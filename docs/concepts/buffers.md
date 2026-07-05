@@ -130,6 +130,8 @@ zest_GrowBuffer(&buffer, unit_size, minimum_bytes);
 zest_size size = zest_GetBufferSize(buffer);
 ```
 
+Both functions can relocate the buffer to a different memory block, so `memory_offset` can change and any cached descriptors or recorded copies must be refreshed after a successful grow. Contents are preserved for host visible buffers only; device local buffers always relocate and must be fully re-uploaded after growing (the old block is freed deferred per frame in flight, so in-flight GPU reads stay safe).
+
 ### Accessing Buffer Data
 
 For CPU-visible buffers, you can directly access the mapped memory:
@@ -146,7 +148,7 @@ void* end = zest_BufferDataEnd(buffer);
 ### Free Buffer
 
 ```cpp
-// Immediately frees the buffer
+// Frees the buffer (deferred per frame in flight so the GPU can finish with it first)
 zest_FreeBuffer(buffer);
 ```
 
