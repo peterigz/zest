@@ -41,29 +41,39 @@ Zest organizes GPU memory into pools:
 | Small Buffer Pool | 4 MB | GPU-only vertex, index, storage buffers for small buffers |
 | Staging Buffer Pool | 32 MB | CPU-visible upload buffers |
 | Small Staging Buffer Pool | 4 MB | Small CPU-visible upload buffers |
-| Transient Image Memory Pool | 64 MB | Transient textures and render targets used in frame graphs |
-| Transient Buffer Memory Pool | 32 MB | Transient buffers used in frame graphs |
-| Small Transient Buffer Memory Pool | 4 MB | Small Transient buffers used in frame graphs |
+| Image Memory Pool | 64 MB | Non-transient images (one pool set per image memory type) |
+
+Transient resources (created via `zest_AddTransientImageResource` / `zest_AddTransientBufferResource`)
+do not use these pools: the frame graph compiler packs them into per-graph memory arenas with
+explicit aliasing.
 
 ### Image Memory
 
-Unlike buffers, **non-transient images allocate memory directly** rather than from pools. This is because images have highly varied requirements (format, dimensions, mip levels, array layers, sample counts) that would require many specialized pools, adding complexity without significant benefit.
+Non-transient images **sub-allocate from shared image memory pools** by default. Backends limit how
+many live memory allocations a device can have (Vulkan's `maxMemoryAllocationCount` is commonly
+4096), so giving every small texture its own allocation both exhausts that limit and pays an
+allocation call per image. Pool allocators are keyed by the image's memory requirements
+(memory type compatibility and alignment), so images only ever share a pool when it is valid for
+them to do so.
 
-**Transient images** (created via `zest_AddTransientImageResource`) do use pooled memory, since the frame graph compiler can efficiently manage and alias their memory and the requirements are less veried.
+An image gets its **own dedicated allocation** instead when any of these apply:
 
-For optimal memory usage with many small textures:
+- It is at least `ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD` (16 MB) — large images would only
+  fragment the pools.
+- The driver prefers or requires a dedicated allocation for it (Vulkan's
+  `VkMemoryDedicatedRequirements`, typical for render targets on some hardware).
+- It is host-visible (linear tiling).
 
-- **Use texture arrays** - Store multiple textures in array layers of a single image
-- **Use image atlases** - Pack multiple sprites/textures into a single large image
-- **Use bindless indexing** - Reference textures by descriptor index in shaders
+Zest tracks the live allocation count on the device (`memory_allocation_count` against
+`max_memory_allocation_count`) and emits a report when it nears the backend limit.
+
+Texture arrays and atlases are still worth using — fewer images means fewer descriptor indexes and
+better batching:
 
 ```cpp
-// Instead of many small individual images (each allocates separately),
-// prefer texture arrays or atlases:
-
 zest_image_info_t info = zest_CreateImageInfo(256, 256);
 info.format = zest_format_r8g8b8a8_unorm;
-info.layer_count = 64;  // Store 64 textures in one allocation
+info.layer_count = 64;  // Store 64 textures in one image
 zest_image_handle texture_array = zest_CreateImage(device, &info);
 ```
 

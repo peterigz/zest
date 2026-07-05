@@ -2237,8 +2237,13 @@ typedef enum zest_image_flag_bits {
 	zest_image_flag_transient = 1 << 16,
 
 	//Forces the default image view to use an image array. Useful on MoltenVK which can't sample and image as a texture array
-	//when the image view is just a 2d image 
+	//when the image view is just a 2d image
 	zest_image_flag_force_image_array = 1 << 17,
+
+	//Internal, set by the backend at image creation: the image got its own dedicated device memory
+	//allocation instead of sub-allocating from an image pool (large images, host visible images and
+	//images the driver prefers dedicated). Cleanup uses it to tell which kind of backing to free.
+	zest_image_flag_dedicated_memory = 1 << 18,
 
 	//Convenient preset flags for common usages
 	// For a standard texture loaded from CPU.
@@ -6798,6 +6803,12 @@ typedef struct zest_device_t {
 	zest_size buffer_offset_granularity;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
+	//Backend limit on the number of live device memory allocations (Vulkan:
+	//maxMemoryAllocationCount, commonly 4096) and the current live count. The count covers every
+	//backend memory allocation (pools, arenas, dedicated image memory) and is maintained
+	//atomically by the backend; a report is emitted when it nears the limit.
+	zest_uint max_memory_allocation_count;
+	volatile int memory_allocation_count;
 	zest_device_capabilities_t capabilities;
 
 	zest_device_init_flags init_flags;
@@ -7301,6 +7312,11 @@ typedef struct zest_buffer_t {
 //all buffer suballocation (pools and transient arenas) is device->buffer_offset_granularity,
 //which is the max of this and the device reported minimums.
 #define ZEST_BUFFER_OFFSET_GRANULARITY   256
+//Non-transient images at or above this size bypass the image memory pools and get a dedicated
+//device memory allocation: pooling exists to keep many small images from exhausting the device's
+//allocation count limit, while large images would only fragment the pools (drivers also prefer
+//dedicated allocations for them, which the backend honours independently of this threshold).
+#define ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD zloc__MEGABYTE(16)
 
 //A retired transient arena image awaiting deferred destruction: carries the old backend (which
 //owns the API image handle) and the old heap-allocated view. Both structs are freed after the
@@ -9189,11 +9205,12 @@ void zest__initialise_device_stores(zest_device device) {
 void zest__set_default_pool_sizes(zest_device device) {
     zest_buffer_usage_t usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
 
-	//Transient Image type buffers
+	//Image pools (non-transient images below the dedicated-allocation threshold sub-allocate from
+	//these; transient images use the frame graph arenas instead).
 	//Bear in mind that a pool will be created to cater for each image memory type
     usage.property_flags = zest_memory_property_device_local_bit;
-	usage.memory_pool_type = zest_memory_pool_type_transient_images;
-    zest_SetDevicePoolSize(device, "Transient Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
+	usage.memory_pool_type = zest_memory_pool_type_images;
+    zest_SetDevicePoolSize(device, "Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 
 	//Buffers
     usage.property_flags = zest_memory_property_device_local_bit;
@@ -9742,7 +9759,7 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 		//Image pool sizes are registered without the alignment that keys the allocator
 		zest_buffer_usage_t usage_key = ZEST__ZERO_INIT(zest_buffer_usage_t);
 		usage_key.property_flags = buffer_info->property_flags;
-		usage_key.memory_pool_type = zest_memory_pool_type_transient_images;
+		usage_key.memory_pool_type = zest_memory_pool_type_images;
 		zest_key image_key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_usage_t));
 		pre_defined_pool_size = zest_GetDevicePoolSizeKey(device, image_key);
 	} else {
@@ -9979,7 +9996,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
 	if (buffer_info->image_usage_flags) {
 		ZEST_ASSERT_OR_VALIDATE(buffer_info->backend_memory_bits, device,
 								"Image buffer infos must set backend_memory_bits (the image's memory compatibility bits, queried from the backend) so the allocation can be matched to a compatible memory pool.", NULL);
-		usage.memory_pool_type = zest_memory_pool_type_transient_images;
+		usage.memory_pool_type = zest_memory_pool_type_images;
 		usage.alignment = buffer_info->alignment;
 	} else if(size > device->setup_info.max_small_buffer_size) {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_transient_buffers : zest_memory_pool_type_buffers;
@@ -10129,8 +10146,12 @@ zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, ze
 zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size) {
 	ZEST_ASSERT_HANDLE(queue);						//Not a valid queue handle
     ZEST_ASSERT(size <= src_buffer->size);       	//size must be less than or equal to the staging buffer size and the device buffer size
-	zest_buffer buffer = (zest_buffer)dst_image->buffer;
-    ZEST_ASSERT(size <= buffer->size);
+	//The image's backing is a pool sub-allocation or a dedicated allocation depending on how it
+	//was created; the two store their size in different structs.
+	zest_size memory_size = ZEST__FLAGGED(dst_image->info.flags, zest_image_flag_dedicated_memory)
+		? ((zest_device_memory)dst_image->buffer)->size
+		: ((zest_buffer)dst_image->buffer)->size;
+    ZEST_ASSERT(size <= memory_size);
 	queue->device->platform->copy_buffer_to_image(queue, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
     return ZEST_TRUE;
 }
@@ -17786,7 +17807,14 @@ void zest__cleanup_image(zest_image image) {
 	zest__release_all_global_texture_indexes(device, image);
 	device->platform->cleanup_image_backend(image);
 	if (ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)) {
-		ZEST__FREE(device->allocator, image->buffer);
+		if (ZEST__FLAGGED(image->info.flags, zest_image_flag_dedicated_memory)) {
+			//Dedicated allocation: the backend freed the device memory in cleanup_image_backend,
+			//this is the host-side zest_device_memory_t struct.
+			ZEST__FREE(device->allocator, image->buffer);
+		} else {
+			//Pooled: return the sub-allocation to its image pool.
+			zest_FreeBufferNow((zest_buffer)image->buffer);
+		}
 	}
     if (image->default_view) {
         device->platform->cleanup_image_view_backend(image->default_view);

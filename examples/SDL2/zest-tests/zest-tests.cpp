@@ -95,6 +95,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Resource Test Image Allocator Memory Type Keying", test__image_allocator_memory_type_keying, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Large Readback Buffer", test__large_readback_buffer, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Buffer Grow Contract", test__buffer_grow_contract, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Resource Test Pooled Image Allocations", test__pooled_image_allocations, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);

@@ -1194,6 +1194,28 @@ ZEST_PRIVATE inline void zest__vk_insert_image_memory_barrier(VkCommandBuffer cm
         1, &image_memory_barrier);
 }
 
+//All backend device memory allocation goes through this pair so the live allocation count on the
+//device stays accurate. maxMemoryAllocationCount is commonly 4096, so many small dedicated
+//allocations can exhaust it; a report is emitted when the live count crosses 90% of the limit.
+ZEST_PRIVATE inline VkResult zest__vk_allocate_memory(zest_device device, const VkMemoryAllocateInfo *alloc_info, const VkAllocationCallbacks *allocation_callbacks, VkDeviceMemory *memory) {
+    VkResult result = vkAllocateMemory(device->backend->logical_device, alloc_info, allocation_callbacks, memory);
+    if (result == VK_SUCCESS) {
+        int count = zest__atomic_fetch_add(&device->memory_allocation_count, 1) + 1;
+        zest_uint warn_count = device->max_memory_allocation_count - device->max_memory_allocation_count / 10;
+        if (device->max_memory_allocation_count && (zest_uint)count == warn_count) {
+            ZEST_REPORT(device, zest_report_memory, "Live device memory allocation count has reached %i of the device limit of %u. Approaching the limit usually means many resources are getting dedicated allocations; consider pooling or freeing unused resources.", count, device->max_memory_allocation_count);
+        }
+    }
+    return result;
+}
+
+ZEST_PRIVATE inline void zest__vk_free_memory(zest_device device, VkDeviceMemory memory, const VkAllocationCallbacks *allocation_callbacks) {
+    if (memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device->backend->logical_device, memory, allocation_callbacks);
+        zest__atomic_fetch_add(&device->memory_allocation_count, -1);
+    }
+}
+
 ZEST_PRIVATE inline VkResult zest__vk_create_temporary_image(zest_device device, zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits sample_count, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage* image, VkDeviceMemory* memory) {
     VkImageCreateInfo image_info = ZEST__ZERO_INIT(VkImageCreateInfo);
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1222,7 +1244,7 @@ ZEST_PRIVATE inline VkResult zest__vk_create_temporary_image(zest_device device,
     alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memRequirements.memoryTypeBits, properties);
 
 	ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_image);
-    ZEST_VK_ASSERT_RESULT(device, vkAllocateMemory(device->backend->logical_device, &alloc_info, &device->backend->allocation_callbacks, memory));
+    ZEST_VK_ASSERT_RESULT(device, zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, memory));
 
     vkBindImageMemory(device->backend->logical_device, *image, *memory, 0);
 
@@ -2023,6 +2045,8 @@ zest_bool zest__vk_pick_physical_device(zest_device device) {
     device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.minStorageBufferOffsetAlignment);
     device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.minTexelBufferOffsetAlignment);
     device->buffer_offset_granularity = ZEST__MAX(device->buffer_offset_granularity, (zest_size)device->backend->properties.limits.nonCoherentAtomSize);
+    //Live backend allocations are tracked against this limit (see zest__vk_allocate_memory)
+    device->max_memory_allocation_count = device->backend->properties.limits.maxMemoryAllocationCount;
     // Memory properties are used regularly for creating all kinds of buffers
     vkGetPhysicalDeviceMemoryProperties(device->backend->physical_device, &device->backend->memory_properties);
 
@@ -2788,8 +2812,12 @@ void zest__vk_cleanup_image_backend(zest_image image) {
 	if(image->backend->vk_image) vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
 	image->backend->vk_image = VK_NULL_HANDLE;
     if (ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)) {
-		zest_device_memory memory = (zest_device_memory)image->buffer;
-		zest__vk_cleanup_memory_backend(memory);
+		if (ZEST__FLAGGED(image->info.flags, zest_image_flag_dedicated_memory)) {
+			//Pooled images have a zest_buffer in image->buffer instead, returned to its pool by
+			//the platform-agnostic cleanup (zest__cleanup_image).
+			zest_device_memory memory = (zest_device_memory)image->buffer;
+			zest__vk_cleanup_memory_backend(memory);
+		}
 		ZEST__FREE(device->allocator, image->backend);
     }
     image->backend = 0;
@@ -3026,7 +3054,7 @@ void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_s
 		}
 		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits);
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
-		vkAllocateMemory(device->backend->logical_device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
+		zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
 	}
 
 	return backend;
@@ -3080,7 +3108,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
 	} else {
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
 	}
-	VkResult pool_alloc_result = vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &memory_pool->backend->memory);
+	VkResult pool_alloc_result = zest__vk_allocate_memory(device, &alloc_info, allocation_callbacks, &memory_pool->backend->memory);
 	if (pool_alloc_result != VK_SUCCESS) {
 		//Don't leak the buffer used to query the memory requirements when the allocation fails
 		//(for example when the device is out of memory).
@@ -3128,7 +3156,7 @@ zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context con
 	} else {
 		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
 	}
-    ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &pool->backend->memory));
+    ZEST_RETURN_FALSE_ON_FAIL(device, zest__vk_allocate_memory(device, &alloc_info, allocation_callbacks, &pool->backend->memory));
 
     return ZEST_TRUE;
 }
@@ -3143,7 +3171,7 @@ zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_by
     memory->size = size_in_bytes;
 
 	ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
-    ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateMemory(device->backend->logical_device, &alloc_info, &device->backend->allocation_callbacks, &memory->backend->memory));
+    ZEST_RETURN_FALSE_ON_FAIL(device, zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, &memory->backend->memory));
 
     return ZEST_TRUE;
 }
@@ -3157,17 +3185,13 @@ void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool memory_allocat
     if (memory_allocation->backend->vk_buffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(device->backend->logical_device, memory_allocation->backend->vk_buffer, allocation_callbacks);
     }
-    if (memory_allocation->backend->memory) {
-        vkFreeMemory(device->backend->logical_device, memory_allocation->backend->memory, allocation_callbacks);
-    }
+    zest__vk_free_memory(device, memory_allocation->backend->memory, allocation_callbacks);
     ZEST__FREE(allocator, memory_allocation->backend);
 }
 
 void zest__vk_cleanup_memory_backend(zest_device_memory memory) {
 	zest_device device = memory->device;
-    if (memory->backend->memory) {
-        vkFreeMemory(device->backend->logical_device, memory->backend->memory, &device->backend->allocation_callbacks);
-    }
+    zest__vk_free_memory(device, memory->backend->memory, &device->backend->allocation_callbacks);
     ZEST__FREE(device->allocator, memory->backend);
 }
 
@@ -4120,7 +4144,7 @@ zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_c
 
         ZEST_APPEND_LOG(device->log_path.str, "Allocating transient buffer arena, size: %llu type: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex);
         ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_allocate_memory_pool);
-        if (vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
+        if (zest__vk_allocate_memory(device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
             goto cleanup;
         }
         vkBindBufferMemory(device->backend->logical_device, pool->backend->vk_buffer, pool->backend->memory, 0);
@@ -4143,7 +4167,7 @@ zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_c
 
         ZEST_APPEND_LOG(device->log_path.str, "Allocating transient image arena, size: %llu type: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex);
         ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_allocate_memory_pool);
-        if (vkAllocateMemory(device->backend->logical_device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
+        if (zest__vk_allocate_memory(device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
             goto cleanup;
         }
         pool->size = size;
@@ -4156,9 +4180,7 @@ zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_c
     if (pool->backend->vk_buffer) {
         vkDestroyBuffer(device->backend->logical_device, pool->backend->vk_buffer, allocation_callbacks);
     }
-    if (pool->backend->memory) {
-        vkFreeMemory(device->backend->logical_device, pool->backend->memory, allocation_callbacks);
-    }
+    zest__vk_free_memory(device, pool->backend->memory, allocation_callbacks);
     ZEST__FREE(allocator, pool->backend);
     ZEST__FREE(allocator, pool);
     return NULL;
@@ -4169,9 +4191,7 @@ void zest__vk_free_arena_backing(zest_device device, zest_context context, zest_
     if (backing->backend->vk_buffer) {
         vkDestroyBuffer(device->backend->logical_device, backing->backend->vk_buffer, allocation_callbacks);
     }
-    if (backing->backend->memory) {
-        vkFreeMemory(device->backend->logical_device, backing->backend->memory, allocation_callbacks);
-    }
+    zest__vk_free_memory(device, backing->backend->memory, allocation_callbacks);
     ZEST__FREE(context->allocator, backing->backend);
     ZEST__FREE(context->allocator, backing);
 }
@@ -4185,26 +4205,83 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
     }
 
     //Transient images are created through create_transient_image_unbound and bound to a frame
-    //graph arena instead - this path is for standalone images which get a dedicated allocation.
+    //graph arena instead - this path is for standalone images.
     ZEST_ASSERT(ZEST__NOT_FLAGGED(flags, zest_image_flag_transient));
 
-    zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);
-    buffer_info.image_usage_flags = usage;
-    buffer_info.property_flags = memory_properties;
-    buffer_info.alignment = memory_requirements.alignment;
-	zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
-	image->buffer = (void*)memory;
+    //Device local is the documented default when no memory flags are set on the image
+    if (memory_properties == 0) {
+        memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
 
 	#ifdef ZEST_DEBUGGING
 	image->buffer_identifier = (void*)image->backend->vk_image;
 	#endif
 
-    if (image->buffer) {
-        vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, memory->backend->memory, 0);
+    //Non-transient images sub-allocate from shared image memory pools by default so that many
+    //small images don't each consume one of the device's limited memory allocations
+    //(maxMemoryAllocationCount, commonly 4096) or pay a vkAllocateMemory each. An image gets its
+    //own dedicated allocation instead when the driver asks for one (VkMemoryDedicatedRequirements,
+    //typical for attachments on some drivers), when it is large enough that pooling would only
+    //fragment the pools, or when it is host visible (linear tiling; keeps mapped pools out of the
+    //optimal-tiling image pools).
+    VkMemoryDedicatedRequirements dedicated_requirements = ZEST__ZERO_INIT(VkMemoryDedicatedRequirements);
+    dedicated_requirements.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS;
+    VkImageMemoryRequirementsInfo2 requirements_info = ZEST__ZERO_INIT(VkImageMemoryRequirementsInfo2);
+    requirements_info.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2;
+    requirements_info.image = image->backend->vk_image;
+    VkMemoryRequirements2 requirements_2 = ZEST__ZERO_INIT(VkMemoryRequirements2);
+    requirements_2.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+    requirements_2.pNext = &dedicated_requirements;
+    vkGetImageMemoryRequirements2(device->backend->logical_device, &requirements_info, &requirements_2);
+
+    zest_bool dedicated = dedicated_requirements.requiresDedicatedAllocation != VK_FALSE ||
+        dedicated_requirements.prefersDedicatedAllocation != VK_FALSE ||
+        memory_requirements.size >= ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD ||
+        (memory_properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
+
+    zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);
+    buffer_info.image_usage_flags = usage;
+    buffer_info.property_flags = memory_properties;
+    buffer_info.alignment = memory_requirements.alignment;
+
+    VkResult bind_result = VK_SUCCESS;
+    if (dedicated) {
+        zest_device_memory memory = zest__create_device_memory(device, memory_requirements.size, &buffer_info, memory_requirements.memoryTypeBits);
+        if (!memory) {
+            // Destroy the image handle before returning to prevent a leak
+            vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
+            image->backend->vk_image = VK_NULL_HANDLE;
+            return ZEST_FALSE;
+        }
+        bind_result = vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, memory->backend->memory, 0);
+        if (bind_result != VK_SUCCESS) {
+            zest__vk_cleanup_memory_backend(memory);
+            ZEST__FREE(device->allocator, memory);
+            vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
+            image->backend->vk_image = VK_NULL_HANDLE;
+            ZEST_RETURN_FALSE_ON_FAIL(device, bind_result);
+        }
+        image->buffer = (void*)memory;
+        //Cleanup reads this flag to know which kind of backing to free
+        image->info.flags |= zest_image_flag_dedicated_memory;
     } else {
-        // Destroy the image handle before returning to prevent a leak
-        vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
-        return ZEST_FALSE;
+        //Image pool allocators are keyed by the memory compatibility bits (and alignment), so the
+        //pool this lands in is guaranteed to be bound to a memory type within the image's own bits.
+        buffer_info.backend_memory_bits = memory_requirements.memoryTypeBits;
+        zest_buffer buffer = zest_CreateBuffer(device, memory_requirements.size, &buffer_info);
+        if (!buffer) {
+            vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
+            image->backend->vk_image = VK_NULL_HANDLE;
+            return ZEST_FALSE;
+        }
+        bind_result = vkBindImageMemory(device->backend->logical_device, image->backend->vk_image, zest__vk_get_buffer_device_memory(buffer), buffer->memory_offset);
+        if (bind_result != VK_SUCCESS) {
+            zest_FreeBufferNow(buffer);
+            vkDestroyImage(device->backend->logical_device, image->backend->vk_image, &device->backend->allocation_callbacks);
+            image->backend->vk_image = VK_NULL_HANDLE;
+            ZEST_RETURN_FALSE_ON_FAIL(device, bind_result);
+        }
+        image->buffer = (void*)buffer;
     }
 
     return ZEST_TRUE;

@@ -2581,11 +2581,11 @@ int test__buffer_offset_alignment(ZestTests *tests, Test *test) {
 int test__image_allocator_memory_type_keying(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 
-	//Keep the image pools this test creates small; nothing else in the suite allocates pooled
-	//images so this config override affects no other test.
+	//Keep the image pools this test creates small. Non-transient images now sub-allocate from
+	//pools with this config too, so the default is restored at the end of the test.
 	zest_buffer_usage_t pool_usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
 	pool_usage.property_flags = zest_memory_property_device_local_bit;
-	pool_usage.memory_pool_type = zest_memory_pool_type_transient_images;
+	pool_usage.memory_pool_type = zest_memory_pool_type_images;
 	zest_SetDevicePoolSize(tests->device, "Test Image Pool", pool_usage, zloc__KILOBYTE(64), zloc__MEGABYTE(4));
 
 	//Image-style buffer infos: image_usage_flags routes zest_CreateBuffer to the image pool path
@@ -2620,6 +2620,10 @@ int test__image_allocator_memory_type_keying(ZestTests *tests, Test *test) {
 	zest_FreeBuffer(a1);
 	zest_FreeBuffer(a2);
 	zest_FreeBuffer(b1);
+
+	//Restore the default image pool config so later tests that create pooled images get
+	//sensibly sized pools.
+	zest_SetDevicePoolSize(tests->device, "Image Buffers", pool_usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 
 	test->result = failed_count > 0 ? 1 : 0;
 	test->result |= zest_GetValidationErrorCount(tests->device);
@@ -2740,6 +2744,100 @@ int test__buffer_grow_contract(ZestTests *tests, Test *test) {
 	}
 	zest_FreeBuffer(staging);
 	zest_FreeBuffer(blocker);
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+//Non-transient images used to each get a dedicated vkAllocateMemory, so many small images could
+//exhaust maxMemoryAllocationCount (commonly 4096). They now sub-allocate from shared image pools
+//by default; only large images (>= ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD), host-visible images
+//and images the driver prefers dedicated keep their own allocation, marked with
+//zest_image_flag_dedicated_memory so cleanup can tell the backings apart. The device tracks the
+//live backend allocation count.
+int test__pooled_image_allocations(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_device device = tests->device;
+
+	//The backend limit must have been captured at device init
+	if (device->max_memory_allocation_count == 0) failed_count++;
+
+	int baseline = device->memory_allocation_count;
+	if (baseline <= 0) failed_count++;    //Pools/arenas created so far must have been counted
+
+	//A batch of small sampled textures must share pooled memory rather than each taking one of
+	//the device's limited memory allocations
+	const int image_count = 8;
+	zest_image_handle images[image_count] = { 0 };
+	zest_image_info_t info = zest_CreateImageInfo(64, 64);
+	info.flags = zest_image_preset_texture;
+	zest_buffer first_backing = 0;
+	int non_zero_offsets = 0;
+	for (int i = 0; i < image_count; i++) {
+		images[i] = zest_CreateImage(device, &info);
+		zest_image image = zest_GetImage(images[i]);
+		if (!image) {
+			failed_count++;
+			continue;
+		}
+		if (ZEST__FLAGGED(image->info.flags, zest_image_flag_dedicated_memory)) {
+			failed_count++;    //Small device-local textures must be pooled
+			continue;
+		}
+		zest_buffer backing = (zest_buffer)image->buffer;
+		if (!backing || !backing->memory_pool) {
+			failed_count++;
+			continue;
+		}
+		//Identical images share an allocator (identical requirements key identically)
+		if (!first_backing) {
+			first_backing = backing;
+		} else if (backing->memory_pool->allocator != first_backing->memory_pool->allocator) {
+			failed_count++;
+		}
+		if (backing->memory_offset) non_zero_offsets++;
+	}
+	//At least one image must have landed at a non-zero offset or nothing was sub-allocated
+	if (!non_zero_offsets) failed_count++;
+	//The live count must have grown by pools created, not by one per image
+	int after_small = device->memory_allocation_count;
+	if (after_small - baseline >= image_count) failed_count++;
+
+	//Uploading through the staging path must work against a pooled backing
+	zest_byte pixels[64 * 64 * 4];
+	for (zest_size i = 0; i < sizeof(pixels); ++i) {
+		pixels[i] = (zest_byte)(i * 13 + 3);
+	}
+	zest_image_handle uploaded = zest_CreateImageWithPixels(device, pixels, sizeof(pixels), &info);
+	if (!zest_GetImage(uploaded)) failed_count++;
+
+	//A large image must bypass the pools with a dedicated allocation: 4096x4096 RGBA is 64MB,
+	//well over the 16MB threshold
+	int before_large = device->memory_allocation_count;
+	zest_image_info_t large_info = zest_CreateImageInfo(4096, 4096);
+	large_info.flags = zest_image_preset_texture;
+	zest_image_handle large = zest_CreateImage(device, &large_info);
+	zest_image large_image = zest_GetImage(large);
+	if (!large_image) {
+		failed_count++;
+	} else {
+		if (ZEST__NOT_FLAGGED(large_image->info.flags, zest_image_flag_dedicated_memory)) failed_count++;
+		if (device->memory_allocation_count - before_large != 1) failed_count++;
+		//Freeing it must return its allocation to the live count (immediate free path)
+		zest_FreeImageNow(large);
+		large = ZEST__ZERO_INIT(zest_image_handle);
+		if (device->memory_allocation_count != before_large) failed_count++;
+	}
+
+	//Freeing pooled images returns their sub-allocations; the pools themselves persist so the
+	//live count must not change
+	int before_free = device->memory_allocation_count;
+	for (int i = 0; i < image_count; i++) {
+		zest_FreeImageNow(images[i]);
+	}
+	zest_FreeImageNow(uploaded);
+	if (device->memory_allocation_count != before_free) failed_count++;
 
 	test->result = failed_count > 0 ? 1 : 0;
 	test->result |= zest_GetValidationErrorCount(tests->device);
