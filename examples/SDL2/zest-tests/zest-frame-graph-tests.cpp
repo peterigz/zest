@@ -1146,6 +1146,19 @@ zest_buffer tst__vanishing_buffer_provider(zest_context context, zest_resource_n
 	return NULL;
 }
 
+void tst__read_mixed_buffers(const zest_command_list command_list, void *user_data) {
+	//"Keep Buffer" is always backed, so acquiring its bindless index is always safe.
+	zest_resource_node keep_buffer = zest_GetPassInputResource(command_list, "Keep Buffer");
+	zest_GetTransientBufferBindlessIndex(command_list, keep_buffer);
+	//"Vanishing Buffer" has no backing buffer on empty executions. This is the recommended userland
+	//pattern: check zest_ResourceBufferIsValid before touching the buffer / acquiring its index so
+	//we skip the descriptor update that would otherwise dereference a null buffer.
+	zest_resource_node vanishing_buffer = zest_GetPassInputResource(command_list, "Vanishing Buffer");
+	if (zest_ResourceBufferIsValid(vanishing_buffer)) {
+		zest_GetTransientBufferBindlessIndex(command_list, vanishing_buffer);
+	}
+}
+
 void tst__transfer_to_mixed_buffers(const zest_command_list command_list, void *user_data) {
 	UnbackedBufferState *state = (UnbackedBufferState *)user_data;
 	zest_resource_node keep_buffer = zest_GetPassOutputResource(command_list, "Keep Buffer");
@@ -1193,7 +1206,7 @@ int test__unbacked_transient_barrier(ZestTests *tests, Test *test) {
 				zest_ConnectInput(vanishing_buffer);
 				zest_ConnectInput(keep_buffer);
 				zest_ConnectSwapChainOutput();
-				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_SetPassTask(tst__read_mixed_buffers, &state);
 				zest_EndPass();
 
 				frame_graph = zest_EndFrameGraph();

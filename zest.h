@@ -5265,6 +5265,12 @@ ZEST_API void zest_SetResourceHeight(zest_resource_node resource, zest_uint heig
 ZEST_API void zest_SetResourceBufferSize(zest_resource_node resource, zest_size size);
 ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API zest_buffer zest_GetResourceBuffer(zest_resource_node resource_node);
+// Returns ZEST_TRUE if a buffer resource has a backing buffer for this execution. A transient
+// buffer can legitimately resolve to zero size for a frame (e.g. an instance/dynamic layer with
+// nothing to draw), in which case it has no backing buffer and zest_GetResourceBuffer returns NULL
+// and zest_GetTransientBufferBindlessIndex must not be called. Check this at the top of a pass task
+// and early-out of the pass, or skip the parts of the task that use the buffer, when it is invalid.
+ZEST_API zest_bool zest_ResourceBufferIsValid(zest_resource_node resource_node);
 ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
 ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
 ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
@@ -16921,6 +16927,16 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_l
     ZEST_ASSERT(resource->type & zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
 	zest_context context = zest__frame_graph_builder->context;
 	zest_device device = context->device;
+	//A transient buffer can resolve to zero size for this execution (e.g. an instance/dynamic layer
+	//with nothing to draw) and so have no backing buffer. Guard the descriptor update against that:
+	//the caller is expected to check zest_ResourceBufferIsValid() and skip the work that uses this
+	//buffer. Checked before the cached-index early-out so a stale index from a previous (non-empty)
+	//execution is not handed back.
+	ZEST_ASSERT_OR_VALIDATE(resource->storage_buffer, device,
+		"zest_GetTransientBufferBindlessIndex called on a buffer resource with no backing buffer this execution. "
+		"Most likely is that you're using a resource provider callback to update the size and this frame the size was set to zero."
+		"Call zest_ResourceBufferIsValid() at the top of the pass and skip the work that uses this buffer when it returns false.",
+		ZEST_INVALID);
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
     zest_frame_graph frame_graph = command_list->frame_graph;
 	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
@@ -16978,6 +16994,13 @@ zest_buffer zest_GetResourceBuffer(zest_resource_node resource) {
         return resource->storage_buffer;
 	}
 	return NULL;
+}
+
+zest_bool zest_ResourceBufferIsValid(zest_resource_node resource) {
+	ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
+	//A transient buffer that resolved to zero size for this execution (e.g. an empty layer) has no
+	//backing buffer. See the declaration in zest.h for the recommended usage pattern.
+	return (resource->type & zest_resource_type_buffer) && resource->storage_buffer ? ZEST_TRUE : ZEST_FALSE;
 }
 
 zest_resource_type zest_GetResourceType(zest_resource_node resource_node) {
