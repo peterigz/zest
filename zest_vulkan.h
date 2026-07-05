@@ -186,6 +186,7 @@ ZEST_PRIVATE const char *zest__vulkan_error_string(VkResult errorCode);
 // --Frame_graph_platform_functions
 ZEST_PRIVATE zest_bool zest__vk_begin_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE zest_bool zest__vk_set_next_command_buffer(zest_command_list command_list, zest_context_queue queue);
+ZEST_PRIVATE void zest__vk_submit_buffer_barrier_runs(zest_command_list command_list, VkBufferMemoryBarrier2 *barriers, zest_resource_node *nodes, zest_uint buffer_count, VkImageMemoryBarrier2 *image_barriers, zest_uint image_count);
 ZEST_PRIVATE void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__vk_release_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void* zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator);
@@ -5064,18 +5065,49 @@ void *zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator) {
     return backend;
 }
 
+// If a cached frame graph has a resource buffer set to 0 size then no buffer is created meaning
+// there's no barrier to create. Old code was crashing on a null buffer.
+// Patch this execution's buffer handles into the (cached) buffer barrier structs and record which
+// resources actually have backing this frame. A transient buffer can resolve to zero size for an
+// execution (e.g. an instance/dynamic layer with nothing to draw), in which case placement leaves
+// it with no backing buffer - there is no memory to hazard against, so its barrier must be dropped.
+// The barrier arrays are cached and re-used across executions (only buffer/size/offset are patched
+// each frame), so the cached array is left intact here: the barriers are submitted in contiguous
+// runs, splitting the batch around any unbacked entry. A *sized* resource arriving here with no
+// buffer is a placement bug, so flag it.
+void zest__vk_submit_buffer_barrier_runs(zest_command_list command_list, VkBufferMemoryBarrier2 *barriers, zest_resource_node *nodes, zest_uint buffer_count, VkImageMemoryBarrier2 *image_barriers, zest_uint image_count) {
+	zest_context context = command_list->context;
+	zest_uint run_start = 0;
+	zest_uint run_length = 0;
+	zest_vec_foreach(resource_index, barriers) {
+		zest_resource_node resource = nodes[resource_index];
+		zest_buffer buffer = resource->storage_buffer;
+		ZEST_ASSERT_OR_VALIDATE(buffer || resource->buffer_desc.size == 0, context->device,
+			"Frame graph buffer resource has a memory barrier but no backing buffer at execution time.", );
+		if (!buffer) {
+			if (run_length) {
+				zest__vk_pipeline_barrier2(context->device, command_list->backend->command_buffer, 0, 0, 0,
+					run_length, &barriers[run_start], 0, 0);
+				run_length = 0;
+			}
+			run_start = resource_index + 1;
+			continue;
+		}
+		barriers[resource_index].buffer = buffer->memory_pool->backend->vk_buffer;
+		barriers[resource_index].size = buffer->size;
+		barriers[resource_index].offset = buffer->memory_offset;
+		run_length++;
+	}
+	//Submit the final buffer run together with the image barriers.
+	zest__vk_pipeline_barrier2(context->device, command_list->backend->command_buffer, 0, 0, 0,
+		run_length, run_length ? &barriers[run_start] : 0,
+		image_count, image_barriers);
+}
+
 void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers);
 	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->acquire_image_barriers);
 	if (buffer_count > 0 || image_count > 0) {
-		zest_vec_foreach(resource_index, exe_details->barriers.backend->acquire_buffer_barriers) {
-			VkBufferMemoryBarrier2 *barrier = &exe_details->barriers.backend->acquire_buffer_barriers[resource_index];
-			zest_resource_node resource = exe_details->barriers.acquire_buffer_barrier_nodes[resource_index];
-			zest_buffer buffer = resource->storage_buffer;
-			barrier->buffer = buffer->memory_pool->backend->vk_buffer;
-			barrier->size = buffer->size;
-			barrier->offset = buffer->memory_offset;
-		}
 		zest_vec_foreach(resource_index, exe_details->barriers.backend->acquire_image_barriers) {
 			VkImageMemoryBarrier2 *barrier = &exe_details->barriers.backend->acquire_image_barriers[resource_index];
 			zest_resource_node resource = exe_details->barriers.acquire_image_barrier_nodes[resource_index];
@@ -5090,12 +5122,12 @@ void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_det
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
 			}
 		}
-		zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0,
-			buffer_count,
+		zest__vk_submit_buffer_barrier_runs(command_list,
 			exe_details->barriers.backend->acquire_buffer_barriers,
-			image_count,
-			exe_details->barriers.backend->acquire_image_barriers
-		);
+			exe_details->barriers.acquire_buffer_barrier_nodes,
+			buffer_count,
+			exe_details->barriers.backend->acquire_image_barriers,
+			image_count);
 	}
 }
 
@@ -5103,14 +5135,6 @@ void zest__vk_release_barrier(zest_command_list command_list, zest_execution_det
 	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->release_buffer_barriers);
 	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->release_image_barriers);
 	if (buffer_count > 0 || image_count > 0) {
-		zest_vec_foreach(resource_index, exe_details->barriers.backend->release_buffer_barriers) {
-			VkBufferMemoryBarrier2 *barrier = &exe_details->barriers.backend->release_buffer_barriers[resource_index];
-			zest_resource_node resource = exe_details->barriers.release_buffer_barrier_nodes[resource_index];
-			zest_buffer buffer = resource->storage_buffer;
-			barrier->buffer = buffer->memory_pool->backend->vk_buffer;
-			barrier->size = buffer->size;
-			barrier->offset = buffer->memory_offset;
-		}
 		zest_vec_foreach(resource_index, exe_details->barriers.backend->release_image_barriers) {
 			VkImageMemoryBarrier2 *barrier = &exe_details->barriers.backend->release_image_barriers[resource_index];
 			zest_resource_node resource = exe_details->barriers.release_image_barrier_nodes[resource_index];
@@ -5123,12 +5147,13 @@ void zest__vk_release_barrier(zest_command_list command_list, zest_execution_det
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
 			}
 		}
-		zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0,
-			buffer_count,
+		//See zest__vk_submit_buffer_barrier_runs: unbacked (zero-size) transient buffers are skipped.
+		zest__vk_submit_buffer_barrier_runs(command_list,
 			exe_details->barriers.backend->release_buffer_barriers,
-			image_count,
-			exe_details->barriers.backend->release_image_barriers
-		);
+			exe_details->barriers.release_buffer_barrier_nodes,
+			buffer_count,
+			exe_details->barriers.backend->release_image_barriers,
+			image_count);
 	}
 }
 

@@ -1120,5 +1120,97 @@ int test__cached_transient_placement(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Unbacked Transient Barrier: a cached frame graph with a transient buffer that has backing on the
+first execution but resolves to zero size from then on - exactly what an instance/dynamic layer
+does when it has nothing to draw (see zest__instance_layer_resource_provider, which returns NULL
+and leaves buffer_desc.size at 0 for an empty layer). The transient placement pass skips a zero
+sized buffer, so it reaches execution with storage_buffer == NULL while its producer->consumer
+acquire/release barriers are still baked into the cached graph. Before the fix the barrier code
+dereferenced storage_buffer unconditionally and crashed; the fix skips the barrier for any buffer
+with no backing this frame (there is no memory to synchronise). A "Keep Buffer" that stays backed
+sits alongside it so the barrier array contains a mix of backed and unbacked entries, exercising
+the run-splitting submission path. In ZEST_TEST_MODE a *sized* resource with no buffer would be
+recorded as a validation error instead of crashing; an empty (zero size) one must not, so the test
+asserts a clean result across all executions.
+*/
+struct UnbackedBufferState {
+	int execution_count;
+};
+
+zest_buffer tst__vanishing_buffer_provider(zest_context context, zest_resource_node node) {
+	UnbackedBufferState *state = (UnbackedBufferState *)zest_GetResourceUserData(node);
+	//Sized on the first execution so it gets a transient placement, then empty from then on so the
+	//cached graph re-executes with a buffer resource that has no backing buffer this frame.
+	zest_SetResourceBufferSize(node, state->execution_count == 0 ? 256 : 0);
+	return NULL;
+}
+
+void tst__transfer_to_mixed_buffers(const zest_command_list command_list, void *user_data) {
+	UnbackedBufferState *state = (UnbackedBufferState *)user_data;
+	zest_resource_node keep_buffer = zest_GetPassOutputResource(command_list, "Keep Buffer");
+	zest_buffer keep_staging = zest_CreateStagingBuffer(command_list->device, 512, 0);
+	zest_cmd_CopyBuffer(command_list, keep_staging, zest_GetResourceBuffer(keep_buffer), 512);
+	zest_FreeBuffer(keep_staging);
+	if (state->execution_count == 0) {
+		//Only copy the vanishing buffer while it still has backing.
+		zest_resource_node vanishing_buffer = zest_GetPassOutputResource(command_list, "Vanishing Buffer");
+		zest_buffer vanishing_staging = zest_CreateStagingBuffer(command_list->device, 256, 0);
+		zest_cmd_CopyBuffer(command_list, vanishing_staging, zest_GetResourceBuffer(vanishing_buffer), 256);
+		zest_FreeBuffer(vanishing_staging);
+	}
+	state->execution_count++;
+}
+
+int test__unbacked_transient_barrier(ZestTests *tests, Test *test) {
+	static UnbackedBufferState state;
+	if (test->frame_count == 0) {
+		state.execution_count = 0;
+	}
+	zest_buffer_resource_info_t vanishing_info = {};
+	vanishing_info.size = 256;
+	zest_buffer_resource_info_t keep_info = {};
+	keep_info.size = 512;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, "Unbacked Transient Barrier", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_resource_node vanishing_buffer = zest_AddTransientBufferResource("Vanishing Buffer", &vanishing_info);
+				zest_SetResourceUserData(vanishing_buffer, &state);
+				zest_SetResourceBufferProvider(vanishing_buffer, tst__vanishing_buffer_provider);
+				zest_resource_node keep_buffer = zest_AddTransientBufferResource("Keep Buffer", &keep_info);
+
+				zest_BeginTransferPass("Upload Pass");
+				zest_ConnectOutput(vanishing_buffer);
+				zest_ConnectOutput(keep_buffer);
+				zest_SetPassTask(tst__transfer_to_mixed_buffers, &state);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Pass");
+				zest_ConnectInput(vanishing_buffer);
+				zest_ConnectInput(keep_buffer);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count && test->cache_count == 0) {
+		test->result |= 2;   //The graph never came from the cache so the unbacked re-execution path was not exercised
+	}
+	return test->result;
+}
+
 
 
