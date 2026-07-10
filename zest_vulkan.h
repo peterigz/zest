@@ -2272,6 +2272,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     if (features_12.shaderStorageImageArrayNonUniformIndexing)    supported |= zest_capability_nonuniform_storage_image_indexing;
     if (base->samplerAnisotropy)                                  supported |= zest_capability_anisotropic_filtering;
     if (base->fillModeNonSolid)                                   supported |= zest_capability_wireframe;
+    if (base->imageCubeArray)                                     supported |= zest_capability_image_cube_array;
     if (base->tessellationShader)                                 supported |= zest_capability_tessellation;
     if (base->geometryShader)                                     supported |= zest_capability_geometry_shader;
     if (base->shaderInt64)                                        supported |= zest_capability_shader_int64;
@@ -2403,6 +2404,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.samplerAnisotropy = (enabled & zest_capability_anisotropic_filtering) ? VK_TRUE : VK_FALSE;
     device_features.multiDrawIndirect = (enabled & zest_capability_multi_draw_indirect) ? VK_TRUE : VK_FALSE;
     device_features.fillModeNonSolid = (enabled & zest_capability_wireframe) ? VK_TRUE : VK_FALSE;
+    device_features.imageCubeArray = (enabled & zest_capability_image_cube_array) ? VK_TRUE : VK_FALSE;
     device_features.shaderInt64 = (enabled & zest_capability_shader_int64) ? VK_TRUE : VK_FALSE;
     device_features.tessellationShader = (enabled & zest_capability_tessellation) ? VK_TRUE : VK_FALSE;
     device_features.geometryShader = (enabled & zest_capability_geometry_shader) ? VK_TRUE : VK_FALSE;

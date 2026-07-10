@@ -2291,11 +2291,12 @@ typedef enum zest_device_capability_bits {
 	zest_capability_nonuniform_storage_image_indexing  = 1 << 4,
 	zest_capability_anisotropic_filtering              = 1 << 5,
 	zest_capability_wireframe                          = 1 << 6,
+	zest_capability_image_cube_array                   = 1 << 7,
 	// --- Opt-in via zest_RequestDeviceFeature (heavy/niche, off by default) ---
-	zest_capability_tessellation                       = 1 << 7,
-	zest_capability_geometry_shader                    = 1 << 8,
-	zest_capability_shader_int64                       = 1 << 9,
-	zest_capability_fragment_stores_and_atomics        = 1 << 10,
+	zest_capability_tessellation                       = 1 << 8,
+	zest_capability_geometry_shader                    = 1 << 9,
+	zest_capability_shader_int64                       = 1 << 10,
+	zest_capability_fragment_stores_and_atomics        = 1 << 11,
 } zest_device_capability_bits;
 
 // Populated once during device creation and queryable thereafter via
@@ -2317,7 +2318,8 @@ typedef struct zest_device_capabilities_t {
 	zest_capability_nonuniform_uniform_buffer_indexing | \
 	zest_capability_nonuniform_storage_image_indexing | \
 	zest_capability_anisotropic_filtering | \
-	zest_capability_wireframe )
+	zest_capability_wireframe | \
+	zest_capability_image_cube_array )
 #define ZEST_CAPABILITY_OPT_IN_MASK ( \
 	zest_capability_tessellation | \
 	zest_capability_geometry_shader | \
@@ -2627,6 +2629,7 @@ typedef enum zest_binding_number_type {
 	zest_storage_buffer_binding,
 	zest_storage_image_binding,
 	zest_uniform_buffer_binding,
+	zest_texture_cube_array_binding,
 	zest_max_global_binding_number
 } zest_binding_number_type;
 
@@ -3798,6 +3801,7 @@ typedef struct zest_device_builder_t {
 	zest_uint bindless_texture_cube_count;
 	zest_uint bindless_texture_array_count;
 	zest_uint bindless_texture_3d_count;
+	zest_uint bindless_texture_cube_array_count;
 	zest_uint bindless_storage_buffer_count;
 	zest_uint bindless_storage_image_count;
 	zest_uint bindless_uniform_buffer_count;
@@ -6853,6 +6857,7 @@ typedef struct zest_device_t {
 	//Default images for unbound descriptor indexes
 	zest_image default_image_2d;
 	zest_image default_image_cube;
+	zest_image_view default_cube_array_view;	//Cube-array typed view of default_image_cube (NULL if zest_capability_image_cube_array is not enabled)
   
 	//Where to save/load cached shaders
 	zest_text_t cached_shaders_path;
@@ -8615,6 +8620,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->bindless_texture_cube_count = 1024;
 	builder->bindless_texture_array_count = 1024;
 	builder->bindless_texture_3d_count = 256;
+	builder->bindless_texture_cube_array_count = 256;
 	builder->bindless_storage_buffer_count = 1024;
 	builder->bindless_storage_image_count = 1024;
 	builder->bindless_uniform_buffer_count = 64;
@@ -8759,14 +8765,15 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, builder->bindless_sampler_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, builder->bindless_sampler_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_2d_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_cube_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_array_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_3d_count, zest_shader_all_stages ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, builder->bindless_storage_buffer_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, builder->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, builder->bindless_uniform_buffer_count, zest_shader_compute_stage | zest_shader_vertex_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, builder->bindless_storage_image_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, builder->bindless_uniform_buffer_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_cube_array_count, zest_shader_all_stages ) );
 	device->global_layout_builder = layout_builder;
     device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
     device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
@@ -8833,7 +8840,18 @@ void zest__create_default_images(zest_device device, zest_device_builder builder
 		device->platform->update_bindless_image_descriptor(device, zest_texture_3d_binding, i, zest_descriptor_type_sampled_image, device->default_image_2d, device->default_image_2d->default_view, 0, device->bindless_set);
 	}
 	for (int i = 0; i != builder->bindless_texture_cube_count; i++) {
-		device->platform->update_bindless_image_descriptor(device, zest_texture_cube_binding, i, zest_descriptor_type_sampled_image, device->default_image_cube, device->default_image_2d->default_view, 0, device->bindless_set);
+		device->platform->update_bindless_image_descriptor(device, zest_texture_cube_binding, i, zest_descriptor_type_sampled_image, device->default_image_cube, device->default_image_cube->default_view, 0, device->bindless_set);
+	}
+	if (zest_DeviceFeatureEnabled(device, zest_capability_image_cube_array)) {
+		//Cube array declarations in shaders need a cube-array typed view, so the default cube's
+		//cube typed view can't be reused here.
+		zest_image_view_create_info_t view_info = zest_CreateViewImageInfo(device->default_image_cube);
+		view_info.view_type = zest_image_view_type_cube_array;
+		zest_image_view_handle view_handle = zest_CreateImageView(device, device->default_image_cube, &view_info);
+		device->default_cube_array_view = zest_GetImageView(view_handle);
+		for (int i = 0; i != builder->bindless_texture_cube_array_count; i++) {
+			device->platform->update_bindless_image_descriptor(device, zest_texture_cube_array_binding, i, zest_descriptor_type_sampled_image, device->default_image_cube, device->default_cube_array_view, 0, device->bindless_set);
+		}
 	}
 }
 
@@ -10650,6 +10668,7 @@ void zest__cleanup_device(zest_device device) {
 
 	device->default_image_2d = NULL;
 	device->default_image_cube = NULL;
+	device->default_cube_array_view = NULL;
 
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
     zest__cleanup_buffers_in_allocators(device);
@@ -11403,8 +11422,15 @@ void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_numb
 				}
 				case zest_texture_cube_binding: {
 					device->platform->update_bindless_image_descriptor(
-						device, binding_number, index_to_release, zest_descriptor_type_sampled_image, 
+						device, binding_number, index_to_release, zest_descriptor_type_sampled_image,
 						device->default_image_cube, device->default_image_cube->default_view, NULL, device->bindless_set);
+					break;
+				}
+				case zest_texture_cube_array_binding: {
+					if (!device->default_cube_array_view) break;
+					device->platform->update_bindless_image_descriptor(
+						device, binding_number, index_to_release, zest_descriptor_type_sampled_image,
+						device->default_image_cube, device->default_cube_array_view, NULL, device->bindless_set);
 					break;
 				}
 			}

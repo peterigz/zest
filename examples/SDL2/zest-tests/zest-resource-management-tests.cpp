@@ -261,6 +261,10 @@ int test__image_format_validation_edge_cases(ZestTests *tests, Test *test) {
 int test__image_view_creation(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 
+	// The device owns internal views (e.g. the default cube-array view), so count deltas not absolutes
+	int initial_view_count = zest_GetDeviceResourceCount(tests->device, zest_handle_type_views);
+	int initial_view_array_count = zest_GetDeviceResourceCount(tests->device, zest_handle_type_view_arrays);
+
 	// Phase 1: Create a simple image and verify default view exists
 	zest_image_info_t simple_info = zest_CreateImageInfo(256, 256);
 	simple_info.format = zest_format_r8g8b8a8_unorm;
@@ -358,8 +362,8 @@ int test__image_view_creation(ZestTests *tests, Test *test) {
 
 	// Final validation
 	test->result = failed_count > 0 ? 1 : 0;
-	test->result |= view_count == 2 ? 0 : 1;
-	test->result |= view_array_count == 1 ? 0 : 1;
+	test->result |= view_count == initial_view_count + 2 ? 0 : 1;
+	test->result |= view_array_count == initial_view_array_count + 1 ? 0 : 1;
 	test->result |= zest_GetValidationErrorCount(tests->device);
 	test->frame_count++;
 	return test->result;
