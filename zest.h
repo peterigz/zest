@@ -4911,9 +4911,9 @@ ZEST_API void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, z
 //exception is uniform-buffer bindings, which must be written at creation time and not updated mid-frame (see
 //the note on zest_CreateUniformBuffer). Other backends may ignore this entirely where their descriptor model
 //already permits updates after binding (D3D12 heaps, Metal argument buffers).
-ZEST_API zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...);
+ZEST_API zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
-ZEST_API zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name, ...);
+ZEST_API zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name);
 
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout);
 ZEST_API zest_uint zest_AcquireSampledImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
@@ -5206,6 +5206,11 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest
 
 // --- Frame_graph_api
 // -- Creating and Executing the render graph
+//Graph building uses thread-local state: zest_BeginFrameGraph/zest_BeginCommandGraph set the current builder
+//for the calling thread, and every builder function up to zest_EndFrameGraph (zest_BeginRenderPass,
+//zest_ConnectOutput, zest_SetPassTask etc) operates on it implicitly. Build a given graph from a single OS
+//thread. Different threads can build graphs for *different* contexts concurrently; language runtimes that
+//migrate green threads between OS threads (e.g. Go) must pin the thread for the duration of the build.
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
@@ -11209,24 +11214,18 @@ void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_descr
     zest_vec_push(builder->allocator, builder->bindings, description);
 }
 
-zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name, ...) {
+zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_layout_builder_t *builder, const char *name) {
 	zest_device device = context->device;
     ZEST_ASSERT(name);  //Give the descriptor set a unique name
-    zest_text_t layout_name = ZEST__ZERO_INIT(zest_text_t);
-    va_list args;
-    va_start(args, name);
-    zest_SetTextfv(context->allocator, &layout_name, name, args);
-    va_end(args);
     ZEST_ASSERT(builder->bindings);     //must have bindings to create the layout
     zest_uint binding_count = (zest_uint)zest_vec_size(builder->bindings);
     ZEST_ASSERT(binding_count > 0);     //Must add bindings before finishing the descriptor layout builder
 
-    zest_set_layout set_layout = zest__new_descriptor_set_layout(context->device, context, layout_name.str);
+    zest_set_layout set_layout = zest__new_descriptor_set_layout(context->device, context, name);
 
     if (!device->platform->create_set_layout(device, context, builder, set_layout, ZEST_FALSE)) {
 		zest_vec_free(context->allocator, builder->bindings);
         zest__cleanup_set_layout(set_layout);
-		zest_FreeText(context->allocator, &layout_name);
         return NULL;
     }
 
@@ -11238,25 +11237,18 @@ zest_set_layout zest_FinishDescriptorSetLayout(zest_context context, zest_set_la
     }
 
     set_layout->bindings = builder->bindings;
-    zest_FreeText(context->allocator, &layout_name);
     return set_layout;
 }
 
-zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...) {
+zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name) {
     ZEST_ASSERT(name);  //Give the descriptor set a unique name
-    zest_text_t layout_name = ZEST__ZERO_INIT(zest_text_t);
-    va_list args;
-    va_start(args, name);
-    zest_SetTextfv(device->allocator, &layout_name, name, args);
-    va_end(args);
     ZEST_ASSERT(builder->bindings);     //must have bindings to create the layout
     zest_uint binding_count = (zest_uint)zest_vec_size(builder->bindings);
 	ZEST_ASSERT(binding_count > 0);     //Must add bindings before finishing the descriptor layout builder
 
-    zest_set_layout set_layout = zest__new_descriptor_set_layout(device, NULL, layout_name.str);
+    zest_set_layout set_layout = zest__new_descriptor_set_layout(device, NULL, name);
     if (!device->platform->create_set_layout(device, NULL, builder, set_layout, ZEST_TRUE)) {
         zest__cleanup_set_layout(set_layout);
-		zest_FreeText(device->allocator, &layout_name);
         return NULL;
     }
 
@@ -11278,7 +11270,6 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, ze
     }
 
     set_layout->bindings = builder->bindings;
-    zest_FreeText(device->allocator, &layout_name);
     return set_layout;
 }
 

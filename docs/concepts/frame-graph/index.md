@@ -59,6 +59,26 @@ if (zest_BeginFrameGraph(context, "My Graph", &cache_key)) {
 }
 ```
 
+## Threading
+
+Notice that the functions between `zest_BeginFrameGraph` and `zest_EndFrameGraph`
+don't take a context: the begin call sets a *thread-local* current builder, and
+every builder function (`zest_BeginRenderPass`, `zest_ConnectOutput`,
+`zest_SetPassTask` and so on) operates on it implicitly.
+
+This has two practical consequences:
+
+- **Build a graph from a single OS thread.** All calls from `zest_BeginFrameGraph`
+  to `zest_EndFrameGraph` must happen on the same thread. Different threads can
+  build graphs concurrently as long as each is working with a different context —
+  the intended pattern for running a command graph on another thread is to give it
+  its own (often headless) context. Two threads building graphs on the *same*
+  context is not supported.
+- **Language bindings:** runtimes that migrate lightweight threads between OS
+  threads (e.g. Go's goroutines) must pin the OS thread for the duration of the
+  build (`runtime.LockOSThread()` in Go) so that all builder calls see the same
+  thread-local state.
+
 ## Pass Types
 
 Zest supports three types of passes:

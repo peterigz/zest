@@ -37,6 +37,11 @@ if (!frame_graph) {
 }
 ```
 
+**Threading:** graph building uses thread-local state — the builder functions
+between `zest_BeginFrameGraph` and `zest_EndFrameGraph` operate on the calling
+thread's current builder, so a graph must be built from a single OS thread. See
+[Frame Graph — Threading](../concepts/frame-graph/index.md#threading).
+
 ---
 
 ### zest_EndFrameGraph
