@@ -2914,7 +2914,7 @@ ZEST_PRIVATE inline zest_size zest__atomic_fetch_or(volatile zest_size *ptr, zes
 	#endif
 }
 
-ZEST_API inline void zest__atomic_store(volatile int *ptr, int value) {
+ZEST_PRIVATE inline void zest__atomic_store(volatile int *ptr, int value) {
 	#ifdef _WIN32
 	InterlockedExchange((LONG *)ptr, value);
 	#elif defined(ZEST_USE_C11_ATOMICS)
@@ -2924,7 +2924,7 @@ ZEST_API inline void zest__atomic_store(volatile int *ptr, int value) {
 	#endif
 }
 
-ZEST_API inline int zest__atomic_load(volatile int *ptr) {
+ZEST_PRIVATE inline int zest__atomic_load(volatile int *ptr) {
 	#ifdef _WIN32
 	return InterlockedOr((LONG *)ptr, 0);  // OR with 0 = read without modifying
 	#elif defined(ZEST_USE_C11_ATOMICS)
@@ -4437,20 +4437,18 @@ typedef struct zest_platform_t {
 	zest_bool  				   (*image_layout_is_valid_for_descriptor)(zest_image image);
 	zest_bool 				   (*copy_buffer_to_image)(zest_queue queue, zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
 	zest_bool 				   (*generate_mipmaps)(zest_queue queue, zest_image image);
-	//Descriptor Sets
-	zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 	//Pipelines
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool                  (*build_pipeline_layout)(zest_device device, zest_pipeline_layout layout, zest_pipeline_layout_info_t *info);
 	zest_bool				   (*finish_compute)(zest_device device, zest_compute compute);
 	//Semaphores
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
-	void                       (*wait_for_fif_semaphore)(zest_context context, int fif);
+	void                       (*wait_for_fif_semaphore)(zest_context context, zest_uint fif);
 	void                       (*queue_wait_idle)(zest_context context, zest_context_queue queue);
 	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
-	zest_bool                  (*create_set_pool)(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
+	zest_bool                  (*create_set_pool)(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
 	zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
 	void                       (*update_bindless_image_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
 	void                       (*update_bindless_storage_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
@@ -4472,7 +4470,7 @@ typedef struct zest_platform_t {
 	zest_bool				   (*create_window_surface)(zest_context context);
 	//Shader Compiling
 	zest_bool				   (*validate_shader)(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
-	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, zest_shader_options options);
+	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options);
 	//Create backends
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4505,13 +4503,12 @@ typedef struct zest_platform_t {
 	void                       (*destroy_context_surface)(zest_context context);
 	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain);
 	void 					   (*cleanup_compute_backend)(zest_compute compute);
-	void 					   (*cleanup_set_layout)(zest_set_layout layout);
 	void 					   (*cleanup_pipeline_backend)(zest_pipeline pipeline);
 	void 					   (*cleanup_pipeline_layout_backend)(zest_pipeline_layout layout);
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
 	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue queue);
 	void 					   (*cleanup_context_queue_backend)(zest_context context, zest_context_queue context_queue);
-	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
+	void 					   (*cleanup_set_layout_backend)(zest_set_layout layout);
 	//GPU Profiling
 	zest_bool                  (*create_gpu_profiler_backend)(zest_context context, zest_gpu_profiler_t *profiler);
 	void                       (*cleanup_gpu_profiler_backend)(zest_gpu_profiler_t *profiler);
@@ -4566,21 +4563,9 @@ typedef struct zest_generic_handle {
 	zest_resource_store_t *store;
 }zest_generic_handle;
 
-ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
-	zest_generic_handle *generic_handle = (zest_generic_handle *)handle;
-	if (!generic_handle && ZEST_VALID_HANDLE(generic_handle->store, zest_struct_type_resource_store)) {
-		return ZEST_FALSE;
-	}
-	zest_uint index = ZEST_HANDLE_INDEX(generic_handle->value);
-	zest_uint generation = ZEST_HANDLE_GENERATION(generic_handle->value);
-	if (generation > 0) {
-		if (index < generic_handle->store->data.current_size) {
-			char *resource = (char*)zest__bucket_array_get(&generic_handle->store->data, index);
-			return ZEST_VALID_HANDLE(resource, generic_handle->store->struct_type);
-		}
-	}
-	return ZEST_FALSE;
-}
+//Pass a pointer to any user handle struct (a zest_handle value plus its resource store). Returns true if the
+//pointer is non-null, the store is valid and the handle still refers to a live resource of the store's type.
+ZEST_API zest_bool zest_IsValidHandle(void *handle);
 
 ZEST_PRIVATE inline zest_bool zest__resource_is_initialised(zest_resource_store_t *store, zest_uint index) {
 	zest_uint word_idx = index / ZEST_BITS_PER_WORD;
@@ -4878,7 +4863,7 @@ ZEST_API zest_bool zest_DeviceFeatureEnabled(zest_device device, zest_device_cap
 //Finish and create the device
 ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 //Create a new zest_create_context_info_t struct with default values for initialising Zest
-ZEST_API zest_create_context_info_t zest_CreateContextInfo();
+ZEST_API zest_create_context_info_t zest_CreateContextInfo(void);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateContextInfo() to set up some default values to initialise the renderer.
 ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_context_info_t* info);
 //Create a headless context that doesn't require a window or swapchain. Useful for compute-only workloads on worker threads.
@@ -5224,7 +5209,7 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
-ZEST_API zest_frame_graph zest_EndFrameGraph();
+ZEST_API zest_frame_graph zest_EndFrameGraph(void);
 ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 ZEST_API void zest_SetFrameGraphUserData(void *user_data);
@@ -5236,7 +5221,7 @@ ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, co
 ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportSwapchainResource();
+ZEST_API zest_resource_node zest_ImportSwapchainResource(void);
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image image, zest_resource_image_provider provider);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
 
@@ -5244,7 +5229,7 @@ ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buf
 ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
 ZEST_API zest_pass_node zest_BeginComputePass(const char *name);
 ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
-ZEST_API void zest_EndPass();
+ZEST_API void zest_EndPass(void);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_fg_execution_callback callback, void *user_data);
@@ -5288,10 +5273,10 @@ ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list 
 
 // --- Special flags for passes and resource
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
-ZEST_API void zest_DoNotCull();
+ZEST_API void zest_DoNotCull(void);
 
 // --- Render target groups ---
-ZEST_API zest_resource_group zest_CreateResourceGroup();
+ZEST_API zest_resource_group zest_CreateResourceGroup(void);
 ZEST_API void zest_AddSwapchainToGroup(zest_resource_group group);
 ZEST_API void zest_AddResourceToGroup(zest_resource_group group, zest_resource_node image);
 
@@ -5301,7 +5286,7 @@ ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 // --- Connect Resources to Pass Nodes ---
 ZEST_API void zest_ConnectInput(zest_resource_node resource);
 ZEST_API void zest_ConnectOutput(zest_resource_node resource);
-ZEST_API void zest_ConnectSwapChainOutput();
+ZEST_API void zest_ConnectSwapChainOutput(void);
 ZEST_API void zest_ConnectOutputGroup(zest_resource_group group);
 ZEST_API void zest_ConnectInputGroup(zest_resource_group group);
 
@@ -5562,7 +5547,6 @@ ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image image, zest_binding_numb
 //for frame graph caching purposes etc.
 ZEST_API int zest_ImageRawLayout(zest_image image);
 ZEST_API zest_extent2d_t zest_RegionDimensions(zest_atlas_region_t *region);
-ZEST_API zest_extent2d_t zest_RegionDimensions(zest_atlas_region_t *region);
 ZEST_API zest_uint zest_RegionLayerIndex(zest_atlas_region_t *region);
 ZEST_API zest_vec4 zest_RegionUV(zest_atlas_region_t *region);
 ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint sampler_index, zest_image image, zest_binding_number_type binding_number);
@@ -5572,9 +5556,9 @@ ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
 //then a new one will be created.
 ZEST_API zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *info);
-ZEST_API zest_sampler_info_t zest_CreateSamplerInfo();
-ZEST_API zest_sampler_info_t zest_CreateSamplerInfoRepeat();
-ZEST_API zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat();
+ZEST_API zest_sampler_info_t zest_CreateSamplerInfo(void);
+ZEST_API zest_sampler_info_t zest_CreateSamplerInfoRepeat(void);
+ZEST_API zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat(void);
 ZEST_API zest_sampler zest_GetSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSampler(zest_sampler_handle handle);
 ZEST_API void zest_FreeSamplerNow(zest_sampler_handle handle);
@@ -5751,7 +5735,7 @@ ZEST_API void zest_ReserveMeshVertices(zest_mesh mesh, zest_uint count);
 //Clear all vertices from the mesh (keeps capacity)
 ZEST_API void zest_ClearMeshVertices(zest_mesh mesh);
 //Initialise a new bounding box to 0
-ZEST_API zest_bounding_box_t zest_NewBoundingBox();
+ZEST_API zest_bounding_box_t zest_NewBoundingBox(void);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
 ZEST_API zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint texture_index);
 //Get the vertex count in the mesh
@@ -5902,7 +5886,7 @@ ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
 ZEST_API void zest_AddDeviceValidationErrorDebugStop(zest_device device, zest_uint error_number);
 ZEST_API void zest_ClearDeviceValidationErrorDebugStops(zest_device device);
-ZEST_API void zest_CreateTestRenderPass();
+ZEST_API void zest_CreateTestRenderPass(zest_device device, const zest_command_list_t *command_list);
 
 //--GPU Profiling
 ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
@@ -8182,7 +8166,7 @@ zest_bool zest_SwapchainWasRecreated(zest_context context) {
 //-- End Events and States
 
 //-- Camera and other helpers
-zest_camera_t zest_CreateCamera() {
+zest_camera_t zest_CreateCamera(void) {
     zest_camera_t camera = ZEST__ZERO_INIT(zest_camera_t);
     camera.yaw = 0.f;
     camera.pitch = 0.f;
@@ -11726,7 +11710,7 @@ void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_templ
     zest_vec_clear(pipeline_template->attribute_descriptions);
 }
 
-zest_color_blend_attachment_t zest_AdditiveBlendState() {
+zest_color_blend_attachment_t zest_AdditiveBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.blend_enable = ZEST_TRUE;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
@@ -11739,7 +11723,7 @@ zest_color_blend_attachment_t zest_AdditiveBlendState() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_AdditiveBlendState2() {
+zest_color_blend_attachment_t zest_AdditiveBlendState2(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.blend_enable = ZEST_TRUE;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
@@ -11752,7 +11736,7 @@ zest_color_blend_attachment_t zest_AdditiveBlendState2() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_AlphaOnlyBlendState() {
+zest_color_blend_attachment_t zest_AlphaOnlyBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.blend_enable = ZEST_TRUE;
     color_blend_attachment.color_write_mask = zest_color_component_a_bit;
@@ -11765,14 +11749,14 @@ zest_color_blend_attachment_t zest_AlphaOnlyBlendState() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_BlendStateNone() {
+zest_color_blend_attachment_t zest_BlendStateNone(void) {
     zest_color_blend_attachment_t color_blend_attachment = ZEST__ZERO_INIT(zest_color_blend_attachment_t);
     color_blend_attachment.color_write_mask = 0;
     color_blend_attachment.blend_enable = ZEST_FALSE;
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_AlphaBlendState() {
+zest_color_blend_attachment_t zest_AlphaBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_TRUE;
@@ -11785,7 +11769,7 @@ zest_color_blend_attachment_t zest_AlphaBlendState() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_PreMultiplyBlendState() {
+zest_color_blend_attachment_t zest_PreMultiplyBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_TRUE;
@@ -11798,7 +11782,7 @@ zest_color_blend_attachment_t zest_PreMultiplyBlendState() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap() {
+zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_TRUE;
@@ -11811,7 +11795,7 @@ zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_MaxAlphaBlendState() {
+zest_color_blend_attachment_t zest_MaxAlphaBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_TRUE;
@@ -11824,7 +11808,7 @@ zest_color_blend_attachment_t zest_MaxAlphaBlendState() {
     return color_blend_attachment;
 }
 
-zest_color_blend_attachment_t zest_ImGuiBlendState() {
+zest_color_blend_attachment_t zest_ImGuiBlendState(void) {
     zest_color_blend_attachment_t color_blend_attachment;
     color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_TRUE;
@@ -12482,6 +12466,22 @@ void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index) {
     return (void *)((char *)array->buckets[bucket_index] + index_in_bucket * array->element_size);
 }
 
+zest_bool zest_IsValidHandle(void *handle) {
+	zest_generic_handle *generic_handle = (zest_generic_handle *)handle;
+	if (!generic_handle || !ZEST_VALID_HANDLE(generic_handle->store, zest_struct_type_resource_store)) {
+		return ZEST_FALSE;
+	}
+	zest_uint index = ZEST_HANDLE_INDEX(generic_handle->value);
+	zest_uint generation = ZEST_HANDLE_GENERATION(generic_handle->value);
+	if (generation > 0) {
+		if (index < generic_handle->store->data.current_size && generic_handle->store->generations[index] == generation) {
+			char *resource = (char*)zest__bucket_array_get(&generic_handle->store->data, index);
+			return ZEST_VALID_HANDLE(resource, generic_handle->store->struct_type);
+		}
+	}
+	return ZEST_FALSE;
+}
+
 void *zest__bucket_array_add(zest_bucket_array_t *array) {
     ZEST_ASSERT(array);
     // If the array is empty or the last bucket is full, allocate a new one.
@@ -12960,7 +12960,7 @@ zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *
     return ZEST__ZERO_INIT(zest_sampler_handle);
 }
 
-zest_sampler_info_t zest_CreateSamplerInfo() {
+zest_sampler_info_t zest_CreateSamplerInfo(void) {
     zest_sampler_info_t sampler_info = ZEST__ZERO_INIT(zest_sampler_info_t);
     sampler_info.mag_filter = zest_filter_linear;
     sampler_info.min_filter = zest_filter_linear;
@@ -12979,7 +12979,7 @@ zest_sampler_info_t zest_CreateSamplerInfo() {
     return sampler_info;
 }
 
-zest_sampler_info_t zest_CreateSamplerInfoRepeat() {
+zest_sampler_info_t zest_CreateSamplerInfoRepeat(void) {
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     sampler_info.address_mode_u = zest_sampler_address_mode_repeat;
     sampler_info.address_mode_v = zest_sampler_address_mode_repeat;
@@ -12987,7 +12987,7 @@ zest_sampler_info_t zest_CreateSamplerInfoRepeat() {
 	return sampler_info;
 }
 
-zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat() {
+zest_sampler_info_t zest_CreateSamplerInfoMirrorRepeat(void) {
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     sampler_info.address_mode_u = zest_sampler_address_mode_mirrored_repeat;
     sampler_info.address_mode_v = zest_sampler_address_mode_mirrored_repeat;
@@ -13424,7 +13424,7 @@ zloc_linear_allocator_t *zest__get_scratch_arena(zest_device device) {
 	return &device->scratch_arena;
 }
 
-zest_create_context_info_t zest_CreateContextInfo() {
+zest_create_context_info_t zest_CreateContextInfo(void) {
 	zest_create_context_info_t create_info;
 	create_info.title = "Zest Window";
 	create_info.frame_graph_allocator_size = zloc__KILOBYTE(256);
@@ -15164,7 +15164,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 	}
 }
 
-zest_frame_graph zest_EndFrameGraph() {
+zest_frame_graph zest_EndFrameGraph(void) {
 	if (!zest__frame_graph_builder) return NULL;
     zest_frame_graph frame_graph = zest__compile_frame_graph();
 	zest_context context = zest__frame_graph_builder->context;
@@ -16428,7 +16428,7 @@ void zest_FlagResourceAsEssential(zest_resource_node resource) {
     ZEST__FLAG(resource->flags, zest_resource_node_flag_essential_output);
 }
 
-void zest_DoNotCull() {
+void zest_DoNotCull(void) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  	//This function must be called withing a Being/EndRenderGraph block
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);    //No current pass found. Make sure you call zest_BeginPass
@@ -16455,7 +16455,7 @@ void zest_AddResourceToGroup(zest_resource_group group, zest_resource_node image
     zest_vec_linear_push(zest__frame_graph_builder->allocator, group->resources, image);
 }
 
-zest_resource_group zest_CreateResourceGroup() {
+zest_resource_group zest_CreateResourceGroup(void) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
@@ -16626,7 +16626,7 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     return node;
 }
 
-zest_resource_node zest_ImportSwapchainResource() {
+zest_resource_node zest_ImportSwapchainResource(void) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
@@ -16816,7 +16816,7 @@ zest_pass_node zest_BeginTransferPass(const char *name) {
     return pass;
 }
 
-void zest_EndPass() {
+void zest_EndPass(void) {
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_OR_VALIDATE(zest__frame_graph_builder->current_pass, context->device, 
 							"No begin pass found, make sure you call BeginRender/Compute/TransferPass", (void)0); 
@@ -17359,7 +17359,7 @@ void zest_ConnectInput(zest_resource_node resource) {
     }
 }
 
-void zest_ConnectSwapChainOutput() {
+void zest_ConnectSwapChainOutput(void) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called withing a Being/EndRenderGraph block
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_OR_VALIDATE(ZEST_VALID_HANDLE(zest__frame_graph_builder->current_pass, zest_struct_type_pass_node), 
@@ -19236,7 +19236,7 @@ void zest_ClearMeshVertices(zest_mesh mesh) {
     mesh->vertex_count = 0;
 }
 
-zest_bounding_box_t zest_NewBoundingBox() {
+zest_bounding_box_t zest_NewBoundingBox(void) {
     zest_bounding_box_t bb = ZEST__ZERO_INIT(zest_bounding_box_t);
     bb.max_bounds = zest_Vec3Set( -9999999.f, -9999999.f, -9999999.f );
     bb.min_bounds = zest_Vec3Set( ZEST_MAX_FLOAT, ZEST_MAX_FLOAT, ZEST_MAX_FLOAT );

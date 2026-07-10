@@ -239,7 +239,7 @@ ZEST_PRIVATE zest_bool zest__vk_query_device_capabilities(zest_device device);
 ZEST_PRIVATE void zest__vk_set_depth_format(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_device device);
-ZEST_PRIVATE void zest__vk_wait_for_fif_semaphore(zest_context context, int fif);
+ZEST_PRIVATE void zest__vk_wait_for_fif_semaphore(zest_context context, zest_uint fif);
 ZEST_PRIVATE void zest__vk_queue_wait_idle(zest_context context, zest_context_queue queue);
 ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context);
 
@@ -3478,7 +3478,7 @@ void zest__vk_wait_for_idle_device(zest_device device) {
 	vkDeviceWaitIdle(device->backend->logical_device);
 }
 
-void zest__vk_wait_for_fif_semaphore(zest_context context, int fif) {
+void zest__vk_wait_for_fif_semaphore(zest_context context, zest_uint fif) {
 	if (!context->frame_sync_timeline[fif]) return;
 	VkSemaphoreWaitInfo info = ZEST__ZERO_INIT(VkSemaphoreWaitInfo);
 	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
