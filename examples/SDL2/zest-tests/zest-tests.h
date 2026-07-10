@@ -77,8 +77,9 @@ void InitialiseTests(ZestTests *tests);
 void InitialiseSpecificTests(ZestTests *tests);
 void RegisterTest(ZestTests *tests, Test test);
 void ResetTests(ZestTests *tests);
-void RunTests(ZestTests *tests);
+int RunTests(ZestTests *tests);
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);
+int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
 
 int test__blank_screen(ZestTests *tests, Test *test);
 

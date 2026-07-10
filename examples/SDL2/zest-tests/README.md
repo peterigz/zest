@@ -4,7 +4,7 @@ Comprehensive test suite for Zest's frame graph system, pipeline states, resourc
 
 ## What It Does
 
-Runs 68 automated tests covering:
+Runs 80 automated tests, executed twice — once with dynamic rendering (the default path on VK 1.3 hardware) and once with the legacy VkRenderPass fallback forced — covering:
 - **Frame Graph Tests**: Empty graphs, single pass, pass culling, resource culling, chained dependencies, cyclic dependency detection, caching
 - **Stress Tests**: Large numbers of passes, transient buffers/images, multi-queue synchronization
 - **Pipeline Tests**: Depth states, blending, culling, topology, polygon mode, front face, vertex input, rasterization
@@ -23,8 +23,10 @@ Runs 68 automated tests covering:
 
 ## Running Tests
 
+Run from the repository root (shader paths are relative to it):
+
 ```bash
-build\examples\GLFW\Release\zest-tests.exe
+E:/Projects/C++/Zest-Build/examples/SDL2/Debug/zest-tests.exe
 ```
 
-Tests output colored pass/fail results to the console. Each test runs through multiple phases and validates expected outcomes against actual results.
+Tests output colored pass/fail results to the console. Each test runs through multiple phases and validates expected outcomes against actual results. The process exit code is 0 only if every test passes in both render pass modes.

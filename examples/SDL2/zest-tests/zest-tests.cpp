@@ -136,7 +136,7 @@ void PrintTestUpdate(Test *test, int phase, zest_bool passed) {
 	}
 }
 
-void RunTests(ZestTests *tests) {
+int RunTests(ZestTests *tests) {
 	int completed_tests = 0;
 
 	while (1) {
@@ -165,11 +165,14 @@ void RunTests(ZestTests *tests) {
 			}
 		}
 	}
-	ZEST_PRINT("%sTests completed: %i / %i\033[0m", completed_tests == tests->test_count == 0 ? "\033[31m" : "\033[32m", completed_tests, tests->test_count);
+	ZEST_PRINT("%sTests completed: %i / %i\033[0m", completed_tests < tests->test_count ? "\033[31m" : "\033[32m", completed_tests, tests->test_count);
+	return completed_tests;
 }
 
-int main(int argc, char *argv[]) {
-	//Create new config struct for Zest
+//Runs the full test suite on a fresh device. The render pass mode (dynamic rendering vs legacy
+//VkRenderPass) is a device creation decision, so covering both paths means building the device
+//twice; the same SDL window can back consecutive device lifetimes.
+int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out) {
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	ZestTests tests = {};
@@ -177,6 +180,40 @@ int main(int argc, char *argv[]) {
 	tests.headless_create_info = create_info;
 	tests.headless_create_info.flags |= zest_context_init_flag_headless;
 
+	// Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
+	zest_AddDeviceBuilderExtensions(device_builder, instance_extensions, extension_count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+	zest_DeviceBuilderLogToMemory(device_builder);
+	if (force_legacy_render_pass) {
+		zest_DeviceBuilderForceLegacyRenderPass(device_builder);
+	}
+	// The pipeline-state tests exercise tessellation/geometry/wireframe pipelines, so opt in to
+	// those optional device features here (shipping examples do not request them).
+	zest_RequestDeviceFeature(device_builder, zest_capability_tessellation);
+	zest_RequestDeviceFeature(device_builder, zest_capability_geometry_shader);
+	tests.device = zest_EndDeviceBuilder(device_builder);
+
+	if (!force_legacy_render_pass && zest__using_legacy_render_pass(tests.device)) {
+		ZEST_PRINT("\033[33mWARNING: dynamic rendering is not supported on this device, this run will use the legacy render pass path instead.\033[0m");
+	}
+
+	//Initialise Zest
+	tests.context = zest_CreateContext(tests.device, window_data, &create_info);
+
+	InitialiseTests(&tests);
+	//InitialiseSpecificTests(&tests);
+
+	int completed_tests = RunTests(&tests);
+	*total_out = tests.test_count;
+
+	zest_DestroyDevice(tests.device);
+
+	return completed_tests;
+}
+
+int main(int argc, char *argv[]) {
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Tests");
 
 	unsigned int count = 0;
@@ -184,32 +221,21 @@ int main(int argc, char *argv[]) {
 	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
 
-	// Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
-	zest_AddDeviceBuilderExtensions(device_builder, sdl_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	zest_DeviceBuilderLogToMemory(device_builder);
-	zest_DeviceBuilderForceLegacyRenderPass(device_builder);
-	// The pipeline-state tests exercise tessellation/geometry/wireframe pipelines, so opt in to
-	// those optional device features here (shipping examples do not request them).
-	zest_RequestDeviceFeature(device_builder, zest_capability_tessellation);
-	zest_RequestDeviceFeature(device_builder, zest_capability_geometry_shader);
-	tests.device = zest_EndDeviceBuilder(device_builder);
+	ZEST_PRINT("=== Test suite run 1/2: dynamic rendering ===");
+	int dynamic_total = 0;
+	int dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
+
+	ZEST_PRINT("");
+	ZEST_PRINT("=== Test suite run 2/2: legacy render pass ===");
+	int legacy_total = 0;
+	int legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
 
 	// Clean up the extensions array
 	free(sdl_extensions);
 
-	//Initialise Zest
-	tests.context = zest_CreateContext(tests.device, &window_data, &create_info);
+	ZEST_PRINT("");
+	ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
+	ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
 
-	InitialiseTests(&tests);
-	//InitialiseSpecificTests(&tests);
-
-	RunTests(&tests);
-	
-	//Start the main loop
-	zest_DestroyDevice(tests.device);
-
-	return 0;
+	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total) ? 0 : 1;
 }
