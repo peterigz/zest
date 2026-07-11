@@ -1515,7 +1515,11 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
     createInfo.oldSwapchain = VK_NULL_HANDLE;
 
     ZEST_SET_MEMORY_CONTEXT(context, zest_memory_context_context, zest_command_swapchain);
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateSwapchainKHR(context->device->backend->logical_device, &createInfo, &context->backend->allocation_callbacks, &swapchain->backend->vk_swapchain));
+    VkResult swapchain_result = vkCreateSwapchainKHR(context->device->backend->logical_device, &createInfo, &context->backend->allocation_callbacks, &swapchain->backend->vk_swapchain);
+    if (swapchain_result != VK_SUCCESS) {
+        ZEST_ALERT("vkCreateSwapchainKHR failed with VkResult %i (extent %ux%u, image count %u, format %i, present mode %i)", (int)swapchain_result, extent.width, extent.height, image_count, (int)surfaceFormat.format, (int)presentMode);
+    }
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, swapchain_result);
 
     swapchain->image_count = image_count;
 
@@ -4900,7 +4904,7 @@ zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_typ
 
     ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_device, zest_command_command_buffer);
     ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateCommandBuffers(device->backend->logical_device, &alloc_info, &queue->backend->command_buffer));
-    
+
     VkCommandBufferBeginInfo begin_info = ZEST__ZERO_INIT(VkCommandBufferBeginInfo);
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;

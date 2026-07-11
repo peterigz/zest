@@ -720,6 +720,7 @@ static inline void zloc__push_block(zloc_allocator *allocator, zloc_header *bloc
 	allocator->stats.free += zloc__block_size(block);
 	allocator->stats.free_blocks++;
 	allocator->stats.blocks_in_use--;
+	ZLOC_ASSERT(allocator->stats.blocks_in_use >= 0);
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -8790,7 +8791,6 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 
 	zest__initialise_debug_font(device);
 
-	ZEST__FREE_POOL(builder->allocator);
 	return device;
 }
 
@@ -8996,7 +8996,10 @@ zest_bool zest_BeginFrame(zest_context context) {
 			}
 			allocator = allocator->next;
 		}
-		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
+		//The new single block must be the full capacity of the chain it replaces: the allocator is
+		//initialised with that capacity, so a smaller allocation here means later frame graph
+		//builds write past the end of the block and corrupt the heap.
+		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, capacity);
         int result = zloc_InitialiseLinearAllocator(&context->frame_graph_allocator[context->current_fif], frame_graph_linear_memory, capacity);
 		ZEST_ASSERT(result, "Unable to allocate a frame graph allocator, out of memory.");
 		zloc_SetLinearAllocatorUserData(&context->frame_graph_allocator[context->current_fif], context);
@@ -9127,13 +9130,70 @@ void zest_DestroyContext(zest_context context) {
 	ZEST__FREE(context->device->allocator, context);
 }
 
+const char *zest__struct_type_to_string(zest_struct_type struct_type);
+const char *zest__platform_command_to_string(zest_platform_command command);
+
 void zest_ResetDevice(zest_device device) {
-	zest__cleanup_debug_font(device);
-    zest__cleanup_buffers_in_allocators(device);
+	device->default_image_2d = NULL;
+	device->default_image_cube = NULL;
+	device->default_cube_array_view = NULL;
+	device->frame_counter = 0;
+
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
+    zest__cleanup_buffers_in_allocators(device);
 	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
 	zest__free_all_device_resource_stores(device);
-	zest_ResetValidationErrors(device);
+
+	zest__cleanup_set_layout(device->bindless_set_layout);
+    ZEST__FREE(device->allocator, device->bindless_set->backend);
+    ZEST__FREE(device->allocator, device->bindless_set);
+	zest__release_all_image_indexes(device);
+
+	zest_ForEachFrameInFlight(fif) {
+		if (zest_vec_size(device->deferred_resource_freeing_list.resources[fif])) {
+			zest_vec_foreach(i, device->deferred_resource_freeing_list.resources[fif]) {
+				void *handle = device->deferred_resource_freeing_list.resources[fif][i];
+				zest__free_handle(device->allocator, handle);
+			}
+		}
+		if (zest_vec_size(device->deferred_resource_freeing_list.buffers[fif])) {
+			zest_vec_foreach(i, device->deferred_resource_freeing_list.buffers[fif]) {
+				zest_buffer buffer = device->deferred_resource_freeing_list.buffers[fif][i];
+				zest_FreeBufferNow(buffer);
+			}
+		}
+		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
+		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
+	}
+
+	zest_map_foreach(i, device->mip_indexes) {
+		zest_mip_index_collection *collection = &device->mip_indexes.data[i];
+		zest_uint active_bindings = collection->binding_numbers;
+		zest_uint current_binding = zloc__scan_reverse(active_bindings);
+		while (current_binding >= 0) {
+			zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
+				zest_uint index = collection->mip_indexes[current_binding][i];
+				zest_ReleaseBindlessIndex(device, index, (zest_binding_number_type)current_binding);
+			}
+			zest_vec_free(device->allocator, collection->mip_indexes[current_binding]);
+			active_bindings &= ~(1 << current_binding);
+			current_binding = zloc__scan_reverse(active_bindings);
+		}
+	}
+
+	for (int i = 0; i != zest_max_device_handle_type; ++i) {
+		switch ((zest_device_handle_type)i) {
+			case zest_handle_type_images: zest__free_store(&device->resource_stores[i]); break;
+			case zest_handle_type_views: zest__free_store(&device->resource_stores[i]); break;
+			case zest_handle_type_view_arrays: zest__free_store(&device->resource_stores[i]); break;
+			case zest_handle_type_samplers: zest__free_store(&device->resource_stores[i]); break;
+			case zest_handle_type_shaders: zest__free_store(&device->resource_stores[i]); break;
+			case zest_handle_type_compute_pipelines: zest__free_store(&device->resource_stores[i]); break;
+			default: break;
+		}
+	}
+
+	zest_vec_free(device->allocator, device->global_layout_builder.bindings);
 
     zest_map_foreach(i, device->reports) {
         zest_report_t *report = &device->reports.data[i];
@@ -9142,24 +9202,52 @@ void zest_ResetDevice(zest_device device) {
 
 	zest__free_device_buffer_allocators(device);
 
-	zest_ForEachFrameInFlight(fif) {
-		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
-		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
-	}
+	zloc_ResetLinearAllocator(&device->scratch_arena);
 
+	zest_vec_free(device->allocator, device->validation_debug_stops);
     zest_vec_free(device->allocator, device->debug.frame_log);
+    zest_vec_free(device->allocator, device->contexts);
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
+    zest_vec_free(device->allocator, device->extensions);
+    zest_map_free(device->allocator, device->pool_sizes);
+    zest_FreeText(device->allocator, &device->log_path);
+    zest_FreeText(device->allocator, &device->cached_shaders_path);
 
 	zest__initialise_device_stores(device);
 
-	device->frame_counter = 0;
+	//The pool_sizes map was freed above, but zest__set_default_pool_sizes is otherwise only called
+	//once during device backend creation. Without repopulating it here, every buffer allocator built
+	//after a reset falls into the "Derived Pool" fallback (see zest__create_buffer_allocator), which
+	//gives a 32k minimum allocation size instead of the 1k small-buffer default and silently oversizes
+	//small buffers.
+	zest__set_default_pool_sizes(device);
+
+    //Create a global bindless descriptor set for storage buffers and texture samplers
+    zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, device->setup_info.bindless_sampler_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_2d_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_cube_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_array_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_3d_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, device->setup_info.bindless_storage_buffer_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, device->setup_info.bindless_storage_image_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, device->setup_info.bindless_uniform_buffer_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_cube_array_count, zest_shader_all_stages ) );
+	device->global_layout_builder = layout_builder;
+    device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
+    device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
 
 	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
 	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
 	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
 
 	zest__create_default_images(device, &device->setup_info);
+
+    ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
+
+    device->platform->set_depth_format(device);
+
 	zest__initialise_debug_font(device);
 }
 
@@ -10647,7 +10735,6 @@ void zest__free_context_buffer_allocators(zest_context context) {
 }
 
 void zest__cleanup_device(zest_device device) {
-	int stage = 1;
 	zest_vec_foreach(i, device->queue_families) {
 		zest_queue_manager manager = device->queue_families[i];
 		if (!manager) continue;
