@@ -7004,8 +7004,11 @@ typedef struct zest_context_t {
 	zest_create_context_info_t create_info;
 
 	//Track the queue layout signature of the last executed frame graph so we can detect
-	//when the queue structure changes and drain in-flight work to avoid cross-queue hazards
+	//when the queue structure changes and drain in-flight work to avoid cross-queue hazards.
+	//has_queue_layout_signature gates the first-frame case: a hashed signature can legitimately
+	//be 0, so we cannot use 0 as an "uninitialised" sentinel or we would miss a real change.
 	zest_u64 last_queue_layout_signature;
+	zest_bool has_queue_layout_signature;
 } zest_context_t;
 
 typedef struct zest_pipeline_layout_t {
@@ -7144,6 +7147,9 @@ typedef struct zest_frame_graph_t {
 	zest_descriptor_set bindless_set;
 
 	zest_wave_submission_t *submissions;
+
+	//Uniquely identifies the graph
+	zest_u64 queue_layout_signature;
 
 	void *user_data;
 	zest_command_list_t command_list;
@@ -15283,7 +15289,26 @@ zest_frame_graph zest__compile_frame_graph() {
         //Error: the frame graph is trying to render to the screen but no swap chain image was used!
         //Make sure that you call zest_ConnectSwapChainOutput in your frame graph setup.
     }
-	ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_compiled);  
+	ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_compiled);
+
+	//Generate a layout signature that can be used to compare with the frame graph that was executed last
+	//frame (should be a rare event) and add a safety wait until gpu idle to ensure there's no syncronisation errors
+	{
+		zest_hasher_t layout_hasher;
+		zest__hash_initialise(&layout_hasher, ZEST_HASH_SEED);
+		zest_uint wave_count = zest_vec_size(frame_graph->submissions);
+		zest__hasher_add(&layout_hasher, &wave_count, sizeof(wave_count));
+		zest_vec_foreach(i, frame_graph->submissions) {
+			zest_wave_submission_t *wave_submission = &frame_graph->submissions[i];
+			zest__hasher_add(&layout_hasher, &wave_submission->queue_bits, sizeof(wave_submission->queue_bits));
+			for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+				zest_submission_batch_t *batch = &wave_submission->batches[queue_index];
+				if (!batch->magic) continue;
+				zest__hasher_add(&layout_hasher, &batch->queue_family_index, sizeof(batch->queue_family_index));
+			}
+		}
+		frame_graph->queue_layout_signature = (zest_u64)zest__get_hash(&layout_hasher);
+	}
 
 	//If no descriptor sets are set in the graph then just set the global bindless set by default
 	if (!frame_graph->descriptor_sets) {
@@ -15615,18 +15640,18 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
 	zest_device device = context->device;
 
-	// Compute a signature from the wave/queue layout of this frame graph.
-	// If it differs from the previous frame's layout, resources may have moved between
-	// queues and we need to drain all in-flight work to avoid cross-queue hazards.
-	zest_u64 queue_layout_signature = (zest_u64)zest_vec_size(frame_graph->submissions);
-	zest_vec_foreach(i, frame_graph->submissions) {
-		queue_layout_signature = (queue_layout_signature << 4) | (zest_u64)frame_graph->submissions[i].queue_bits;
-	}
-	if (context->last_queue_layout_signature != 0 && context->last_queue_layout_signature != queue_layout_signature) {
+	// Compare this graph's wave/queue layout signature (hashed once at compile time, see
+	// zest__compile_frame_graph) against the previous frame's. If it differs, resources may have
+	// moved between queues and we need to drain all in-flight work to avoid cross-queue hazards.
+	// has_queue_layout_signature gates the first frame: a hashed signature can legitimately be 0,
+	// so 0 cannot double as an "uninitialised" sentinel or a real change would be missed.
+	zest_u64 queue_layout_signature = frame_graph->queue_layout_signature;
+	if (context->has_queue_layout_signature && context->last_queue_layout_signature != queue_layout_signature) {
 		zest_WaitForIdleDevice(device);
 		ZEST_REPORT(device, zest_report_wait_idle, "The wave and queue configuration for context %s changed causing a Wait for Device Idle to prevent sync hazards. Only something to worry about if you see 100s/1000s of these as that will be a performance bottleneck.", context->swapchain ? context->swapchain->name : "(Headless)");
 	}
 	context->last_queue_layout_signature = queue_layout_signature;
+	context->has_queue_layout_signature = ZEST_TRUE;
 
 	// For cached frame graphs, update the signal timeline to the current FIF's timeline.
 	// Without this, a cached graph keeps pointing at the FIF from when it was first compiled,
