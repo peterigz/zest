@@ -14848,7 +14848,8 @@ zest_frame_graph zest__compile_frame_graph() {
                 }
                 if (uses_swapchain) {
                     first_batch_to_wait = &wave_submission->batches[queue_index];
-                    //wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
+                    // Wait on the acquire semaphore only at the stage that first touches the swapchain 
+                    wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
                     if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, context->queues[queue_index]->queue_manager->type)) {
                         ZEST_REPORT(context->device, zest_report_incompatible_stage_for_queue, "Swapchain usage stage %i is not compatible with queue family %u for wave submission %i",
@@ -14858,6 +14859,9 @@ zest_frame_graph zest__compile_frame_graph() {
                         // though it indicates a graph definition error.
                         wait_stage_for_acquire_semaphore = zest_pipeline_stage_top_of_pipe_bit;
                     }
+                    // Match the acquire's initial layout-transition barrier (UNDEFINED -> first
+                    // usage layout) src stage to the wait stage. 
+                    swapchain_node->last_stage_mask = wait_stage_for_acquire_semaphore;
                 }
             }
 
