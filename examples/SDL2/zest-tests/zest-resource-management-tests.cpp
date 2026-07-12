@@ -520,8 +520,7 @@ int test__buffer_edge_cases(ZestTests *tests, Test *test) {
 	}
 
 	// Phase 3: NULL pointer handling
-	// zest_FreeBuffer(NULL) should be safe
-	zest_FreeBuffer(NULL);
+	zest_FreeBuffer(NULL);	//Should be safe
 	passed_tests++; // Didn't crash
 	total_tests++;
 

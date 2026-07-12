@@ -4,13 +4,14 @@ Comprehensive test suite for Zest's frame graph system, pipeline states, resourc
 
 ## What It Does
 
-Runs 80 automated tests, executed twice — once with dynamic rendering (the default path on VK 1.3 hardware) and once with the legacy VkRenderPass fallback forced — covering:
+Runs 85 automated tests, executed twice — once with dynamic rendering (the default path on VK 1.3 hardware) and once with the legacy VkRenderPass fallback forced — covering:
 - **Frame Graph Tests**: Empty graphs, single pass, pass culling, resource culling, chained dependencies, cyclic dependency detection, caching
 - **Stress Tests**: Large numbers of passes, transient buffers/images, multi-queue synchronization
 - **Pipeline Tests**: Depth states, blending, culling, topology, polygon mode, front face, vertex input, rasterization
 - **Resource Tests**: Image format support, creation/destruction, views, buffers, uniform buffers, staging operations, samplers
 - **User Error Tests**: Missing `UpdateDevice`, `EndFrame`, swapchain import, end pass, bad ordering, state errors
 - **Compute Tests**: Frame graph execution, timeline semaphores, mipmap chains, read-modify-write patterns
+- **Layer Tests**: Instance layer staging writes with GPU readback verification, instruction batching, automatic buffer growth, end-to-end instanced drawing via `zest_DrawInstanceLayer` with pixel verification, frame in flight rotation
 
 ## Zest Features Tested
 

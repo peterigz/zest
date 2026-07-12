@@ -10,6 +10,8 @@
 #include "zest-resource-management-tests.cpp"
 #include "zest-user-tests.cpp"
 #include "zest-compute-tests.cpp"
+#include "zest-layer-tests.cpp"
+#include "zest-device-reset-tests.cpp"
 
 void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
@@ -98,6 +100,20 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Resource Test Pooled Image Allocations", test__pooled_image_allocations, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Unbacked Transient Barrier", test__unbacked_transient_barrier, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
+	//Layer tests also create transient buffers/images so they stay after the bindless-index
+	//sensitive tests above for the same reason.
+	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Layer Test Instruction Batching", test__instance_layer_batching, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Layer Test Buffer Growth", test__instance_layer_grow, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Layer Test Instance Draw", test__instance_layer_draw, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Layer Test Frame In Flight", test__instance_layer_fif, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
+	//Device reset tests run their own reset cycles internally, which rebuilds the bindless index
+	//free lists among other things, so they stay last where they can't disturb any test that is
+	//sensitive to accumulated device state.
+	RegisterTest(tests, { "Device Reset Memory Stability", test__device_reset_memory_stability, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Device Reset Deferred Frees", test__device_reset_deferred_frees, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Device Reset Pool Sizing", test__device_reset_pool_sizing, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Device Reset Bindless Indexes", test__device_reset_bindless_indexes, 0, 1, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
@@ -106,7 +122,7 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Compute Test WAW Barrier", test__compute_waw_barrier, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->headless_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
@@ -126,6 +142,10 @@ void ResetTests(ZestTests *tests) {
 	tests->cpu_buffer = { 0 };
 	tests->sampler = { 0 };
 	tests->mipped_sampler = { 0 };
+	tests->test_layer = { 0 };
+	tests->layer_pipeline = 0;
+	tests->stress_resources.image_count = 0;
+	tests->stress_resources.buffer_count = 0;
 }
 
 void PrintTestUpdate(Test *test, int phase, zest_bool passed) {
@@ -152,11 +172,10 @@ int RunTests(ZestTests *tests) {
 			}
 			if (tests->current_test < tests->test_count - 1) {
 				tests->current_test++;
-				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
-				zest_ResetContext(tests->context, 0);
+				//zest_ResetDevice recreates the logical device and destroys the context with it, so
+				//recreate the context afterwards with the next test's create info.
 				zest_ResetDevice(tests->device);
-				tests->stress_resources.image_count = 0;
-				tests->stress_resources.buffer_count = 0;
+				tests->context = zest_CreateContext(tests->device, &tests->window_data, &tests->tests[tests->current_test].create_info);
 				zest_ResetValidationErrors(tests->device);
 				ResetTests(tests);
 			} else {
@@ -183,7 +202,7 @@ int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, 
 	// Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
 	zest_AddDeviceBuilderExtensions(device_builder, instance_extensions, extension_count);
-	zest_AddDeviceBuilderValidation(device_builder);
+	zest_AddDeviceBuilderValidation(device_builder);	//TEMP: leak experiment
 	zest_DeviceBuilderLogToConsole(device_builder);
 	zest_DeviceBuilderLogToMemory(device_builder);
 	if (force_legacy_render_pass) {
@@ -200,6 +219,7 @@ int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, 
 	}
 
 	//Initialise Zest
+	tests.window_data = *window_data;
 	tests.context = zest_CreateContext(tests.device, window_data, &create_info);
 
 	InitialiseTests(&tests);
@@ -214,6 +234,10 @@ int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, 
 }
 
 int main(int argc, char *argv[]) {
+	//Unbuffered output so that when a test crashes the process, the last test name printed is
+	//actually the test that crashed rather than whatever was last flushed
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Tests");
 
 	unsigned int count = 0;
@@ -235,7 +259,7 @@ int main(int argc, char *argv[]) {
 
 	ZEST_PRINT("");
 	ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
-	ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
+	//ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
 
 	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total) ? 0 : 1;
 }

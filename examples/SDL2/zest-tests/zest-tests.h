@@ -51,6 +51,7 @@ struct StressResources {
 struct ZestTests {
 	zest_device device;
 	zest_context context;
+	zest_window_data_t window_data;	//kept so the context can be recreated after zest_ResetDevice
 	Test tests[TEST_COUNT];
 	int test_count;
 	int current_test;
@@ -71,13 +72,15 @@ struct ZestTests {
 	zest_create_context_info_t simple_create_info;
 	zest_create_context_info_t headless_create_info;
 	StressResources stress_resources;
+	zest_layer_handle test_layer;
+	zest_pipeline_template layer_pipeline;
 };
 
 void InitialiseTests(ZestTests *tests);
 void InitialiseSpecificTests(ZestTests *tests);
 void RegisterTest(ZestTests *tests, Test test);
 void ResetTests(ZestTests *tests);
-int RunTests(ZestTests *tests);
+int RunTests(ZestTests *tests, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass);
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);
 int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
 

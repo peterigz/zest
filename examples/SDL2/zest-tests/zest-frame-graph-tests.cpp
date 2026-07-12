@@ -629,7 +629,7 @@ void zest_TransferBuffer(const zest_command_list command_list, void *user_data) 
 		dummy_data[i] = (float)i;
 	}
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->device, sizeof(float) * 1024, dummy_data);
-	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, staging_buffer->size);
+	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, write_buffer->storage_buffer->size);
 }
 
 void zest_WriteImageCompute(const zest_command_list command_list, void *user_data) {

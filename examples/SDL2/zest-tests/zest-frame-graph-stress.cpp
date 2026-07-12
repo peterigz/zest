@@ -415,7 +415,7 @@ void zest_StressTransferBuffer(const zest_command_list command_list, void *user_
 		dummy_data[i] = (float)i;
 	}
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(command_list->device, sizeof(float) * 1024, dummy_data);
-	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, staging_buffer->size);
+	zest_cmd_CopyBuffer(command_list, staging_buffer, write_buffer->storage_buffer, sizeof(float) * 1024);
 	zest_FreeBuffer(staging_buffer);
 }
 

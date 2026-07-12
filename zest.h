@@ -797,7 +797,9 @@ static inline void zloc__remove_block_from_segregated_list(zloc_allocator *alloc
 	zloc__mark_block_as_used(block);
 	allocator->stats.free -= zloc__block_size(block);
 	allocator->stats.free_blocks--;
-	allocator->stats.blocks_in_use++;
+	//NOTE: do not touch blocks_in_use here. This function only runs while merging (or removing a pool),
+	//where the removed free block is destroyed rather than handed out as an allocation. The block it gets
+	//merged into keeps its existing live/free accounting, so the live-block count is unchanged.
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -827,6 +829,7 @@ static inline zloc_header *zloc__maybe_split_block(zloc_allocator *allocator, zl
 	zloc__set_block_size(block, size + zloc__block_extension_size);
 	//Note if this callback calls back into reallocate or allocate functions then you will get a spin lock.
 	zloc__do_split_block_callback;
+	allocator->stats.blocks_in_use++;
 	zloc__push_block(allocator, trimmed);
 	return block;
 }
@@ -842,6 +845,7 @@ static inline zloc_header *zloc__split_aligned_block(zloc_allocator *allocator, 
 	zloc__set_prev_physical_block(next_block, trimmed);
 	zloc__set_prev_physical_block(trimmed, block);
 	zloc__set_block_size(block, size_minus_overhead);
+	allocator->stats.blocks_in_use++;
 	zloc__push_block(allocator, block);
 #ifdef ZLOC_SAFEGUARDS
 	trimmed->allocator = allocator;
@@ -1653,6 +1657,8 @@ typedef enum {
 	zest_buffer_usage_vertex_buffer_bit = 0x00000080,
 	zest_buffer_usage_indirect_buffer_bit = 0x00000100,
 	zest_buffer_usage_shader_device_address_bit = 0x00020000,
+	//To prevent double frees when deferring
+	zest_buffer_usage_pending_free_bit = 0x80000000,
 } zest_buffer_usage_flag_bits;
 
 typedef zest_uint zest_buffer_usage_flags;
@@ -4459,7 +4465,7 @@ typedef struct zest_platform_t {
 	void                       (*update_bindless_storage_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	void                       (*update_bindless_uniform_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
-	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
+	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue, zest_bool release_resources);
 	//General Context
 	void                       (*set_depth_format)(zest_device device);
 	zest_bool                  (*initialise_context_backend)(zest_context context);
@@ -4504,6 +4510,7 @@ typedef struct zest_platform_t {
 	void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
 	void                       (*cleanup_memory_backend)(zest_device_memory memory);
 	void                       (*cleanup_device_backend)(zest_device device);
+	zest_bool                  (*reinit_logical_device)(zest_device device);
 	void                       (*cleanup_context_backend)(zest_context context);
 	void                       (*destroy_context_surface)(zest_context context);
 	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain);
@@ -5889,8 +5896,8 @@ ZEST_API const char *zest_GetErrorLogPath(zest_device device);
 ZEST_API zest_uint zest_ReportCount(zest_context context);
 ZEST_API void zest_PrintReports(zest_context context);
 ZEST_API void zest_ResetReports(zest_context context);
-ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
-ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
+ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter);
+ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_device device);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
 ZEST_API void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color, const char* format, ...);
@@ -6337,6 +6344,7 @@ ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_a
 	ZLOC_ASSERT(block == trimmed_free_block->prev_physical_block);
 	ZLOC_ASSERT(trimmed_free_block == next_block->prev_physical_block);
 
+	allocator->stats.blocks_in_use++;
 	zloc__push_block(allocator, trimmed_free_block);
 
 	zloc__unlock_thread_access;
@@ -9133,22 +9141,32 @@ void zest_DestroyContext(zest_context context) {
 const char *zest__struct_type_to_string(zest_struct_type struct_type);
 const char *zest__platform_command_to_string(zest_platform_command command);
 
+// zest_ResetDevice clears out everything a device owns and recreates the logical device, so that the
+// host memory a driver retains per created object (which it only frees at vkDestroyDevice) does not
+// accumulate across resets. IMPORTANT: this destroys every context created on the device - their
+// swapchain, command pools and semaphores are children of the recreated logical device. After
+// zest_ResetDevice returns, all previous zest_context handles are invalid and must be recreated with
+// zest_CreateContext.
 void zest_ResetDevice(zest_device device) {
 	device->default_image_2d = NULL;
 	device->default_image_cube = NULL;
 	device->default_cube_array_view = NULL;
 	device->frame_counter = 0;
 
+	//Destroy every context up front, while the current logical device is still alive, so their
+	//device-child objects are torn down cleanly before the device is recreated below.
+	while (zest_vec_size(device->contexts)) {
+		zest_DestroyContext(device->contexts[zest_vec_size(device->contexts) - 1]);
+	}
+
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
     zest__cleanup_buffers_in_allocators(device);
-	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
-	zest__free_all_device_resource_stores(device);
 
-	zest__cleanup_set_layout(device->bindless_set_layout);
-    ZEST__FREE(device->allocator, device->bindless_set->backend);
-    ZEST__FREE(device->allocator, device->bindless_set);
-	zest__release_all_image_indexes(device);
-
+	//Drain the deferred freeing lists BEFORE the memory scan below. The scan frees any scannable
+	//resource still live in the allocator (execution timelines, pipeline templates, ...); an object
+	//already queued on a deferred list is still live at that point, so if the scan ran first it would
+	//free the object and the deferred drain would then free it again - a double free (e.g. an
+	//execution timeline freed with zest_FreeExecutionTimeline).
 	zest_ForEachFrameInFlight(fif) {
 		if (zest_vec_size(device->deferred_resource_freeing_list.resources[fif])) {
 			zest_vec_foreach(i, device->deferred_resource_freeing_list.resources[fif]) {
@@ -9165,6 +9183,14 @@ void zest_ResetDevice(zest_device device) {
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
+
+	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
+	zest__free_all_device_resource_stores(device);
+
+	zest__cleanup_set_layout(device->bindless_set_layout);
+    ZEST__FREE(device->allocator, device->bindless_set->backend);
+    ZEST__FREE(device->allocator, device->bindless_set);
+	zest__release_all_image_indexes(device);
 
 	zest_map_foreach(i, device->mip_indexes) {
 		zest_mip_index_collection *collection = &device->mip_indexes.data[i];
@@ -9213,6 +9239,13 @@ void zest_ResetDevice(zest_device device) {
     zest_map_free(device->allocator, device->pool_sizes);
     zest_FreeText(device->allocator, &device->log_path);
     zest_FreeText(device->allocator, &device->cached_shaders_path);
+
+	//Everything that lived on the old logical device (contexts above, plus every device resource
+	//destroyed since) has now been torn down. Recreate the logical device itself, keeping the
+	//instance and validation layers, so the driver releases all the host memory it retains per
+	//created object until vkDestroyDevice - otherwise that retention grows on every reset without
+	//bound.
+	device->platform->reinit_logical_device(device);
 
 	zest__initialise_device_stores(device);
 
@@ -9349,7 +9382,7 @@ void zest__destroy_device(zest_device device) {
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a Zest Device, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
-        zest_PrintMemoryBlocks(allocator, zloc__first_block_in_pool(zloc_GetPool(allocator)), 1, zest_memory_context_none, zest_command_none);
+        zest_PrintMemoryBlocks(allocator, zloc__first_block_in_pool(zloc_GetPool(allocator)), 1, zest_memory_context_none, zest_command_none, (zest_struct_type)0);
     } else {
 		ZEST_PRINT("Successful shutdown of Zest Device.");
     }
@@ -9638,6 +9671,13 @@ void zest_FreeMemory(zest_device device, void *allocation) {
 
 void* zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_size alignment) {
     void* allocation = zloc_AllocateAligned(allocator, size, alignment);
+	/*
+	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
+	zloc_header *block = zloc__block_from_allocation(allocation);
+	if (offset_from_allocator == 30681568 && block->size == 72) {
+		int d = 0;
+	}
+	*/
     if (!allocation) {
 		zest__add_memory_pool(allocator, size);
         allocation = zloc_AllocateAligned(allocator, size, alignment);
@@ -9711,6 +9751,13 @@ void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then
 	// it should print out the offset from the allocator; compute (allocation - allocator) here and
 	// break on the offending offset to find out what's being allocated.
+	/*
+	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
+	zloc_header *block = zloc__block_from_allocation(allocation);
+	if (offset_from_allocator == 30681568 && block->size == 72) {
+		int d = 0;
+	}
+	*/
 	if (!allocation) {
 		zest__add_memory_pool(allocator, size);
 		allocation = zloc_Allocate(allocator, size);
@@ -9721,6 +9768,13 @@ void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 
 void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size) {
 	void* allocation = zloc_Reallocate(allocator, memory, size);
+	/*
+	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
+	zloc_header *block = zloc__block_from_allocation(allocation);
+	if (offset_from_allocator == 30681568 && block->size == 72) {
+		int d = 0;
+	}
+	*/
 	if (!allocation) {
 		zest__add_memory_pool(allocator, size);
 		allocation = zloc_Reallocate(allocator, memory, size);
@@ -10365,6 +10419,10 @@ void zest_FreeBuffer(zest_buffer buffer) {
 	if (is_free) {
 		return;
 	}
+	if (buffer->usage_flags & zest_buffer_usage_pending_free_bit) {
+		return;
+	}
+	buffer->usage_flags |= zest_buffer_usage_pending_free_bit;
 	zest_device device = buffer->memory_pool->device;
 	zest_uint index = device->frame_counter % ZEST_MAX_FIF;
 	zest_vec_push(device->allocator, device->deferred_resource_freeing_list.buffers[index], buffer);
@@ -10614,7 +10672,7 @@ zest_context_queue zest__get_frame_graph_queue(zest_context context, const char 
 	}
 	zest_context_queue queue = *zest_map_at(context->cached_frame_graph_queues[queue_index], name);
 	if (queue->last_reset_frame != context->device_frame_counter) {
-		context->device->platform->reset_queue_command_pool(context, queue);
+		context->device->platform->reset_queue_command_pool(context, queue, 0);
 		queue->next_buffer = 0;
 		queue->last_reset_frame = context->device_frame_counter;
 	}
@@ -10756,17 +10814,14 @@ void zest__cleanup_device(zest_device device) {
 	device->default_image_2d = NULL;
 	device->default_image_cube = NULL;
 	device->default_cube_array_view = NULL;
+	device->frame_counter = 0;
 
 	zest__cleanup_pipeline_layout(device->pipeline_layout);
     zest__cleanup_buffers_in_allocators(device);
-	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
-	zest__free_all_device_resource_stores(device);
 
-	zest__cleanup_set_layout(device->bindless_set_layout);
-    ZEST__FREE(device->allocator, device->bindless_set->backend);
-    ZEST__FREE(device->allocator, device->bindless_set);
-	zest__release_all_image_indexes(device);
-
+	//Drain the deferred freeing lists BEFORE the memory scan (see the same note in zest_ResetDevice):
+	//a resource still queued on a deferred list is live when the scan runs, so scanning first would
+	//free it and the drain would then free it a second time.
 	zest_ForEachFrameInFlight(fif) {
 		if (zest_vec_size(device->deferred_resource_freeing_list.resources[fif])) {
 			zest_vec_foreach(i, device->deferred_resource_freeing_list.resources[fif]) {
@@ -10783,6 +10838,14 @@ void zest__cleanup_device(zest_device device) {
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.resources[fif]);
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
+
+	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
+	zest__free_all_device_resource_stores(device);
+
+	zest__cleanup_set_layout(device->bindless_set_layout);
+    ZEST__FREE(device->allocator, device->bindless_set->backend);
+    ZEST__FREE(device->allocator, device->bindless_set);
+	zest__release_all_image_indexes(device);
 
 	zest_map_foreach(i, device->mip_indexes) {
 		zest_mip_index_collection *collection = &device->mip_indexes.data[i];
@@ -11111,6 +11174,7 @@ void zest__cleanup_context(zest_context context) {
     for(int i = 0; i != context->active_queue_count; ++i) {
         zest_uint queue_index = context->active_queue_indexes[i];
 		zest_context_queue queue = context->queues[i];
+		context->device->platform->reset_queue_command_pool(context, queue, ZEST_TRUE);
 		context->device->platform->cleanup_context_queue_backend(context, queue);
 		ZEST__FREE(context->allocator, queue);
     }
@@ -11222,7 +11286,7 @@ void zest__cleanup_context(zest_context context) {
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(context->allocator));
     if (stats.used_blocks > 0) {
         ZEST_ALERT("There are still used memory blocks in a zest context, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after a zest context has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
-        zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_memory_context_none, zest_command_none);
+        zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_memory_context_none, zest_command_none, (zest_struct_type)0);
     }
 	for (int i = 0; i != context->memory_pool_count; i++) {
 		ZEST__FREE(context->device->allocator, context->memory_pools[i]);
@@ -15539,7 +15603,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 			ZEST_CPU_PROFILE_BEGIN(context, "Queue %i", queue_index);
 
             if (batch->queue->last_reset_frame != context->device_frame_counter) {
-                device->platform->reset_queue_command_pool(context, batch->queue);
+                device->platform->reset_queue_command_pool(context, batch->queue, 0);
                 batch->queue->next_buffer = 0;
                 batch->queue->last_reset_frame = context->device_frame_counter;
             }
@@ -19710,9 +19774,10 @@ const char *zest__platform_context_to_string(zest_platform_memory_context contex
     return "UNKNOWN";
 }
 
-void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter) {
+void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter) {
     if (ZEST_VALID_IDENTIFIER(allocation)) {
 		zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
+		if (struct_type_filter && struct_type != struct_type_filter) return;
 		ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
 		zest_vec *vector = (zest_vec*)allocation;
 		switch (struct_type) {
@@ -19723,7 +19788,7 @@ void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_he
 				ZEST_PRINT("Allocation: %p, size: %zu, offset: %zi, type: %s", allocation, current_block->size, offset_from_allocator, zest__struct_type_to_string(struct_type));
 				break;
 		}
-    } else {
+    } else if(!struct_type_filter){
         //Is it a vulkan allocation?
         zest_platform_memory_info_t *vulkan_info = (zest_platform_memory_info_t *)allocation;
         zest_uint mem_context = (vulkan_info->context_info & 0xff0000) >> 16;
@@ -19743,7 +19808,7 @@ void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_he
     }
 }
 
-void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter) {
+void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter) {
     zloc_pool_stats_t stats = ZEST__ZERO_INIT(zloc_pool_stats_t);
     zest_memory_stats_t zest_stats = ZEST__ZERO_INIT(zest_memory_stats_t);
     zloc_header *current_block = first_block;
@@ -19758,7 +19823,7 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
             stats.used_size += block_size;
             void *allocation = (void*)((char*)current_block + zloc__BLOCK_POINTER_OFFSET);
             if (output_all) {
-                zest__print_block_info(allocator, allocation, current_block, context_filter, command_filter);
+                zest__print_block_info(allocator, allocation, current_block, context_filter, command_filter, struct_type_filter);
             }
 			zest_platform_memory_info_t *vulkan_info = (zest_platform_memory_info_t *)allocation;
 			zest_uint mem_context = (vulkan_info->context_info & 0xff0000) >> 16;
@@ -19788,7 +19853,7 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
 			ZEST_PRINT("Block size: %zi (%p)", zloc__block_size(current_block), allocation);
         }
         if (output_all) {
-            zest__print_block_info(allocator, allocation, current_block, context_filter, command_filter);
+            zest__print_block_info(allocator, allocation, current_block, context_filter, command_filter, struct_type_filter);
         }
         zest_platform_memory_info_t *vulkan_info = (zest_platform_memory_info_t *)allocation;
         zest_uint mem_context = (vulkan_info->context_info & 0xff0000) >> 16;
