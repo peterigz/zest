@@ -1225,5 +1225,96 @@ int test__unbacked_transient_barrier(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Essential-but-unused transient: flag a transient image essential yet never connect it to any pass.
+The transient-planning guard must still cull it (a flag alone is not "used") rather than indexing
+pass_execution_order with its ZEST_INVALID first-usage. Guards the "used" half of the parenthesised
+condition in Plan_transient_buffers (see item 2): the graph compiles, the resource is reported
+culled, and nothing crashes.
+*/
+int test__essential_unused_transient(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Essential Unused Transient", 0)) {
+			zest_ImportSwapchainResource();
+			//Essential but connected to no pass - must be culled, not create/free planned.
+			zest_resource_node orphan = zest_AddTransientImageResource("Orphan Output", &info);
+			zest_FlagResourceAsEssential(orphan);
+
+			zest_BeginRenderPass("Draw Nothing");
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+			//The orphaned essential transient must have been culled.
+			if (zest_GetFrameGraphCulledResourceCount(frame_graph) != 1) {
+				test->result = 1;
+			}
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
+/*
+Versioned transient: writing a transient a second time turns the second write into a read-modify-
+write on an aliased version node that shares the original's memory (the compiler auto-adds the
+original as an input to the second writer). A later read gives that version node a reference_count
+> 0. This is the resource shape item 2 flags as the plausible trigger for the '||'/'&&' precedence
+bug in Plan_transient_buffers. Written as a write -> overwrite -> read chain (a plain WAW second
+write, so no reader of res feeds the second writer and name-based cycle detection is not tripped).
+Regression guard: the versioned chain must compile and execute cleanly - no cyclic/critical error,
+no validation errors, no crash - and the transient planning must not choke on the aliased version's
+untouched lifetime.
+*/
+int test__versioned_transient(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Versioned Transient", 0)) {
+			zest_ImportSwapchainResource();
+			zest_resource_node res = zest_AddTransientImageResource("Versioned Res", &info);
+
+			//Pass A: first write -> res version 0.
+			zest_BeginRenderPass("Write A");
+			zest_ConnectOutput(res);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			//Pass B: second write to res -> creates aliased version 1 that shares v0's memory.
+			zest_BeginRenderPass("Write B");
+			zest_ConnectOutput(res);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			//Pass C: read res (v1) -> gives the aliased version node reference_count > 0, then feed
+			//the swapchain so the chain survives culling. Before the fix this is the read that made
+			//Plan_transient_buffers dereference the version node's ZEST_INVALID first-usage index.
+			zest_BeginRenderPass("Read C");
+			zest_ConnectInput(res);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+			//Must not be reported as cyclic or otherwise failed - a clean compile of the versioned chain.
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
 
 

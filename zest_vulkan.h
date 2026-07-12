@@ -5718,10 +5718,12 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 
     //If this is the last batch then add the fence that tells the cpu to wait each frame
     VkFence submit_fence = VK_NULL_HANDLE;
+    zest_execution_timeline bumped_timeline = 0;
     if (submission_index == zest_vec_size(frame_graph->submissions) - 1) {
         if (frame_graph->signal_timeline) {
 			zest_execution_timeline timeline = frame_graph->signal_timeline;
 			timeline->current_value += 1;
+			bumped_timeline = timeline;
 			context->frame_sync_timeline[context->current_fif] = timeline;
 			zest_vec_linear_push(allocator, signal_semaphores, timeline->backend->semaphore);
 			zest_vec_linear_push(allocator, signal_values, timeline->current_value);
@@ -5752,7 +5754,21 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
     }
 
-	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
+	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
+	context->device->backend->last_result = submit_result;
+	if (submit_result != VK_SUCCESS) {
+		//The submission failed, so the timeline signal we optimistically counted above will never be
+		//raised. Roll the value back so later waiters (and next frame's wait_on_timeline) target a
+		//value that is actually reachable rather than deadlocking on one that never signals.
+		if (bumped_timeline) {
+			bumped_timeline->current_value -= 1;
+		}
+		zest__log_vulkan_error(context->device, submit_result, __FILE__, __LINE__);
+		if (submit_result == VK_ERROR_DEVICE_LOST) {
+			ZEST__FLAG(context->flags, zest_context_flag_device_lost);
+		}
+		return ZEST_FALSE;
+	}
     ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
 
     batch->backend->final_wait_semaphores = wait_semaphores;

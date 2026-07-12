@@ -2083,6 +2083,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_debug_overlay_enabled = 1 << 16,
 	zest_context_flag_gpu_profiling_enabled = 1 << 17,
 	zest_context_flag_cpu_profiling_enabled = 1 << 18,
+	zest_context_flag_device_lost = 1 << 19,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -2612,6 +2613,7 @@ typedef enum zest_report_category {
 	zest_report_wait_idle,
 	zest_report_shader_reload_error,
 	zest_report_shader_reload_success,
+	zest_report_submission_failure,
 } zest_report_category;
 
 //The binding slots of Zest's global bindless descriptor layout. These slot numbers are part of the API
@@ -2649,7 +2651,17 @@ typedef enum zest_frame_graph_result_bits {
 	zest_fgs_transient_resource_failure = 1 << 4,
 	zest_fgs_unable_to_acquire_command_buffer = 1 << 5,
 	zest_fgs_out_of_memory = 1 << 6,
+	zest_fgs_submission_failure = 1 << 7,
 } zest_frame_graph_result_bits;
+
+//The set of error statuses that make a frame graph unsafe/impossible to execute. A graph carrying
+//any of these must not be submitted, and callers must not wait on its signal timeline (the signal
+//will never arrive), otherwise the waiter deadlocks. no_work_to_do is deliberately excluded: it is
+//a valid "nothing to do" outcome, not a failure.
+#define ZEST_FGS_FATAL (zest_fgs_cyclic_dependency | zest_fgs_invalid_render_pass | \
+	zest_fgs_critical_error | zest_fgs_transient_resource_failure | \
+	zest_fgs_unable_to_acquire_command_buffer | zest_fgs_out_of_memory | \
+	zest_fgs_submission_failure)
 
 typedef enum zest_pass_node_visit_state {
 	zest_pass_node_unvisited = 0,
@@ -5313,6 +5325,9 @@ ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
 
 // --- State check functions
 ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
+//Returns true if a device-lost error (e.g. VK_ERROR_DEVICE_LOST) was reported while submitting work
+//for this context. Once set the context should be considered unusable and the device reset/recreated.
+ZEST_API zest_bool zest_ContextDeviceWasLost(zest_context context);
 
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_device device);
@@ -14913,7 +14928,7 @@ zest_frame_graph zest__compile_frame_graph() {
 
         // Check if this resource is transient AND actually used in the compiled graph
         if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_transient)) {
-            if (resource->reference_count > 0 || ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output) &&
+            if ((resource->reference_count > 0 || ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output)) &&
                 resource->first_usage_pass_idx <= resource->last_usage_pass_idx && // Ensures it's used
                 resource->first_usage_pass_idx != ZEST_INVALID) {
 
@@ -15354,12 +15369,34 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	zest_context context = zest__frame_graph_builder->context;
 	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
 	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph), "zest_FlushCommandGraph should only be called for a command graph created with zest_BeginCommandGraph.");
-	if (ZEST__NOT_FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
-		zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
-	}
 	zest_semaphore_status status = zest_semaphore_status_success;
-	if (frame_graph->signal_timeline) {
-		status = context->device->platform->wait_for_timeline(frame_graph->signal_timeline, ZEST_U64_MAX_VALUE);
+	//A graph carrying no work, or any fatal compile/placement error, must not be executed. Critically
+	//we must also skip the timeline wait below: a graph that never submits never signals, so waiting on
+	//its signal timeline would block forever (deadlock). Only wait when execution actually ran and
+	//produced the signalling submission.
+	if (ZEST__FLAGGED(frame_graph->error_status, zest_fgs_no_work_to_do)) {
+		//Nothing to submit and nothing to wait on - a valid, non-error outcome.
+	} else if (frame_graph->error_status & ZEST_FGS_FATAL) {
+		status = zest_semaphore_status_error;
+	} else if (zest__execute_frame_graph(context, frame_graph, ZEST_TRUE)) {
+		if (frame_graph->signal_timeline) {
+			//In debug builds use a large-but-finite timeout so a genuine hang surfaces as a
+			//diagnosable report instead of freezing the process indefinitely.
+#ifdef ZEST_DEBUGGING
+			zest_microsecs wait_timeout = 10000000; //10 seconds
+#else
+			zest_microsecs wait_timeout = ZEST_U64_MAX_VALUE;
+#endif
+			status = context->device->platform->wait_for_timeline(frame_graph->signal_timeline, wait_timeout);
+			if (status == zest_semaphore_status_timeout) {
+				ZEST_REPORT(context->device, zest_report_submission_failure, "Timed out waiting for the signal timeline of command graph [%s]. The GPU work either hung or is taking longer than the debug wait timeout. Execution will continue but results may not be ready.", frame_graph->name);
+			}
+		}
+	} else {
+		//Execution failed part way through. zest__execute_frame_graph has already drained any
+		//in-flight work, so it is safe to free resources, but the signal never arrived - report an
+		//error rather than waiting on a timeline that will never be signalled.
+		status = zest_semaphore_status_error;
 	}
 	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif])) {
 		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]) {
@@ -15566,6 +15603,12 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_map_queue_value queues = ZEST__ZERO_INIT(zest_map_queue_value);
 
+    //Rescue-path bookkeeping: on a mid-execution failure earlier batches may already be in flight and
+    //the current command buffer may be open. We use these to end an open buffer and drain the device
+    //so that no CPU/GPU waiter hangs and the caller can safely free this frame's resources.
+    zest_bool any_batch_submitted = ZEST_FALSE;
+    zest_bool command_buffer_open = ZEST_FALSE;
+
     zest_execution_backend backend = (zest_execution_backend)device->platform->new_execution_backend(allocator);
 
 	ZEST_CPU_PROFILE_BEGIN(context, "Update resources");
@@ -15629,6 +15672,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             }
 
             ZEST_CLEANUP_ON_FALSE(device->platform->begin_command_buffer(&frame_graph->command_list));
+			command_buffer_open = ZEST_TRUE;
 
 			// Bind the global bindless descriptor set for graphics and compute queues
 			if (batch->queue_type != zest_queue_transfer && frame_graph->descriptor_sets) {
@@ -15782,8 +15826,18 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 				ZEST_CPU_PROFILE_END(context); //Pass profile
             }
 			device->platform->end_command_buffer(&frame_graph->command_list);
+			command_buffer_open = ZEST_FALSE;
 			ZEST_CPU_PROFILE_BEGIN(context, "Submit Batch");
-            device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
+            if (!device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues)) {
+                //Submission failed (e.g. device lost). Flag it and bail to the rescue path so any
+                //batches already submitted this frame are drained before we return.
+                frame_graph->error_status |= zest_fgs_submission_failure;
+                ZEST_REPORT(device, zest_report_submission_failure, "Failed to submit a command batch for frame graph [%s]. Aborting execution and draining in-flight work.", frame_graph->name);
+                ZEST_CPU_PROFILE_END(context); //Submit Batch
+                ZEST_CPU_PROFILE_END(context); //Batch queue profile
+                goto cleanup;
+            }
+            any_batch_submitted = ZEST_TRUE;
 			ZEST_CPU_PROFILE_END(context);
 
 			ZEST_CPU_PROFILE_END(context); //Batch queue profile
@@ -15842,6 +15896,24 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
     return ZEST_TRUE;
 
 	cleanup:
+		//Mid-execution failure contract: guarantee no waiter can deadlock and no resource is freed
+		//while still in use by an in-flight batch.
+		if (command_buffer_open) {
+			//A command buffer was begun but never ended (acquire/begin path failed later). End it so
+			//the backend's per-frame pool is left in a consistent, resettable state.
+			device->platform->end_command_buffer(&frame_graph->command_list);
+			command_buffer_open = ZEST_FALSE;
+		}
+		if (any_batch_submitted) {
+			//Earlier waves were submitted and are running on the GPU. The graph will not reach its
+			//signalling submission, so drain the whole device: this both releases any GPU/CPU waiter
+			//(they can't wait on a signal that never comes) and makes it safe for the caller to free
+			//this frame's transient resources.
+			zest_WaitForIdleDevice(device);
+		}
+		//Mark the context so the application can detect that this frame's work did not complete
+		//normally and take recovery action (e.g. skip presenting, or reset the device).
+		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
 		ZEST_CPU_PROFILE_END(context);
 		return ZEST_FALSE;
 }
@@ -15858,6 +15930,11 @@ zest_key zest_GetPassOutputKey(zest_pass_node pass) {
 
 zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph) {
     return ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_executed);
+}
+
+zest_bool zest_ContextDeviceWasLost(zest_context context) {
+    ZEST_ASSERT_HANDLE(context); //Not a valid context handle
+    return ZEST__FLAGGED(context->flags, zest_context_flag_device_lost) ? ZEST_TRUE : ZEST_FALSE;
 }
 
 void zest_PrintCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key) {

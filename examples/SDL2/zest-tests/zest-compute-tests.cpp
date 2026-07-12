@@ -636,3 +636,72 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+/*
+Test flush of a failed-compilation command graph does not hang: build a command graph with a cyclic
+dependency (Pass A reads B's output and writes A's; Pass B reads A's output and writes B's), signal a
+timeline, then zest_FlushFrameGraph. The graph fails compilation with zest_fgs_cyclic_dependency, so
+it must never be submitted - and crucially the flush must NOT wait on the signal timeline (which will
+never be signalled) or it would deadlock forever. Verifies the failure contract: fatal status skips
+both execution and the timeline wait, returning zest_semaphore_status_error.
+*/
+int test__flush_compile_failure_no_hang(ZestTests *tests, Test *test) {
+	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, NULL, 1);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
+		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
+			test->frame_count++;
+			test->result = 1;
+			return test->result;
+		}
+	}
+
+	zest_buffer_resource_info_t info = {};
+	info.size = sizeof(TestData) * 1000;
+
+	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
+
+	zest_frame_graph_result graph_result = 0;
+	zest_semaphore_status status = zest_semaphore_status_success;
+
+	if (zest_BeginCommandGraph(tests->context, "Cyclic Command Graph", 0)) {
+		zest_resource_node buffer_a = zest_AddTransientBufferResource("Buffer A", &info);
+		zest_resource_node buffer_b = zest_AddTransientBufferResource("Buffer B", &info);
+		//Flag both essential so the passes aren't culled to no-work before cycle detection runs.
+		zest_FlagResourceAsEssential(buffer_a);
+		zest_FlagResourceAsEssential(buffer_b);
+
+		zest_BeginComputePass("Pass A");
+		zest_ConnectInput(buffer_b);
+		zest_ConnectOutput(buffer_a);
+		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_EndPass();
+
+		zest_BeginComputePass("Pass B");
+		zest_ConnectInput(buffer_a);
+		zest_ConnectOutput(buffer_b);
+		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_EndPass();
+
+		zest_SignalTimeline(timeline);
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		graph_result = zest_GetFrameGraphResult(frame_graph);
+		//If the contract is broken this call blocks forever; reaching the line after it is the test.
+		status = zest_FlushFrameGraph(frame_graph);
+	}
+
+	//The graph must have been flagged as a cyclic dependency during compilation...
+	if (ZEST__NOT_FLAGGED(graph_result, zest_fgs_cyclic_dependency)) {
+		test->result = 1;
+	}
+	//...and the flush must have refused to wait on the never-signalled timeline, reporting an error
+	//instead of hanging or falsely reporting success.
+	if (status != zest_semaphore_status_error) {
+		test->result = 1;
+	}
+
+	zest_FreeExecutionTimeline(timeline);
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

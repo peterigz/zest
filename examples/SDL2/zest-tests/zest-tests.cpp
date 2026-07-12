@@ -85,10 +85,13 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test WAW Barrier", test__compute_waw_barrier, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Compute Test Flush Compile Failure No Hang", test__flush_compile_failure_no_hang, 0, 1, 0, 0, tests->headless_create_info });
 	//Registered last: this test perturbs the bindless index free list (it creates transient
 	//images), which the Acquire/Release Indexes test is sensitive to as it releases hardcoded
 	//index values.
 	RegisterTest(tests, { "Resource Test Transient Aliasing Dependency", test__transient_aliasing_dependency, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Essential Unused Transient", test__essential_unused_transient, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Versioned Transient", test__versioned_transient, 0, ZEST_MAX_FIF, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Persistence", test__cached_transient_persistence, 0, 6, 0, 0, tests->simple_create_info });
 	//Also registered after the Acquire/Release Indexes test: that test expects an exact report
 	//count, and inserting any test before it shifts the point where the (independently leaking)
@@ -122,7 +125,7 @@ void InitialiseTests(ZestTests *tests) {
 }
 
 void InitialiseSpecificTests(ZestTests *tests) {
-	RegisterTest(tests, { "Compute Test Frame Graph and Execute", test__frame_graph_and_execute, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Compute Test Flush Compile Failure No Hang", test__flush_compile_failure_no_hang, 0, 1, 0, 0, tests->headless_create_info });
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->device);
@@ -245,14 +248,17 @@ int main(int argc, char *argv[]) {
 	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
 
-	ZEST_PRINT("=== Test suite run 1/2: dynamic rendering ===");
+	int legacy_total = 0;
 	int dynamic_total = 0;
-	int dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
+	int dynamic_completed = 0;
+	int legacy_completed = 0;
+
+	ZEST_PRINT("=== Test suite run: dynamic rendering ===");
+	dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
 
 	ZEST_PRINT("");
-	ZEST_PRINT("=== Test suite run 2/2: legacy render pass ===");
-	int legacy_total = 0;
-	int legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
+	ZEST_PRINT("=== Test suite run: legacy render pass ===");
+	legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
 
 	// Clean up the extensions array
 	free(sdl_extensions);
