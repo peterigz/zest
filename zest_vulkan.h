@@ -5713,11 +5713,10 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->signal_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, signal_semaphores, dynamic_semaphore);
         zest_vec_linear_push(allocator, signal_values, 0);
-		zest_vec_linear_push(allocator, signal_stages, batch->signal_dst_stage_masks[semaphore_index]);
+		zest_vec_linear_push(allocator, signal_stages, zest__to_vk_pipeline_stage(batch->signal_dst_stage_masks[semaphore_index]));
     }
 
-    //If this is the last batch then add the fence that tells the cpu to wait each frame
-    VkFence submit_fence = VK_NULL_HANDLE;
+    //If this is the last batch, signal the frame timeline the CPU waits on each frame.
     zest_execution_timeline bumped_timeline = 0;
     if (submission_index == zest_vec_size(frame_graph->submissions) - 1) {
         if (frame_graph->signal_timeline) {
@@ -5743,7 +5742,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 		signal_info.semaphore = signal_semaphores[i];
 		signal_info.value = signal_values[i];
-		signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+		signal_info.stageMask = signal_stages[i];
 		zest_vec_linear_push(allocator, signal_semaphore_infos, signal_info);
 	}
 
@@ -5754,7 +5753,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
     }
 
-	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
+	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
 	context->device->backend->last_result = submit_result;
 	if (submit_result != VK_SUCCESS) {
 		//The submission failed, so the timeline signal we optimistically counted above will never be

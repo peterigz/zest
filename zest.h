@@ -4085,12 +4085,6 @@ typedef struct zest_execution_wave_t {
 	int *pass_indices;
 } zest_execution_wave_t;
 
-typedef struct zest_batch_key {
-	zest_u64 next_pass_indexes;
-	zest_uint current_family_index;
-	zest_u64 next_family_indexes;
-} zest_batch_key;
-
 zest_hash_map(zest_resource_usage_t) zest_map_resource_usages;
 
 typedef struct zest_pass_execution_callback_t {
@@ -4828,7 +4822,7 @@ ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const 
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 ZEST_PRIVATE void zest__cleanup_frame_graph_builder();
-ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe);
+ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
 										zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
 ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
@@ -9088,7 +9082,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 				zest__frame_graph_builder->frame_graph = frame_graph;
 				zest__frame_graph_builder->current_pass = 0;
 			}
-			if (zest__execute_frame_graph(context, frame_graph, ZEST_FALSE)) {
+			if (zest__execute_frame_graph(context, frame_graph)) {
 				flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
 			}
 		}
@@ -14811,9 +14805,6 @@ zest_frame_graph zest__compile_frame_graph() {
 
                 zest_vec_linear_push(allocator, frame_graph->pass_execution_order, current_pass);
 
-                zest_batch_key batch_key = ZEST__ZERO_INIT(zest_batch_key);
-                batch_key.current_family_index = current_pass->compiled_queue_info.queue_family_index;
-
                 //Calculate_lifetime_of_resources and also create a state for each resource and plot
                 //it's journey through the frame graph so that the appropriate barriers and semaphores
                 //can be set up
@@ -14840,7 +14831,6 @@ zest_frame_graph zest__compile_frame_graph() {
                 }
 
                 // Check OUTPUTS of the current pass
-                zest_bool requires_new_batch = ZEST_FALSE;
                 zest_map_foreach(output_idx, current_pass->outputs) {
                     zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
                     if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
@@ -14854,11 +14844,6 @@ zest_frame_graph zest__compile_frame_graph() {
                     state.usage = current_pass->outputs.data[output_idx];
                     state.submission_id = current_pass->submission_id;
                     zest_vec_linear_push(allocator, resource_node->journey, state);
-                    zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
-                        zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
-                        batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
-                        batch_key.next_family_indexes |= (1ull << frame_graph->final_passes.data[consumer_pass_index].compiled_queue_info.queue_family_index);
-                    }
                 }
                 execution_order_index++;
             }
@@ -14959,15 +14944,12 @@ zest_frame_graph zest__compile_frame_graph() {
 			zest_wave_submission_t *last_wave = &frame_graph->submissions[last_wave_that_presented];
 			if (last_wave->batches[context->graphics_queue_index].magic &&
 				last_wave->batches[context->graphics_queue_index].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
-				// This assumes the last batch's *primary* signal is renderFinished.
-				if (!last_wave->batches[context->graphics_queue_index].signal_semaphores) {
-					zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
-					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_semaphores, semaphore_reference);
-					zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
-				} else {
-					//We should write a test for this scenario
-					ZEST_REPORT(context->device, zest_report_last_batch_already_signalled, "Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
-				}
+				// signal_semaphores is a list, so append renderFinished whether or not the batch
+				// already carries an internal signal (e.g. a cross-queue signal). The submit side
+				// iterates every entry, so multiple signals are fine.
+				zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
+				zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_semaphores, semaphore_reference);
+				zest_vec_linear_push(allocator, last_wave->batches[context->graphics_queue_index].signal_dst_stage_masks, zest_pipeline_stage_bottom_of_pipe_bit);
 			}
 		}
     }
@@ -15352,7 +15334,9 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					color_attachment_index++;
 					exe_details->rendering_info.color_attachment_count++;
 					if (resource->image.info.layer_count > 1) {
-						zest_uint view_mask = (1u << resource->image.info.layer_count) - 1;
+						zest_uint layer_count = resource->image.info.layer_count;
+						ZEST_ASSERT(layer_count <= 32, "Multiview layer_count exceeds the hardware maximum of 32.");
+						zest_uint view_mask = layer_count >= 32 ? 0xFFFFFFFFu : (1u << layer_count) - 1;
 						zest_uint current_mask = exe_details->rendering_info.view_mask;
 						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
 						exe_details->rendering_info.view_mask = view_mask;
@@ -15402,10 +15386,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					}
 					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
 					if (resource->image.info.layer_count > 1) {
-						zest_uint view_mask = (1u << resource->image.info.layer_count) - 1;
+						zest_uint layer_count = resource->image.info.layer_count;
+						ZEST_ASSERT(layer_count <= 32, "Multiview layer_count exceeds the hardware maximum of 32.");
+						zest_uint view_mask = layer_count >= 32 ? 0xFFFFFFFFu : (1u << layer_count) - 1;
 						zest_uint current_mask = exe_details->rendering_info.view_mask;
 						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
-						exe_details->rendering_info.view_mask = (1u << resource->image.info.layer_count) - 1;
+						exe_details->rendering_info.view_mask = view_mask;
 					}
 					render_pass_key = zest_Hash(&depth->usage, sizeof(zest_attachment_usage_t), render_pass_key);
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
@@ -15447,7 +15433,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 		//Nothing to submit and nothing to wait on - a valid, non-error outcome.
 	} else if (frame_graph->error_status & ZEST_FGS_FATAL) {
 		status = zest_semaphore_status_error;
-	} else if (zest__execute_frame_graph(context, frame_graph, ZEST_TRUE)) {
+	} else if (zest__execute_frame_graph(context, frame_graph)) {
 		if (frame_graph->signal_timeline) {
 			//In debug builds use a large-but-finite timeout so a genuine hang surfaces as a
 			//diagnosable report instead of freezing the process indefinitely.
@@ -15631,7 +15617,7 @@ void zest__cleanup_frame_graph_builder() {
 	}
 }
 
-zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe) {
+zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	ZEST_CPU_PROFILE_BEGIN(context, "Run %s", frame_graph->name);
 
@@ -15827,8 +15813,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 }
 
                 //Execute the callbacks in the pass
-                zest_vec_foreach(pass_index, grouped_pass->passes) {
-                    zest_pass_node pass = grouped_pass->passes[pass_index];
+                zest_vec_foreach(pass_callback_index, grouped_pass->passes) {
+                    zest_pass_node pass = grouped_pass->passes[pass_callback_index];
 
                     if (pass->type == zest_pass_type_graphics && !frame_graph->command_list.began_rendering) {
                         ZEST_REPORT(device, zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
