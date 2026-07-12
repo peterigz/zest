@@ -1181,6 +1181,8 @@ static const char *zest_message_usage_has_no_resource = "Graph Compile Error in 
 static const char *zest_message_multiple_swapchain_usage = "Graph Compile Error in Frame Graph [%s]: This is the second time that the swap chain is used as output, this should not happen. Check that the passes that use the swapchain as output have exactly the same set of other ouputs so that the passes can be properly grouped together. If you want to use multiple passes to render in different stages then use transient image resources and composite them to the swapchain in a final compositing pass.";
 static const char *zest_message_resource_added_as_ouput_more_than_once = "Graph Compile Error in Frame Graph [%s]: A resource should only have one producer in a valid graph. Check to make sure you haven't added the same output to a pass more than once";
 static const char *zest_message_resource_should_be_imported = "Graph Compile Error in Frame Graph [%s]: ";
+static const char *zest_message_duplicate_resource_name = "Error: You have tried to add a resource to the graph with the same name as another resource. All resources must have unique names - passes and the zest_GetPass*Resource callbacks look resources up by name, so duplicate names silently merge resources and corrupt the dependency graph.";
+static const char *zest_message_output_key_collision = "Graph Compile Error in Frame Graph [%s]: Two passes hashed to the same output key but write different output resource sets (an output_key hash collision). Merging them would incorrectly share a render pass. This is extremely rare; changing one of the passes' outputs will resolve it.";
 static const char *zest_message_cannot_queue_for_execution = "Could not queue frame graph [%s] for execution as there were errors found in the graph. Check other reports for reasons why.";
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
@@ -7107,9 +7109,10 @@ typedef struct zest_frame_graph_t {
 	zest_bucket_array_t potential_passes;
 	zest_map_passes final_passes;
 	zest_bucket_array_t resources;
-#ifdef ZEST_DEBUGGING
-	//For detecting resources with the same name
+	//For detecting resources with the same name - enforced in all builds because name-based identity
+	//(pass maps and the zest_GetPass*Resource callbacks) requires uniqueness to stay correct.
 	zest_map_resources resource_names;
+#ifdef ZEST_DEBUGGING
 	zest_map_imported_resource imported_resources;
 #endif
 	zest_map_resource_versions resource_versions;
@@ -14205,6 +14208,12 @@ zest_frame_graph zest__compile_frame_graph() {
 	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	ZEST_CPU_PROFILE_BEGIN(context, "Compile %s", frame_graph->name);
 
+	//Early exit if the frame graph is already invalid - ie., duplicate names in graph
+	if (frame_graph->error_status & ZEST_FGS_FATAL) {
+		ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
+		return frame_graph;
+	}
+
 	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
 		zest_execution_timeline timeline = &context->frame_timeline[context->current_fif];
 		zest_SignalTimeline(timeline);
@@ -14363,6 +14372,34 @@ zest_frame_graph zest__compile_frame_graph() {
 				if (pass_group->queue_info.queue_family_index != pass_node->queue_info.queue_family_index ||
                     pass_group->queue_info.timeline_wait_stage != pass_node->queue_info.timeline_wait_stage) {
 					ZEST_REPORT(context->device, zest_report_invalid_pass, zest_message_multiple_swapchain_usage, frame_graph->name);
+					frame_graph->error_status |= zest_fgs_critical_error;
+					ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
+					return frame_graph;
+				}
+				//output_key is an additive sum of (resource id + usage hash) over the pass outputs, so two
+				//passes with different output sets can collide onto the same key. Verify the incoming pass
+				//writes the same output resources as the group before merging (which would otherwise share a
+				//render pass incorrectly). 
+				zest_pass_node first_pass = pass_group->passes[0];
+				zest_bool outputs_match = (zest_map_size(pass_node->outputs) == zest_map_size(first_pass->outputs));
+				if (outputs_match) {
+					zest_map_foreach(oi, pass_node->outputs) {
+						zest_resource_node out_resource = pass_node->outputs.data[oi].resource_node;
+						zest_bool found = ZEST_FALSE;
+						zest_map_foreach(fi, first_pass->outputs) {
+							if (first_pass->outputs.data[fi].resource_node->id == out_resource->id) {
+								found = ZEST_TRUE;
+								break;
+							}
+						}
+						if (!found) {
+							outputs_match = ZEST_FALSE;
+							break;
+						}
+					}
+				}
+				if (!outputs_match) {
+					ZEST_REPORT(context->device, zest_report_invalid_pass, zest_message_output_key_collision, frame_graph->name);
 					frame_graph->error_status |= zest_fgs_critical_error;
 					ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
 					return frame_graph;
@@ -16977,11 +17014,14 @@ zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource) {
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     zest_resource_node node = zest_bucket_array_linear_add(allocator, &frame_graph->resources, zest_resource_node_t);
     *node = *resource;
-#ifdef ZEST_DEBUGGING
-	ZEST_ASSERT_OR_VALIDATE(!zest_map_valid_name(frame_graph->resource_names, node->name), context->device,
-							"Error: You have tried to add a resource to the graph with the same name as another resource. All resources must have unique names.", node);
-	zest_map_linear_insert(allocator, frame_graph->resource_names, node->name, node);
-#endif
+	//Check for duplicate names, all resources in the framegraph must be unique otherwise the frame
+	//graph is invalid
+	if (zest_map_valid_name(frame_graph->resource_names, node->name)) {
+		zest__log_validation_error(context->device, zest_message_duplicate_resource_name);
+		frame_graph->error_status |= zest_fgs_critical_error;
+	} else {
+		zest_map_linear_insert(allocator, frame_graph->resource_names, node->name, node);
+	}
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         node->bindless_index[i] = ZEST_INVALID;
     }

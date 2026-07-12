@@ -265,7 +265,7 @@ int main(int argc, char *argv[]) {
 
 	ZEST_PRINT("");
 	ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
-	//ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
+	ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
 
 	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total) ? 0 : 1;
 }
