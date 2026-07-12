@@ -1182,6 +1182,7 @@ static const char *zest_message_multiple_swapchain_usage = "Graph Compile Error 
 static const char *zest_message_resource_added_as_ouput_more_than_once = "Graph Compile Error in Frame Graph [%s]: A resource should only have one producer in a valid graph. Check to make sure you haven't added the same output to a pass more than once";
 static const char *zest_message_resource_should_be_imported = "Graph Compile Error in Frame Graph [%s]: ";
 static const char *zest_message_duplicate_resource_name = "Error: You have tried to add a resource to the graph with the same name as another resource. All resources must have unique names - passes and the zest_GetPass*Resource callbacks look resources up by name, so duplicate names silently merge resources and corrupt the dependency graph.";
+static const char *zest_message_duplicate_resource_name_report = "Graph Compile Error in Frame Graph [%s]: A resource named [%s] was added more than once. All resources must have unique names - passes and the zest_GetPass*Resource callbacks look resources up by name, so duplicate names silently merge resources and corrupt the dependency graph.";
 static const char *zest_message_output_key_collision = "Graph Compile Error in Frame Graph [%s]: Two passes hashed to the same output key but write different output resource sets (an output_key hash collision). Merging them would incorrectly share a render pass. This is extremely rare; changing one of the passes' outputs will resolve it.";
 static const char *zest_message_cannot_queue_for_execution = "Could not queue frame graph [%s] for execution as there were errors found in the graph. Check other reports for reasons why.";
 
@@ -17018,6 +17019,7 @@ zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource) {
 	//graph is invalid
 	if (zest_map_valid_name(frame_graph->resource_names, node->name)) {
 		zest__log_validation_error(context->device, zest_message_duplicate_resource_name);
+		ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_duplicate_resource_name_report, frame_graph->name, node->name);
 		frame_graph->error_status |= zest_fgs_critical_error;
 	} else {
 		zest_map_linear_insert(allocator, frame_graph->resource_names, node->name, node);
