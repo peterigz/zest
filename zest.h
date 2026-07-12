@@ -1185,6 +1185,7 @@ static const char *zest_message_duplicate_resource_name = "Error: You have tried
 static const char *zest_message_duplicate_resource_name_report = "Graph Compile Error in Frame Graph [%s]: A resource named [%s] was added more than once. All resources must have unique names - passes and the zest_GetPass*Resource callbacks look resources up by name, so duplicate names silently merge resources and corrupt the dependency graph.";
 static const char *zest_message_output_key_collision = "Graph Compile Error in Frame Graph [%s]: Two passes hashed to the same output key but write different output resource sets (an output_key hash collision). Merging them would incorrectly share a render pass. This is extremely rare; changing one of the passes' outputs will resolve it.";
 static const char *zest_message_cannot_queue_for_execution = "Could not queue frame graph [%s] for execution as there were errors found in the graph. Check other reports for reasons why.";
+static const char *zest_message_queue_unavailable = "Frame Graph [%s]: A pass requested queue type %i but that queue is not available on this device; the pass was downgraded to the graphics queue.";
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
@@ -2609,6 +2610,7 @@ typedef enum zest_report_category {
 	zest_report_pipeline_invalid,
 	zest_report_no_frame_graphs_to_execute,
 	zest_report_incompatible_stage_for_queue,
+	zest_report_queue_unavailable,
 	zest_report_unused_swapchain,
 	zest_report_last_batch_already_signalled,
 	zest_report_layers,
@@ -4833,7 +4835,6 @@ ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_nod
 ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_frame_graph_result result);
-ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node);
 ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
 ZEST_PRIVATE zest_bool zest__using_legacy_render_pass(zest_device device);
@@ -14155,35 +14156,6 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
     }
 }
 
-zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node) {
-    pass_node->visit_state = zest_pass_node_visiting;
-    zest_map_foreach(i, pass_node->outputs) {
-        zest_resource_usage_t *output_usage = &pass_node->outputs.data[i];
-		if (output_usage->access_mask == zest_access_depth_stencil_attachment_read_bit) {
-			continue;
-		}
-        zest_resource_node output_resource = output_usage->resource_node;
-        zest_bucket_array_foreach(p_idx, frame_graph->potential_passes) {
-            zest_pass_node dependent_pass = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, p_idx);
-            if (zest_map_valid_name(dependent_pass->inputs, output_resource->name)) {
-                if (dependent_pass == pass_node) {
-                    continue;
-                }
-                if (dependent_pass->visit_state == zest_pass_node_visiting) {
-                    return ZEST_TRUE; // Signal that a cycle was found
-                }
-                if (dependent_pass->visit_state == zest_pass_node_unvisited) {
-                    if (zest__detect_cyclic_recursion(frame_graph, dependent_pass)) {
-                        return ZEST_TRUE; // Propagate the cycle detection signal up
-                    }
-                }
-            }
-        }
-    }
-    pass_node->visit_state = zest_pass_node_visited;
-    return ZEST_FALSE; // No cycle found from this pass
-}
-
 /*
 frame graph compiler index:
 
@@ -14232,17 +14204,11 @@ zest_frame_graph zest__compile_frame_graph() {
 	}
 
 	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
-    zest_bucket_array_foreach(i, frame_graph->potential_passes) {
-        zest_pass_node pass_node = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, i);
-		if (pass_node->visit_state == zest_pass_node_unvisited) {
-			if (zest__detect_cyclic_recursion(frame_graph, pass_node)) {
-				ZEST_REPORT(context->device, zest_report_cyclic_dependency, zest_message_cyclic_dependency, frame_graph->name, pass_node->name);
-				ZEST__FLAG(frame_graph->error_status, zest_fgs_cyclic_dependency);
-				ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
-				return frame_graph;
-			}
-		}
-    }
+
+	//Cyclic-dependency detection is folded into the Kahn-style wave build below: any pass that
+	//never reaches in-degree 0 is part of (or downstream of) a cycle and is caught by the
+	//pass_count check after Create_execution_waves. This replaces a recursive pre-pass that had
+	//no depth cap (stack overflow on pathological graphs) and rescanned every pass per output.
 
     //Check_unused_resources_and_passes and cull them if necessary
     zest_bool a_pass_was_culled = 0;
@@ -14464,8 +14430,15 @@ zest_frame_graph zest__compile_frame_graph() {
 
 		//Confirm the actual queue that will be used. Even though the pass was intended for a specific queue
 		//that queue might not be available on the gpu so set the type here to whatever will actually be used.
+		//On GPUs that expose only a single (graphics) queue family, compute/transfer passes have no
+		//dedicated queue and context->queues[queue_index] is NULL. Downgrade to graphics rather than
+		//dereferencing NULL (the old assert crashed debug builds here and vanished in release). The
+		//single-queue-wave optimisation below already applies this same promotion one step later.
 		zest_uint queue_index = zloc__scan_reverse(pass_node->queue_info.queue_type);
-		ZEST_ASSERT(pass_node->queue_info.queue_type & context->queues[queue_index]->queue_manager->type);
+		if (!context->queues[queue_index] || !(context->queues[queue_index]->queue_manager->type & pass_node->queue_info.queue_type)) {
+			ZEST_REPORT(context->device, zest_report_queue_unavailable, zest_message_queue_unavailable, frame_graph->name, (int)pass_node->queue_info.queue_type);
+			pass_node->queue_info.queue_type = zest_queue_graphics;
+		}
 
         switch (pass_node->queue_info.queue_type) {
 			case zest_queue_graphics:
@@ -14647,6 +14620,27 @@ zest_frame_graph zest__compile_frame_graph() {
         current_wave_index++;
     }
 
+    //A pass that never reached in-degree 0 during the Kahn-style wave build above is part of (or
+    //downstream of) a dependency cycle. In a valid DAG pass_count equals the number of final passes;
+    //any shortfall is a cycle. This must be checked before the empty-waves "no work" return below,
+    //because a graph whose passes are *all* in one cycle produces no roots and hence no waves at all
+    //- that is a cycle, not an idle frame. Reporting it here replaces the old recursive pre-pass and
+    //stops release builds silently submitting a graph with missing passes.
+    if (pass_count != zest_map_size(frame_graph->final_passes)) {
+        zest_pass_group_t *cyclic_pass = 0;
+        zest_map_foreach(pi, frame_graph->final_passes) {
+            if (dependency_count[pi] > 0) {
+                cyclic_pass = &frame_graph->final_passes.data[pi];
+                break;
+            }
+        }
+        ZEST_REPORT(context->device, zest_report_cyclic_dependency, zest_message_cyclic_dependency,
+            frame_graph->name, cyclic_pass ? cyclic_pass->passes[0]->name : frame_graph->name);
+        ZEST__FLAG(frame_graph->error_status, zest_fgs_cyclic_dependency);
+        ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
+        return frame_graph;
+    }
+
     if (zest_vec_size(initial_waves) == 0) {
         //Nothing to send to the GPU!
 		ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
@@ -14682,9 +14676,6 @@ zest_frame_graph zest__compile_frame_graph() {
 		}
 	}
 
-    //Bug, pass count which is a count of all pass groups added to waves should equal the number of final passes.
-    ZEST_ASSERT(pass_count == zest_map_size(frame_graph->final_passes));
-
     //Create_command_batches
     //We take the waves that we created that identified passes that can run in parallel on separate queues and 
     //organise them into wave submission batches:
@@ -14698,8 +14689,14 @@ zest_frame_graph zest__compile_frame_graph() {
         zest_execution_wave_t *wave = &frame_graph->execution_waves[wave_index];
         //If the wave has more than one queue then the passes can run in parallel in separate submission batches
         zest_uint queue_type_count = zloc__count_bits(wave->queue_bits);
-        //This should be impossible to hit, if no queue bit
-        ZEST_ASSERT(queue_type_count);  //Must be using at lease 1 queue
+        //This should be impossible to hit, if no queue bit. Keep the debug tripwire but in release
+        //flag the graph critical rather than building a submission batch from a zero-queue wave.
+        ZEST_ASSERT(queue_type_count);  //Must be using at least 1 queue
+        if (queue_type_count == 0) {
+            frame_graph->error_status |= zest_fgs_critical_error;
+            ZEST_CPU_PROFILE_END(context); //Begin Frame Graph
+            return frame_graph;
+        }
         if (queue_type_count > 1) {
             if (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic) {
 				zest_vec_linear_push(allocator, frame_graph->submissions, current_submission);
