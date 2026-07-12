@@ -10812,6 +10812,11 @@ void zest__free_context_buffer_allocators(zest_context context) {
 }
 
 void zest__cleanup_device(zest_device device) {
+	//Contexts need to be destroyed first before anything in the device is freed.
+	while (zest_vec_size(device->contexts)) {
+		zest_DestroyContext(device->contexts[zest_vec_size(device->contexts) - 1]);
+	}
+
 	zest_vec_foreach(i, device->queue_families) {
 		zest_queue_manager manager = device->queue_families[i];
 		if (!manager) continue;
@@ -10858,7 +10863,7 @@ void zest__cleanup_device(zest_device device) {
 		zest_vec_free(device->allocator, device->deferred_resource_freeing_list.buffers[fif]);
 	}
 
-	zest__scan_memory_and_free_resources(device, ZEST_TRUE);
+	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
 	zest__free_all_device_resource_stores(device);
 
 	zest__cleanup_set_layout(device->bindless_set_layout);
