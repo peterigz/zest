@@ -1218,6 +1218,230 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 	ImGui::End();
 }
 
+// -- Memory usage ImGui helpers --
+
+static void zest__imgui_memory_size_string(char *buffer, int buffer_size, zest_size size) {
+	if (size >= 1024ull * 1024ull * 1024ull) {
+		snprintf(buffer, buffer_size, "%.2f GB", (double)size / (1024.0 * 1024.0 * 1024.0));
+	} else if (size >= 1024ull * 1024ull) {
+		snprintf(buffer, buffer_size, "%.2f MB", (double)size / (1024.0 * 1024.0));
+	} else if (size >= 1024ull) {
+		snprintf(buffer, buffer_size, "%.1f KB", (double)size / 1024.0);
+	} else {
+		snprintf(buffer, buffer_size, "%llu B", (unsigned long long)size);
+	}
+}
+
+static void zest__imgui_memory_usage_bar(zest_size used, zest_size capacity) {
+	char used_str[32], capacity_str[32], overlay[80];
+	zest__imgui_memory_size_string(used_str, sizeof(used_str), used);
+	zest__imgui_memory_size_string(capacity_str, sizeof(capacity_str), capacity);
+	snprintf(overlay, sizeof(overlay), "%s / %s", used_str, capacity_str);
+	float fraction = capacity > 0 ? (float)((double)used / (double)capacity) : 0.0f;
+	ImGui::ProgressBar(fraction, ImVec2(180.0f, 0.0f), overlay);
+}
+
+static void zest__imgui_append_flag_name(char *buffer, int buffer_size, const char *name) {
+	if (buffer[0]) {
+		strncat(buffer, ", ", buffer_size - (int)strlen(buffer) - 1);
+	}
+	strncat(buffer, name, buffer_size - (int)strlen(buffer) - 1);
+}
+
+static void zest__imgui_memory_property_string(char *buffer, int buffer_size, zest_memory_property_flags flags) {
+	buffer[0] = '\0';
+	if (flags & zest_memory_property_device_local_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Device Local");
+	if (flags & zest_memory_property_host_visible_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Host Visible");
+	if (flags & zest_memory_property_host_coherent_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Host Coherent");
+	if (flags & zest_memory_property_host_cached_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Host Cached");
+	if (flags & zest_memory_property_lazily_allocated_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Lazily Allocated");
+	if (flags & zest_memory_property_protected_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Protected");
+	if (!buffer[0]) snprintf(buffer, buffer_size, "None");
+}
+
+static void zest__imgui_buffer_usage_string(char *buffer, int buffer_size, zest_buffer_usage_flags flags) {
+	buffer[0] = '\0';
+	if (flags & zest_buffer_usage_transfer_src_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Transfer Src");
+	if (flags & zest_buffer_usage_transfer_dst_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Transfer Dst");
+	if (flags & zest_buffer_usage_uniform_texel_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Uniform Texel");
+	if (flags & zest_buffer_usage_storage_texel_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Storage Texel");
+	if (flags & zest_buffer_usage_uniform_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Uniform");
+	if (flags & zest_buffer_usage_storage_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Storage");
+	if (flags & zest_buffer_usage_index_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Index");
+	if (flags & zest_buffer_usage_vertex_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Vertex");
+	if (flags & zest_buffer_usage_indirect_buffer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Indirect");
+	if (flags & zest_buffer_usage_shader_device_address_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Device Address");
+	if (!buffer[0]) snprintf(buffer, buffer_size, "None");
+}
+
+static void zest__imgui_image_usage_string(char *buffer, int buffer_size, zest_image_usage_flags flags) {
+	buffer[0] = '\0';
+	if (flags & zest_image_usage_transfer_src_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Transfer Src");
+	if (flags & zest_image_usage_transfer_dst_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Transfer Dst");
+	if (flags & zest_image_usage_sampled_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Sampled");
+	if (flags & zest_image_usage_storage_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Storage");
+	if (flags & zest_image_usage_color_attachment_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Color Attachment");
+	if (flags & zest_image_usage_depth_stencil_attachment_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Depth/Stencil Attachment");
+	if (flags & zest_image_usage_transient_attachment_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Transient Attachment");
+	if (flags & zest_image_usage_input_attachment_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Input Attachment");
+	if (flags & zest_image_usage_host_transfer_bit) zest__imgui_append_flag_name(buffer, buffer_size, "Host Transfer");
+	if (!buffer[0]) snprintf(buffer, buffer_size, "None");
+}
+
+//A single full width detail line under an open pool tree node
+static void zest__imgui_memory_detail_row(const char *fmt, ...) {
+	char text[256];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(text, sizeof(text), fmt, args);
+	va_end(args);
+	ImGui::TableNextRow();
+	ImGui::TableNextColumn();
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_Bullet;
+	ImGui::TreeNodeEx(text, flags);
+}
+
+static void zest__imgui_draw_pool_details(zest_buffer_pool_usage_t *pool) {
+	char flag_str[192], size_str[32], size_str2[32];
+
+	zest__imgui_memory_property_string(flag_str, sizeof(flag_str), pool->property_flags);
+	zest__imgui_memory_detail_row("Memory properties: %s", flag_str);
+
+	if (pool->is_image_pool) {
+		zest__imgui_image_usage_string(flag_str, sizeof(flag_str), pool->image_usage_flags);
+		zest__imgui_memory_detail_row("Image usage: %s", flag_str);
+		zest__imgui_memory_size_string(size_str, sizeof(size_str), pool->alignment);
+		zest__imgui_memory_detail_row("Image alignment: %s, memory type bits: 0x%08x", size_str, pool->backend_memory_bits);
+	} else {
+		zest__imgui_buffer_usage_string(flag_str, sizeof(flag_str), pool->buffer_usage_flags);
+		zest__imgui_memory_detail_row("Buffer usage: %s", flag_str);
+	}
+
+	const char *pool_type = "Custom";
+	switch (pool->memory_pool_type) {
+		case zest_memory_pool_type_buffers: pool_type = "Large buffers"; break;
+		case zest_memory_pool_type_images: pool_type = "Images"; break;
+		case zest_memory_pool_type_small_buffers: pool_type = "Small buffers"; break;
+		default: break;
+	}
+	zest__imgui_memory_size_string(size_str, sizeof(size_str), pool->configured_pool_size);
+	zest__imgui_memory_size_string(size_str2, sizeof(size_str2), pool->minimum_allocation_size);
+	zest__imgui_memory_detail_row("Sizing: %s (%s per pool, %s minimum allocation)", pool_type, size_str, size_str2);
+
+	zest__imgui_memory_size_string(size_str, sizeof(size_str), pool->offset_granularity);
+	zest__imgui_memory_detail_row("Offset granularity: %s", size_str);
+
+	if (pool->frame_in_flight > 0) {
+		zest__imgui_memory_detail_row("Dedicated to frame in flight: %u", pool->frame_in_flight);
+	}
+
+	if (pool->is_context_pool) {
+		zest__imgui_memory_detail_row("Owner: Context (frame lifetime buffers)");
+	} else {
+		zest__imgui_memory_detail_row("Owner: Device (persistent buffers)");
+	}
+
+	char pools_str[192];
+	pools_str[0] = '\0';
+	zest_uint listed = pool->pool_count < ZEST_MAX_REPORTED_POOLS ? pool->pool_count : ZEST_MAX_REPORTED_POOLS;
+	for (zest_uint i = 0; i < listed; ++i) {
+		zest__imgui_memory_size_string(size_str, sizeof(size_str), pool->pool_sizes[i]);
+		zest__imgui_append_flag_name(pools_str, sizeof(pools_str), size_str);
+	}
+	zest__imgui_memory_detail_row("Backing pools: %s%s", pools_str, pool->pool_count > listed ? ", ..." : "");
+}
+
+void zest_imgui_DrawMemoryUsageWindow(zest_context context) {
+	if (!ImGui::Begin("Memory Usage", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::End();
+		return;
+	}
+
+	zest_memory_usage_t usage = zest_GetMemoryUsage(context);
+	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
+
+	ImGui::SeparatorText("Host (CPU)");
+	if (ImGui::BeginTable("host_memory", 3, table_flags)) {
+		ImGui::TableSetupColumn("Allocator", ImGuiTableColumnFlags_WidthFixed, 160.0f);
+		ImGui::TableSetupColumn("Pools", ImGuiTableColumnFlags_WidthFixed, 45.0f);
+		ImGui::TableSetupColumn("Usage");
+		ImGui::TableHeadersRow();
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextUnformatted("Device");
+		ImGui::TableNextColumn(); ImGui::Text("%u", usage.host_device_pool_count);
+		ImGui::TableNextColumn(); zest__imgui_memory_usage_bar(usage.host_device_used, usage.host_device_capacity);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::TextUnformatted("Context");
+		ImGui::TableNextColumn(); ImGui::Text("%u", usage.host_context_pool_count);
+		ImGui::TableNextColumn(); zest__imgui_memory_usage_bar(usage.host_context_used, usage.host_context_capacity);
+
+		ImGui::EndTable();
+	}
+
+	ImGui::SeparatorText("GPU Pools");
+	zest_buffer_pool_usage_t pools[32];
+	zest_uint pool_count = zest_GetBufferPoolUsages(context, pools, 32);
+	if (pool_count > 32) pool_count = 32;
+	if (pool_count == 0) {
+		ImGui::TextDisabled("No GPU pools allocated");
+	} else if (ImGui::BeginTable("gpu_memory", 5, table_flags)) {
+		ImGui::TableSetupColumn("Pool", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+		ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("Pools", ImGuiTableColumnFlags_WidthFixed, 45.0f);
+		ImGui::TableSetupColumn("Allocs", ImGuiTableColumnFlags_WidthFixed, 45.0f);
+		ImGui::TableSetupColumn("Usage");
+		ImGui::TableHeadersRow();
+
+		for (zest_uint i = 0; i < pool_count; ++i) {
+			zest_buffer_pool_usage_t *pool = &pools[i];
+			const char *name = pool->name ? pool->name : "???";
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_SpanFullWidth;
+			bool open = ImGui::TreeNodeEx((void*)(intptr_t)i, node_flags, "%s%s", name, pool->is_context_pool ? " (context)" : "");
+			ImGui::TableNextColumn();
+			ImGui::Text("%s%s", pool->is_image_pool ? "Image" : "Buffer", pool->host_visible ? " (host)" : "");
+			ImGui::TableNextColumn(); ImGui::Text("%u", pool->pool_count);
+			ImGui::TableNextColumn(); ImGui::Text("%u", pool->used_blocks);
+			ImGui::TableNextColumn(); zest__imgui_memory_usage_bar(pool->used, pool->capacity);
+			if (open) {
+				zest__imgui_draw_pool_details(pool);
+				ImGui::TreePop();
+			}
+		}
+
+		ImGui::EndTable();
+	}
+
+	char size_str[32], size_str2[32];
+	if (usage.gpu_dedicated_count > 0) {
+		zest__imgui_memory_size_string(size_str, sizeof(size_str), usage.gpu_dedicated_size);
+		ImGui::Text("Dedicated image memory: %u allocation%s, %s", usage.gpu_dedicated_count, usage.gpu_dedicated_count == 1 ? "" : "s", size_str);
+	}
+	if (usage.gpu_transient_arena_count > 0) {
+		zest__imgui_memory_size_string(size_str, sizeof(size_str), usage.gpu_transient_high_water);
+		zest__imgui_memory_size_string(size_str2, sizeof(size_str2), usage.gpu_transient_capacity);
+		ImGui::Text("Transient arenas: %u, high water %s of %s", usage.gpu_transient_arena_count, size_str, size_str2);
+	}
+
+	ImGui::SeparatorText("Totals");
+	zest_size host_capacity = usage.host_device_capacity + usage.host_context_capacity;
+	zest_size host_used = usage.host_device_used + usage.host_context_used;
+	zest_size gpu_capacity = usage.gpu_pool_capacity + usage.gpu_dedicated_size + usage.gpu_transient_capacity;
+	zest_size gpu_used = usage.gpu_pool_used + usage.gpu_dedicated_size + usage.gpu_transient_capacity;
+	zest__imgui_memory_size_string(size_str, sizeof(size_str), host_used);
+	zest__imgui_memory_size_string(size_str2, sizeof(size_str2), host_capacity);
+	ImGui::Text("Host: %s used of %s", size_str, size_str2);
+	zest__imgui_memory_size_string(size_str, sizeof(size_str), gpu_used);
+	zest__imgui_memory_size_string(size_str2, sizeof(size_str2), gpu_capacity);
+	ImGui::Text("GPU: %s used of %s", size_str, size_str2);
+	ImGui::Text("Backend allocations: %u / %u", usage.backend_allocation_count, usage.max_backend_allocations);
+
+	ImGui::End();
+}
+
 void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	// Release the GPU textures and backend book-keeping we created for ImGui's dynamically
 	// managed textures (font atlas etc.) before tearing down the ImGui context.

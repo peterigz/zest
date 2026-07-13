@@ -47,8 +47,11 @@ const char *TestBlockBucketName(TestBlockBucket bucket) {
 //Classify a block by inspecting its first bytes. A Zest struct carries a magic identifier; a
 //driver allocation instead starts with a zest_platform_memory_info_t whose context_info low word is
 //the same magic (see zest__vk_device_allocate_callback). Anything else is a plain Zest allocation.
+//The identifier alone is only a 16 bit test and blocks storing arbitrary data at offset 0 can
+//collide with it (a backend struct whose first member is a driver handle whose low word cycles
+//through 0x4E57, for example), so a typed block must also carry a known struct type.
 TestBlockBucket ClassifyBlock(void *allocation, zest_uint *struct_type_out) {
-	if (ZEST_VALID_IDENTIFIER(allocation)) {
+	if (ZEST_VALID_IDENTIFIER(allocation) && zest__is_known_struct_type((zest_uint)ZEST_STRUCT_TYPE(allocation))) {
 		*struct_type_out = (zest_uint)ZEST_STRUCT_TYPE(allocation);
 		return test_block_zest_typed;
 	}
@@ -269,7 +272,7 @@ const char *HistogramEntryLabel(const BlockHistogram::Entry *entry, char *buffer
 			zest__platform_context_to_string((zest_platform_memory_context)category),
 			zest__platform_command_to_string((zest_platform_command)command));
 	} else if (entry->bucket == test_block_zest_typed) {
-		snprintf(buffer, buffer_size, "zest-typed %s", zest__struct_type_to_string((zest_struct_type)entry->struct_type));
+		snprintf(buffer, buffer_size, "zest-typed %s (0x%08x)", zest__struct_type_to_string((zest_struct_type)entry->struct_type), entry->struct_type);
 	} else {
 		snprintf(buffer, buffer_size, "zest-untyped");
 	}

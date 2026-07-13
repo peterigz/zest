@@ -4305,7 +4305,7 @@ zest_bool zest__vk_create_image(zest_device device, zest_context context, zest_i
 
     zest_bool dedicated = dedicated_requirements.requiresDedicatedAllocation != VK_FALSE ||
         dedicated_requirements.prefersDedicatedAllocation != VK_FALSE ||
-        memory_requirements.size >= ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD ||
+        memory_requirements.size >= device->setup_info.dedicated_image_memory_threshold ||
         (memory_properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
 
     zest_buffer_info_t buffer_info = ZEST__ZERO_INIT(zest_buffer_info_t);

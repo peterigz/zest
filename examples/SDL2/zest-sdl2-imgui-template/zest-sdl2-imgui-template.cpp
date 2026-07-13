@@ -168,6 +168,7 @@ void MainLoop(ImGuiApp *app) {
 			//ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 			zest_imgui_DrawImage(&app->sprite_state.active_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
+			zest_imgui_DrawMemoryUsageWindow(app->context);
 			ImGui::Render();
 			//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
 			//for fonts. If this function is not called then you will hit an assert in imgui about no texture
@@ -255,7 +256,7 @@ int main(int argc, char *argv[]) {
 
 	//Create the device that serves all vulkan based contexts
 	//Get the required instance extensions from SDL
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, zest_device_init_flag_output_memory_pool_info);
 
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

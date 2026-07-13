@@ -2755,10 +2755,10 @@ int test__buffer_grow_contract(ZestTests *tests, Test *test) {
 }
 //Non-transient images used to each get a dedicated vkAllocateMemory, so many small images could
 //exhaust maxMemoryAllocationCount (commonly 4096). They now sub-allocate from shared image pools
-//by default; only large images (>= ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD), host-visible images
-//and images the driver prefers dedicated keep their own allocation, marked with
-//zest_image_flag_dedicated_memory so cleanup can tell the backings apart. The device tracks the
-//live backend allocation count.
+//by default; only large images (>= the configurable dedicated_image_memory_threshold, default
+//4MB), host-visible images and images the driver prefers dedicated keep their own allocation,
+//marked with zest_image_flag_dedicated_memory so cleanup can tell the backings apart. The device
+//tracks the live backend allocation count.
 int test__pooled_image_allocations(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 	zest_device device = tests->device;
@@ -2816,7 +2816,7 @@ int test__pooled_image_allocations(ZestTests *tests, Test *test) {
 	if (!zest_GetImage(uploaded)) failed_count++;
 
 	//A large image must bypass the pools with a dedicated allocation: 4096x4096 RGBA is 64MB,
-	//well over the 16MB threshold
+	//well over the default 4MB threshold
 	int before_large = device->memory_allocation_count;
 	zest_image_info_t large_info = zest_CreateImageInfo(4096, 4096);
 	large_info.flags = zest_image_preset_texture;

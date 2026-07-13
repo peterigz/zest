@@ -41,7 +41,7 @@ Zest organizes GPU memory into pools:
 | Small Buffer Pool | 4 MB | GPU-only vertex, index, storage buffers for small buffers |
 | Staging Buffer Pool | 32 MB | CPU-visible upload buffers |
 | Small Staging Buffer Pool | 4 MB | Small CPU-visible upload buffers |
-| Image Memory Pool | 64 MB | Non-transient images (one pool set per image memory type) |
+| Image Memory Pool | 8 MB | Non-transient images below the dedicated threshold (one pool set per image memory type and alignment class) |
 
 Transient resources (created via `zest_AddTransientImageResource` / `zest_AddTransientBufferResource`)
 do not use these pools: the frame graph compiler packs them into per-graph memory arenas with
@@ -58,11 +58,19 @@ them to do so.
 
 An image gets its **own dedicated allocation** instead when any of these apply:
 
-- It is at least `ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD` (16 MB) — large images would only
-  fragment the pools.
+- It is at least the dedicated image threshold (default 4 MB, configurable with
+  `zest_SetDeviceBuilderDedicatedImageThreshold`) — large images would only fragment the pools.
+  Raise the threshold to keep more images pooled, lower it to give more images their own
+  allocation.
 - The driver prefers or requires a dedicated allocation for it (Vulkan's
   `VkMemoryDedicatedRequirements`, typical for render targets on some hardware).
 - It is host-visible (linear tiling).
+
+Because a separate image pool allocator exists per memory type and alignment class, the first pool
+of each image allocator is sized from the first request (rounded up to a power of two, floored at
+2 MB, capped at the configured pool size) rather than jumping straight to the configured size.
+Subsequent pools use the configured size with progressive growth, so allocators that keep filling
+up quickly reach full sized pools while rarely-used alignment classes stay small.
 
 Zest tracks the live allocation count on the device (`memory_allocation_count` against
 `max_memory_allocation_count`) and emits a report when it nears the backend limit.

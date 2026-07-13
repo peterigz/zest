@@ -2693,7 +2693,12 @@ typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, 
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
 #define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
 
+//The timestamp (an incrementing allocation id) sits at offset 0 of every driver host allocation,
+//the same place a zest struct keeps its magic. Skip ids whose low 16 bits collide with
+//ZEST_STRUCT_IDENTIFIER or the block would read as a valid zest struct to the memory census and
+//debug block walkers once the counter passes 0x4E57.
 #define ZEST_SET_MEMORY_CONTEXT(device, mem_context, command) device->platform_memory_info.timestamp = device->allocation_id++; \
+if ((device->platform_memory_info.timestamp & 0xFFFF) == ZEST_STRUCT_IDENTIFIER) { device->platform_memory_info.timestamp = device->allocation_id++; } \
 device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (mem_context << 16) | (command << 24)
 
 //For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
@@ -3574,6 +3579,58 @@ typedef struct zest_memory_stats_t {
 	zest_uint filter_count;
 } zest_memory_stats_t;
 
+#define ZEST_MAX_REPORTED_POOLS 16
+
+//Usage overview of a single GPU buffer/image pool allocator. Fill with zest_GetBufferPoolUsages
+typedef struct zest_buffer_pool_usage_t {
+	const char *name;                //Pool configuration name
+	zest_bool is_image_pool;         //True if the pools back image memory rather than buffers
+	zest_bool host_visible;          //True if the memory is host visible (CPU mappable)
+	zest_bool is_context_pool;       //True if owned by a context (frame lifetime buffers) rather than the device
+	zest_uint pool_count;            //Number of backing device memory pools
+	zest_uint used_blocks;           //Number of live allocations sub-allocated from the pools
+	zest_size capacity;              //Total bytes across all backing pools
+	zest_size used;                  //Bytes currently in use by live allocations
+	//The fields below are the properties that key the allocator - allocators exist per unique
+	//combination of these (plus owner), which is why there are separate pools
+	zest_memory_property_flags property_flags;      //Memory properties the pools were allocated with
+	zest_memory_pool_type memory_pool_type;         //Pool sizing category
+	zest_buffer_usage_flags buffer_usage_flags;     //Buffer pools: what the buffers can be used for
+	zest_image_usage_flags image_usage_flags;       //Image pools: what the images can be used for
+	zest_size alignment;                            //Image pools: image alignment requirement
+	zest_uint backend_memory_bits;                  //Image pools: backend memory compatibility bits
+	zest_uint frame_in_flight;                      //Frame in flight index the allocator is dedicated to, or 0
+	//Pool sizing configuration and behaviour
+	zest_size configured_pool_size;                 //Configured size for each new backing pool
+	zest_size minimum_allocation_size;              //Minimum block size in the pools
+	zest_size offset_granularity;                   //All allocation sizes are rounded up to this
+	zest_size pool_sizes[ZEST_MAX_REPORTED_POOLS];  //Sizes of each backing pool (up to the first 16)
+} zest_buffer_pool_usage_t;
+
+//Aggregate overview of all host and GPU memory allocated by the library. Fill with zest_GetMemoryUsage
+typedef struct zest_memory_usage_t {
+	//Host (CPU) TLSF allocators
+	zest_size host_device_capacity;
+	zest_size host_device_used;
+	zest_uint host_device_pool_count;
+	zest_size host_context_capacity;
+	zest_size host_context_used;
+	zest_uint host_context_pool_count;
+	//GPU buffer and image pools, device and context owned combined
+	zest_size gpu_pool_capacity;
+	zest_size gpu_pool_used;
+	//Images that have their own dedicated memory allocation
+	zest_size gpu_dedicated_size;
+	zest_uint gpu_dedicated_count;
+	//Transient arenas used by frame graphs, summed over all frames in flight
+	zest_size gpu_transient_capacity;
+	zest_size gpu_transient_high_water;
+	zest_uint gpu_transient_arena_count;
+	//Live backend memory allocations (pools, arenas and dedicated memory) against the backend limit
+	zest_uint backend_allocation_count;
+	zest_uint max_backend_allocations;
+} zest_memory_usage_t;
+
 typedef struct zest_timer_t {
     double start_time;
     double delta_time;
@@ -3834,6 +3891,9 @@ typedef struct zest_device_builder_t {
 	int transfer_queue_count;	//For testing only
 	int compute_queue_count;	//For testing only
 	zest_size max_small_buffer_size;
+	//Images whose memory requirement is at least this size get their own dedicated allocation
+	//instead of sub-allocating from the shared image pools. Increase it to keep more images pooled.
+	zest_size dedicated_image_memory_threshold;
 	const char *log_path;                               //path to the log to store log and validation messages
 	const char *cached_shader_path;
 
@@ -4870,6 +4930,14 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
+//Set the size at which an image gets its own dedicated memory allocation instead of sub-allocating
+//from the shared image pools (default 4MB). Image pools are keyed by alignment and memory type, so
+//keeping large images out of them avoids reserving a full pool for every combination. Increase the
+//threshold to keep more images pooled, or lower it to give more images their own allocation. Note
+//that host visible images and images the backend requires/prefers dedicated always get their own
+//allocation regardless of this threshold. Does not apply to transient images which are placed in
+//frame graph arenas.
+ZEST_API void zest_SetDeviceBuilderDedicatedImageThreshold(zest_device_builder builder, zest_size size);
 //Set the folder where compiled shader binaries are cached. The default is set by the platform builder
 //(the Vulkan backend uses "./spv/"). Pass NULL to disable the prefix entirely.
 ZEST_API void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path);
@@ -5893,6 +5961,14 @@ ZEST_API float zest_LinearToSRGB(float value);
 //Get memory stats for device and contexts
 ZEST_API zloc_allocation_stats_t zest_GetDeviceMemoryStats(zest_device device);
 ZEST_API zloc_allocation_stats_t zest_GetContextMemoryStats(zest_context context);
+//Get an aggregate overview of all host and GPU memory allocated for the device and context, including
+//GPU pools, dedicated image memory and transient arenas
+ZEST_API zest_memory_usage_t zest_GetMemoryUsage(zest_context context);
+//Fill usages (up to max_usages) with per pool allocator usage covering both device and context owned
+//GPU pools. Returns the total number of pool allocators which may be more than max_usages. Pass NULL
+//usages to just get the count.
+ZEST_API zest_uint zest_GetBufferPoolUsages(zest_context context, zest_buffer_pool_usage_t *usages, zest_uint max_usages);
+ZEST_PRIVATE void zest__fill_buffer_pool_usage(zest_buffer_allocator buffer_allocator, zest_buffer_pool_usage_t *usage);
 //--End General Helper functions
 
 //-----------------------------------------------
@@ -5910,6 +5986,7 @@ ZEST_API zest_uint zest_ReportCount(zest_context context);
 ZEST_API void zest_PrintReports(zest_context context);
 ZEST_API void zest_ResetReports(zest_context context);
 ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter);
+ZEST_PRIVATE zest_bool zest__is_known_struct_type(zest_uint struct_type);
 ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_device device);
 ZEST_API void zest_ResetValidationErrors(zest_device device);
@@ -7340,7 +7417,7 @@ typedef struct zest_buffer_t {
 //device memory allocation: pooling exists to keep many small images from exhausting the device's
 //allocation count limit, while large images would only fragment the pools (drivers also prefer
 //dedicated allocations for them, which the backend honours independently of this threshold).
-#define ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD zloc__MEGABYTE(16)
+#define ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD zloc__MEGABYTE(4)
 
 //A retired transient arena image awaiting deferred destruction: carries the old backend (which
 //owns the API image handle) and the old heap-allocated view. Both structs are freed after the
@@ -8654,6 +8731,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->bindless_storage_image_count = 1024;
 	builder->bindless_uniform_buffer_count = 64;
 	builder->max_small_buffer_size = 65536;
+	builder->dedicated_image_memory_threshold = ZEST_DEDICATED_IMAGE_MEMORY_THRESHOLD;
 	return builder;
 }
 
@@ -8724,6 +8802,11 @@ void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size 
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST_ASSERT(size > zloc__MEGABYTE(2));	//Size for the memory pool must be greater than 2 megabytes
 	builder->memory_pool_size = size;
+}
+
+void zest_SetDeviceBuilderDedicatedImageThreshold(zest_device_builder builder, zest_size size) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	builder->dedicated_image_memory_threshold = size;
 }
 
 void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path) {
@@ -9355,11 +9438,12 @@ void zest__set_default_pool_sizes(zest_device device) {
     zest_buffer_usage_t usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
 
 	//Image pools (non-transient images below the dedicated-allocation threshold sub-allocate from
-	//these; transient images use the frame graph arenas instead).
-	//Bear in mind that a pool will be created to cater for each image memory type
+	//these; transient images use the frame graph arenas instead). Kept small because a separate
+	//pool is created per image memory type and alignment class, and images at or above the
+	//dedicated threshold never land here anyway.
     usage.property_flags = zest_memory_property_device_local_bit;
 	usage.memory_pool_type = zest_memory_pool_type_images;
-    zest_SetDevicePoolSize(device, "Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
+    zest_SetDevicePoolSize(device, "Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(8));
 
 	//Buffers
     usage.property_flags = zest_memory_property_device_local_bit;
@@ -9771,13 +9855,11 @@ void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then
 	// it should print out the offset from the allocator; compute (allocation - allocator) here and
 	// break on the offending offset to find out what's being allocated.
-	/*
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
 	zloc_header *block = zloc__block_from_allocation(allocation);
-	if (offset_from_allocator == 30681568 && block->size == 72) {
+	if (offset_from_allocator == 13807896 && zloc__block_size(block) == 32) {
 		int d = 0;
 	}
-	*/
 	if (!allocation) {
 		zest__add_memory_pool(allocator, size);
 		allocation = zloc_Allocate(allocator, size);
@@ -9992,6 +10074,13 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
 		//per-alignment/per-FIF allocator; capped, the growth tops out at 2x the base pool size.
 		zest_size previous_size = zest_vec_back(buffer_allocator->memory_pools)->size;
 		buffer_pool->size += previous_size < base_pool_size ? previous_size : base_pool_size;
+	} else if (buffer_allocator->buffer_info.image_usage_flags) {
+		//A separate image allocator exists per memory type and alignment class, so starting each
+		//one at the full configured pool size multiplies the reservation across every class. Start
+		//the first pool small (enough for the request, at least 2MB) and let the progressive
+		//growth above take over if the allocator keeps filling up.
+		zest_size first_pool_size = ZEST__MAX(zest_RoundUpToNearestPower(minimum_size), (zest_size)zloc__MEGABYTE(2));
+		buffer_pool->size = ZEST__MIN(first_pool_size, base_pool_size);
 	}
 	zest_context context = buffer_allocator->context;
 	buffer_pool->minimum_allocation_size = buffer_allocator->pre_defined_pool_size.minimum_allocation_size;
@@ -12571,6 +12660,118 @@ zloc_allocation_stats_t zest_GetDeviceMemoryStats(zest_device device) {
 zloc_allocation_stats_t zest_GetContextMemoryStats(zest_context context) {
 	ZEST_ASSERT_HANDLE(context); 	//Not a valid context handle
 	return context->allocator->stats;
+}
+
+void zest__fill_buffer_pool_usage(zest_buffer_allocator buffer_allocator, zest_buffer_pool_usage_t *usage) {
+	*usage = ZEST__ZERO_INIT(zest_buffer_pool_usage_t);
+	usage->name = buffer_allocator->name;
+	usage->is_image_pool = buffer_allocator->buffer_info.image_usage_flags ? ZEST_TRUE : ZEST_FALSE;
+	usage->host_visible = ZEST__FLAGGED(buffer_allocator->buffer_info.property_flags, zest_memory_property_host_visible_bit) ? ZEST_TRUE : ZEST_FALSE;
+	usage->is_context_pool = buffer_allocator->context ? ZEST_TRUE : ZEST_FALSE;
+	usage->property_flags = buffer_allocator->buffer_info.property_flags;
+	usage->memory_pool_type = buffer_allocator->usage.memory_pool_type;
+	usage->buffer_usage_flags = buffer_allocator->buffer_info.buffer_usage_flags;
+	usage->image_usage_flags = buffer_allocator->buffer_info.image_usage_flags;
+	usage->alignment = buffer_allocator->buffer_info.alignment;
+	usage->backend_memory_bits = buffer_allocator->buffer_info.backend_memory_bits;
+	usage->frame_in_flight = buffer_allocator->buffer_info.frame_in_flight;
+	usage->configured_pool_size = buffer_allocator->pre_defined_pool_size.pool_size;
+	usage->minimum_allocation_size = buffer_allocator->pre_defined_pool_size.minimum_allocation_size;
+	usage->offset_granularity = buffer_allocator->offset_granularity;
+	usage->pool_count = zest_vec_size(buffer_allocator->memory_pools);
+	zest_vec_foreach(i, buffer_allocator->memory_pools) {
+		usage->capacity += buffer_allocator->memory_pools[i]->size;
+		if (i < ZEST_MAX_REPORTED_POOLS) {
+			usage->pool_sizes[i] = buffer_allocator->memory_pools[i]->size;
+		}
+	}
+	//Walk the range pools (the CPU side block metadata for the GPU pools) and sum the live allocations
+	zest_vec_foreach(i, buffer_allocator->range_pools) {
+		zest_pool_range pool = buffer_allocator->range_pools[i];
+		zloc_header *current_block = (zloc_header *)zloc__first_block_in_pool((zloc_pool *)pool);
+		while (!zloc__is_last_block_in_pool(current_block)) {
+			if (!zloc__is_free_block(current_block)) {
+				zest_buffer buffer = (zest_buffer)zloc_BlockUserExtensionPtr(current_block);
+				usage->used += buffer->size;
+				usage->used_blocks++;
+			}
+			current_block = zloc__next_physical_block(current_block);
+		}
+	}
+}
+
+zest_uint zest_GetBufferPoolUsages(zest_context context, zest_buffer_pool_usage_t *usages, zest_uint max_usages) {
+	ZEST_ASSERT_HANDLE(context); 	//Not a valid context handle
+	zest_device device = context->device;
+	zest_uint count = 0;
+	zest_map_foreach(i, device->buffer_allocators) {
+		if (usages && count < max_usages) {
+			zest__fill_buffer_pool_usage(device->buffer_allocators.data[i], &usages[count]);
+		}
+		count++;
+	}
+	zest_map_foreach(i, context->buffer_allocators) {
+		if (usages && count < max_usages) {
+			zest__fill_buffer_pool_usage(context->buffer_allocators.data[i], &usages[count]);
+		}
+		count++;
+	}
+	return count;
+}
+
+zest_memory_usage_t zest_GetMemoryUsage(zest_context context) {
+	ZEST_ASSERT_HANDLE(context); 	//Not a valid context handle
+	zest_device device = context->device;
+	zest_memory_usage_t usage = ZEST__ZERO_INIT(zest_memory_usage_t);
+
+	usage.host_device_capacity = device->allocator->stats.capacity;
+	usage.host_device_used = device->allocator->stats.capacity - device->allocator->stats.free;
+	usage.host_device_pool_count = device->memory_pool_count;
+	usage.host_context_capacity = context->allocator->stats.capacity;
+	usage.host_context_used = context->allocator->stats.capacity - context->allocator->stats.free;
+	usage.host_context_pool_count = context->memory_pool_count;
+
+	zest_buffer_pool_usage_t pool_usage;
+	zest_map_foreach(i, device->buffer_allocators) {
+		zest__fill_buffer_pool_usage(device->buffer_allocators.data[i], &pool_usage);
+		usage.gpu_pool_capacity += pool_usage.capacity;
+		usage.gpu_pool_used += pool_usage.used;
+	}
+	zest_map_foreach(i, context->buffer_allocators) {
+		zest__fill_buffer_pool_usage(context->buffer_allocators.data[i], &pool_usage);
+		usage.gpu_pool_capacity += pool_usage.capacity;
+		usage.gpu_pool_used += pool_usage.used;
+	}
+
+	//Images with dedicated memory allocations. Transient images are excluded, their memory lives in
+	//the transient arenas which are counted below.
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_images];
+	for (int i = 0; i != store->data.current_size; ++i) {
+		if (zest__resource_is_initialised(store, i)) {
+			zest_image image = zest_bucket_array_get(&store->data, zest_image_t, i);
+			if (ZEST_VALID_HANDLE(image, zest_struct_type_image)
+				&& ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)
+				&& ZEST__FLAGGED(image->info.flags, zest_image_flag_dedicated_memory)) {
+				usage.gpu_dedicated_size += ((zest_device_memory)image->buffer)->size;
+				usage.gpu_dedicated_count++;
+			}
+		}
+	}
+
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *arena = context->transient_arenas[i];
+		usage.gpu_transient_arena_count++;
+		for (int fif = 0; fif != ZEST_MAX_FIF; ++fif) {
+			if (arena->backing[fif]) {
+				usage.gpu_transient_capacity += arena->backing[fif]->size;
+			}
+			usage.gpu_transient_high_water += arena->high_water[fif];
+		}
+	}
+
+	usage.backend_allocation_count = (zest_uint)device->memory_allocation_count;
+	usage.max_backend_allocations = device->max_memory_allocation_count;
+	return usage;
 }
 
 zest_uint zest__grow_capacity(void* T, zest_uint size) {
@@ -19868,6 +20069,14 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
     return "UNKNOWN";
 }
 
+//The struct identifier alone is only a 16 bit test, which is too weak for code that *scans* memory
+//it doesn't own (the debug block walkers and the test memory census): any allocation storing an
+//arbitrary value at offset 0 - a backend struct whose first member is a driver handle, say - will
+//eventually collide with it. Scanners must also require the type bits to name a real struct type.
+zest_bool zest__is_known_struct_type(zest_uint struct_type) {
+	return strcmp(zest__struct_type_to_string((zest_struct_type)struct_type), "UNKNOWN") != 0;
+}
+
 const char *zest__platform_command_to_string(zest_platform_command command) {
     switch (command) {
 		case zest_command_surface                : return "Surface"; break;
@@ -19911,7 +20120,7 @@ const char *zest__platform_context_to_string(zest_platform_memory_context contex
 }
 
 void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter, zest_struct_type struct_type_filter) {
-    if (ZEST_VALID_IDENTIFIER(allocation)) {
+    if (ZEST_VALID_IDENTIFIER(allocation) && zest__is_known_struct_type((zest_uint)ZEST_STRUCT_TYPE(allocation))) {
 		zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
 		if (struct_type_filter && struct_type != struct_type_filter) return;
 		ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
