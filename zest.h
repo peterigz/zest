@@ -3619,7 +3619,8 @@ typedef struct zest_memory_usage_t {
 	//GPU buffer and image pools, device and context owned combined
 	zest_size gpu_pool_capacity;
 	zest_size gpu_pool_used;
-	//Images that have their own dedicated memory allocation
+	//Resources that have their own dedicated memory allocation: images over the dedicated threshold
+	//and one-off buffers from zest_CreateDedicatedBuffer
 	zest_size gpu_dedicated_size;
 	zest_uint gpu_dedicated_count;
 	//Transient arenas used by frame graphs, summed over all frames in flight
@@ -4706,7 +4707,8 @@ ZEST_PRIVATE void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zes
 ZEST_PRIVATE zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits, zest_bool add_to_map);
+ZEST_PRIVATE void zest__destroy_buffer_allocator(zest_buffer_allocator buffer_allocator);
 ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
@@ -5201,6 +5203,16 @@ ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 ZEST_API zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(zest_device device, zest_size size, void *data);
+//Create a one-off buffer that owns a dedicated pool sized to exactly this allocation, rather than
+//sub-allocating (and potentially growing) a shared persistent pool. Freeing the buffer (deferred via
+//zest_FreeBuffer or immediately via zest_FreeBufferNow) releases the whole allocation back to the
+//driver. Use this for large one-time uploads (e.g. a big image staging copy) so they don't leave a
+//large pool reserved for the lifetime of the device. For small, frequently reused buffers prefer
+//zest_CreateBuffer, whose shared pools amortise allocations.
+ZEST_API zest_buffer zest_CreateDedicatedBuffer(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
+//Convenience wrapper around zest_CreateDedicatedBuffer for a host-visible staging buffer; mirrors
+//zest_CreateStagingBuffer but with a dedicated, freed-on-release allocation.
+ZEST_API zest_buffer zest_CreateDedicatedStagingBuffer(zest_device device, zest_size size, void *data);
 //Generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with. This is the
 //documented way to build buffer infos: describe what you need with zest_buffer_type and zest_memory_usage and
 //each backend maps that to its own memory model (memory types on Vulkan, heap types on D3D12, storage modes on Metal).
@@ -6812,6 +6824,10 @@ typedef struct zest_buffer_allocator_t {
 	//are byte-exact sums of the preceding block sizes) stay aligned by induction. Offsets feed
 	//descriptor buffer infos, index buffer binds and indirect draws directly.
 	zest_size offset_granularity;
+	//Set for one-off allocators created by zest_CreateDedicatedBuffer: freeing the buffer tears the
+	//whole allocator (its single pool and backing memory) down instead of returning the block to a
+	//shared, persistent pool.
+	zest_bool is_dedicated;
 } zest_buffer_allocator_t;
 
 typedef struct zest_buffer_linear_allocator_t {
@@ -6952,6 +6968,10 @@ typedef struct zest_device_t {
 
 	//GPU buffer allocation
 	zest_map_buffer_allocators buffer_allocators;
+	//One-off dedicated buffer allocators (zest_CreateDedicatedBuffer): each owns a single pool sized
+	//to one allocation and is torn down whole when its buffer is freed. Tracked here rather than in
+	//the reuse map above so any left live at shutdown are still cleaned up.
+	zest_buffer_allocator *dedicated_buffer_allocators;
 
 	//Default images for unbound descriptor indexes
 	zest_image default_image_2d;
@@ -9987,7 +10007,7 @@ zest_size zest__get_minimum_block_size(zest_size pool_size) {
     return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
-zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits) {
+zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_buffer_usage_t *usage, zest_size size, zest_uint backend_memory_bits, zest_bool add_to_map) {
 	zloc_allocator *allocator = context ? context->allocator : device->allocator;
 	zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)ZEST__NEW(allocator, zest_buffer_allocator);
 	*buffer_allocator = ZEST__ZERO_INIT(zest_buffer_allocator_t);
@@ -10039,9 +10059,30 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_device device, zest_con
 	buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
 	buffer_allocator->allocator->merge_next_callback = zest__remote_merge_next_callback;
 	buffer_allocator->allocator->merge_prev_callback = zest__remote_merge_prev_callback;
-	zest_map_buffer_allocators *buffer_allocators = context ? &context->buffer_allocators : &device->buffer_allocators;
-	zest_map_insert_key(allocator, (*buffer_allocators), key, buffer_allocator);
+	if (add_to_map) {
+		zest_map_buffer_allocators *buffer_allocators = context ? &context->buffer_allocators : &device->buffer_allocators;
+		zest_map_insert_key(allocator, (*buffer_allocators), key, buffer_allocator);
+	}
 	return buffer_allocator;
+}
+
+//Tear down a single buffer allocator: its memory pools (and their backend buffer/device memory),
+//range pools, backend and the zloc allocator itself. Used both by the shutdown sweeps and by the
+//one-off free path in zest_FreeBufferNow for dedicated allocators.
+void zest__destroy_buffer_allocator(zest_buffer_allocator buffer_allocator) {
+	zest_context context = buffer_allocator->context;
+	zloc_allocator *allocator = context ? context->allocator : buffer_allocator->device->allocator;
+	zest_vec_foreach(j, buffer_allocator->memory_pools) {
+		zest__destroy_memory(buffer_allocator->memory_pools[j]);
+	}
+	zest_vec_free(allocator, buffer_allocator->memory_pools);
+	zest_vec_foreach(j, buffer_allocator->range_pools) {
+		ZEST__FREE(allocator, buffer_allocator->range_pools[j]);
+	}
+	zest_vec_free(allocator, buffer_allocator->range_pools);
+	buffer_allocator->device->platform->cleanup_buffer_allocator_backend(buffer_allocator);
+	ZEST__FREE(allocator, buffer_allocator->allocator);
+	ZEST__FREE(allocator, buffer_allocator);
 }
 
 zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size) {
@@ -10265,7 +10306,7 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
-		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, &usage, size, buffer_info->backend_memory_bits);
+		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, &usage, size, buffer_info->backend_memory_bits, ZEST_TRUE);
 		buffer_allocator->usage = usage;
 		if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
 			ZEST_REPORT(device, zest_report_memory, "Creating %s GPU Allocator. Property flags: %s. Intended use: %s.",
@@ -10313,6 +10354,60 @@ zest_buffer zest_CreateStagingBuffer(zest_device device, zest_size size, void* d
     zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
     zest_buffer buffer = zest_CreateBuffer(device, size, &buffer_info);
     if (data) {
+        memcpy(zest_BufferData(buffer), data, size);
+    }
+    return buffer;
+}
+
+zest_buffer zest_CreateDedicatedBuffer(zest_device device, zest_size size, zest_buffer_info_t *buffer_info) {
+	ZEST_ASSERT_OR_VALIDATE((buffer_info->property_flags & zest_memory_property_device_local_bit) ||
+							(buffer_info->property_flags & (zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit)) ||
+							(buffer_info->property_flags & (zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit)),
+							device, "Trying to create buffer with invalid memory usage", NULL);
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient),
+							device, "Transient buffers are for use in frame graphs only. Just simply zest_FreeBuffer after use if you're done with it.", NULL);
+	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
+	if (buffer_info->image_usage_flags) {
+		ZEST_ASSERT_OR_VALIDATE(buffer_info->backend_memory_bits, device,
+								"Image buffer infos must set backend_memory_bits (the image's memory compatibility bits, queried from the backend) so the allocation can be matched to a compatible memory type.", NULL);
+		usage.memory_pool_type = zest_memory_pool_type_images;
+		usage.alignment = buffer_info->alignment;
+	} else if (size > device->setup_info.max_small_buffer_size) {
+		usage.memory_pool_type = zest_memory_pool_type_buffers;
+	} else {
+		usage.memory_pool_type = zest_memory_pool_type_small_buffers;
+	}
+	//Not registered in the reuse map: a dedicated allocator is a single-use owner, tracked separately
+	//so it can be destroyed whole when the buffer is freed.
+	zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, 0, &usage, size, buffer_info->backend_memory_bits, ZEST_FALSE);
+	buffer_allocator->usage = usage;
+	buffer_allocator->is_dedicated = ZEST_TRUE;
+	//Size the single pool to exactly this request (rounded to the allocator granularity, and never
+	//below the zloc minimum block size so the one allocation always fits) so nothing is left reserved
+	//once the buffer is freed. Overriding pool_size and passing a zero minimum forces zest__add_gpu_memory_pool
+	//to use exactly this size instead of the 32MB-class predefined pool.
+	zest_size pool_size = ZEST__MAX(zloc__align_size_up(size, buffer_allocator->offset_granularity), buffer_allocator->pre_defined_pool_size.minimum_allocation_size);
+	buffer_allocator->pre_defined_pool_size.pool_size = pool_size;
+	zest_device_memory_pool buffer_pool = 0;
+	if (zest__add_gpu_memory_pool(buffer_allocator, 0, &buffer_pool) != ZEST_TRUE) {
+		zest__destroy_buffer_allocator(buffer_allocator);
+		return 0;
+	}
+	zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, pool_size);
+	if (!buffer) {
+		ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %llu of memory for a dedicated buffer.", size);
+		zest__destroy_buffer_allocator(buffer_allocator);
+		return 0;
+	}
+	buffer->usage_flags = buffer_info->buffer_usage_flags;
+	zest_vec_push(device->allocator, device->dedicated_buffer_allocators, buffer_allocator);
+	return buffer;
+}
+
+zest_buffer zest_CreateDedicatedStagingBuffer(zest_device device, zest_size size, void* data) {
+    zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+    zest_buffer buffer = zest_CreateDedicatedBuffer(device, size, &buffer_info);
+    if (buffer && data) {
         memcpy(zest_BufferData(buffer), data, size);
     }
     return buffer;
@@ -10546,7 +10641,21 @@ void zest_FreeBufferNow(zest_buffer buffer) {
 	if (is_free) {
 		return;
 	}
-    zloc_FreeRemote(buffer->memory_pool->allocator->allocator, buffer);
+	zest_buffer_allocator buffer_allocator = buffer->memory_pool->allocator;
+	if (buffer_allocator->is_dedicated) {
+		//A one-off buffer owns its whole allocator: releasing it destroys the pool and backing memory
+		//outright rather than returning the block to a shared pool that would linger.
+		zest_device device = buffer_allocator->device;
+		zest_vec_foreach(i, device->dedicated_buffer_allocators) {
+			if (device->dedicated_buffer_allocators[i] == buffer_allocator) {
+				zest_vec_erase(device->dedicated_buffer_allocators, &device->dedicated_buffer_allocators[i]);
+				break;
+			}
+		}
+		zest__destroy_buffer_allocator(buffer_allocator);
+		return;
+	}
+    zloc_FreeRemote(buffer_allocator->allocator, buffer);
 }
 
 void zest_AddCopyCommand(zest_context context, zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size) {
@@ -10855,49 +10964,25 @@ void zest__free_device_buffer_allocators(zest_device device) {
 					   zest__memory_property_to_string(buffer_allocator->usage.property_flags),
 					   zest__memory_type_to_string(buffer_allocator->usage.memory_pool_type)
 					   );
-		}
-		zest_size total_size = 0;
-        zest_vec_foreach(j, buffer_allocator->memory_pools) {
-			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
-			if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
+			zest_vec_foreach(j, buffer_allocator->memory_pools) {
+				zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
 				ZEST_PRINT("      Pool %i) Size: %llu (%llu kb, %llu mb), Alignment: %llu", j, memory_pool->size, memory_pool->size / 1024, memory_pool->size / 1024 / 1024, memory_pool->alignment);
 			}
-			total_size += memory_pool->size;
-            zest__destroy_memory(buffer_allocator->memory_pools[j]);
-        }
-        zest_vec_free(device->allocator, buffer_allocator->memory_pools);
-        zest_vec_foreach(j, buffer_allocator->range_pools) {
-            ZEST__FREE(device->allocator, buffer_allocator->range_pools[j]);
-        }
-        zest_vec_free(device->allocator, buffer_allocator->range_pools);
-		device->platform->cleanup_buffer_allocator_backend(buffer_allocator);
-        ZEST__FREE(device->allocator, buffer_allocator->allocator);
-        ZEST__FREE(device->allocator, buffer_allocator);
+		}
+		zest__destroy_buffer_allocator(buffer_allocator);
     }
+	//One-off dedicated allocators are not in the map above; tear down any still live so a caller that
+	//forgot to free a dedicated buffer doesn't leak its pool at shutdown.
+	zest_vec_foreach(i, device->dedicated_buffer_allocators) {
+		zest__destroy_buffer_allocator(device->dedicated_buffer_allocators[i]);
+	}
+	zest_vec_free(device->allocator, device->dedicated_buffer_allocators);
 }
 
 void zest__free_context_buffer_allocators(zest_context context) {
     zest_map_foreach(i, context->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(context->buffer_allocators, i);
-		zest_size total_size = 0;
-        zest_vec_foreach(j, buffer_allocator->memory_pools) {
-			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
-			if(0) ZEST_PRINT("      Pool %i) Size: %llu (%llu kb, %llu mb), Alignment: %llu", j, memory_pool->size, memory_pool->size / 1024, memory_pool->size / 1024 / 1024, memory_pool->alignment);
-			total_size += memory_pool->size;
-            zest__destroy_memory(buffer_allocator->memory_pools[j]);
-        }
-		if (zest_vec_size(buffer_allocator->memory_pools) > 1) {
-			if(0) ZEST_ALERT("      More than 1 pool created, consider increasing the pool size for this memory type.");
-			if(0) ZEST_ALERT("      Total pool size was %llu (%llu kb, %llu mb).", total_size, total_size / 1024, total_size / 1024 / 1024);
-		}
-        zest_vec_free(context->allocator, buffer_allocator->memory_pools);
-        zest_vec_foreach(j, buffer_allocator->range_pools) {
-            ZEST__FREE(context->allocator, buffer_allocator->range_pools[j]);
-        }
-        zest_vec_free(context->allocator, buffer_allocator->range_pools);
-		context->device->platform->cleanup_buffer_allocator_backend(buffer_allocator);
-        ZEST__FREE(context->allocator, buffer_allocator->allocator);
-        ZEST__FREE(context->allocator, buffer_allocator);
+		zest__destroy_buffer_allocator(buffer_allocator);
     }
 }
 
@@ -12755,6 +12840,16 @@ zest_memory_usage_t zest_GetMemoryUsage(zest_context context) {
 				usage.gpu_dedicated_size += ((zest_device_memory)image->buffer)->size;
 				usage.gpu_dedicated_count++;
 			}
+		}
+	}
+
+	//One-off dedicated buffers (zest_CreateDedicatedBuffer): each owns its own pool, counted here
+	//alongside dedicated images rather than in the shared gpu pool totals above.
+	zest_vec_foreach(i, device->dedicated_buffer_allocators) {
+		zest_buffer_allocator dedicated = device->dedicated_buffer_allocators[i];
+		zest_vec_foreach(j, dedicated->memory_pools) {
+			usage.gpu_dedicated_size += dedicated->memory_pools[j]->size;
+			usage.gpu_dedicated_count++;
 		}
 	}
 

@@ -2679,6 +2679,61 @@ int test__large_readback_buffer(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//zest_CreateDedicatedBuffer gives a one-off buffer its own pool sized to the request (not a large
+//shared pool) and tears the whole allocation down when freed, so a big one-time upload doesn't leave
+//a large pool reserved for the lifetime of the device.
+int test__dedicated_buffer(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_device device = tests->device;
+	zest_size granularity = device->buffer_offset_granularity;
+
+	zest_uint dedicated_before = zest_vec_size(device->dedicated_buffer_allocators);
+
+	//Large one-off staging upload. A shared staging allocator would round this into a 32MB-class
+	//pool that lingers; a dedicated allocation must be sized to the request and released on free.
+	const zest_size upload_size = zloc__MEGABYTE(8);
+	zest_buffer staging = zest_CreateDedicatedStagingBuffer(device, upload_size, NULL);
+	if (!staging) {
+		failed_count++;
+	} else {
+		zest_buffer_allocator allocator = staging->memory_pool->allocator;
+		//Flagged dedicated and tracked in the device's dedicated list, not the reuse map
+		if (!allocator->is_dedicated) failed_count++;
+		if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before + 1) failed_count++;
+		//Pool sized to the request, nowhere near the 32MB shared staging pool
+		if (staging->memory_pool->size < upload_size) failed_count++;
+		if (staging->memory_pool->size >= zloc__MEGABYTE(32)) failed_count++;
+		//Host visible so it must be mapped and writable
+		if (staging->size < upload_size) failed_count++;
+		if (staging->size % granularity) failed_count++;
+		memset(zest_BufferData(staging), 0xAB, upload_size);
+
+		//Freeing immediately destroys the whole allocator and removes it from the device list
+		zest_FreeBufferNow(staging);
+		if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before) failed_count++;
+	}
+
+	//A small dedicated buffer with initial data must round-trip cleanly too
+	char pattern[64];
+	memset(pattern, 0x5A, sizeof(pattern));
+	zest_buffer tiny = zest_CreateDedicatedStagingBuffer(device, sizeof(pattern), pattern);
+	if (!tiny) {
+		failed_count++;
+	} else {
+		char *data = (char *)zest_BufferData(tiny);
+		if (!data || data[0] != 0x5A || data[63] != 0x5A) failed_count++;
+		if (!tiny->memory_pool->allocator->is_dedicated) failed_count++;
+		zest_FreeBufferNow(tiny);
+	}
+
+	//Every dedicated allocation created here must have been torn down
+	if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before) failed_count++;
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(device);
+	test->frame_count++;
+	return test->result;
+}
 //zest_GrowBuffer/zest_ResizeBuffer contract: device-local buffers always relocate on grow (their
 //contents can't be copied CPU-side, so callers must re-upload) and the old block's free must be
 //deferred per FIF rather than immediate - the realloc used to free the old block straight back to
