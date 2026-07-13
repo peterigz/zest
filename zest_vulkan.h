@@ -6716,13 +6716,10 @@ zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_count_x, ze
 }
 
 zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height) {
-    zest_buffer staging_buffer = 0;
-	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
-	staging_buffer = zest_CreateBuffer(device, image_size, &buffer_info);
+    zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, image_size, bitmap);
 	if (!staging_buffer) {
 		return ZEST_FALSE;
 	}
-	memcpy(zest_BufferData(staging_buffer), bitmap, (zest_size)image_size);
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	if (!queue) {
@@ -6739,7 +6736,7 @@ zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size ima
 
     ZEST_CLEANUP_ON_FALSE(zest_imm_EndCommandBuffer(queue));
 
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
     return ZEST_TRUE;
 
 cleanup:

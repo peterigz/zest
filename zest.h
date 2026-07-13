@@ -8953,7 +8953,7 @@ void zest__create_default_images(zest_device device, zest_device_builder builder
     }
     zest_size image_size = sizeof(zest_uint);
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, &pixel);
+    zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, image_size, &pixel);
 
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	zest_imm_TransitionImage(queue, device->default_image_cube, zest_resource_state_copy_dst, 0, 1, 0, 6);
@@ -8984,6 +8984,7 @@ void zest__create_default_images(zest_device device, zest_device_builder builder
 			device->platform->update_bindless_image_descriptor(device, zest_texture_cube_array_binding, i, zest_descriptor_type_sampled_image, device->default_image_cube, device->default_cube_array_view, 0, device->bindless_set);
 		}
 	}
+	zest_FreeBufferNow(staging_buffer);
 }
 
 void zest__initialise_debug_font(zest_device device) {
@@ -9017,7 +9018,7 @@ void zest__initialise_debug_font(zest_device device) {
 	device->debug_font_image = zest__create_image(device, &image_info);
 	zest_image image = zest__get_image_unsafe(device->debug_font_image);
 
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, total_size, pixels);
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, total_size, pixels);
 
 	zest_buffer_image_copy_t *regions = (zest_buffer_image_copy_t *)zloc_Allocate(device->allocator, sizeof(zest_buffer_image_copy_t) * char_count);
 	for (zest_uint i = 0; i < char_count; i++) {
@@ -9039,7 +9040,7 @@ void zest__initialise_debug_font(zest_device device) {
 	zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, char_count);
 	zest_imm_EndCommandBuffer(queue);
 
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
 	zloc_Free(device->allocator, regions);
 	zloc_Free(device->allocator, pixels);
 
@@ -10146,6 +10147,9 @@ zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest
     }
 	zest__add_remote_range_pool(buffer_allocator, buffer_pool);
     *memory_pool = buffer_pool;
+	if (buffer_pool->size >= zloc__MEGABYTE(128)) {
+		int d = 0;
+	}
     return ZEST_TRUE;
     cleanup:
 		zest__destroy_memory(buffer_pool);
@@ -19893,8 +19897,8 @@ zest_uint zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh, zest_uint te
 	zest_size src_mesh_index_size = zest_MeshIndexDataSize(src_mesh);
 	ZEST_ASSERT(layer->vertex_data->size - layer->used_vertex_data >= src_mesh_vertex_size, "Not enough space left in the layer vertex buffer to add this mesh data.");
 	ZEST_ASSERT(layer->index_data->size - layer->used_index_data >= src_mesh_index_size, "Not enough space left in the layer index buffer to add this mesh data.");
-    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(device, src_mesh_vertex_size, src_mesh->vertex_data);
-    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(device, src_mesh_index_size, src_mesh->indexes);
+    zest_buffer vertex_staging_buffer = zest_CreateDedicatedStagingBuffer(device, src_mesh_vertex_size, src_mesh->vertex_data);
+    zest_buffer index_staging_buffer = zest_CreateDedicatedStagingBuffer(device, src_mesh_index_size, src_mesh->indexes);
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
     zest_imm_CopyBufferRegion(queue, vertex_staging_buffer, 0, layer->vertex_data, layer->used_vertex_data, src_mesh_vertex_size);
     zest_imm_CopyBufferRegion(queue, index_staging_buffer, 0, layer->index_data, layer->used_index_data, src_mesh_index_size);

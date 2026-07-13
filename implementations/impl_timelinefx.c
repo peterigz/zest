@@ -143,13 +143,13 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 
 	//Upload sprite data and emitter properties to the GPU
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_buffer sprite_staging = zest_CreateStagingBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
+	zest_buffer sprite_staging = zest_CreateDedicatedStagingBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
 	zest_imm_CopyBuffer(queue, sprite_staging, resources->sprite_data_buffer, tfx_GetSpriteDataSizeInBytes(animation_manager));
-	zest_buffer emitter_staging = zest_CreateStagingBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), tfx_GetAnimationEmitterPropertiesBufferPointer(animation_manager));
+	zest_buffer emitter_staging = zest_CreateDedicatedStagingBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), tfx_GetAnimationEmitterPropertiesBufferPointer(animation_manager));
 	zest_imm_CopyBuffer(queue, emitter_staging, resources->emitter_properties_buffer, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager));
 	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBuffer(sprite_staging);
-	zest_FreeBuffer(emitter_staging);
+	zest_FreeBufferNow(sprite_staging);
+	zest_FreeBufferNow(emitter_staging);
 
 	resources->sprite_data_index = zest_AcquireStorageBufferIndex(device, resources->sprite_data_buffer);
 	resources->emitter_properties_index = zest_AcquireStorageBufferIndex(device, resources->emitter_properties_buffer);
@@ -280,22 +280,22 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
 }
 
 void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library) {
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer property_buffer = tfx_rendering->particle_properties;
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, tfx_ParticlePropertiesBufferSizeInBytes(library), tfx_ParticlePropertiesBuffer(library));
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_ParticlePropertiesBufferSizeInBytes(library), tfx_ParticlePropertiesBuffer(library));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 	zest_imm_CopyBuffer(queue, staging_buffer, property_buffer, tfx_ParticlePropertiesBufferSizeInBytes(library));
 	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
 }
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
@@ -399,7 +399,7 @@ void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buff
 	zest_uint fif = zest_CurrentFIF(context);
 	zest_ForEachFrameInFlight(fif) {
 		zest_device device = zest_GetContextDevice(context);
-		zest_buffer staging = zest_CreateStagingBuffer(device, tfx_GetGPUGraphLookupsBufferSizeInBytes(), tfx_GetGPUGraphLookupsBuffer());
+		zest_buffer staging = zest_CreateDedicatedStagingBuffer(device, tfx_GetGPUGraphLookupsBufferSizeInBytes(), tfx_GetGPUGraphLookupsBuffer());
 		if (zest_ResizeBuffer(&buffers->lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes())) {
 			zest_ReleaseStorageBufferIndex(device, buffers->lookup_index[fif]);
 			buffers->lookup_index[fif] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[fif]);
@@ -407,7 +407,7 @@ void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buff
 		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
 		zest_imm_CopyBuffer(queue, staging, buffers->lookup_buffer[fif], zest_BufferSize(staging));
 		zest_imm_EndCommandBuffer(queue);
-		zest_FreeBuffer(staging);
+		zest_FreeBufferNow(staging);
 		buffers->lookup_table_dirty[fif] = false;
 	}
 }

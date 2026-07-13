@@ -724,7 +724,7 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
     }
     zest_size image_size = bitmap_array->total_mem_size;
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, image_collection.bitmap_array.data);
+    zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, image_size, image_collection.bitmap_array.data);
     zest_image_handle image_handle = ZEST__ZERO_INIT(zest_image_handle);
 
     zest_uint width = bitmap_array->meta[0].width;
@@ -756,7 +756,7 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
 	zest_imm_EndCommandBuffer(queue);
 
     zest_FreeBitmapArray(bitmap_array);
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
 	zest_FreeImageCollection(&image_collection);
 
     return image_handle;
@@ -764,7 +764,7 @@ zest_image_handle zest_LoadKTX(zest_device device, const char *name, const char 
     cleanup:
     zest_FreeBitmapArray(bitmap_array);
 	zest_FreeImageNow(image_handle);
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
 	zest_FreeImageCollection(&image_collection);
     return ZEST__ZERO_INIT(zest_image_handle);
 }
@@ -2195,7 +2195,7 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
 
     zest_size image_size = atlas->bitmap_array.total_mem_size;
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(device, image_size, atlas->bitmap_array.data);
+    zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, image_size, atlas->bitmap_array.data);
 
 	zest_queue queue = 0;
 
@@ -2219,12 +2219,12 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
 	}
 	zest_imm_EndCommandBuffer(queue);
 
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
     return image_handle;
 
     cleanup:
 	zest_FreeImage(image_handle);
-	zest_FreeBuffer(staging_buffer);
+	zest_FreeBufferNow(staging_buffer);
     return ZEST__ZERO_INIT(zest_image_handle);
 }
 
