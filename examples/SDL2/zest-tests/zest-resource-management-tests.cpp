@@ -2687,7 +2687,7 @@ int test__dedicated_buffer(ZestTests *tests, Test *test) {
 	zest_device device = tests->device;
 	zest_size granularity = device->buffer_offset_granularity;
 
-	zest_uint dedicated_before = zest_vec_size(device->dedicated_buffer_allocators);
+	zest_uint dedicated_before = device->dedicated_buffer_count;
 
 	//Large one-off staging upload. A shared staging allocator would round this into a 32MB-class
 	//pool that lingers; a dedicated allocation must be sized to the request and released on free.
@@ -2699,7 +2699,7 @@ int test__dedicated_buffer(ZestTests *tests, Test *test) {
 		zest_buffer_allocator allocator = staging->memory_pool->allocator;
 		//Flagged dedicated and tracked in the device's dedicated list, not the reuse map
 		if (!allocator->is_dedicated) failed_count++;
-		if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before + 1) failed_count++;
+		if (device->dedicated_buffer_count != dedicated_before + 1) failed_count++;
 		//Pool sized to the request, nowhere near the 32MB shared staging pool
 		if (staging->memory_pool->size < upload_size) failed_count++;
 		if (staging->memory_pool->size >= zloc__MEGABYTE(32)) failed_count++;
@@ -2710,7 +2710,7 @@ int test__dedicated_buffer(ZestTests *tests, Test *test) {
 
 		//Freeing immediately destroys the whole allocator and removes it from the device list
 		zest_FreeBufferNow(staging);
-		if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before) failed_count++;
+		if (device->dedicated_buffer_count != dedicated_before) failed_count++;
 	}
 
 	//A small dedicated buffer with initial data must round-trip cleanly too
@@ -2727,7 +2727,7 @@ int test__dedicated_buffer(ZestTests *tests, Test *test) {
 	}
 
 	//Every dedicated allocation created here must have been torn down
-	if (zest_vec_size(device->dedicated_buffer_allocators) != dedicated_before) failed_count++;
+	if (device->dedicated_buffer_count != dedicated_before) failed_count++;
 
 	test->result = failed_count > 0 ? 1 : 0;
 	test->result |= zest_GetValidationErrorCount(device);
