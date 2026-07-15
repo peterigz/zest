@@ -21223,11 +21223,13 @@ void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_
 }
 
 void zest_cmd_DrawIndexedIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	ZEST_ASSERT(buffer, "Src buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->draw_indexed_indirect(command_list, buffer, offset, draw_count, stride);
 }
 
 void zest_cmd_DrawIndirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	ZEST_ASSERT(buffer, "Src buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->draw_indirect(command_list, buffer, offset, draw_count, stride);
 }
@@ -21264,11 +21266,13 @@ void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_com
 }
 
 void zest_cmd_BindVertexBuffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
+	ZEST_ASSERT(buffer, "Src buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->bind_vertex_buffer(command_list, first_binding, binding_count, buffer);
 }
 
 void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer buffer) {
+	ZEST_ASSERT(buffer, "Src buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	command_list->context->device->platform->bind_index_buffer(command_list, buffer);
 }
