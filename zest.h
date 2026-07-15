@@ -21238,6 +21238,8 @@ void zest_cmd_SetDepthBias(const zest_command_list command_list, float factor, f
 }
 
 void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+	ZEST_ASSERT(src_buffer, "Src buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
+	ZEST_ASSERT(dst_buffer, "Dst buffer is NULL. If the resource node your creating ends up creating a 0 sized buffer then buffer will be NULL. Use zest_ResourceBufferIsValid to check before calling functions that use the buffer first and early exit or do something else.");
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
     ZEST_ASSERT_HANDLE(command_list);                  //Not valid command_list, this command must be called within a frame graph execution callback
