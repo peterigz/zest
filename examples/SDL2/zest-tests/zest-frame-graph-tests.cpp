@@ -1316,5 +1316,289 @@ int test__versioned_transient(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Arena Memory Bound: the acceptance test for transient arena sharing. Build M distinct cached frame
+graphs (the cache key varies by user state) and execute them one per frame, round robin, for
+several cycles. Every graph places an identically sized transient image, so under arena sharing
+the context's transient arena pool must stay at the live working set - at most ZEST_MAX_FIF arenas
+for the one image category (a graph's return is deferred by one FIF cycle, so the pool ping-pongs
+between two arenas) - no matter how many cache entries are resident. Before sharing, every
+resident cache entry kept its arena checkout for the life of the entry, so the pool grew by one
+arena set per cache key and the capacity scaled with M.
+*/
+#define ARENA_BOUND_KEY_COUNT 5
+
+int test__arena_memory_bound(ZestTests *tests, Test *test) {
+	static zest_size warm_capacity;
+	static zest_uint warm_arena_count;
+	if (test->frame_count == 0) {
+		warm_capacity = 0;
+		warm_arena_count = 0;
+	}
+	int key_index = test->frame_count % ARENA_BOUND_KEY_COUNT;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, &key_index, sizeof(int));
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, "Arena Memory Bound", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+				info.width = 512;
+				info.height = 512;
+				zest_resource_node target = zest_AddTransientImageResource("Target", &info);
+
+				zest_BeginRenderPass("Write Target");
+				zest_ConnectOutput(target);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Target");
+				zest_ConnectInput(target);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == ARENA_BOUND_KEY_COUNT * 2) {
+		//All cache keys are resident and the arena pool has cycled: record the warm working set.
+		zest_memory_usage_t usage = zest_GetMemoryUsage(tests->context);
+		warm_capacity = usage.gpu_transient_capacity;
+		warm_arena_count = usage.gpu_transient_arena_count;
+	}
+	if (test->frame_count == test->run_count) {
+		zest_memory_usage_t usage = zest_GetMemoryUsage(tests->context);
+		if (test->cache_count == 0) {
+			test->result |= 2;   //The graphs never came from the cache
+		}
+		//The pool must stay at the live working set: for one transient image category that is at
+		//most ZEST_MAX_FIF arenas (the FIF-deferred return alternates between two), not one arena
+		//set per resident cache entry.
+		if (usage.gpu_transient_arena_count > ZEST_MAX_FIF) {
+			ZEST_PRINT("Arena Memory Bound: %u transient arenas for %u cache keys, expected at most %u",
+				usage.gpu_transient_arena_count, (zest_uint)ARENA_BOUND_KEY_COUNT, (zest_uint)ZEST_MAX_FIF);
+			test->result |= 4;
+		}
+		//And it must not have grown after all the cache keys were already resident.
+		if (usage.gpu_transient_capacity > warm_capacity || usage.gpu_transient_arena_count > warm_arena_count) {
+			ZEST_PRINT("Arena Memory Bound: arena pool grew after warm-up (%llu -> %llu bytes, %u -> %u arenas)",
+				(zest_ull)warm_capacity, (zest_ull)usage.gpu_transient_capacity,
+				warm_arena_count, usage.gpu_transient_arena_count);
+			test->result |= 8;
+		}
+	}
+	return test->result;
+}
+
+/*
+Arena Alternation: two cached frame graphs alternate on one context in two-frame phases
+(A A B B A A ...), so each graph re-executes on a frame-in-flight slot that the other graph placed
+into in between. The foreign checkout must change the arena's backing identity, which drives the
+recreate path when the first graph returns - its persistent images must NOT be reused, because the
+other graph's work occupied those bytes with no barriers between the two graphs. The test captures
+the transient image backend per execution and asserts each graph's images were recreated after the
+other graph ran (equal backends would mean stale reuse; sync validation stays clean either way
+because it cannot see cross-handle aliasing, hence the explicit pointer check).
+*/
+struct ArenaAlternationCapture {
+	void *backends[2][16];
+	int counts[2];
+};
+
+struct ArenaAlternationTaskData {
+	ArenaAlternationCapture *capture;
+	int graph_index;
+};
+
+void tst__alternation_capture(const zest_command_list command_list, void *user_data) {
+	ArenaAlternationTaskData *task_data = (ArenaAlternationTaskData *)user_data;
+	ArenaAlternationCapture *capture = task_data->capture;
+	zest_resource_node target = zest_GetPassInputResource(command_list, "Target");
+	if (target && capture->counts[task_data->graph_index] < 16) {
+		capture->backends[task_data->graph_index][capture->counts[task_data->graph_index]] = (void *)target->image.backend;
+		capture->counts[task_data->graph_index]++;
+	}
+}
+
+int test__arena_alternation(ZestTests *tests, Test *test) {
+	static ArenaAlternationCapture capture;
+	static int graph_ids[2] = { 0, 1 };
+	static ArenaAlternationTaskData task_data[2] = { { &capture, 0 }, { &capture, 1 } };
+	if (test->frame_count == 0) {
+		memset(&capture, 0, sizeof(capture));
+	}
+	int graph_index = (test->frame_count / 2) % 2;
+	//Distinct user state per graph gives each its own cache entry
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, &graph_ids[graph_index], sizeof(int));
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, graph_index == 0 ? "Alternation A" : "Alternation B", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+				info.width = 256;
+				info.height = 256;
+				zest_resource_node target = zest_AddTransientImageResource("Target", &info);
+
+				zest_BeginRenderPass("Write Target");
+				zest_ConnectOutput(target);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Target");
+				zest_ConnectInput(target);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(tst__alternation_capture, &task_data[graph_index]);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count) {
+		if (test->cache_count == 0) {
+			test->result |= 2;   //The graphs never came from the cache
+		}
+		if (capture.counts[0] < 4 || capture.counts[1] < 4) {
+			ZEST_PRINT("Arena Alternation: only %i/%i executions captured", capture.counts[0], capture.counts[1]);
+			test->result |= 4;
+		} else {
+			//Each graph runs two consecutive frames (both FIF slots), so executions 2 and 3 are the
+			//same FIF slots as 0 and 1 but with the other graph's placement in between. The images
+			//must have been recreated - reuse would alias the other graph's bytes.
+			int recreated =
+				capture.backends[0][2] != capture.backends[0][0] &&
+				capture.backends[0][3] != capture.backends[0][1] &&
+				capture.backends[1][2] != capture.backends[1][0] &&
+				capture.backends[1][3] != capture.backends[1][1];
+			ZEST_PRINT("Arena Alternation: images recreated on graph switch: %s", recreated ? "yes" : "NO");
+			if (!recreated) {
+				test->result |= 8;
+			}
+		}
+	}
+	return test->result;
+}
+
+/*
+Intraframe Two Graphs: a command graph flushed (without a timeline wait) in the same frame as the
+render graph, both placing a transient buffer of the same category. The command graph's arena
+return is deferred by one FIF cycle precisely because its GPU work may still be in flight with no
+synchronisation against the render graph, so the render graph must check out a DIFFERENT arena -
+the two buffers must land in different device memory backings. The pass tasks capture each
+transient buffer's memory pool and the test asserts they never share one.
+*/
+struct IntraframeArenaCapture {
+	void *command_graph_pool;
+	void *render_graph_pool;
+	int mismatch_frames;
+	int captured_frames;
+};
+
+void tst__intraframe_command_write(const zest_command_list command_list, void *user_data) {
+	IntraframeArenaCapture *capture = (IntraframeArenaCapture *)user_data;
+	zest_resource_node buffer = zest_GetPassOutputResource(command_list, "CG Buffer");
+	zest_buffer staging = zest_CreateStagingBuffer(command_list->device, 1024, 0);
+	zest_cmd_CopyBuffer(command_list, staging, zest_GetResourceBuffer(buffer), 1024);
+	zest_FreeBuffer(staging);
+	capture->command_graph_pool = (void *)zest_GetResourceBuffer(buffer)->memory_pool;
+}
+
+void tst__intraframe_render_write(const zest_command_list command_list, void *user_data) {
+	IntraframeArenaCapture *capture = (IntraframeArenaCapture *)user_data;
+	zest_resource_node buffer = zest_GetPassOutputResource(command_list, "RG Buffer");
+	zest_buffer staging = zest_CreateStagingBuffer(command_list->device, 1024, 0);
+	zest_cmd_CopyBuffer(command_list, staging, zest_GetResourceBuffer(buffer), 1024);
+	zest_FreeBuffer(staging);
+	capture->render_graph_pool = (void *)zest_GetResourceBuffer(buffer)->memory_pool;
+	capture->captured_frames++;
+	if (capture->command_graph_pool && capture->command_graph_pool != capture->render_graph_pool) {
+		capture->mismatch_frames++;
+	}
+}
+
+int test__intraframe_two_graphs(ZestTests *tests, Test *test) {
+	static IntraframeArenaCapture capture;
+	if (test->frame_count == 0) {
+		memset(&capture, 0, sizeof(capture));
+	}
+	zest_buffer_resource_info_t info = {};
+	info.size = 1024;
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		capture.command_graph_pool = NULL;
+		capture.render_graph_pool = NULL;
+		//A command graph in the same frame as the render graph: no timeline signal, so nothing
+		//waits on its GPU work and its arena must stay unavailable until the FIF slot cycles.
+		if (zest_BeginCommandGraph(tests->context, "Intraframe Command Graph", 0)) {
+			zest_resource_node cg_buffer = zest_AddTransientBufferResource("CG Buffer", &info);
+			zest_FlagResourceAsEssential(cg_buffer);
+
+			zest_BeginTransferPass("CG Upload");
+			zest_ConnectOutput(cg_buffer);
+			zest_SetPassTask(tst__intraframe_command_write, &capture);
+			zest_EndPass();
+
+			zest_frame_graph command_graph = zest_EndFrameGraph();
+			test->result |= zest_GetFrameGraphResult(command_graph);
+			zest_FlushFrameGraph(command_graph);
+		}
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Intraframe Render Graph", 0)) {
+			zest_ImportSwapchainResource();
+			zest_resource_node rg_buffer = zest_AddTransientBufferResource("RG Buffer", &info);
+
+			zest_BeginTransferPass("RG Upload");
+			zest_ConnectOutput(rg_buffer);
+			zest_SetPassTask(tst__intraframe_render_write, &capture);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Read Buffer");
+			zest_ConnectInput(rg_buffer);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+		//A fire-and-forget command graph's command buffer stays in the pending state as far as
+		//validation is concerned (nothing ever waits on it), so the next frame's per-FIF command
+		//pool reset would trip VUID-vkResetCommandPool-commandPool-00040 - a pre-existing hazard
+		//of unwaited command graphs, unrelated to arenas. Idling the device retires the command
+		//buffers; the deferred arena returns still only drain on the FIF cycle, so the
+		//distinct-backing assertion above stays meaningful.
+		zest_WaitForIdleDevice(tests->device);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count) {
+		if (capture.captured_frames == 0) {
+			test->result |= 2;   //The graphs never executed their transfer passes
+		} else if (capture.mismatch_frames != capture.captured_frames) {
+			ZEST_PRINT("Intraframe Two Graphs: buffers shared a backing on %i of %i frames",
+				capture.captured_frames - capture.mismatch_frames, capture.captured_frames);
+			test->result |= 4;
+		}
+	}
+	return test->result;
+}
 
 

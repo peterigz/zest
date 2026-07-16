@@ -104,6 +104,11 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Resource Test Pooled Image Allocations", test__pooled_image_allocations, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Unbacked Transient Barrier", test__unbacked_transient_barrier, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
+	//Arena sharing tests: cached graphs no longer pin their transient arenas, so the pool must stay
+	//at the live working set while persistence and cross-graph isolation still hold.
+	RegisterTest(tests, { "Arena Memory Bound", test__arena_memory_bound, 0, ARENA_BOUND_KEY_COUNT * 4, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Arena Alternation", test__arena_alternation, 0, 12, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Intraframe Two Graphs", test__intraframe_two_graphs, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.
 	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
