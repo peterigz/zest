@@ -334,7 +334,7 @@ void DebugPeekBlocks(zest_device device, zest_size target_size, int max_prints) 
 					char ascii[33];
 					for (int b = 0; b != 32; ++b) {
 						unsigned char byte = bytes[row * 32 + b];
-						sprintf(hex + b * 3, "%02x ", byte);
+						snprintf(hex + b * 3, sizeof(hex) - b * 3, "%02x ", byte);
 						ascii[b] = (byte >= 32 && byte < 127) ? (char)byte : '.';
 					}
 					ascii[32] = '\0';
