@@ -705,3 +705,101 @@ int test__flush_compile_failure_no_hang(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+/*
+Headless flush-and-wait recycling: guards against the leak where a headless context flushes command
+graphs in a loop with no signal timeline - the arenas can never be recycled so the pool grows by one
+arena (with a >=1MB device memory backing) per flush, and the context's deferred release lists never
+drain because zest_BeginFrame is never called. zest_FlushFrameGraphAndWait attaches the context's
+utility timeline automatically and drains the deferred lists on a successful wait, so repeated
+flushes must leave the context at a steady state: a bounded arena pool, no arenas checked out and no
+pending deferred releases.
+*/
+int test__headless_flush_and_wait(ZestTests *tests, Test *test) {
+	if (!zest_IsValidHandle((void *)&tests->compute_write)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, NULL, 1);
+		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
+		if (!zest_IsValidHandle((void *)&tests->compute_write)) {
+			test->frame_count++;
+			test->result = 1;
+			return test->result;
+		}
+	}
+
+	zest_buffer_resource_info_t info = {};
+	info.size = sizeof(TestData) * 1000;
+
+	for (int i = 0; i != 6; ++i) {
+		if (zest_BeginCommandGraph(tests->context, "Flush And Wait Loop", 0)) {
+			zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
+			zest_FlagResourceAsEssential(buffer);
+
+			zest_BeginComputePass("Write Pass");
+			zest_ConnectOutput(buffer);
+			zest_SetPassTask(zest_WriteBufferCompute, tests);
+			zest_EndPass();
+
+			//No zest_SignalTimeline on purpose: the flush must attach the context's utility
+			//timeline by itself.
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+			zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
+			if (status != zest_semaphore_status_success) {
+				test->result |= 1;
+			}
+		}
+	}
+
+	//Every flush waited, so nothing may be left checked out or pending, and the arena pool must not
+	//have grown with the number of flushes.
+	if (zest_GetContextCheckedOutArenaCount(tests->context) != 0) {
+		test->result |= 1;
+	}
+	if (zest_GetContextPendingReleaseCount(tests->context) != 0) {
+		test->result |= 1;
+	}
+	if (zest_GetContextTransientArenaCount(tests->context) > ZEST_MAX_FIF) {
+		test->result |= 1;
+	}
+
+	//Now the pathological pattern on purpose: a flush with no signal timeline cannot recycle its
+	//arena checkout, so it must be left checked out (and reported once per context), and
+	//zest_WaitForIdleDevice + zest_DrainContextResources is the documented manual recovery which
+	//must restore the steady state.
+#ifdef ZEST_DEBUGGING
+	zest_uint reports_before = zest_ReportCount(tests->context);
+#endif
+	if (zest_BeginCommandGraph(tests->context, "Fire And Forget", 0)) {
+		zest_resource_node buffer = zest_AddTransientBufferResource("Write Buffer", &info);
+		zest_FlagResourceAsEssential(buffer);
+
+		zest_BeginComputePass("Write Pass");
+		zest_ConnectOutput(buffer);
+		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_EndPass();
+
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_FlushFrameGraph(frame_graph);
+	}
+	if (zest_GetContextCheckedOutArenaCount(tests->context) == 0) {
+		test->result |= 1;	//Nothing waited or drained, so the arena must still be checked out
+	}
+#ifdef ZEST_DEBUGGING
+	if (zest_ReportCount(tests->context) <= reports_before) {
+		test->result |= 1;	//The headless flush-without-timeline warning must have been reported
+	}
+#endif
+	zest_WaitForIdleDevice(tests->device);
+	zest_DrainContextResources(tests->context);
+	if (zest_GetContextCheckedOutArenaCount(tests->context) != 0) {
+		test->result |= 1;
+	}
+	if (zest_GetContextPendingReleaseCount(tests->context) != 0) {
+		test->result |= 1;
+	}
+
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
