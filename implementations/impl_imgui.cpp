@@ -1426,6 +1426,26 @@ void zest_imgui_DrawMemoryUsageWindow(zest_context context) {
 		ImGui::Text("Transient arenas: %u, high water %s of %s", usage.gpu_transient_arena_count, size_str, size_str2);
 	}
 
+	//Every context on the device, not just the one passed in - a leak on a headless worker
+	//context is otherwise invisible here.
+	zest_device device = zest_GetContextDevice(context);
+	zest_uint context_count = zest_GetDeviceContextCount(device);
+	if (context_count > 1) {
+		ImGui::SeparatorText("Contexts");
+		for (zest_uint i = 0; i < context_count; ++i) {
+			zest_context device_context = zest_GetDeviceContext(device, i);
+			zest_uint arena_count = zest_GetContextTransientArenaCount(device_context);
+			zest_uint checked_out = zest_GetContextCheckedOutArenaCount(device_context);
+			zest_uint pending = zest_GetContextPendingReleaseCount(device_context);
+			ImGui::Text("Context %u%s%s: %u arena%s (%u checked out), %u pending release%s",
+				i,
+				zest_ContextIsHeadless(device_context) ? " (headless)" : "",
+				device_context == context ? " (this)" : "",
+				arena_count, arena_count == 1 ? "" : "s", checked_out,
+				pending, pending == 1 ? "" : "s");
+		}
+	}
+
 	ImGui::SeparatorText("Totals");
 	zest_size host_capacity = usage.host_device_capacity + usage.host_context_capacity;
 	zest_size host_used = usage.host_device_used + usage.host_context_used;

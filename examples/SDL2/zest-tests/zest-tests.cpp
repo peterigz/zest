@@ -86,6 +86,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test WAW Barrier", test__compute_waw_barrier, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Flush Compile Failure No Hang", test__flush_compile_failure_no_hang, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Compute Test Headless Flush And Wait", test__headless_flush_and_wait, 0, 1, 0, 0, tests->headless_create_info });
 	//Registered last: this test perturbs the bindless index free list (it creates transient
 	//images), which the Acquire/Release Indexes test is sensitive to as it releases hardcoded
 	//index values.

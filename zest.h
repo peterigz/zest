@@ -2088,6 +2088,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_gpu_profiling_enabled = 1 << 17,
 	zest_context_flag_cpu_profiling_enabled = 1 << 18,
 	zest_context_flag_device_lost = 1 << 19,
+	zest_context_flag_warned_headless_flush = 1 << 20,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -4861,6 +4862,7 @@ ZEST_PRIVATE void zest__cleanup_debug_font(zest_device device);
 //App_initialise_and_run_functions
 ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
+ZEST_PRIVATE void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name);
 ZEST_PRIVATE void zest__destroy_device(zest_device device);
 ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 ZEST_PRIVATE void zest__free_device_buffer_allocators(zest_device device);
@@ -4977,6 +4979,15 @@ ZEST_API zest_context zest_CreateHeadlessContext(zest_device device, zest_create
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
 ZEST_API void zest_EndFrame(zest_context context, zest_frame_graph frame_gaph);
+//Drain the context's deferred release lists for the current frame in flight: retired transient arena
+//images, replaced arena backings, arena checkout returns, transient binding indexes and used buffers.
+//This is the housekeeping that zest_BeginFrame performs automatically each frame for windowed contexts.
+//Headless contexts never call zest_BeginFrame so these lists otherwise only drain at context
+//destruction - call this periodically on a headless context that flushes many command graphs.
+//Only safe when the GPU is no longer using the resources queued on the current frame in flight -
+//e.g. straight after a successful zest_FlushFrameGraphAndWait, or after zest_WaitForIdleDevice.
+//(zest_FlushFrameGraphAndWait already calls this for you on headless contexts when its wait succeeds.)
+ZEST_API void zest_DrainContextResources(zest_context context);
 //Maintenance function to be run each time the application loops to flush any unused resources that have been 
 //marked for deletion.
 ZEST_API int zest_UpdateDevice(zest_device device);
@@ -5331,6 +5342,14 @@ ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph(void);
 ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
+//Flush a command graph and wait for its GPU work to complete before returning. If the graph has no
+//signal timeline one is attached automatically (a reusable timeline owned by the context), so the
+//caller never needs to manage a zest_execution_timeline for the common "run this graph, wait for it,
+//recycle everything" case. Because the wait proves the graph's GPU work is done, its transient arena
+//checkouts are returned immediately, and on headless contexts the context's deferred release lists
+//are drained as well. Prefer this over zest_FlushFrameGraph whenever you flush command graphs in a
+//loop (especially on headless contexts) or read results back on the CPU straight after the flush.
+ZEST_API zest_semaphore_status zest_FlushFrameGraphAndWait(zest_frame_graph frame_graph);
 ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 ZEST_API void zest_SetFrameGraphUserData(void *user_data);
 ZEST_API void *zest_GetFrameGraphUserData(const zest_command_list command_list);
@@ -5423,6 +5442,11 @@ ZEST_API zest_bool zest_ContextDeviceWasLost(zest_context context);
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_device device);
 ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline timeline);
+//Get the context's reusable utility timeline, creating it on first use. This is the timeline that
+//zest_FlushFrameGraphAndWait attaches to graphs that have no signal timeline of their own. It is
+//owned by the context and freed when the context is destroyed - do NOT free it with
+//zest_FreeExecutionTimeline.
+ZEST_API zest_execution_timeline zest_GetUtilityTimeline(zest_context context);
 
 // -- General pass and resource getters/setters
 ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
@@ -5994,6 +6018,22 @@ ZEST_API zest_memory_usage_t zest_GetMemoryUsage(zest_context context);
 //usages to just get the count.
 ZEST_API zest_uint zest_GetBufferPoolUsages(zest_context context, zest_buffer_pool_usage_t *usages, zest_uint max_usages);
 ZEST_PRIVATE void zest__fill_buffer_pool_usage(zest_buffer_allocator buffer_allocator, zest_buffer_pool_usage_t *usage);
+//Enumerate all contexts currently alive on a device. Useful for diagnostics that need to cover
+//every context (e.g. a memory overview that includes headless worker contexts).
+ZEST_API zest_uint zest_GetDeviceContextCount(zest_device device);
+ZEST_API zest_context zest_GetDeviceContext(zest_device device, zest_uint index);
+ZEST_API zest_bool zest_ContextIsHeadless(zest_context context);
+//Number of transient arenas the context owns. In a steady state this should stay bounded (roughly
+//one arena per category per frame in flight); unbounded growth means arena checkouts are not being
+//returned - see zest_FlushFrameGraphAndWait / zest_DrainContextResources.
+ZEST_API zest_uint zest_GetContextTransientArenaCount(zest_context context);
+//Number of transient arenas currently checked out by frame graphs.
+ZEST_API zest_uint zest_GetContextCheckedOutArenaCount(zest_context context);
+//Total number of entries across the context's deferred release lists (all frames in flight):
+//retired arena images, replaced arena backings, pending arena returns, transient images/views and
+//binding indexes. Steady growth on a headless context means the lists are never being drained.
+//Usable in tests to assert steady-state resource usage across repeated flushes.
+ZEST_API zest_uint zest_GetContextPendingReleaseCount(zest_context context);
 //--End General Helper functions
 
 //-----------------------------------------------
@@ -6931,6 +6971,9 @@ typedef struct zest_device_t {
 	//atomically by the backend; a report is emitted when it nears the limit.
 	zest_uint max_memory_allocation_count;
 	volatile int memory_allocation_count;
+	//Live zest_CreateExecutionTimeline/zest_FreeExecutionTimeline pairs; any left at device
+	//destruction are reported as leaks
+	volatile int live_timeline_count;
 	zest_device_capabilities_t capabilities;
 
 	zest_device_init_flags init_flags;
@@ -7054,6 +7097,9 @@ typedef struct zest_context_t {
 	zest_wait_timeout_callback frame_wait_timeout_callback;
 	zest_execution_timeline_t frame_timeline[ZEST_MAX_FIF];
 	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
+	//Lazily created reusable timeline for synchronous command graph flushes. Owned by the
+	//context and freed at context cleanup; the caller must never free it.
+	zest_execution_timeline utility_timeline;
 
 	//Window data
 	zest_extent2d_t window_extent;
@@ -9522,6 +9568,9 @@ End of Device creation functions
 void zest__destroy_device(zest_device device) {
 	zest_WaitForIdleDevice(device);
 	zest__cleanup_device(device);
+	if (device->live_timeline_count > 0) {
+		ZEST_ALERT("%i execution timeline%s created with zest_CreateExecutionTimeline %s never freed with zest_FreeExecutionTimeline. Each one holds a backend semaphore and a heap allocation for as long as the device lives.", device->live_timeline_count, device->live_timeline_count == 1 ? "" : "s", device->live_timeline_count == 1 ? "was" : "were");
+	}
 	zest_ResetValidationErrors(device);
 	zloc_allocator *allocator = device->allocator;
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
@@ -9650,6 +9699,18 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 		context->device->platform->flush_legacy_framebuffers(context, context->current_fif);
 	}
 	ZEST_CPU_PROFILE_END(context);
+}
+
+void zest_DrainContextResources(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	zest__do_context_scheduled_tasks(context);
+}
+
+void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name) {
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_headless)) return;
+	//Rate limited by only firing when the size crosses 64 and each doubling after that
+	if (size < 64 || (size & (size - 1)) != 0) return;
+	ZEST_REPORT(context->device, zest_report_memory, "A headless context has %u pending entries in its %s deferred release list. Headless contexts never call zest_BeginFrame so these lists are only drained when zest_FlushFrameGraphAndWait completes successfully or when zest_DrainContextResources is called explicitly. If this count keeps growing you are leaking resources.", size, list_name);
 }
 
 zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context) {
@@ -11454,6 +11515,11 @@ void zest__cleanup_context(zest_context context) {
 		context->device->platform->cleanup_execution_timeline_backend(&context->frame_timeline[fif]);
     }
 
+	if (context->utility_timeline) {
+		zest__cleanup_execution_timeline(context->utility_timeline);
+		context->utility_timeline = 0;
+	}
+
     zest_map_foreach(i, context->cached_frame_graphs) {
         zest_cached_frame_graph_t *cached_graph = &context->cached_frame_graphs.data[i];
 		//Cached graphs hold persistent transient images and arena checkouts; retire them first
@@ -12901,6 +12967,53 @@ zest_memory_usage_t zest_GetMemoryUsage(zest_context context) {
 	return usage;
 }
 
+zest_uint zest_GetDeviceContextCount(zest_device device) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle
+	return zest_vec_size(device->contexts);
+}
+
+zest_context zest_GetDeviceContext(zest_device device, zest_uint index) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle
+	ZEST_ASSERT(index < zest_vec_size(device->contexts));	//Context index out of range
+	return device->contexts[index];
+}
+
+zest_bool zest_ContextIsHeadless(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	return ZEST__FLAGGED(context->flags, zest_context_flag_headless) ? ZEST_TRUE : ZEST_FALSE;
+}
+
+zest_uint zest_GetContextTransientArenaCount(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	return zest_vec_size(context->transient_arenas);
+}
+
+zest_uint zest_GetContextCheckedOutArenaCount(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	zest_uint count = 0;
+	zest_vec_foreach(i, context->transient_arenas) {
+		if (context->transient_arenas[i]->checked_out) {
+			count++;
+		}
+	}
+	return count;
+}
+
+zest_uint zest_GetContextPendingReleaseCount(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	zest_uint count = 0;
+	zest_ForEachFrameInFlight(fif) {
+		count += zest_vec_size(context->deferred_resource_freeing_list.arena_images[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.arena_backings[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.arena_returns[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.transient_images[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.transient_binding_indexes[fif]);
+		count += zest_vec_size(context->deferred_resource_freeing_list.resources[fif]);
+	}
+	return count;
+}
+
 zest_uint zest__grow_capacity(void* T, zest_uint size) {
     zest_uint new_capacity = T ? (size + size / 2) : 8;
     return new_capacity > size ? new_capacity : size;
@@ -13620,6 +13733,12 @@ zest_transient_arena_t *zest__checkout_transient_arena(zest_context context, zes
 		*arena = ZEST__ZERO_INIT(zest_transient_arena_t);
 		arena->category = category;
 		zest_vec_push(context->allocator, context->transient_arenas, arena);
+		zest_uint arena_count = zest_vec_size(context->transient_arenas);
+		//A healthy pool stays at roughly one arena per category per frame in flight. Unbounded
+		//growth means checkouts are never returned; warn at 8 and every doubling after that.
+		if (arena_count >= 8 && (arena_count & (arena_count - 1)) == 0) {
+			ZEST_REPORT(context->device, zest_report_memory, "A context now owns %u transient buffer arenas, each holding at least 1MB of device memory per frame in flight. If you are flushing command graphs in a loop, make sure each graph signals an execution timeline so its arenas can be recycled - the simplest way is to flush with zest_FlushFrameGraphAndWait. On headless contexts also see zest_DrainContextResources.", arena_count);
+		}
 	}
 	arena->checked_out = ZEST_TRUE;
 	if (arena->last_placer[fif] != frame_graph) {
@@ -13644,6 +13763,7 @@ zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_
 		//previous cycle may still reference it) and bump the generation so any images bound
 		//against the old backing recreate this execution.
 		zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_backings[fif], arena->backing[fif]);
+		zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.arena_backings[fif]), "arena backing");
 		arena->backing[fif] = 0;
 		arena->generation[fif]++;
 	}
@@ -13669,6 +13789,7 @@ void zest__retire_transient_image_slot(zest_context context, zest_resource_node 
 	release.image.default_view = 0;       //The view is destroyed through release.view below
 	release.view = slot->view;
 	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_images[context->current_fif], release);
+	zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.arena_images[context->current_fif]), "arena image");
 	slot->in_use = ZEST_FALSE;
 	slot->backend = 0;
 	slot->view = 0;
@@ -13959,6 +14080,7 @@ void zest__return_frame_graph_arenas(zest_context context, zest_frame_graph fram
 		zest_deferred_arena_return_t deferred_return = { frame_graph->arenas[i], frame_graph };
 		zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_returns[context->current_fif], deferred_return);
 	}
+	zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.arena_returns[context->current_fif]), "arena return");
 	frame_graph->arena_count = 0;
 }
 
@@ -15824,7 +15946,18 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 						++i;
 					}
 				}
+				if (ZEST__FLAGGED(context->flags, zest_context_flag_headless)) {
+					//Headless contexts never call zest_BeginFrame, so the context-level deferred
+					//release lists (retired arena images, replaced arena backings, arena returns)
+					//would otherwise only drain at context destruction. Work on a headless context
+					//is serialized through waited flushes, so with the wait proven everything queued
+					//on this FIF slot is safe to release now.
+					zest__do_context_scheduled_tasks(context);
+				}
 			}
+		} else if (ZEST__FLAGGED(context->flags, zest_context_flag_headless) && ZEST__NOT_FLAGGED(context->flags, zest_context_flag_warned_headless_flush)) {
+			ZEST__FLAG(context->flags, zest_context_flag_warned_headless_flush);
+			ZEST_REPORT(context->device, zest_report_memory, "Command graph [%s] was flushed on a headless context without a signal timeline. The flush cannot wait for the GPU, so transient arenas and deferred resources cannot be recycled and will accumulate with every flush, and any CPU readback of the graph's results will race the GPU. Use zest_FlushFrameGraphAndWait, or signal a timeline with zest_SignalTimeline before flushing. This warning is only reported once per context.", frame_graph->name);
 		}
 	} else {
 		//Execution failed part way through. zest__execute_frame_graph has already drained any
@@ -15863,6 +15996,16 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	zloc_ResetLinearAllocator(&context->frame_graph_allocator[context->current_fif]);
 
 	return status;
+}
+
+zest_semaphore_status zest_FlushFrameGraphAndWait(zest_frame_graph frame_graph) {
+	ZEST_ASSERT(zest__frame_graph_builder);	//This function must be called with zest_BeginFrameGraph
+	zest_context context = zest__frame_graph_builder->context;
+	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
+	if (!frame_graph->signal_timeline) {
+		frame_graph->signal_timeline = zest_GetUtilityTimeline(context);
+	}
+	return zest_FlushFrameGraph(frame_graph);
 }
 
 zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout) {
@@ -18242,6 +18385,8 @@ zest_execution_timeline zest_CreateExecutionTimeline(zest_device device) {
 	if (!zest__initialise_timeline(device, timeline)) {
 		ZEST__FREE(device->allocator, timeline);
 		timeline = NULL;
+	} else {
+		zest__atomic_fetch_add(&device->live_timeline_count, 1);
 	}
     return timeline;
 }
@@ -18251,6 +18396,14 @@ void zest_FreeExecutionTimeline(zest_execution_timeline timeline) {
 	zest_device device = timeline->device;
 	zest_uint index = device->frame_counter % ZEST_MAX_FIF;
 	zest_vec_push(device->allocator, device->deferred_resource_freeing_list.resources[index], timeline);
+}
+
+zest_execution_timeline zest_GetUtilityTimeline(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	if (!context->utility_timeline) {
+		context->utility_timeline = zest_CreateExecutionTimeline(context->device);
+	}
+	return context->utility_timeline;
 }
 
 // --End frame graph functions
@@ -18542,6 +18695,7 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
 }
 
 void zest__cleanup_execution_timeline(zest_execution_timeline timeline) {
+	zest__atomic_fetch_add(&timeline->device->live_timeline_count, -1);
 	timeline->device->platform->cleanup_execution_timeline_backend(timeline);
 	ZEST__FREE(timeline->device->allocator, timeline);
 }

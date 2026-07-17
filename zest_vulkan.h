@@ -1205,6 +1205,12 @@ ZEST_PRIVATE inline VkResult zest__vk_allocate_memory(zest_device device, const 
     if (result == VK_SUCCESS) {
         int count = zest__atomic_fetch_add(&device->memory_allocation_count, 1) + 1;
         zest_uint warn_count = device->max_memory_allocation_count - device->max_memory_allocation_count / 10;
+        zest_uint half_count = device->max_memory_allocation_count / 2;
+        //An early heads-up at 50%: by the 90% report a steady leak of 1MB+ allocations (e.g.
+        //transient arenas that are never recycled) is nearly unrecoverable.
+        if (device->max_memory_allocation_count && (zest_uint)count == half_count) {
+            ZEST_REPORT(device, zest_report_memory, "Live device memory allocation count has reached %i, half of the device limit of %u. If this count climbs steadily during normal running rather than at load time then something is leaking allocations - a common cause is flushing command graphs without waiting on a signal timeline (see zest_FlushFrameGraphAndWait).", count, device->max_memory_allocation_count);
+        }
         if (device->max_memory_allocation_count && (zest_uint)count == warn_count) {
             ZEST_REPORT(device, zest_report_memory, "Live device memory allocation count has reached %i of the device limit of %u. Approaching the limit usually means many resources are getting dedicated allocations; consider pooling or freeing unused resources.", count, device->max_memory_allocation_count);
         }
