@@ -209,7 +209,6 @@ ZEST_PRIVATE VkResult zest__vk_create_debug_messenger(VkInstance instance, const
 
 //Buffers and memory
 ZEST_PRIVATE void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
-ZEST_PRIVATE void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 ZEST_PRIVATE zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
 ZEST_PRIVATE zest_bool zest__vk_create_image_memory_pool(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer);
 ZEST_PRIVATE zest_bool zest__vk_create_device_memory(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory);
@@ -445,11 +444,6 @@ typedef struct zest_buffer_allocator_backend_t {
     VkMemoryRequirements memory_requirements;
 } zest_buffer_allocator_backend_t;
 
-typedef struct zest_buffer_linear_allocator_backend_t {
-    VkBuffer vk_buffer;
-    VkDeviceMemory memory;
-} zest_buffer_linear_allocator_backend_t;
-
 typedef struct zest_submission_batch_backend_t {
     VkSemaphore *final_wait_semaphores;
     VkSemaphore *final_signal_semaphores;
@@ -672,7 +666,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->new_frame_graph_image_backend                 = zest__vk_new_frame_graph_image_backend;
 
     platform->create_buffer_allocator_backend               = zest__vk_create_buffer_allocator_backend;
-    platform->create_buffer_linear_allocator_backend        = zest__vk_create_buffer_linear_allocator_backend;
     platform->add_buffer_memory_pool                     	= zest__vk_add_buffer_memory_pool;
     platform->create_image_memory_pool                      = zest__vk_create_image_memory_pool;
     platform->create_device_memory		                    = zest__vk_create_device_memory;
@@ -3053,47 +3046,6 @@ void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context 
 		backend->memory_requirements.alignment = buffer_info->alignment;
 		backend->memory_requirements.memoryTypeBits = backend_memory_bits;
 		backend->memory_requirements.size = size;
-	}
-
-	return backend;
-}
-
-void *zest__vk_create_buffer_linear_allocator_backend(zest_device device, zest_size size, zest_buffer_info_t *buffer_info) {
-    zest_buffer_linear_allocator_backend backend = (zest_buffer_linear_allocator_backend)ZEST__NEW(device->allocator, zest_buffer_linear_allocator_backend);
-    *backend = ZEST__ZERO_INIT(zest_buffer_linear_allocator_backend_t);
-
-	if (buffer_info->buffer_usage_flags) {
-		VkBufferCreateInfo create_buffer_info = ZEST__ZERO_INIT(VkBufferCreateInfo);
-		create_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		create_buffer_info.size = size;
-		create_buffer_info.usage = (VkBufferUsageFlags)buffer_info->buffer_usage_flags;
-		create_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		create_buffer_info.flags = 0;
-
-		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_buffer);
-		device->backend->last_result = vkCreateBuffer(device->backend->logical_device, &create_buffer_info, &device->backend->allocation_callbacks, &backend->vk_buffer);
-
-		VkMemoryRequirements memory_requirements;
-		vkGetBufferMemoryRequirements(device->backend->logical_device, backend->vk_buffer, &memory_requirements);
-
-		VkMemoryAllocateFlagsInfo flags;
-		flags.deviceMask = 0;
-		flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
-		flags.pNext = NULL;
-		flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-
-		VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
-		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		alloc_info.allocationSize = memory_requirements.size;
-		alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memory_requirements.memoryTypeBits, buffer_info->property_flags);
-		ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
-		//The buffer is created with SHADER_DEVICE_ADDRESS usage, so the spec requires the matching
-		//allocate flag whenever the memory backs it (VUID-vkBindBufferMemory-bufferDeviceAddress-03339),
-		//not just under validation. Always attach it, as the transient arena path does.
-		alloc_info.pNext = &flags;
-		ZEST_APPEND_LOG(device->log_path.str, "Allocating linear buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", (zest_ull)alloc_info.allocationSize, alloc_info.memoryTypeIndex, (zest_ull)memory_requirements.alignment, memory_requirements.memoryTypeBits);
-		ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_pool);
-		zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, &backend->memory);
 	}
 
 	return backend;

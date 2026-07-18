@@ -1997,7 +1997,6 @@ typedef enum zest_struct_type {
 	zest_struct_type_device_builder = 46 << 16,
 	zest_struct_type_file = 47 << 16,
 	zest_struct_type_resource_store = 48 << 16,
-	zest_struct_type_buffer_linear_allocator = 49 << 16,
 	zest_struct_type_pipeline_layout = 50 << 16,
 	zest_struct_type_shader_options = 51 << 16,
 } zest_struct_type;
@@ -2723,7 +2722,6 @@ typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_descriptor_pool_t zest_descriptor_pool_t;
 typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
-typedef struct zest_buffer_linear_allocator_t zest_buffer_linear_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
 typedef struct zest_buffer_t zest_buffer_t;
 typedef struct zest_transient_placement_t zest_transient_placement_t;
@@ -2768,7 +2766,6 @@ typedef struct zest_queue_backend_t zest_queue_backend_t;
 typedef struct zest_context_queue_backend_t zest_context_queue_backend_t;
 typedef struct zest_command_list_backend_t zest_command_list_backend_t;
 typedef struct zest_buffer_allocator_backend_t zest_buffer_allocator_backend_t;
-typedef struct zest_buffer_linear_allocator_backend_t zest_buffer_linear_allocator_backend_t;
 typedef struct zest_device_memory_pool_backend_t zest_device_memory_pool_backend_t;
 typedef struct zest_device_memory_backend_t zest_device_memory_backend_t;
 typedef struct zest_uniform_buffer_backend_t zest_uniform_buffer_backend_t;
@@ -2805,7 +2802,6 @@ ZEST__MAKE_HANDLE(zest_set_layout)
 ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
-ZEST__MAKE_HANDLE(zest_buffer_linear_allocator)
 ZEST__MAKE_HANDLE(zest_descriptor_pool)
 ZEST__MAKE_HANDLE(zest_compute)
 ZEST__MAKE_HANDLE(zest_buffer)
@@ -2836,7 +2832,6 @@ ZEST__MAKE_HANDLE(zest_context_queue_backend)
 ZEST__MAKE_HANDLE(zest_command_list_backend)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores_backend)
 ZEST__MAKE_HANDLE(zest_buffer_allocator_backend)
-ZEST__MAKE_HANDLE(zest_buffer_linear_allocator_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_pool_backend)
@@ -4504,7 +4499,6 @@ typedef struct zest_platform_t {
 	//and passed back to it at allocation time; shared code never interprets it. 0 when the backend can derive the
 	//requirements itself (plain buffer allocations).
 	void*                      (*create_buffer_allocator_backend)(zest_device device, zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
-	void*                      (*create_buffer_linear_allocator_backend)(zest_device device, zest_size size, zest_buffer_info_t *buffer_info);
 	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
 	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer);
 	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory);
@@ -4726,7 +4720,6 @@ ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, z
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
-ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
 //End Buffer Management
 
 //Queue_management
@@ -6882,14 +6875,6 @@ typedef struct zest_buffer_allocator_t {
 	//shared, persistent pool.
 	zest_bool is_dedicated;
 } zest_buffer_allocator_t;
-
-typedef struct zest_buffer_linear_allocator_t {
-    int magic;
-	zest_buffer_linear_allocator_backend backend;
-	zest_context context;
-	zest_size buffer_size;
-	zest_size current_offset;
-} zest_buffer_linear_allocator_t;
 
 typedef struct zest_execution_timeline_t {
 	int magic;
@@ -10192,15 +10177,6 @@ void zest__destroy_buffer_allocator(zest_buffer_allocator buffer_allocator) {
 	ZEST__FREE(allocator, buffer_allocator);
 }
 
-zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size) {
-	zest_buffer_linear_allocator allocator = (zest_buffer_linear_allocator)ZEST__NEW(context->allocator, zest_buffer_linear_allocator);
-	allocator->magic = zest_INIT_MAGIC(zest_struct_type_buffer_linear_allocator);
-	allocator->context = context;
-	allocator->backend = (zest_buffer_linear_allocator_backend)context->device->platform->create_buffer_linear_allocator_backend(context->device, size, buffer_info);
-	allocator->buffer_size = size;
-	allocator->current_offset = 0;
-	return allocator;
-}
 
 zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator buffer_allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool) {
 	zloc_allocator *allocator = buffer_allocator->context ? buffer_allocator->context->allocator : buffer_allocator->device->allocator;
