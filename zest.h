@@ -2113,6 +2113,7 @@ typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_output_memory_pool_info = 1 << 7,
 	zest_device_init_flag_force_legacy_render_pass = 1 << 8,	//Vulkan backend only, set with zest_DeviceBuilderForceLegacyRenderPass
 	zest_device_init_flag_using_legacy_render_pass = 1 << 9,
+	zest_device_init_flag_enable_memory_budget = 1 << 10,	//Opt in with zest_DeviceBuilderEnableMemoryBudget
 } zest_device_init_flag_bits;
 
 typedef zest_uint zest_device_init_flags;
@@ -3628,6 +3629,37 @@ typedef struct zest_memory_usage_t {
 	zest_uint max_backend_allocations;
 } zest_memory_usage_t;
 
+#define ZEST_MAX_REPORTED_MEMORY_HEAPS 16
+
+//Budget and usage for a single backend memory heap. Both figures are driver estimates, not exact
+//accounting - see zest_memory_budget_t.
+typedef struct zest_memory_heap_budget_t {
+	zest_size heap_size;    //Total physical size of the heap, a fixed hardware property
+	zest_size budget;       //How much this process may allocate from the heap right now
+	zest_size usage;        //How much this process has already allocated from the heap
+	zest_bool device_local; //Heap is GPU local (VRAM) rather than system memory
+} zest_memory_heap_budget_t;
+
+//Per-heap memory budget reported by the backend, filled by zest_GetDeviceMemoryBudget. Requires the
+//device to have been built with zest_DeviceBuilderEnableMemoryBudget AND the backend to support the
+//query, otherwise supported is ZEST_FALSE and every figure is zero.
+//
+//These numbers are estimates the driver recalculates as system conditions change, not an accounting
+//of allocations:
+//  - usage covers only this process, so it is never a system wide total.
+//  - budget shrinks as OTHER processes take memory, so it is the only figure here that says anything
+//    about the world outside this process. It is not (heap_size - usage).
+//Re-query whenever the value is needed rather than caching it; both figures move frame to frame.
+typedef struct zest_memory_budget_t {
+	zest_bool supported;
+	zest_uint heap_count;
+	zest_memory_heap_budget_t heaps[ZEST_MAX_REPORTED_MEMORY_HEAPS];
+	//Totals over device local heaps only, the figures that matter for VRAM pressure
+	zest_size device_local_size;
+	zest_size device_local_budget;
+	zest_size device_local_usage;
+} zest_memory_budget_t;
+
 typedef struct zest_timer_t {
     double start_time;
     double delta_time;
@@ -4502,6 +4534,9 @@ typedef struct zest_platform_t {
 	zest_bool                  (*add_buffer_memory_pool)(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
 	zest_bool                  (*create_image_memory_pool)(zest_device device, zest_context context, zest_size size_in_bytes, zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer);
 	zest_bool                  (*create_device_memory)(zest_device device, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits, zest_device_memory memory);
+	//Fills budget from the backend. Only called when the device enabled the memory budget query;
+	//backends that cannot report it leave budget->supported as ZEST_FALSE.
+	void                       (*get_memory_budget)(zest_device device, zest_memory_budget_t *budget);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
@@ -4938,6 +4973,11 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 //Force legacy VkRenderPass/VkFramebuffer usage even when dynamic rendering is available (for testing).
 //Vulkan only: does nothing on other platforms.
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
+//Opt in to the backend memory budget query so zest_GetDeviceMemoryBudget can report per-heap budget
+//and usage (Vulkan: VK_EXT_memory_budget). Purely additive telemetry - the extension is requested
+//only when the hardware advertises it and nothing else changes behaviour if it is unavailable, so
+//this is always safe to call. Check zest_DeviceHasMemoryBudget after building to see if it took.
+ZEST_API void zest_DeviceBuilderEnableMemoryBudget(zest_device_builder builder);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
 //Set the size at which an image gets its own dedicated memory allocation instead of sub-allocating
@@ -6006,6 +6046,15 @@ ZEST_API zloc_allocation_stats_t zest_GetContextMemoryStats(zest_context context
 //Get an aggregate overview of all host and GPU memory allocated for the device and context, including
 //GPU pools, dedicated image memory and transient arenas
 ZEST_API zest_memory_usage_t zest_GetMemoryUsage(zest_context context);
+//ZEST_TRUE if the device was built with zest_DeviceBuilderEnableMemoryBudget and the backend actually
+//supports the query, meaning zest_GetDeviceMemoryBudget will return real figures.
+ZEST_API zest_bool zest_DeviceHasMemoryBudget(zest_device device);
+//Query the backend for per-heap memory budget and usage. Returns a struct with supported set to
+//ZEST_FALSE and all figures zero when the device was not built with zest_DeviceBuilderEnableMemoryBudget
+//or the backend cannot report it, so the return value is always safe to read.
+//These are driver estimates that move over time - re-query rather than caching. See
+//zest_memory_budget_t for exactly what budget and usage do and do not measure.
+ZEST_API zest_memory_budget_t zest_GetDeviceMemoryBudget(zest_device device);
 //Fill usages (up to max_usages) with per pool allocator usage covering both device and context owned
 //GPU pools. Returns the total number of pool allocators which may be more than max_usages. Pass NULL
 //usages to just get the count.
@@ -8857,6 +8906,10 @@ void zest_AddDeviceBuilderFullValidation(zest_device_builder builder) {
 
 void zest_DeviceBuilderPrintMemoryInfo(zest_device_builder builder) {
 	ZEST__FLAG(builder->flags, zest_device_init_flag_output_memory_pool_info);
+}
+
+void zest_DeviceBuilderEnableMemoryBudget(zest_device_builder builder) {
+	ZEST__FLAG(builder->flags, zest_device_init_flag_enable_memory_budget);
 }
 
 void zest_DeviceBuilderLogToConsole(zest_device_builder builder) {
@@ -12946,6 +12999,24 @@ zest_memory_usage_t zest_GetMemoryUsage(zest_context context) {
 	usage.backend_allocation_count = (zest_uint)device->memory_allocation_count;
 	usage.max_backend_allocations = device->max_memory_allocation_count;
 	return usage;
+}
+
+zest_bool zest_DeviceHasMemoryBudget(zest_device device) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle
+	return zest_GetDeviceMemoryBudget(device).supported;
+}
+
+zest_memory_budget_t zest_GetDeviceMemoryBudget(zest_device device) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle
+	zest_memory_budget_t budget = ZEST__ZERO_INIT(zest_memory_budget_t);
+	//Not opting in leaves the backend query unused rather than failing - callers read supported
+	if (ZEST__NOT_FLAGGED(device->init_flags, zest_device_init_flag_enable_memory_budget)) {
+		return budget;
+	}
+	if (device->platform->get_memory_budget) {
+		device->platform->get_memory_budget(device, &budget);
+	}
+	return budget;
 }
 
 zest_uint zest_GetDeviceContextCount(zest_device device) {

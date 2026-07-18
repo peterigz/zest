@@ -307,6 +307,7 @@ ZEST_PRIVATE void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool m
 ZEST_PRIVATE void zest__vk_cleanup_memory_backend(zest_device_memory memory);
 ZEST_PRIVATE void zest__vk_cleanup_buffer_allocator_backend(zest_buffer_allocator buffer_allocator);
 ZEST_PRIVATE void zest__vk_cleanup_device_backend(zest_device device);
+ZEST_PRIVATE void zest__vk_get_memory_budget(zest_device device, zest_memory_budget_t *budget);
 ZEST_PRIVATE zest_bool zest__vk_reinit_logical_device(zest_device device);
 ZEST_PRIVATE void zest__vk_cleanup_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_destroy_context_surface(zest_context context);
@@ -481,6 +482,7 @@ typedef struct zest_device_backend_t {
 	shaderc_compiler_t shaderc_compiler;
     VkPipelineCache pipeline_cache;
     zest_bool has_dynamic_rendering;
+    zest_bool has_memory_budget;
     // Supported feature structs cached by the feasibility pass (zest__vk_query_device_capabilities)
     // and consumed by zest__vk_create_logical_device to decide what to enable.
     VkPhysicalDeviceFeatures supported_features;
@@ -669,6 +671,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->add_buffer_memory_pool                     	= zest__vk_add_buffer_memory_pool;
     platform->create_image_memory_pool                      = zest__vk_create_image_memory_pool;
     platform->create_device_memory		                    = zest__vk_create_device_memory;
+    platform->get_memory_budget                             = zest__vk_get_memory_budget;
     platform->map_memory                                    = zest__vk_map_memory;
     platform->unmap_memory                                  = zest__vk_unmap_memory;
     platform->flush_used_buffers                            = zest__vk_flush_used_buffers;
@@ -1854,6 +1857,7 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
 
     zest_uint required_extensions_found = 0;
     zest_bool dynamic_rendering_found = ZEST_FALSE;
+    zest_bool memory_budget_found = ZEST_FALSE;
     for (int i = 0; i != extension_count; ++i) {
         for (int e = 0; e != zest__required_extension_names_count; ++e) {
             if (strcmp(available_extensions[i].extensionName, zest_required_extensions[e]) == 0) {
@@ -1863,11 +1867,15 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
         if (strcmp(available_extensions[i].extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
             dynamic_rendering_found = ZEST_TRUE;
         }
+        if (strcmp(available_extensions[i].extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0) {
+            memory_budget_found = ZEST_TRUE;
+        }
     }
 
-    // Store dynamic rendering availability for later use during logical device creation
+    // Store dynamic rendering and memory budget availability for later use during logical device creation
     if (device->backend->physical_device == physical_device || device->backend->physical_device == VK_NULL_HANDLE) {
         device->backend->has_dynamic_rendering = dynamic_rendering_found;
+        device->backend->has_memory_budget = memory_budget_found;
     }
 
     ZEST__FREE(device->allocator, available_extensions);
@@ -2427,12 +2435,24 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 		use_dynamic_rendering = ZEST_FALSE;
 	}
 
-	// Build the enabled extension list: required + optional dynamic rendering
-	const char *enabled_extensions[zest__required_extension_names_count + 1];
+	// Build the enabled extension list: required + optional dynamic rendering + optional memory budget
+	const char *enabled_extensions[zest__required_extension_names_count + 2];
 	zest_uint enabled_extension_count = zest__required_extension_names_count;
 	for (int i = 0; i != zest__required_extension_names_count; ++i) {
 		enabled_extensions[i] = zest_required_extensions[i];
 	}
+
+	//Memory budget is pure telemetry (zest_GetDeviceMemoryBudget) so it is only requested when the
+	//caller opted in and the hardware advertises it. has_memory_budget then means "enabled", which is
+	//what the query checks - never just "available".
+	zest_bool use_memory_budget = device->backend->has_memory_budget && ZEST__FLAGGED(device->init_flags, zest_device_init_flag_enable_memory_budget);
+	if (use_memory_budget) {
+		enabled_extensions[enabled_extension_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+		ZEST_APPEND_LOG(device->log_path.str, "Memory budget extension enabled, zest_GetDeviceMemoryBudget will report per heap budget and usage");
+	} else if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_enable_memory_budget)) {
+		ZEST_APPEND_LOG(device->log_path.str, "Memory budget was requested but %s does not advertise it, zest_GetDeviceMemoryBudget will report unsupported", VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+	}
+	device->backend->has_memory_budget = use_memory_budget;
 
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features = ZEST__ZERO_INIT(VkPhysicalDeviceDynamicRenderingFeaturesKHR);
 	if (use_dynamic_rendering) {
@@ -3049,6 +3069,44 @@ void *zest__vk_create_buffer_allocator_backend(zest_device device, zest_context 
 	}
 
 	return backend;
+}
+
+void zest__vk_get_memory_budget(zest_device device, zest_memory_budget_t *budget) {
+    if (!device->backend->has_memory_budget) {
+        return;
+    }
+
+    //VK_EXT_memory_budget writes the budget/usage arrays into the chained struct. Both are driver
+    //estimates recalculated per query, so nothing here is cached.
+    VkPhysicalDeviceMemoryBudgetPropertiesEXT budget_properties = ZEST__ZERO_INIT(VkPhysicalDeviceMemoryBudgetPropertiesEXT);
+    budget_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT;
+
+    VkPhysicalDeviceMemoryProperties2 memory_properties = ZEST__ZERO_INIT(VkPhysicalDeviceMemoryProperties2);
+    memory_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+    memory_properties.pNext = &budget_properties;
+
+    vkGetPhysicalDeviceMemoryProperties2(device->backend->physical_device, &memory_properties);
+
+    zest_uint heap_count = memory_properties.memoryProperties.memoryHeapCount;
+    if (heap_count > ZEST_MAX_REPORTED_MEMORY_HEAPS) {
+        heap_count = ZEST_MAX_REPORTED_MEMORY_HEAPS;
+    }
+
+    budget->supported = ZEST_TRUE;
+    budget->heap_count = heap_count;
+    for (zest_uint i = 0; i != heap_count; ++i) {
+        VkMemoryHeap *heap = &memory_properties.memoryProperties.memoryHeaps[i];
+        zest_bool device_local = ZEST__FLAGGED(heap->flags, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? ZEST_TRUE : ZEST_FALSE;
+        budget->heaps[i].heap_size = (zest_size)heap->size;
+        budget->heaps[i].budget = (zest_size)budget_properties.heapBudget[i];
+        budget->heaps[i].usage = (zest_size)budget_properties.heapUsage[i];
+        budget->heaps[i].device_local = device_local;
+        if (device_local) {
+            budget->device_local_size += (zest_size)heap->size;
+            budget->device_local_budget += (zest_size)budget_properties.heapBudget[i];
+            budget->device_local_usage += (zest_size)budget_properties.heapUsage[i];
+        }
+    }
 }
 
 zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool) {
