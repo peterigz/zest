@@ -95,7 +95,7 @@ void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources
 	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r16g16b16a16_sfloat);
 	}
 	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
@@ -124,10 +124,10 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	zest_device device = zest_GetContextDevice(context);
 
 	tfxU32 bitmap_count = tfx_GetAnimationColorRampBitmapCount(animation_manager);
-	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
+	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetAnimationColorRampBitmap(animation_manager, i);
-		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r16g16b16a16_sfloat);
 	}
 	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);

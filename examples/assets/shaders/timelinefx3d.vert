@@ -31,14 +31,10 @@ struct Properties {
 	vec2 image_handle;			
 	uint color_ramp_indexes;			//[Row of color ramp bitmap, texture array]
 	uint flags;						//Flags like billboard alignment type
-	float heat_response_boost;			//Thermal ramp values for the frag shader
-	float heat_response_sharpness;
-	float heat_response_curve;
 	uint start_frame_index;
 	float animation_frames;
 	uint padding1;
 	uint padding2;
-	uint padding3;
 };
 
 struct BillboardInstance {					//48 bytes, mirrors tfx_instance_t
@@ -102,7 +98,6 @@ layout(location = 7) in uint captured_index;
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out flat ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
-layout(location = 3) out flat vec3 out_heat_response;
 
 mat3 QuaternionToRotationMatrix(vec4 q) {
     float xx = q.x * q.x; float xy = q.x * q.y; float xz = q.x * q.z; float xw = q.x * q.w;
@@ -151,11 +146,11 @@ void main() {
     #endif
     motion.z += 0.000001;
 	bool has_alignment = dot(alignment, alignment) > 0;
-    float travel_distance = has_alignment ? .1 : length(motion); // Calculate the actual distance traveled if alignment is motion otherwise set it to a constant
+    float travel_distance = length(motion); // Actual distance travelled this frame. Stretch always scales with the real motion now.
     float stretch_factor = position.w * interpolate_is_active;
 
     motion = normalize(motion); // Normalize for direction
-    vec3 final_alignment = has_alignment ? alignment : motion; // Use normalized motion or specified alignment
+    vec3 final_alignment = has_alignment ? alignment : motion; // Vector the billboard is oriented to: motion for motion-align, otherwise the supplied alignment vector.
     //----
 
     //Info about how to align the billboard is stored in the lowest 2 bits of props.flags.
@@ -175,8 +170,8 @@ void main() {
     //bit is the only bit set if this is the case: 10
     bool vector_align = align_flags == 0x2u;
 
-    //Calculate components needed for vector_align roll
-    vec3 camera_relative_aligment = final_alignment * inverse(mat3(ub[pc.uniform_index].view));
+    //Stretch always follows the direction of travel (motion), never the alignment vector.
+    vec3 camera_relative_aligment = motion * inverse(mat3(ub[pc.uniform_index].view));
 
     int index = indexes[gl_VertexIndex];
 
@@ -238,13 +233,25 @@ void main() {
     //by the amount travelled.
 
     //Get the direction to stretch based on the billboarding option
-	vec3 stretch_direction = billboarding ? final_alignment : normalize(camera_relative_aligment); // Assume inputs allow normalization
+	vec3 stretch_direction = billboarding ? motion : normalize(camera_relative_aligment); // Stretch along the direction of travel
     //Half the amount in order to apply half of the stretch in the forward direction and the other half behind
 	float vertex_offset_magnitude = 0.5 * travel_distance * stretch_factor;
-    //See which vertex this is: Front or back
-	float front_back_sign = sign(dot(pos, stretch_direction));
-    //Calculate the final stretch amount for this vertex
-	vec3 potential_offset = stretch_direction * front_back_sign * vertex_offset_magnitude;
+
+	//The stretch elongates the sprite by travel_distance: "front" corners are pushed forward along stretch_direction and
+	//"back" corners backward. This used to be sign(dot(pos, stretch_direction)) * magnitude, but sign() is discontinuous -
+	//as stretch_direction sweeps past a quad corner (dot -> 0) that corner flips from +magnitude to -magnitude and the
+	//silhouette snaps. That was hidden while the quad was rotated to line up with stretch_direction (a clean 2-front/2-back
+	//split), but fixed-align particles rotate the quad to their align vector (path gradient / emission dir) while stretch
+	//follows motion - a different direction - so the split is unstable. Instead scale each vertex along stretch_direction by
+	//its own projection, normalised by the quad's projected half-extent. This is continuous (no snapping), keeps the total
+	//elongation equal to travel_distance, and reduces exactly to the old rigid front/back push when the quad *is* aligned
+	//with the stretch direction.
+	float projected_half_extent = 0.0;
+	for (int corner = 0; corner < 4; ++corner) {
+		projected_half_extent = max(projected_half_extent, abs(dot(final_rot_mat * identity_bounds[corner], stretch_direction)));
+	}
+	float projected_position = dot(pos, stretch_direction);
+	vec3 potential_offset = stretch_direction * (projected_position / max(projected_half_extent, 0.00001)) * vertex_offset_magnitude;
 
     //Apply the stretch if applicable
 	bool apply_stretch = (travel_distance > 0.00001 && stretch_factor > 0.0);
@@ -274,5 +281,4 @@ void main() {
 	out_texture_indexes = ivec3(ramp_y, ramp_array, life);
 	out_tex_coord = vec3(uvs[index], in_image_data[pc.image_data_index].data[image_index].texture_array_index);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
-	out_heat_response = vec3(props.heat_response_boost, props.heat_response_sharpness, props.heat_response_curve);
 }

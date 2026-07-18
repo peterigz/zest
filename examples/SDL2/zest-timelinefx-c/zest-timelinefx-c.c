@@ -68,13 +68,13 @@ void Init(TimelineFXExample *example) {
 	example->effect_template1 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash");
 	example->effect_template2 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash.1");
 
-	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
+	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba16f format and can be
 	//simply copied to a bitmap for uploading to the texture
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(example->library);
-	example->tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
+	example->tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (int i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(example->library, i);
-		zest_AddImageAtlasPixels(&example->tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
+		zest_AddImageAtlasPixels(&example->tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r16g16b16a16_sfloat);
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	example->tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(example->context, &example->tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);

@@ -49,13 +49,13 @@ struct tfx_emitter {
 	uint lookup_offset;
 	uint angle_type;
 	vec3 position;
-	float heat_response_boost;
+	uint padding1;
 	vec3 captured_position;
-	float heat_response_sharpness;
+	uint padding2;
 	vec3 scale;
-	float heat_response_curve;
+	uint padding3;
 	vec3 fixed_angle_normal;
-	int padding;
+	int padding4;
 };
 
 layout(binding = 5) readonly buffer InImageData {
@@ -96,6 +96,9 @@ layout(push_constant) uniform push_constants
 	uint particle_texture_index;
 	uint color_ramp_texture_index;
     float lerp;
+    float time;
+    float ndc_offset_x;
+    float ndc_offset_y;
 } pc;
 
 layout(location = 0) in vec3 vertex_position;
@@ -107,17 +110,17 @@ layout(location = 4) in uint clipped;
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
-layout(location = 3) out flat vec3 out_heat_response;
 
 vec2 unpack16bit_sscaled(uint packed) {
-    int x_scaled = int(packed & 0xFFFFu);
-    int y_scaled = int((packed >> 16u) & 0xFFFFu);
-    vec2 unpacked;
+    int x_scaled = (int(packed) << 16) >> 16;
+    int y_scaled = int(packed) >> 16;
     return vec2(float(x_scaled) * packed_scale_max, float(y_scaled) * packed_scale_max);
 }
 
 void main() {
 	gl_Position = (ub[pc.uniform_index].proj * ub[pc.uniform_index].view * vec4(vertex_position, 1.0));
+	gl_Position.x += pc.ndc_offset_x * gl_Position.w;
+	gl_Position.y += pc.ndc_offset_y * gl_Position.w;
 	uint current_segment_index = (segment_index & 0x000007FF);
 	float ribbon_position = float((segment_index & 0x007FF000) >> 12) / 2047.0;
 	ribbon_segment segment = segments[pc.ribbon_segments_index].data[current_segment_index];
@@ -166,5 +169,4 @@ void main() {
 	out_tex_coord = vec3(vec2(uv_x, uv_y), images[pc.image_data_index].data[image_index].texture_array_index);
 	out_texture_indexes = ivec3((ribbon.texture_indexes & 0xFF000000) >> 24, (ribbon.texture_indexes & 0x00FF0000) >> 16, life);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * ribbon_intensity_gradient_map.x * clipped, curved_alpha.x * ribbon_curved_alpha.x, curved_alpha.y * ribbon_curved_alpha.y, intensity_gradient_map.y * ribbon_intensity_gradient_map.y);
-	out_heat_response = vec3(emitter.heat_response_boost, emitter.heat_response_sharpness, emitter.heat_response_curve);
 }

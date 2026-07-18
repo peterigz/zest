@@ -1,0 +1,219 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+/*
+This compute shader uses parallel reduction to find the min/max bounding box of all ribbon segments in an effect.
+
+For each ribbon, we loop over its segments, transform them by the ribbon's quaternion rotation and position,
+then expand conservatively by the ribbon's width in all directions (since ribbon orientation depends on
+the camera or angle which we don't know here).
+*/
+
+#define tfxINVALID 0xFFFFFFFF
+
+#define group_size 128
+
+//Pre-recorded ribbon data. Must match tfx_ribbon_instance_data_t (64 bytes)
+struct RibbonData {
+	vec4 position;						//xyz = position, w = normalised age
+	float width;
+	uint start_index;					//Into shared segment data
+	uint flags;
+	uint captured_index;
+	uvec2 quaternion;					//16-bit snorm packed rotation
+	uint emitter_index;
+	uint texture_indexes;
+	uint intensity_gradient_map;
+	uint curved_alpha;
+	uint property_index_lerp_offset;	//UNorm lerp offset in FFFF and the property index in FFFF0000
+	uint padding;
+};
+
+//Contains each animation instance with data that the compute shader uses to position the ribbons
+struct AnimationInstance {
+	vec3 position;					//position that the instance should be played at
+	float scale;					//Overal scale of the effect
+	uint sprite_count;				//The number of sprites to be drawn
+	uint ribbon_count;				//The number of ribbons to be drawn
+	uint frame_count;				//The number of frames in the animation
+	uint offset_into_sprite_data;	//The starting offset in the buffer that contains all the sprite data
+	uint offset_into_ribbon_data;	//The starting offset in the buffer that contains all the ribbon data
+	uint info_index;				//Index into the effect_animation_info storage map to get at the frame meta
+	float current_time;				//Current point of time in the animation
+	float animation_length_in_time;	//Total time that the animation lasts for
+	float tween;					//The point time within the frame (0..1)
+	uint flags;						//Flags associated with the instance
+};
+
+struct RibbonProperties {
+	uint segment_count;
+	uint tessellation;
+	uint shader_type;
+	uint color_ramp_index;
+	uint segment_data_offset;
+	float animation_frames;
+	uint start_frame_index;
+	uint flags;
+	uint graph_lookup_offset;
+	uint bucket_index;
+	float heat_response_boost;
+	float heat_response_sharpness;
+	float heat_response_curve;
+};
+
+struct RibbonSegment {
+	vec3 position;
+	uint intensity_gradient_map;
+	uint curved_alpha;
+	uint padding[3];
+};
+
+struct BoundingBox {
+	vec3 min_corner;
+	float max_stretch;
+	vec3 max_corner;
+	float padding;
+};
+
+//The size of each local group, ie., how many ribbons are processed by each compute thread
+layout (local_size_x = group_size) in;
+
+//Bindings for all the buffers being used
+layout (std430, binding = 5) buffer InRibbonData {
+   RibbonData data[];
+} ribbon_data[];
+
+layout (std430, binding = 5) buffer InAnimationInstances {
+   AnimationInstance data[];
+} instances[];
+
+layout (std430, binding = 5) buffer InRibbonSegments {
+   RibbonSegment data[];
+} ribbon_segments[];
+
+layout (std430, binding = 5) buffer InRibbonProperties {
+   RibbonProperties data[];
+} ribbon_properties[];
+
+layout (std430, binding = 5) buffer InBoundingBox {
+   BoundingBox data[];
+} bounding_boxes[];
+
+//Push constants
+layout(push_constant) uniform compute_push
+{
+	uint ribbons_total;
+	uint animation_instances_index;
+	uint ribbon_data_index;
+	uint ribbon_segments_index;
+	uint ribbon_properties_index;
+	uint bounding_boxes_index;
+} pc;
+
+vec3 rotate_with_quaternion(vec3 point, vec4 quat) {
+    return point + 2.0 * cross(cross(point, quat.xyz) + quat.w * point, quat.xyz);
+}
+
+//Shared arrays for parallel reduction
+shared vec3 local_min[group_size];
+shared vec3 local_max[group_size];
+
+//Final warp-level reduction without barriers (warp size = 32)
+void warp_reduce(uint tid) {
+	local_min[tid] = min(local_min[tid], local_min[tid + 32]);
+	local_min[tid] = min(local_min[tid], local_min[tid + 16]);
+	local_min[tid] = min(local_min[tid], local_min[tid + 8]);
+	local_min[tid] = min(local_min[tid], local_min[tid + 4]);
+	local_min[tid] = min(local_min[tid], local_min[tid + 2]);
+	local_min[tid] = min(local_min[tid], local_min[tid + 1]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 32]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 16]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 8]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 4]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 2]);
+	local_max[tid] = max(local_max[tid], local_max[tid + 1]);
+}
+
+//For each ribbon, loop over its segments, transform them into world space,
+//and expand by the ribbon width conservatively.
+void calculate_ribbon_bounds(inout vec3 min_vertex, inout vec3 max_vertex, uint ribbon_index) {
+	RibbonData ribbon = ribbon_data[pc.ribbon_data_index].data[ribbon_index];
+
+	uint property_index = (ribbon.property_index_lerp_offset >> 16) & 0xFFFF;
+	uint segment_count = ribbon_properties[pc.ribbon_properties_index].data[property_index].segment_count;
+
+	//Unpack quaternion from 16-bit snorm
+	vec4 quaternion = vec4(
+		unpackSnorm2x16(ribbon.quaternion.x),
+		unpackSnorm2x16(ribbon.quaternion.y)
+	);
+
+	//Use half the ribbon width as a conservative expansion in all directions.
+	//The actual width direction depends on the camera or orientation mode, but for bounding box
+	//purposes we conservatively expand in all axes.
+	float half_width = abs(ribbon.width) * 0.5;
+
+	//Loop over all segments of this ribbon
+	for (uint s = 0; s < segment_count; ++s) {
+		uint segment_index = s + ribbon.start_index;
+		vec3 segment_pos = ribbon_segments[pc.ribbon_segments_index].data[segment_index].position;
+
+		//Transform: rotate by ribbon quaternion and add ribbon position
+		//For baked playback, emitter transforms are identity (position=0, quaternion=identity, scale=1)
+		vec3 world_pos = rotate_with_quaternion(segment_pos, quaternion) + ribbon.position.xyz;
+
+		//Expand by half_width conservatively in all directions
+		min_vertex = min(min_vertex, world_pos - vec3(half_width));
+		max_vertex = max(max_vertex, world_pos + vec3(half_width));
+	}
+}
+
+void main()
+{
+    uint global_index = gl_GlobalInvocationID.x;
+    uint local_index = gl_LocalInvocationID.x;
+    uint group_index = gl_WorkGroupID.x;
+
+	//Initialise shared memory with extreme values so real data always wins
+	local_min[local_index] = vec3(99999999, 9999999, 9999999);
+	local_max[local_index] = vec3(-99999999, -9999999, -9999999);
+
+	barrier();
+
+	//Clamp to valid range without early exit (avoid barrier deadlocks)
+    global_index = min(global_index, int(pc.ribbons_total - 1));
+
+	//Same double-loading pattern as sprite_data_bounding_box.comp:
+	//Each group processes 2x group_size ribbons by loading two halves
+	uint ribbon_index = global_index + instances[pc.animation_instances_index].data[0].offset_into_ribbon_data + (group_index * gl_WorkGroupSize.x * 2);
+
+	vec3 min_vertex = vec3( 99999999);
+	vec3 max_vertex = vec3(-99999999);
+
+	//Load the second half ribbon index, clamped to valid range
+	uint next_ribbon_index = min(ribbon_index + gl_WorkGroupSize.x, (uint(pc.ribbons_total) + instances[pc.animation_instances_index].data[0].offset_into_ribbon_data) - 1);
+
+	calculate_ribbon_bounds(min_vertex, max_vertex, ribbon_index);
+	calculate_ribbon_bounds(min_vertex, max_vertex, next_ribbon_index);
+
+	local_min[local_index] = min_vertex;
+	local_max[local_index] = max_vertex;
+
+	barrier();
+
+	//Unrolled reduction with barriers for sizes > 64
+	if(group_size >= 512) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 256]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 256]);	barrier();}
+	if(group_size >= 256) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 128]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 128]);	barrier();}
+	if(group_size >= 128) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 64 ]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 64 ]);	barrier();}
+
+	//Final warp-level reduction
+	warp_reduce(local_index);
+
+	//Store the per-group result
+	if(local_index == 0) {
+		bounding_boxes[pc.bounding_boxes_index].data[group_index].min_corner = local_min[local_index];
+		bounding_boxes[pc.bounding_boxes_index].data[group_index].max_stretch = 0;
+		bounding_boxes[pc.bounding_boxes_index].data[group_index].max_corner = local_max[local_index];
+		bounding_boxes[pc.bounding_boxes_index].data[group_index].padding = 0;
+	}
+}
