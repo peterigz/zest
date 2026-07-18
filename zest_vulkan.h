@@ -1225,41 +1225,6 @@ ZEST_PRIVATE inline void zest__vk_free_memory(zest_device device, VkDeviceMemory
     }
 }
 
-ZEST_PRIVATE inline VkResult zest__vk_create_temporary_image(zest_device device, zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits sample_count, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage* image, VkDeviceMemory* memory) {
-    VkImageCreateInfo image_info = ZEST__ZERO_INIT(VkImageCreateInfo);
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = width;
-    image_info.extent.height = height;
-    image_info.extent.depth = 1;
-    image_info.mipLevels = mipLevels;
-    image_info.arrayLayers = 1;
-    image_info.format = format;
-    image_info.tiling = tiling;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = usage;
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    image_info.samples = sample_count;
-
-	ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_image);
-    ZEST_VK_ASSERT_RESULT(device, vkCreateImage(device->backend->logical_device, &image_info, &device->backend->allocation_callbacks, image));
-
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(device->backend->logical_device, *image, &memRequirements);
-
-    VkMemoryAllocateInfo alloc_info = ZEST__ZERO_INIT(VkMemoryAllocateInfo);
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = memRequirements.size;
-    alloc_info.memoryTypeIndex = zest__vk_find_memory_type(device, memRequirements.memoryTypeBits, properties);
-
-	ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_context, zest_command_allocate_memory_image);
-    ZEST_VK_ASSERT_RESULT(device, zest__vk_allocate_memory(device, &alloc_info, &device->backend->allocation_callbacks, memory));
-
-    vkBindImageMemory(device->backend->logical_device, *image, *memory, 0);
-
-    return VK_SUCCESS;
-}
-
 ZEST_PRIVATE inline VkDeviceMemory zest__vk_get_buffer_device_memory(zest_buffer buffer) {
     return buffer->memory_pool->backend->memory;
 }
