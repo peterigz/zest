@@ -668,7 +668,7 @@ void UpdateVaders(VadersGame *game) {
 			tfx_AddEffectTemplateToEffectManager(game->game_pm, game->laser, &vader.laser);
 			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			tfx_SetEffectPositionVec3(game->game_pm, vader.laser, vader.position + laser_offset);
-			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle));
+			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle) + 135);
 			tfx_SetEffectOveralScale(game->game_pm, vader.laser, 2.f);
 			//Set the height of the laser which will change the length of it. We want it to extend off of the screen
 			tfx_SetEffectHeightMultiplier(game->game_pm, vader.laser, 3.f);
@@ -682,7 +682,7 @@ void UpdateVaders(VadersGame *game) {
 			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			tfx_SetEffectPositionVec3(game->game_pm, vader.laser, vader.position + laser_offset);
 			//Rotate the laser
-			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle));
+			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle) + 135);
 			if (vader.angle == vader.end_angle) {
 				vader.time = 0;
 				vader.end_angle = vader.start_angle;
