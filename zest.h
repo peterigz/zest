@@ -9571,6 +9571,11 @@ void zest__destroy_device(zest_device device) {
 	if (device->live_timeline_count > 0) {
 		ZEST_ALERT("%i execution timeline%s created with zest_CreateExecutionTimeline %s never freed with zest_FreeExecutionTimeline. Each one holds a backend semaphore and a heap allocation for as long as the device lives.", device->live_timeline_count, device->live_timeline_count == 1 ? "" : "s", device->live_timeline_count == 1 ? "was" : "were");
 	}
+	//Every backend allocation should have been released by zest__cleanup_device. A non-zero count
+	//means a memory pool, image backing or transient arena was never freed.
+	if (device->memory_allocation_count > 0) {
+		ZEST_ALERT("%i device memory allocation%s still live after device cleanup. Every zest__vk_allocate_memory must be matched by a free before the device is destroyed - a leftover count usually means a memory pool, image backing or transient arena backing was not released. The driver reclaims these when the process exits, but during a long run they consume device memory and count against the %u allocation limit.", device->memory_allocation_count, device->memory_allocation_count == 1 ? "" : "s", device->max_memory_allocation_count);
+	}
 	zest_ResetValidationErrors(device);
 	zloc_allocator *allocator = device->allocator;
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
