@@ -9338,7 +9338,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	ZEST_CPU_PROFILE_BEGIN(context, "Release Queues");
 	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
 		zest_context_queue context_queue = context->queues[i];
-		if (context_queue->queue) {
+		if (context_queue && context_queue->queue) {
 			zest__release_queue(context_queue->queue);
 			context_queue->queue = NULL;
 		}
@@ -11504,7 +11504,7 @@ void zest__cleanup_context(zest_context context) {
 
     for(int i = 0; i != context->active_queue_count; ++i) {
         zest_uint queue_index = context->active_queue_indexes[i];
-		zest_context_queue queue = context->queues[i];
+		zest_context_queue queue = context->queues[queue_index];
 		context->device->platform->reset_queue_command_pool(context, queue, ZEST_TRUE);
 		context->device->platform->cleanup_context_queue_backend(context, queue);
 		ZEST__FREE(context->allocator, queue);
