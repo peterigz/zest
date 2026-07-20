@@ -7,6 +7,7 @@
 [submodule "submodules/timelinefxlib"]
 	path = submodules/timelinefxlib
 	url = https://github.com/peterigz/timelinefxlib.git
+	branch = master
 [submodule "submodules/freetype"]
 	path = submodules/freetype
 	url = https://github.com/freetype/freetype.git
