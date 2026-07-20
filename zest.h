@@ -1292,6 +1292,15 @@ typedef char* zest_file;
 #define ZEST__NEW(allocator, type) (type)ZEST__ALLOCATE(allocator, sizeof(type##_t))
 #define ZEST__NEW_ALIGNED(allocator, type, alignment) (type)ZEST__ALLOCATE_ALIGNED(allocator, sizeof(type##_t), alignment)
 
+//Compile-time alignment of a type. Used so containers can honour the alignment of
+//over-aligned element types (e.g. anything embedding zest_vec4/zest_matrix4, which are
+//ZEST_ALIGN_AFFIX(16)) instead of assuming the allocator's default 8-byte alignment.
+#ifdef __cplusplus
+#define ZEST_ALIGNOF(T) alignof(T)
+#else
+#define ZEST_ALIGNOF(T) _Alignof(T)
+#endif
+
 //For global variables
 #define ZEST_GLOBAL static
 //For internal private functions that aren't meant to be called outside of the library
@@ -3135,6 +3144,7 @@ ZEST_API template<class T> T* zest__vec_linear_reserve_wrapper(zloc_linear_alloc
 //ZEST_API template<class T> T* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, T *a, zest_uint unit_size, zest_uint new_capacity);
 ZEST_API void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
 #define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8), 0)) : (void)0)
+#define zest_vec_grow_aligned(allocator, T, alignment) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8), alignment)) : (void)0)
 #define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? (void)(T = zest__vec_linear_reserve_wrapper(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16))) : (void)0)
 #define zest_vec_reserve(allocator, T, new_size) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0); } while (0);
 #define zest_vec_reserve_aligned(allocator, T, new_size, alignment) do { if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve_wrapper(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment); } while (0);
@@ -3145,6 +3155,7 @@ ZEST_API void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void
 #define ZEST__ARRAY(allocator, name, T, count) T *name = static_cast<T *>(ZEST__REALLOCATE(allocator, 0, sizeof(T) * count))
 #else
 #define zest_vec_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
+#define zest_vec_grow_aligned(allocator, T, alignment) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8), alignment) : 0)
 #define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16)) : 0)
 #define zest_vec_reserve(allocator, T, new_size) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, 0);
 #define zest_vec_reserve_aligned(allocator, T, new_size, alignment) if (!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size, alignment);
@@ -3160,6 +3171,7 @@ extern "C" {
 #endif
 
 #define zest_vec_push(allocator, T, value) (zest_vec_grow(allocator, T), (T)[zest__vec_header(T)->current_size++] = value)
+#define zest_vec_push_aligned(allocator, T, value, alignment) (zest_vec_grow_aligned(allocator, T, alignment), (T)[zest__vec_header(T)->current_size++] = value)
 #define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T) ? (void)((T)[zest__vec_header(T)->current_size++] = value) : (void)0)
 #define zest_vec_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_linear_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_linear_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
@@ -3176,15 +3188,16 @@ typedef struct zest_bucket_array_t {
 	zest_uint bucket_capacity;  // Number of elements each bucket can hold
 	zest_uint current_size;       // Total number of elements across all buckets
 	zest_uint element_size;     // The size of a single element
+	zest_uint alignment;        // Required alignment of a single element (>= 16 for over-aligned types)
 } zest_bucket_array_t;
 
-ZEST_PRIVATE void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
+ZEST_PRIVATE void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint alignment, zest_uint bucket_capacity);
 ZEST_PRIVATE void zest__free_bucket_array(zest_bucket_array_t *array);
 ZEST_API_TMP void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
 ZEST_PRIVATE void *zest__bucket_array_add(zest_bucket_array_t *array);
 ZEST_PRIVATE void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
-#define zest_bucket_array_init(allocator, array, T, cap) zest__initialise_bucket_array(allocator, array, sizeof(T), cap)
+#define zest_bucket_array_init(allocator, array, T, cap) zest__initialise_bucket_array(allocator, array, sizeof(T), ZEST_ALIGNOF(T), cap)
 #define zest_bucket_array_get(array, T, index) ((T *)zest__bucket_array_get(array, index))
 #define zest_bucket_array_add(array, T) ((T *)zest__bucket_array_add(array))
 #define zest_bucket_array_linear_add(allocator, array, T) ((T *)zest__bucket_array_linear_add(allocator, array))
@@ -6817,7 +6830,12 @@ void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_r
 	void *aligned_address = NULL;
 
 	while (allocator) {
-		zloc_size alignment = sizeof(void *);
+		// 16-byte alignment: this bump allocator backs transient frame-graph objects that
+		// include over-aligned (SSE) types - zest_resource_node_t buckets and vecs of
+		// zest_resource_state_t etc. all flow through here. A bump allocator makes the extra
+		// padding negligible, and aligning the absolute address keeps every allocation safe
+		// regardless of the pool base's own alignment.
+		zloc_size alignment = 16;
 
 		char *current_ptr = (char *)allocator->data + allocator->current_offset;
 		aligned_address = (void *)(((uintptr_t)current_ptr + alignment - 1) & ~(alignment - 1));
@@ -8953,7 +8971,11 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 
     zloc_allocator* allocator = zloc_InitialiseAllocatorWithPool(memory_pool, builder->memory_pool_size);
 
-    zest_device device = (zest_device)zloc_Allocate(allocator, sizeof(zest_device_t));
+    // zest_device_t is 16-byte over-aligned (it nests zest_matrix4/zest_vec4 via
+    // debug_push). The general allocator only guarantees 8-byte alignment, so an
+    // 8-mod-16 device pointer makes GCC's aligned SSE stores (e.g. the whole-struct
+    // `device->setup_info = *builder` copy) fault at -O2. Allocate it aligned.
+    zest_device device = (zest_device)zloc_AllocateAligned(allocator, sizeof(zest_device_t), 16);
 	allocator->user_data = device;
 
 	*device = ZEST__ZERO_INIT(zest_device_t);
@@ -13079,7 +13101,16 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
 	if(alignment == 0) {
 		new_data = ZEST__REALLOCATE(allocator, (T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD);
 	} else {
+		//ZEST__ALLOCATE_ALIGNED can't grow in place like realloc, so when growing an existing
+		//vector we must carry the old elements/current_size across and free the old buffer,
+		//otherwise an aligned push would silently lose data and leak.
 		new_data = ZEST__ALLOCATE_ALIGNED(allocator, new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD, alignment);
+		if (new_data && T) {
+			zest_vec *old_header = zest__vec_header(T);
+			memcpy((char*)new_data + zest__VEC_HEADER_OVERHEAD, T, old_header->capacity * unit_size);
+			((zest_vec*)new_data)->current_size = old_header->current_size;
+			ZEST__FREE(allocator, old_header);
+		}
 	}
     if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD);
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
@@ -13123,11 +13154,12 @@ void *zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest
     return ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
 }
 
-void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity) {
+void zest__initialise_bucket_array(zloc_allocator *allocator, zest_bucket_array_t *array, zest_uint element_size, zest_uint alignment, zest_uint bucket_capacity) {
     array->buckets = NULL; // zest_vec will handle initialization on first push
     array->bucket_capacity = bucket_capacity;
     array->current_size = 0;
     array->element_size = element_size;
+    array->alignment = alignment;
 	array->allocator = allocator;
 }
 
@@ -13172,7 +13204,9 @@ void *zest__bucket_array_add(zest_bucket_array_t *array) {
     ZEST_ASSERT(array);
     // If the array is empty or the last bucket is full, allocate a new one.
     if (zest_vec_empty(array->buckets) || (array->current_size % array->bucket_capacity == 0)) {
-        void *new_bucket = ZEST__ALLOCATE(array->allocator, array->element_size * array->bucket_capacity);
+        // Align the bucket base to the element alignment so over-aligned elements (e.g. zest_layer_t,
+        // which is ZEST_ALIGN_AFFIX(16)) don't land on an 8-mod-16 address and fault under SSE.
+        void *new_bucket = ZEST__ALLOCATE_ALIGNED(array->allocator, array->element_size * array->bucket_capacity, array->alignment);
 		if (!new_bucket) return NULL;
         zest_vec_push(array->allocator, array->buckets, new_bucket);
     }
@@ -13282,8 +13316,10 @@ void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handl
 void zest__initialise_store(zloc_allocator *allocator, void *origin, zest_resource_store_t *store, zest_uint struct_size, zest_struct_type struct_type) {
     ZEST_ASSERT(!store->data.buckets);   //Must be an empty store
 	store->magic = zest_INIT_MAGIC(zest_struct_type_resource_store);
-	zest__initialise_bucket_array(allocator, &store->data, struct_size, 32);
+    // Stores back handle-based resources whole (e.g. zest_layer_t, which is ZEST_ALIGN_AFFIX(16)),
+    // so the backing buckets must honour that 16-byte alignment, not the allocator's default 8.
     store->alignment = 16;
+	zest__initialise_bucket_array(allocator, &store->data, struct_size, store->alignment, 32);
 	store->origin = origin;
 	store->struct_type = struct_type;
 	zest__sync_init(&store->sync);
@@ -19449,12 +19485,12 @@ void zest__end_instance_instructions(zest_layer layer) {
     }
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
         layer->current_instruction.total_instances = 0;
         layer->current_instruction.start_index = 0;
     }
     else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
         layer->last_draw_mode = zest_draw_mode_none;
     }
     layer->memory_refs[layer->fif].vertex_memory_in_use = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
@@ -19474,12 +19510,12 @@ zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
 	zest_context context = layer->context;
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
         layer->current_instruction.total_instances = 0;
         layer->current_instruction.start_index = 0;
     }
     else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
         layer->last_draw_mode = zest_draw_mode_none;
     }
     return 1;
@@ -19504,7 +19540,7 @@ void zest__end_mesh_instructions(zest_layer layer) {
 	zest_context context = (zest_context)layer->handle.store->origin;
     if (layer->current_instruction.total_indexes) {
         layer->last_draw_mode = zest_draw_mode_none;
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
 
         layer->memory_refs[layer->fif].index_memory_in_use += layer->current_instruction.total_indexes * sizeof(zest_uint);
         layer->memory_refs[layer->fif].vertex_memory_in_use += layer->current_instruction.total_indexes * layer->vertex_struct_size;
@@ -19512,7 +19548,7 @@ void zest__end_mesh_instructions(zest_layer layer) {
         layer->current_instruction.start_index = 0;
     }
     else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
-        zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
+        zest_vec_push_aligned(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction, 16);
 
         layer->last_draw_mode = zest_draw_mode_none;
     }
