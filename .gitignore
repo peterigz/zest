@@ -422,3 +422,7 @@ gemini.md
 /examples/SDL2/build
 CLAUDE.md
 nul
+
+# Local SSH key pair (kept on disk, never committed)
+/git
+/git.pub

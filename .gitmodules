@@ -4,18 +4,9 @@
 [submodule "submodules/imgui_test_engine"]
 	path = submodules/imgui_test_engine
 	url = https://github.com/ocornut/imgui_test_engine.git
-[submodule "submodules/imgui-file-dialog"]
-	path = submodules/imgui-file-dialog
-	url = https://github.com/aiekick/ImGuiFileDialog.git
 [submodule "submodules/timelinefxlib"]
 	path = submodules/timelinefxlib
 	url = https://github.com/peterigz/timelinefxlib.git
-[submodule "submodules/msdfgen"]
-	path = submodules/msdfgen
-	url = https://github.com/Chlumsky/msdfgen.git
-[submodule "submodules/msdf-atlas-gen"]
-	path = submodules/msdf-atlas-gen
-	url = https://github.com/Chlumsky/msdf-atlas-gen.git
 [submodule "submodules/freetype"]
 	path = submodules/freetype
 	url = https://github.com/freetype/freetype.git
