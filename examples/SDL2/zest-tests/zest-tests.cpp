@@ -168,6 +168,11 @@ void PrintTestUpdate(Test *test, int phase, zest_bool passed) {
 
 int RunTests(ZestTests *tests) {
 	int completed_tests = 0;
+	//Backend allocation steady state. zest_ResetDevice tears down every context, pool and arena, so
+	//the live vkAllocateMemory count immediately afterwards must return to the same baseline on
+	//every cycle regardless of which test just ran. A climb pins the leak on that specific test.
+	int alloc_baseline = -1;
+	int leaking_tests = 0;
 
 	while (1) {
 		Test *current_test = &tests->tests[tests->current_test];
@@ -181,10 +186,20 @@ int RunTests(ZestTests *tests) {
 				completed_tests++;
 			}
 			if (tests->current_test < tests->test_count - 1) {
+				const char *finished_test = current_test->name;
 				tests->current_test++;
 				//zest_ResetDevice recreates the logical device and destroys the context with it, so
 				//recreate the context afterwards with the next test's create info.
 				zest_ResetDevice(tests->device);
+				int post_reset_allocations = tests->device->memory_allocation_count;
+				if (alloc_baseline < 0) {
+					alloc_baseline = post_reset_allocations;
+				} else if (post_reset_allocations > alloc_baseline) {
+					ZEST_PRINT("\033[31m\t%s leaked %i device memory allocation(s) - live count %i, expected %i\033[0m", finished_test, post_reset_allocations - alloc_baseline, post_reset_allocations, alloc_baseline);
+					leaking_tests++;
+					//Rebaseline so one leak does not flag every test that follows it
+					alloc_baseline = post_reset_allocations;
+				}
 				tests->context = zest_CreateContext(tests->device, &tests->window_data, &tests->tests[tests->current_test].create_info);
 				zest_ResetValidationErrors(tests->device);
 				ResetTests(tests);
@@ -195,6 +210,9 @@ int RunTests(ZestTests *tests) {
 		}
 	}
 	ZEST_PRINT("%sTests completed: %i / %i\033[0m", completed_tests < tests->test_count ? "\033[31m" : "\033[32m", completed_tests, tests->test_count);
+	if (leaking_tests > 0) {
+		ZEST_PRINT("\033[31m%i test(s) leaked device memory allocations - see the per-test leak lines above\033[0m", leaking_tests);
+	}
 	return completed_tests;
 }
 
