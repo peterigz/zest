@@ -9949,7 +9949,7 @@ unsigned int zest_GetDefaultThreadCount(void) {
 
 // --Buffer & Memory Management
 void *zest_AllocateMemory(zest_device device, zest_size size) {
-    return ZEST__ALLOCATE(device->allocator, size);
+    return ZEST__ALLOCATE_ALIGNED(device->allocator, size, 16);
 }
 
 void zest_FreeMemory(zest_device device, void *allocation) {
