@@ -50,14 +50,17 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources) {
 	zest_uniform_buffer buffer = zest_GetUniformBuffer(resources->uniform_buffer);
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
-	uniform_buffer->view = zest_LookAt(resources->camera.position, zest_AddVec3(resources->camera.position, resources->camera.front), resources->camera.up);
-	uniform_buffer->proj = zest_Perspective(resources->camera.fov, zest_ScreenWidthf(context) / zest_ScreenHeightf(context), 0.1f, 10000.f);
-	uniform_buffer->proj.v[1].y *= -1.f;
-	uniform_buffer->screen_size.x = zest_ScreenWidthf(context);
-	uniform_buffer->screen_size.y = zest_ScreenHeightf(context);
-	uniform_buffer->timer_lerp = (float)zest_TimerLerp(&resources->timer);
-	uniform_buffer->update_time = (float)zest_TimerUpdateTime(&resources->timer);
-	zest_CalculateFrustumPlanes(&uniform_buffer->view, &uniform_buffer->proj, resources->planes);
+	tfx_uniform_buffer_data_t data;
+	data.view = zest_LookAt(resources->camera.position, zest_AddVec3(resources->camera.position, resources->camera.front), resources->camera.up);
+	data.proj = zest_Perspective(resources->camera.fov, zest_ScreenWidthf(context) / zest_ScreenHeightf(context), 0.1f, 10000.f);
+	data.proj.v[1].y *= -1.f;
+	data.screen_size.x = zest_ScreenWidthf(context);
+	data.screen_size.y = zest_ScreenHeightf(context);
+	data.millisecs = 0;
+	data.timer_lerp = (float)zest_TimerLerp(&resources->timer);
+	data.update_time = (float)zest_TimerUpdateTime(&resources->timer);
+	zest_CalculateFrustumPlanes(&data.view, &data.proj, resources->planes);
+	*uniform_buffer = data;
 }
 
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
