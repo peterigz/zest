@@ -1089,9 +1089,13 @@ void VadersGame::Update(float ellapsed) {
 	zest_layer tfx_layer = zest_GetLayer(tfx_rendering.layer);
 
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_rendering.uniform_buffer);
-	billboard_push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
 	if (zest_BeginFrame(context)) {
+		//Make sure that the correct uniform_index is acquired by calling this AFTER zest_BeginFrame
+		//because that's where the current frame in flight is rotated to the next one. Failure to do so
+		//can result in visible glitches in the rendering that uses the uniform buffer for transforms
+		//because it will be reading from the buffer that's being written to at the same time
+		billboard_push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
 		zest_StartTimerLoop(tfx_rendering.timer) {
 			//Render based on the current game state
