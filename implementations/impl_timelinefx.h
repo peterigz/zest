@@ -86,7 +86,7 @@ typedef struct tfx_library_render_resources_s {
 typedef struct tfx_ribbon_render_dispatch_t {
 	//This struct will be used in cached frame graphs so this data must not change unless
 	//you rebuild/cache the frame graph
-	tfx_effect_manager effect_manager;
+	tfx_stage stage;
 	tfx_ribbon_buffers_t *buffers;
 	tfx_library_render_resources_t *render_resources;
 	tfx_global_library_buffers_t *global_buffers;
@@ -128,15 +128,15 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
 
 //Copy ribbon data from all effect managers to staging buffers for GPU upload.
 //Handles the camera setup and HasRibbonsToDraw check internally.
-void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_effect_manager pm);
+void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_stage pm);
 
 zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
+void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage stage, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 //-- Uniform buffer and rendering --
 
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
-void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_library_render_resources_t *resources);
-void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_library_render_resources_t *resources);
+void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *resources);
+void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources_t *resources);
 void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
 
 //-- Frame graph pass callbacks --

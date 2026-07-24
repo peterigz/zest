@@ -291,9 +291,9 @@ void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_libra
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer property_buffer = tfx_rendering->particle_properties;
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_ParticlePropertiesBufferSizeInBytes(library), tfx_ParticlePropertiesBuffer(library));
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_GetParticlePropertiesBufferSizeInBytes(library), tfx_GetParticlePropertiesBuffer(library));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_imm_CopyBuffer(queue, staging_buffer, property_buffer, tfx_ParticlePropertiesBufferSizeInBytes(library));
+	zest_imm_CopyBuffer(queue, staging_buffer, property_buffer, tfx_GetParticlePropertiesBufferSizeInBytes(library));
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBufferNow(staging_buffer);
 }
@@ -340,7 +340,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_library_render_resources_t *resources) {
+void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *resources) {
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_StartInstanceDrawing(layer, resources->particles.pipeline);
@@ -350,7 +350,7 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_library_render_resource
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
 }
 
-void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_library_render_resources_t *resources) {
+void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources_t *resources) {
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_StartInstanceDrawing(layer, resources->particles.pipeline);
@@ -412,7 +412,7 @@ void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buff
 	}
 }
 
-void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_effect_manager pm) {
+void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_stage pm) {
 	if (tfx_HasRibbonsToDraw(pm)) {
 		zest_uint fif = zest_CurrentFIF(context);
 		tfx_CopyRibbonDataToStagingBuffers(pm,
@@ -422,10 +422,10 @@ void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffer
 	}
 }
 
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_effect_manager effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage stage, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
 	render_dispatch->render_resources = resources;
 	render_dispatch->buffers = buffers;
-	render_dispatch->effect_manager = effect_manager;
+	render_dispatch->stage = stage;
 	render_dispatch->global_buffers = global_buffers;
 }
 
@@ -438,7 +438,7 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(render_dispatch->render_resources->ribbon_rendering.ribbon_compute));
 
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
-	while (tfx_NextRibbonDispatch(render_dispatch->effect_manager, &ribbon_dispatch)) {
+	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
 		tfx_ribbon_bucket_globals_t *push = &ribbon_dispatch.ribbon_data->globals;
 		push->lerp = (float)zest_TimerLerp(&render_dispatch->render_resources->timer);
 		push->time = (float)render_dispatch->render_resources->timer.seconds_passed;
@@ -471,7 +471,7 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 	zest_cmd_LayerViewport(command_list, layer);
 
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
-	while (tfx_NextRibbonDispatch(render_dispatch->effect_manager, &ribbon_dispatch)) {
+	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
 		tfx_ribbon_bucket_globals_t *push = &ribbon_dispatch.ribbon_data->globals;
 		push->particle_texture_index = render_dispatch->render_resources->particle_texture_index;
 		push->sampler_index = render_dispatch->render_resources->sampler_index;
