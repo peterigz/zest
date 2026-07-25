@@ -426,3 +426,9 @@ nul
 # Local SSH key pair (kept on disk, never committed)
 /git
 /git.pub
+ROADMAP-ARENA-SHARING.md
+ROADMAP-FRAME-GRAPH.md
+ROADMAP-MEMORY.md
+ROADMAP-TESTS.md
+ROADMAP.md
+zest_headless_memory_notes.md
