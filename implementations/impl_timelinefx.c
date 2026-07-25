@@ -25,21 +25,20 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 	bitmap.meta.width = width;
 	bitmap.meta.height = height;
 	bitmap.meta.format = zest_format_r8g8b8a8_unorm;
-	if (image_data->import_filter) {
-		zest_ConvertBitmapToAlpha(&bitmap);
-	}
 
 	//Get the texture where we're storing all the particle shapes
 	//You'll probably need to load the image in such a way depending on whether or not it's an animation or not
-	if (image_data->animation_frames > 1) {
+	if (tfx_GetImageFrameCount(image_data) > 1) {
 		//Add the spritesheet to the texture in our renderer
 		float max_radius = 0;
-		image_data->ptr = zest_AddImageAtlasAnimationPixels(&resources->particle_images, pixels, pixels_size, width, height, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, zest_format_r8g8b8a8_unorm);
+		void *ptr = zest_AddImageAtlasAnimationPixels(&resources->particle_images, pixels, pixels_size, width, height, (tfxU32)tfx_GetImageWidth(image_data), (tfxU32)tfx_GetImageHeight(image_data), (tfxU32)tfx_GetImageFrameCount(image_data), zest_format_r8g8b8a8_unorm);
+		tfx_SetImagePointer(image_data, ptr);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	} else {
 		//Add the image to the texture in our renderer
-		image_data->ptr = zest_AddImageAtlasPixels(&resources->particle_images, pixels, pixels_size, width, height, zest_format_r8g8b8a8_unorm);
+		void *ptr = zest_AddImageAtlasPixels(&resources->particle_images, pixels, pixels_size, width, height, zest_format_r8g8b8a8_unorm);
+		tfx_SetImagePointer(image_data, ptr);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
@@ -98,7 +97,7 @@ void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources
 	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r16g16b16a16_sfloat);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, tfx_GetBitmapData(bitmap), tfx_GetBitmapSize(bitmap), tfx_GetBitmapWidth(bitmap), tfx_GetBitmapHeight(bitmap), zest_format_r16g16b16a16_sfloat);
 	}
 	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
@@ -130,7 +129,7 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetAnimationColorRampBitmap(animation_manager, i);
-		zest_AddImageAtlasPixels(&resources->color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r16g16b16a16_sfloat);
+		zest_AddImageAtlasPixels(&resources->color_ramps_collection, tfx_GetBitmapData(bitmap), tfx_GetBitmapSize(bitmap), tfx_GetBitmapWidth(bitmap), tfx_GetBitmapHeight(bitmap), zest_format_r16g16b16a16_sfloat);
 	}
 	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
@@ -442,7 +441,7 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
 	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
-		tfx_ribbon_bucket_globals_t *push = &ribbon_dispatch.ribbon_data->globals;
+		tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
 		push->lerp = (float)zest_TimerLerp(&render_dispatch->render_resources->timer);
 		push->time = (float)render_dispatch->render_resources->timer.seconds_passed;
 		zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(render_dispatch->render_resources->uniform_buffer);
@@ -475,12 +474,12 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
 	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
-		tfx_ribbon_bucket_globals_t *push = &ribbon_dispatch.ribbon_data->globals;
+		tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
 		push->particle_texture_index = render_dispatch->render_resources->particle_texture_index;
 		push->sampler_index = render_dispatch->render_resources->sampler_index;
 		push->color_ramp_texture_index = render_dispatch->render_resources->color_ramps_index;
 		push->image_data_index = render_dispatch->render_resources->image_data_index;
-		zest_cmd_SendPushConstants(command_list, &ribbon_dispatch.ribbon_data->globals, sizeof(tfx_ribbon_bucket_globals_t));
+		zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
 		zest_cmd_DrawIndexed(command_list, ribbon_dispatch.index_count, 1, ribbon_dispatch.index_offset, 0, 0);
 	}
 }
