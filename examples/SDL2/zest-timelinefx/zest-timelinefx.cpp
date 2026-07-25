@@ -30,7 +30,7 @@ struct TimelineFXExample {
 	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
 
 	tfx_library library;
-	tfx_effect_manager pm;
+	tfx_stage pm;
 
 	tfx_effect_template effect_template1;
 	tfx_effect_template effect_template2;
@@ -50,12 +50,12 @@ struct TimelineFXExample {
 };
 
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
-tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer_handle) {
+zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer_handle) {
 	zest_uniform_buffer buffer = zest_GetUniformBuffer(buffer_handle);
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
-	return { pos.x, pos.y, pos.z };
+	return pos;
 }
 
 void TimelineFXExample::Init() {
@@ -77,8 +77,8 @@ void TimelineFXExample::Init() {
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
 
 	//Create the effect manager
-	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
-	pm = tfx_CreateEffectManager(pm_info);
+	tfx_stage_info_t pm_info = tfx_CreateStageInfo(tfxStageSetup_group_sprites_by_effect);
+	pm = tfx_CreateStage(pm_info);
 
 	zest_tfx_CreateRibbonBuffers(context, &ribbon_buffers);
 	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
@@ -97,10 +97,9 @@ void BuildUI(TimelineFXExample *game, zest_uint fps) {
 
 	ImGui::Begin("Effects");
 	ImGui::Text("FPS: %i", fps);
-	ImGui::Text("Particles: %i", tfx_ParticleCount(game->pm));
-	ImGui::Text("Effects: %i", tfx_EffectCount(game->pm));
-	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->pm));
-	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
+	ImGui::Text("Particles: %i", tfx_GetParticleCount(game->pm));
+	ImGui::Text("Effects: %i", tfx_GetEffectCount(game->pm));
+	ImGui::Text("Emitters: %i", tfx_GetEmitterCount(game->pm));
 	if (ImGui::Button("Print Render Graph")) {
 		game->request_graph_print = true;
 	}
@@ -169,14 +168,14 @@ void MainLoop(TimelineFXExample *game) {
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id;
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template1);
 					//Add the effect template to the particle manager
-					if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template1, &effect_id)) {
+					if (effect_id != tfxINVALID) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-						tfx_vec3_t position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 						//Set the effect position
-						tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-						tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
+						tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+						tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
 					}
 				}
 
@@ -184,12 +183,12 @@ void MainLoop(TimelineFXExample *game) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 					tfxEffectID effect_id;
 					//Add the effect template to the particle manager
-					if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template2, &effect_id)) {
+					if (tfx_AddEffectTemplateToStage(game->pm, game->effect_template2, &effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-						tfx_vec3_t position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 						//Set the effect position
-						tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-						tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
+						tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+						tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
 					}
 				}
 
@@ -199,14 +198,14 @@ void MainLoop(TimelineFXExample *game) {
 				//with the previous frame. It's also just more efficient to do this.
 				if (pending_ticks > 0) {
 					double frame_length = zest_TimerFrameLengthMillisecs(&game->tfx_rendering.timer);
-					tfx_UpdateEffectManager(game->pm, frame_length * pending_ticks);
+					tfx_UpdateStage(game->pm, frame_length * pending_ticks);
 					pending_ticks = 0;
 				}
 
 				BuildUI(game, fps);
 			} zest_EndTimerLoop(game->tfx_rendering.timer);
 
-			tfx_SetPMCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
+			tfx_SetStageCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
 			zest_tfx_UpdateRibbonStagingBuffers(game->context, &game->ribbon_buffers, game->pm);
 
 			//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
