@@ -131,7 +131,7 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
 void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_stage pm);
 
 zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage stage, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
+void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 //-- Uniform buffer and rendering --
 
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
