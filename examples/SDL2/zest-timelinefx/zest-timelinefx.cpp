@@ -170,7 +170,7 @@ void MainLoop(TimelineFXExample *game) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template1);
 					//Add the effect template to the particle manager
-					if (effect_id != tfxINVALID) {
+					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 						//Set the effect position
@@ -181,9 +181,9 @@ void MainLoop(TimelineFXExample *game) {
 
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id;
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template2);
 					//Add the effect template to the particle manager
-					if (tfx_AddEffectTemplateToStage(game->pm, game->effect_template2, &effect_id)) {
+					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 						//Set the effect position
@@ -296,7 +296,7 @@ int main(int argc, char *argv[]) {
 
 	TimelineFXExample game = {0};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
-	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
+	tfx_BeginTimelineFX(tfx_GetDefaultThreadCount(), zloc__MEGABYTE(128));
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.

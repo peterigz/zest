@@ -19,11 +19,15 @@ struct tfx_sprite_sheet_push_t {
 	tfxU32 particle_texture_index;
 	tfxU32 color_ramp_texture_index;
 	tfxU32 image_data_index;
+	tfxU32 emitter_properties_index;
 	tfxU32 sampler_index;
 	tfxU32 prev_billboards_index;
 	tfxU32 index_offset;
 	tfxU32 uniform_index;
+	float ndc_offset_x;
+	float ndc_offset_y;
 };
+
 
 struct ComputePushConstants {
 	zest_uint instances_size;
@@ -80,7 +84,6 @@ struct tfxPrerecordedExample {
 
 	tfx_animation_manager animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
-	tfx_sprite_data_settings_t anim_test;
 	zest_millisecs record_time;
 	bool effect_is_3d;
 
@@ -94,6 +97,6 @@ void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example);
 void UpdateUniform3d(tfxPrerecordedExample *game);
 void Update(zest_microsecs elapsed, void *data);
 void BuildUI(tfxPrerecordedExample *example, zest_uint fps);
-bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data);
-tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position);
+bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_float32x3_t position, float radius, void *user_data);
+zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position);
 
