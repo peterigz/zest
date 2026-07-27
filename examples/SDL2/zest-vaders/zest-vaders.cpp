@@ -435,7 +435,8 @@ void VadersGame::Init() {
 	}
 	title_index = tfx_AddEffectTemplateToStage(title_pm, title);
 	if (tfx_EffectIDIsValid(title_index)) {
-		tfx_SetEffectPositionVec3(title_pm, title_index, &ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer).x);
+		zest_vec3 title_position = ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		tfx_SetEffectPositionVec3(title_pm, title_index, &title_position.x);
 	}
 
 	//Create and compile the shaders for our custom sprite pipeline
@@ -880,7 +881,8 @@ void SetParticleOption(VadersGame *game) {
 		}
 		game->title_index = tfx_AddEffectTemplateToStage(game->title_pm, game->title);
 		if (tfx_EffectIDIsValid(game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer).x);
+			zest_vec3 title_position = ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &title_position.x);
 		}
 	}
 	else if (game->particle_option == 1) {
@@ -908,7 +910,8 @@ void SetParticleOption(VadersGame *game) {
 		}
 		game->title_index = tfx_AddEffectTemplateToStage(game->title_pm, game->title);
 		if (tfx_EffectIDIsValid(game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer).x);
+			zest_vec3 title_position = ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &title_position.x);
 		}
 	}
 	else if (game->particle_option == 2) {
@@ -936,7 +939,8 @@ void SetParticleOption(VadersGame *game) {
 		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		game->title_index = tfx_AddEffectTemplateToStage(game->title_pm, game->title);
 		if (tfx_EffectIDIsValid(game->title_index)) {
-			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer).x);
+			zest_vec3 title_position = ScreenRay(game->context, zest_ScreenWidthf(game->context) * .5f, zest_ScreenHeightf(game->context) * .25f, 4.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &title_position.x);
 		}
 	}
 }
@@ -1208,7 +1212,8 @@ void VadersGame::Update(float ellapsed) {
 						tfx_ClearStage(title_pm, false, false);
 						title_index = tfx_AddEffectTemplateToStage(title_pm, title);
 						if (tfx_EffectIDIsValid(title_index)) {
-							tfx_SetEffectPositionVec3(title_pm, title_index, &ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer).x);
+							zest_vec3 title_position = ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+							tfx_SetEffectPositionVec3(title_pm, title_index, &title_position.x);
 						}
 					} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 						wait_for_mouse_release = false;
