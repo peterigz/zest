@@ -288,7 +288,7 @@ void MainLoop(ComputeExample *app) {
 			if (ImGui::Button("Print Render Graph")) {
 				app->print_render_graph = true;
 			}
-			zest_imgui_DrawGPUProfileWindow(app->context);
+			zest_imgui_DrawProfileWindow(app->context);
 			ImGui::End();
 			ImGui::Render();
 			//This function must be called after ImGui::Render to honor imguis lazily loaded atlas textures
@@ -323,15 +323,13 @@ void MainLoop(ComputeExample *app) {
 			zest_SetSwapchainClearColor(app->context, 0, 0, 0, 0);
 
 			if (!frame_graph) {
-				//No frame found in the cache so build it
+				//No frame graph found in the cache so build it
 				if (zest_BeginFrameGraph(app->context, "Compute Particles", &cache_key)) {
 					//Resources
 					//Import the particle buffer that we created an populated with all the particles
 					zest_resource_node particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer, 0);
 					//Import the swapchain so we can output to it.
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
-					//Get the compute pointer from the handle
-					zest_compute compute = zest_GetCompute(app->compute);
 
 					//---------------------------------Compute Pass-----------------------------------------------------
 					zest_BeginComputePass("Compute Particles"); {
@@ -348,6 +346,8 @@ void MainLoop(ComputeExample *app) {
 					//---------------------------------Render Pass------------------------------------------------------
 					zest_BeginRenderPass("Graphics Pass"); {
 						//Connect the particle buffer as input. This will create a dependency chain with the compute pass
+						//meaning that the frame graph will make sure that the compute pass has finished before running the
+						//graphics pass
 						zest_ConnectInput(particle_buffer);
 						zest_ConnectSwapChainOutput();
 						zest_SetPassTask(RecordComputeSprites, app);
@@ -394,7 +394,7 @@ int main(int argc, char *argv[]) {
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	//ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling | zest_context_init_flag_debug_overlay);
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling | zest_context_init_flag_cpu_profiling | zest_context_init_flag_debug_overlay);
 	compute_example.context = zest_CreateContext(compute_example.device, &window_data, &create_info);
 
 	//Initialise Dear ImGui
