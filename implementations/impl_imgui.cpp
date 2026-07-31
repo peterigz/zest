@@ -607,8 +607,7 @@ bool zest_imgui_DrawButton(zest_atlas_region_t *region, const char *user_texture
 
 void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
 	ImGui::SetCurrentContext(imgui->imgui_context);
-    ImGui::GetStyle().FrameRounding = 4.0f;
-    ImGui::GetStyle().GrabRounding = 4.0f;
+	ImGuiStyle* style = &ImGui::GetStyle();
     ImVec4 *colors = ImGui::GetStyle().Colors;
 
 	colors[ImGuiCol_Text]					= ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
@@ -668,42 +667,44 @@ void zest_imgui_DarkStyle(zest_imgui_t *imgui) {
 	colors[ImGuiCol_NavWindowingHighlight]	= ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
 	colors[ImGuiCol_NavWindowingDimBg]		= ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
 	colors[ImGuiCol_ModalWindowDimBg]		= ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+	colors[ImGuiCol_CheckboxSelectedBg] 	= colors[ImGuiCol_FrameBg];
 
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.WindowPadding.x = 10.f;
-    style.WindowPadding.y = 10.f;
-    style.FramePadding.x = 6.f;
-    style.FramePadding.y = 4.f;
-    style.ItemSpacing.x = 10.f;
-    style.ItemSpacing.y = 6.f;
-    style.ItemInnerSpacing.x = 5.f;
-    style.ItemInnerSpacing.y = 5.f;
-    style.WindowRounding = 0.f;
-    style.FrameRounding = 4.f;
-    style.GrabRounding = 1.f;
-    style.TabRounding = 4.f;
-    style.IndentSpacing = 20.f;
-    style.FrameBorderSize = 1.0f;
+	style->WindowPadding.x = 10.f;
+	style->WindowPadding.y = 10.f;
+	style->FramePadding.x = 6.f;
+	style->FramePadding.y = 4.f;
+	style->ItemSpacing.x = 10.f;
+	style->ItemSpacing.y = 6.f;
+	style->ItemInnerSpacing.x = 5.f;
+	style->ItemInnerSpacing.y = 5.f;
+	style->WindowRounding = 0.f;
+	style->FrameRounding = 4.f;
+	style->ScrollbarRounding = 1.f;
+	style->GrabRounding = 1.f;
+	style->TabRounding = 4.f;
+	style->IndentSpacing = 20.f;
+	style->FrameBorderSize = 1.0f;
 
-    style.ChildRounding = 0.f;
-    style.PopupRounding = 0.f;
-    style.CellPadding.x = 4.f;
-    style.CellPadding.y = 2.f;
-    style.TouchExtraPadding.x = 0.f;
-    style.TouchExtraPadding.y = 0.f;
-    style.ColumnsMinSpacing = 6.f;
-    style.ScrollbarSize = 14.f;
-    style.GrabMinSize = 10.f;
-	style.TabCloseButtonMinWidthUnselected = 0.f;
-	style.TabCloseButtonMinWidthSelected = 0.f;
-    style.DisplayWindowPadding.x = 19.f;
-    style.DisplayWindowPadding.y = 19.f;
-    style.DisplaySafeAreaPadding.x = 3.f;
-    style.DisplaySafeAreaPadding.y = 3.f;
-    style.MouseCursorScale = 1.f;
-    style.WindowMinSize.x = 32.f;
-    style.WindowMinSize.y = 32.f;
-    style.ChildBorderSize = 1.f;
+	style->ChildRounding = 0.f;
+	style->PopupRounding = 0.f;
+	style->CellPadding.x = 4.f;
+	style->CellPadding.y = 2.f;
+	style->TouchExtraPadding.x = 0.f;
+	style->TouchExtraPadding.y = 0.f;
+	style->ColumnsMinSpacing = 6.f;
+	style->ScrollbarSize = 14.f;
+	style->ScrollbarRounding = 1.f;
+	style->GrabMinSize = 10.f;
+	style->TabCloseButtonMinWidthUnselected = 0.f;
+	style->TabCloseButtonMinWidthSelected = 0.f;
+	style->DisplayWindowPadding.x = 19.f;
+	style->DisplayWindowPadding.y = 19.f;
+	style->DisplaySafeAreaPadding.x = 3.f;
+	style->DisplaySafeAreaPadding.y = 3.f;
+	style->MouseCursorScale = 1.f;
+	style->WindowMinSize.x = 32.f;
+	style->WindowMinSize.y = 32.f;
+	style->ChildBorderSize = 1.f;
 }
 
 // Helper: compute variance-blended bar color for a smoothed profile entry
