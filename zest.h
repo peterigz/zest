@@ -8688,11 +8688,15 @@ zest_uint zest_FloatToHalf(float f) {
         return (uint16_t)(sign | 0x7C00 | (rest > 0x7F800000 ? 0x0200 : 0));
     }
 
-    if (rest < 0x38800000) {  // Subnormal or zero
-        rest = (rest & 0x007FFFFF) | 0x00800000;  // Add leading 1
-        int shift = 113 - (rest >> 23);
-        rest = (rest << 14) >> shift;
-        return (uint16_t)(sign | rest);
+
+    if (rest < 0x38800000) {  // Too small for a normal half: subnormal or zero
+        zest_uint exponent = rest >> 23;
+        if (exponent < 102) {
+            return (uint16_t)sign;
+        }
+        zest_uint mantissa = (rest & 0x007FFFFF) | 0x00800000;  // Add leading 1
+        int shift = 126 - (int)exponent;
+        return (uint16_t)(sign | (mantissa >> shift));
     }
 
     zest_uint exponent = rest & 0x7F800000;
