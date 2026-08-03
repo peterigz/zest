@@ -38,11 +38,11 @@ layout(push_constant) uniform push_constants
 } pc;
 
 void main() {
-	vec4 texel = texture(sampler2DArray(images[nonuniformEXT(pc.particle_texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_tex_coord);
+	vec4 texel = texture(sampler2DArray(images[pc.particle_texture_index], samplers[pc.sampler_index]), in_tex_coord);
 	float lookup = clamp(texel.r * in_intensity_curved_alpha_map.w, 0.0, 1.0);
 	int ramp_x = int(lookup * 255);
 	ivec3 ramp = ivec3(ramp_x, in_color_ramp_coords.x, in_color_ramp_coords.y);
-	vec4 ramp_texel = texelFetch(sampler2DArray(images[nonuniformEXT(pc.color_ramp_texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), ramp, 0);
+	vec4 ramp_texel = texelFetch(sampler2DArray(images[pc.color_ramp_texture_index], samplers[pc.sampler_index]), ramp, 0);
 	ramp_texel *= in_intensity_curved_alpha_map.x;
 	ramp_texel.a = min(1, ramp_texel.a);
 	float curved_alpha = 1 - smoothstep(texel.a * in_intensity_curved_alpha_map.z, texel.a, 1 - in_intensity_curved_alpha_map.y);

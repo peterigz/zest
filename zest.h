@@ -2300,9 +2300,13 @@ typedef zest_uint zest_capability_flags;
 // Abstract, backend-agnostic device capabilities. Each rendering backend
 // (Vulkan/DX12/Metal) translates its native feature set into these bits during
 // its feasibility pass. Nothing platform-specific belongs here. The "required"
-// capabilities that the whole engine depends on (bindless descriptor indexing,
-// timeline semaphores, swapchain) have no fallback and are validated internally
-// by the backend, so they are NOT listed here as toggles.
+// capabilities that the whole engine depends on (bindless descriptor arrays with
+// dynamically uniform indexing, timeline semaphores, swapchain) have no fallback
+// and are validated internally by the backend, so they are NOT listed here as
+// toggles. Note that *non-uniform* indexing is a capability, not a requirement:
+// Zest's own shaders only ever index bindless arrays with push-constant values,
+// which are dynamically uniform. Shaders that index with a value varying within
+// a draw (per-instance or per-invocation) must check the capability first.
 typedef enum zest_device_capability_bits {
 	zest_capability_none                               = 0,
 	// --- Auto-enabled when supported (cheap/common, no opt-in needed) ---
@@ -2319,6 +2323,8 @@ typedef enum zest_device_capability_bits {
 	zest_capability_geometry_shader                    = 1 << 9,
 	zest_capability_shader_int64                       = 1 << 10,
 	zest_capability_fragment_stores_and_atomics        = 1 << 11,
+	// Auto-enabled (listed out of group order to keep the existing bit values stable).
+	zest_capability_nonuniform_sampled_image_indexing  = 1 << 12,
 } zest_device_capability_bits;
 
 // Populated once during device creation and queryable thereafter via
@@ -2341,7 +2347,8 @@ typedef struct zest_device_capabilities_t {
 	zest_capability_nonuniform_storage_image_indexing | \
 	zest_capability_anisotropic_filtering | \
 	zest_capability_wireframe | \
-	zest_capability_image_cube_array )
+	zest_capability_image_cube_array | \
+	zest_capability_nonuniform_sampled_image_indexing )
 #define ZEST_CAPABILITY_OPT_IN_MASK ( \
 	zest_capability_tessellation | \
 	zest_capability_geometry_shader | \

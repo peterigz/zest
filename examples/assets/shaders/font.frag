@@ -47,11 +47,11 @@ float contour(float distance) {
 
 vec3 sampleFontTexture(vec2 uv) {
     if (font.binding_number == 1) {
-        return texture(sampler2D(textures[nonuniformEXT(font.image_index)],
-                       samplers[nonuniformEXT(font.sampler_index)]), uv).rgb;
+        return texture(sampler2D(textures[font.image_index],
+                       samplers[font.sampler_index]), uv).rgb;
     } else {
-        return texture(sampler2DArray(images[nonuniformEXT(font.image_index)],
-                       samplers[nonuniformEXT(font.sampler_index)]),
+        return texture(sampler2DArray(images[font.image_index],
+                       samplers[font.sampler_index]),
                        vec3(uv, frag_tex_coord.z)).rgb;
     }
 }

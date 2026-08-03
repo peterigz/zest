@@ -20,7 +20,7 @@ layout(push_constant) uniform quad_index
 } pc;
 
 void main() {
-	vec4 texel = texture(sampler2DArray(images[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_tex_coord);
+	vec4 texel = texture(sampler2DArray(images[pc.texture_index], samplers[pc.sampler_index]), in_tex_coord);
     //Pre multiply alpha
     outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
     //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.

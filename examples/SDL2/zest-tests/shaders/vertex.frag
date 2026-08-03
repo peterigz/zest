@@ -18,7 +18,7 @@ layout(push_constant) uniform push_constants
 } pc;
 
 void main() {
-	vec4 texel = texture(sampler2D(images[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), uv.xy);
+	vec4 texel = texture(sampler2D(images[pc.texture_index], samplers[pc.sampler_index]), uv.xy);
 	out_color.rgb = texel.rgb * color.rgb * uv.w * texel.a;
 	out_color.a = 0;
 	out_color.rgb = color.rgb * uv.w * texel.a;

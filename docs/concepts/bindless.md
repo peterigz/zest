@@ -255,15 +255,23 @@ struct instance_t {
 In shader:
 
 ```glsl
-layout(location = 3) in uint in_texture_index;
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(location = 3) in flat uint in_texture_index;
 
 void main() {
+    // Varies per instance within the draw, so this index is NOT dynamically uniform
+    // and must be wrapped. Requires zest_capability_nonuniform_sampled_image_indexing.
     vec4 color = texture(
-        sampler2D(textures[in_texture_index], samplers[0]),
+        sampler2D(textures[nonuniformEXT(in_texture_index)], samplers[0]),
         uv
     );
 }
 ```
+
+If you need to support hardware without that capability, use a texture array and vary the *layer*
+per instance instead — the layer index is an ordinary integer, not a descriptor index, so it carries
+no such requirement. That is what Zest's own billboard and font shaders do.
 
 ## Best Practices
 
@@ -276,7 +284,33 @@ void main() {
 
 - Maximum resources depend on GPU limits (usually 500K+ descriptors)
 - Some older GPUs have lower limits
-- `GL_EXT_nonuniform_qualifier` required for non-uniform indexing in GLSL shaders
+- `GL_EXT_nonuniform_qualifier` must be enabled in GLSL to declare unsized bindless arrays
+  (`textures[]`), but see the note below before using `nonuniformEXT()` itself
+
+## Uniform vs non-uniform indexing
+
+Zest only requires **dynamically uniform** indexing of the bindless arrays — the core Vulkan 1.0
+`shader*ArrayDynamicIndexing` features, which are near-universally supported. An index is dynamically
+uniform when every invocation in a draw or dispatch reads the same value; a push constant always
+qualifies, which is why every index in Zest's own shaders is delivered by push constant.
+
+Indexing with a value that varies *within* a draw — a per-instance vertex attribute, or a value read
+from a storage buffer per invocation — is **non-uniform**, and needs `nonuniformEXT()` in the shader
+plus hardware support. That support is optional, so check for it before relying on it:
+
+```cpp
+if (zest_DeviceFeatureEnabled(device, zest_capability_nonuniform_sampled_image_indexing)) {
+    // safe to use a shader variant with nonuniformEXT() on sampled-image indices
+}
+```
+
+The matching capabilities are `zest_capability_nonuniform_sampled_image_indexing`,
+`..._storage_buffer_indexing`, `..._uniform_buffer_indexing` and `..._storage_image_indexing`. All are
+auto-enabled when the hardware supports them.
+
+Do not add `nonuniformEXT()` "just in case": it emits the SPIR-V `ShaderNonUniform` capability, which
+makes the shader fail to load on hardware that would otherwise have run it fine. The
+[Per-Instance Indices](#per-instance-indices) pattern below is one of the cases that genuinely needs it.
 
 ## Example: Multi-Textured Scene
 

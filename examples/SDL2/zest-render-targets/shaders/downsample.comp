@@ -21,7 +21,7 @@ void main(void)
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 
     // Get the dimensions of the image we are writing to (the destination mip)
-    ivec2 image_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]);
+    ivec2 image_dims = imageSize(u_storage_images[pc.storage_image_index]);
 
     // Bounds check to terminate extra threads
     if (pixel_coords.x >= image_dims.x || pixel_coords.y >= image_dims.y) {
@@ -38,22 +38,22 @@ void main(void)
     vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(image_dims);
 
 	// Take 13 samples from the source texture around the calculated UV
-	vec3 a = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
-	vec3 b = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x,       uv.y + 2*y)).rgb;
-	vec3 c = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
+	vec3 a = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
+	vec3 b = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x,       uv.y + 2*y)).rgb;
+	vec3 c = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
 
-	vec3 d = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x - 2*x, uv.y)).rgb;
-	vec3 e = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x,       uv.y)).rgb;
-	vec3 f = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x + 2*x, uv.y)).rgb;
+	vec3 d = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x - 2*x, uv.y)).rgb;
+	vec3 e = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x,       uv.y)).rgb;
+	vec3 f = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x + 2*x, uv.y)).rgb;
 
-	vec3 g = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
-	vec3 h = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x,       uv.y - 2*y)).rgb;
-	vec3 i = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
+	vec3 g = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
+	vec3 h = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x,       uv.y - 2*y)).rgb;
+	vec3 i = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
 
-	vec3 j = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x - x, uv.y + y)).rgb;
-	vec3 k = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x + x, uv.y + y)).rgb;
-	vec3 l = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x - x, uv.y - y)).rgb;
-	vec3 m = texture(sampler2D(u_textures[nonuniformEXT(pc.src_mip_index)], u_samplers[nonuniformEXT(pc.sampler_index)]), vec2(uv.x + x, uv.y - y)).rgb;
+	vec3 j = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x - x, uv.y + y)).rgb;
+	vec3 k = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x + x, uv.y + y)).rgb;
+	vec3 l = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x - x, uv.y - y)).rgb;
+	vec3 m = texture(sampler2D(u_textures[pc.src_mip_index], u_samplers[pc.sampler_index]), vec2(uv.x + x, uv.y - y)).rgb;
 
 	// Apply weighted distribution for a high-quality downsample.
 	// The weights are distributed to be energy-preserving.
@@ -64,7 +64,7 @@ void main(void)
 	downsample += (j+k+l+m)*0.125;
 
     // Write the final color to the destination mip level
-	imageStore(u_storage_images[nonuniformEXT(pc.storage_image_index)], pixel_coords, vec4(downsample, 1.0));
+	imageStore(u_storage_images[pc.storage_image_index], pixel_coords, vec4(downsample, 1.0));
 }
 
 

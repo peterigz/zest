@@ -68,7 +68,7 @@ static const char *zest_shader_imgui_r8g8_frag = ZEST_GLSL(450 core,
 
 	void main()
 	{
-		out_color = in_color * texture(sampler2D(textures[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), in_uv.xy);
+		out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
 		out_color = vec4(out_color.r, out_color.g, out_color.b, out_color.a);
 	}
 

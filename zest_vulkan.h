@@ -107,7 +107,7 @@ layout(push_constant) uniform imgui_push
 
 void main()
 {
-	float alpha = texture(sampler2DArray(texture_arrays[nonuniformEXT(pc.texture_index)], samplers[nonuniformEXT(pc.sampler_index)]), vec3(in_uv, in_layer)).r;
+	float alpha = texture(sampler2DArray(texture_arrays[pc.texture_index], samplers[pc.sampler_index]), vec3(in_uv, in_layer)).r;
 	out_color = vec4(in_color.rgb, in_color.a * alpha);
 }
 
@@ -2221,7 +2221,15 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     // layout uses (see zest_vulkan.h binding flags), plus timeline semaphores and synchronization2.
     zest_bool ok = ZEST_TRUE;
     #define ZEST__REQUIRE(cond, name) do { if (!(cond)) { ZEST_APPEND_LOG(log, "  MISSING (required): %s", name); ok = ZEST_FALSE; } } while(0)
-    ZEST__REQUIRE(features_12.shaderSampledImageArrayNonUniformIndexing, "shaderSampledImageArrayNonUniformIndexing");
+    // Dynamically uniform indexing of the bindless arrays (core Vulkan 1.0, near-universal). This is
+    // all Zest itself needs: every index it feeds a shader arrives via a push constant, which is
+    // dynamically uniform by definition. Non-uniform indexing is exposed as an optional capability
+    // (zest_capability_nonuniform_sampled_image_indexing and friends) rather than required, so
+    // hardware without the Vulkan 1.2 descriptor-indexing feature set still meets minimum spec.
+    ZEST__REQUIRE(base->shaderSampledImageArrayDynamicIndexing, "shaderSampledImageArrayDynamicIndexing");
+    ZEST__REQUIRE(base->shaderUniformBufferArrayDynamicIndexing, "shaderUniformBufferArrayDynamicIndexing");
+    ZEST__REQUIRE(base->shaderStorageBufferArrayDynamicIndexing, "shaderStorageBufferArrayDynamicIndexing");
+    ZEST__REQUIRE(base->shaderStorageImageArrayDynamicIndexing, "shaderStorageImageArrayDynamicIndexing");
     ZEST__REQUIRE(features_12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound");
     ZEST__REQUIRE(features_12.runtimeDescriptorArray, "runtimeDescriptorArray");
     ZEST__REQUIRE(features_12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind");
@@ -2248,6 +2256,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     if (features_12.shaderStorageBufferArrayNonUniformIndexing)   supported |= zest_capability_nonuniform_storage_buffer_indexing;
     if (features_12.shaderUniformBufferArrayNonUniformIndexing)   supported |= zest_capability_nonuniform_uniform_buffer_indexing;
     if (features_12.shaderStorageImageArrayNonUniformIndexing)    supported |= zest_capability_nonuniform_storage_image_indexing;
+    if (features_12.shaderSampledImageArrayNonUniformIndexing)    supported |= zest_capability_nonuniform_sampled_image_indexing;
     if (base->samplerAnisotropy)                                  supported |= zest_capability_anisotropic_filtering;
     if (base->fillModeNonSolid)                                   supported |= zest_capability_wireframe;
     if (base->imageCubeArray)                                     supported |= zest_capability_image_cube_array;
@@ -2269,6 +2278,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     ZEST_APPEND_LOG(log, "  nonuniform_storage_buffer_indexing: %s",  (supported & zest_capability_nonuniform_storage_buffer_indexing) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  nonuniform_uniform_buffer_indexing: %s",  (supported & zest_capability_nonuniform_uniform_buffer_indexing) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  nonuniform_storage_image_indexing: %s",   (supported & zest_capability_nonuniform_storage_image_indexing) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  nonuniform_sampled_image_indexing: %s",   (supported & zest_capability_nonuniform_sampled_image_indexing) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  anisotropic_filtering: %s",               (supported & zest_capability_anisotropic_filtering) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  wireframe: %s",                           (supported & zest_capability_wireframe) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  tessellation (opt-in): %s",               (supported & zest_capability_tessellation) ? "yes" : "no");
@@ -2387,6 +2397,12 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.tessellationShader = (enabled & zest_capability_tessellation) ? VK_TRUE : VK_FALSE;
     device_features.geometryShader = (enabled & zest_capability_geometry_shader) ? VK_TRUE : VK_FALSE;
     device_features.fragmentStoresAndAtomics = (enabled & zest_capability_fragment_stores_and_atomics) ? VK_TRUE : VK_FALSE;
+    // Required bindless core (guaranteed present - feasibility pass would have failed otherwise).
+    // Dynamically uniform indexing of every bindless array type; see zest__vk_query_device_capabilities.
+    device_features.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
+    device_features.shaderUniformBufferArrayDynamicIndexing = VK_TRUE;
+    device_features.shaderStorageBufferArrayDynamicIndexing = VK_TRUE;
+    device_features.shaderStorageImageArrayDynamicIndexing = VK_TRUE;
     // Only valid when tessellation or geometry is on, and only if actually supported (often false on MoltenVK).
     device_features.shaderTessellationAndGeometryPointSize =
         ((enabled & (zest_capability_tessellation | zest_capability_geometry_shader)) && supported_base->shaderTessellationAndGeometryPointSize) ? VK_TRUE : VK_FALSE;
@@ -2394,7 +2410,6 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     VkPhysicalDeviceVulkan12Features device_features_12 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan12Features);
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     // Required bindless core (guaranteed present - feasibility pass would have failed otherwise):
-	device_features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     device_features_12.descriptorBindingPartiallyBound = VK_TRUE;
     device_features_12.runtimeDescriptorArray = VK_TRUE;
     device_features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
@@ -2413,6 +2428,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features_12.samplerMirrorClampToEdge = supported_12->samplerMirrorClampToEdge;
     device_features_12.hostQueryReset = supported_12->hostQueryReset;
     // Abstract optional capabilities resolved above:
+    device_features_12.shaderSampledImageArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_sampled_image_indexing) ? VK_TRUE : VK_FALSE;
     device_features_12.shaderStorageImageArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_storage_image_indexing) ? VK_TRUE : VK_FALSE;
     device_features_12.shaderStorageBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_storage_buffer_indexing) ? VK_TRUE : VK_FALSE;
     device_features_12.shaderUniformBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_uniform_buffer_indexing) ? VK_TRUE : VK_FALSE;
