@@ -85,6 +85,7 @@ void PrintTestUpdate(Test *test, int phase, zest_bool passed);
 int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
 
 int test__blank_screen(ZestTests *tests, Test *test);
+int test__shader_cache_invalidation(ZestTests *tests, Test *test);
 
 /* Test ideas:
  Core Tests:

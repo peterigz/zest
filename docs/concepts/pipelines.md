@@ -51,9 +51,10 @@ zest_SetPipelineBlend(sprite_template, zest_AlphaBlendState());
 zest_shader_handle vert = zest_CreateShaderFromFile(
     device,
     "shaders/sprite.vert",    // Source file in GLSL 
-    "sprite.vert.spv",        // Cache name
+    "sprite.vert.spv",        // Cache name, a hash of the source is appended to it
     zest_vertex_shader,       // Shader type
-    false                     // Whether to disable caching (false = enable caching)
+    NULL,                     // Shader options (macro definitions)
+    false                     // Whether to disable caching for this shader
 );
 
 // From a pre-compiled binary file (SPIR-V on the Vulkan backend)

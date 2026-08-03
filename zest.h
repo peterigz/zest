@@ -2112,7 +2112,7 @@ typedef zest_uint zest_swapchain_flags;
 
 typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_none = 0,
-	zest_device_init_flag_cache_shaders = 1 << 0,
+	zest_device_init_flag_cache_shaders = 1 << 0,			//Opt in with zest_DeviceBuilderCacheShaders
 	zest_device_init_flag_enable_fragment_stores_and_atomics = 1 << 1,
 	zest_device_init_flag_enable_validation_layers = 1 << 2,
 	zest_device_init_flag_enable_validation_layers_with_sync = (1 << 3) | zest_device_init_flag_enable_validation_layers,
@@ -4881,7 +4881,15 @@ ZEST_PRIVATE void zest__cleanup_execution_timeline(zest_execution_timeline timel
 // --End Maintenance functions
 
 // --Shader_functions
+//Folded into every cache key. Bump it to invalidate every cached binary at once, for example after a change
+//to the compiler options Zest passes to the backend.
+#define ZEST__SHADER_CACHE_VERSION 1
 ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type);
+//Hash everything the compiled binary depends on. The shader cache is keyed on this, not on the shader name,
+//so an edited source or a changed macro set can never be served a stale binary.
+ZEST_PRIVATE zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options);
+//Build "<cached_shaders_path><name>.<key>" into out. Pass a key of 0 for shaders with no source to hash.
+ZEST_PRIVATE void zest__build_shader_cache_path(zest_device device, zest_text_t *out, const char *name, zest_key key);
 ZEST_API void zest__cache_shader(zest_device device, zest_shader shader);
 // --End Shader functions
 
@@ -5010,8 +5018,14 @@ ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, z
 //frame graph arenas.
 ZEST_API void zest_SetDeviceBuilderDedicatedImageThreshold(zest_device_builder builder, zest_size size);
 //Set the folder where compiled shader binaries are cached. The default is set by the platform builder
-//(the Vulkan backend uses "./spv/"). Pass NULL to disable the prefix entirely.
+//(the Vulkan backend uses "./spv/"). Pass NULL to disable the prefix entirely. Note that this only sets the
+//folder - call zest_DeviceBuilderCacheShaders to actually turn caching on.
 ZEST_API void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path);
+//Cache compiled shader binaries to disk so subsequent runs skip compilation. Off by default. Cache files are
+//named "<cache path><shader name>.<key>" where the key hashes the source, shader type, entry point and macro
+//definitions, so an edited shader always compiles rather than reusing the previous binary. Editing shaders
+//leaves the superseded files behind; the cache folder is safe to delete at any time.
+ZEST_API void zest_DeviceBuilderCacheShaders(zest_device_builder builder);
 //Request an optional device feature. If the chosen GPU supports it, Zest will enable it and
 //zest_DeviceFeatureEnabled will return true. If it isn't supported the request is ignored (logged),
 //device creation still succeeds, and you should branch on zest_DeviceFeatureEnabled at runtime.
@@ -7459,6 +7473,8 @@ typedef struct zest_shader_t {
 	zest_text_t file_path;
 	zest_text_t shader_code;
 	zest_text_t name;
+	zest_text_t cache_path;                          //On-disk cache file, "<cached_shaders_path><name>.<cache_key>". Empty if this shader is never cached.
+	zest_key cache_key;                              //Hash of everything the compiled binary depends on: source, type, entry point and macro definitions
 	zest_text_t last_error;                          //Last compile error message (empty on success). Displayable via zest_GetShaderLastError.
 	zest_u64 last_mtime;                             //File modification time at last successful load, used by hot reload
 	zest_shader_type type;
@@ -8983,6 +8999,11 @@ void zest_SetDeviceBuilderDedicatedImageThreshold(zest_device_builder builder, z
 void zest_SetDeviceBuilderCacheShaderPath(zest_device_builder builder, const char *path) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	builder->cached_shader_path = path;
+}
+
+void zest_DeviceBuilderCacheShaders(zest_device_builder builder) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	ZEST__FLAG(builder->flags, zest_device_init_flag_cache_shaders);
 }
 
 zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
@@ -12578,25 +12599,61 @@ zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
     return 1;
 }
 
+zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options) {
+    zest_hasher_t hasher;
+    zest__hash_initialise(&hasher, ZEST_HASH_SEED);
+    zest_uint version = ZEST__SHADER_CACHE_VERSION;
+    zest__hasher_add(&hasher, &version, sizeof(version));
+    zest__hasher_add(&hasher, &type, sizeof(type));
+    if (entry_point) {
+        zest__hasher_add(&hasher, entry_point, strlen(entry_point));
+    }
+    if (shader_code) {
+        zest__hasher_add(&hasher, shader_code, strlen(shader_code));
+    }
+    if (options) {
+        zest_vec_foreach(i, options->macro_definitions) {
+            zest_macro_definition_t *definition = &options->macro_definitions[i];
+            //Separators so that {"AB", ""} and {"A", "B"} don't hash to the same key.
+            if (definition->name.str) {
+                zest__hasher_add(&hasher, definition->name.str, strlen(definition->name.str));
+            }
+            zest__hasher_add(&hasher, "=", 1);
+            if (definition->value.str) {
+                zest__hasher_add(&hasher, definition->value.str, strlen(definition->value.str));
+            }
+            zest__hasher_add(&hasher, ";", 1);
+        }
+    }
+    return (zest_key)zest__get_hash(&hasher);
+}
+
+void zest__build_shader_cache_path(zest_device device, zest_text_t *out, const char *name, zest_key key) {
+    const char *folder = zest_TextSize(&device->cached_shaders_path) ? device->cached_shaders_path.str : "";
+    if (key) {
+        zest_SetTextf(device->allocator, out, "%s%s.%016llx", folder, name, (unsigned long long)key);
+    }
+    else {
+        zest_SetTextf(device->allocator, out, "%s%s", folder, name);
+    }
+}
+
 zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
-    zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
-    if (zest_TextSize(&device->cached_shaders_path)) {
-        zest_SetTextf(device->allocator, &shader_name, "%s%s", device->cached_shaders_path, name);
-    }
-    else {
-        zest_SetTextf(device->allocator, &shader_name, "%s", name);
-    }
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
-    shader->name = shader_name;
+    zest_SetText(device->allocator, &shader->name, name);
+    //Keyed on a hash of the source rather than the name, so editing a shader lands on a different cache file
+    //instead of silently reusing the binary compiled from the old source.
+    shader->cache_key = zest__shader_cache_key(shader_code, type, "main", options);
+    zest__build_shader_cache_path(device, &shader->cache_path, name, shader->cache_key);
     if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
-        shader->binary = zest_ReadEntireFile(device, shader->name.str, ZEST_FALSE);
+        shader->binary = zest_ReadEntireFile(device, shader->cache_path.str, ZEST_FALSE);
         if (shader->binary) {
             shader->binary_size = zest_vec_size(shader->binary);
 			zest_SetText(device->allocator, &shader->shader_code, shader_code);
-			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache.", name);
+			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache (%s).", name, shader->cache_path.str);
 			zest__activate_resource(shader_handle.store, shader_handle.value);
             return shader_handle;
         }
@@ -12617,16 +12674,24 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
 }
 
 void zest__cache_shader(zest_device device, zest_shader shader) {
-    zest__create_folder(device, device->cached_shaders_path.str);
-    FILE *shader_file = zest__open_file(shader->name.str, "wb");
+    if (!zest_TextSize(&shader->cache_path)) {
+        return;
+    }
+    if (zest_TextSize(&device->cached_shaders_path)) {
+        zest__create_folder(device, device->cached_shaders_path.str);
+    }
+    FILE *shader_file = zest__open_file(shader->cache_path.str, "wb");
     if (shader_file == NULL) {
-        ZEST_APPEND_LOG(device->log_path.str, "Failed to open file for writing: %s", shader->name.str);
+        ZEST_APPEND_LOG(device->log_path.str, "Failed to open file for writing: %s", shader->cache_path.str);
         return;
     }
     size_t written = fwrite(shader->binary, 1, shader->binary_size, shader_file);
     if (written != shader->binary_size) {
-        ZEST_APPEND_LOG(device->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
+        ZEST_APPEND_LOG(device->log_path.str, "Failed to write entire shader to file: %s", shader->cache_path.str);
         fclose(shader_file);
+        //A truncated file would still be a cache hit next run, so remove it.
+        remove(shader->cache_path.str);
+        return;
     }
     fclose(shader_file);
 }
@@ -12669,12 +12734,10 @@ zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *n
     if (buffer && size) {
 		zest_shader_handle shader_handle = zest__new_shader(device, type);
 		zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
-		if (zest_TextSize(&device->cached_shaders_path)) {
-			zest_SetTextf(device->allocator, &shader->name, "%s%s", device->cached_shaders_path, name);
-		}
-		else {
-			zest_SetTextf(device->allocator, &shader->name, "%s", name);
-		}
+		zest_SetText(device->allocator, &shader->name, name);
+		//There's no source to hash here, so the cache path is the bare name. Callers of this path (Slang) always
+		//compile before caching and never read the cache back, so it only ever gets written.
+		zest__build_shader_cache_path(device, &shader->cache_path, name, 0);
 		zest_vec_resize(device->allocator, shader->binary, size);
 		memcpy(shader->binary, buffer, size);
         ZEST_APPEND_LOG(device->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
@@ -12689,6 +12752,7 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 	zest_device device = (zest_device)shader_handle.store->origin;
     zest_FreeText(device->allocator, &shader->name);
+    zest_FreeText(device->allocator, &shader->cache_path);
     zest_FreeText(device->allocator, &shader->shader_code);
     zest_FreeText(device->allocator, &shader->file_path);
     zest_FreeText(device->allocator, &shader->last_error);
@@ -12786,6 +12850,11 @@ zest_uint zest_CheckShaderHotReload(zest_device device) {
         }
         //Success: clear last_error so the UI can tell.
         zest_FreeText(device->allocator, &shader->last_error);
+
+        //Re-key against the new source so the fields still describe what's in shader->binary. The cache file
+        //isn't rewritten here; the old key's file simply stops matching and the next run compiles fresh.
+        shader->cache_key = zest__shader_cache_key(shader->shader_code.str, shader->type, "main", NULL);
+        zest__build_shader_cache_path(device, &shader->cache_path, shader->name.str, shader->cache_key);
 
         //Drain in-flight work once per check pass — not once per shader — in case multiple shaders change together.
         if (!waited_for_idle) {

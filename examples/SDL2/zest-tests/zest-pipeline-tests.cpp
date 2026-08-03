@@ -503,3 +503,93 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+//Helper for the shader cache test: does a file exist on disk?
+static bool cache_file_exists(const char *path) {
+	FILE *file = fopen(path, "rb");
+	if (!file) {
+		return false;
+	}
+	fclose(file);
+	return true;
+}
+
+//The shader cache is keyed on a hash of the source, not on the shader name. This guards the regression where
+//editing a shader kept serving the binary compiled from the previous source.
+int test__shader_cache_invalidation(ZestTests *tests, Test *test) {
+	static const char *source_a =
+		"#version 450\n"
+		"layout(location = 0) out vec4 out_colour;\n"
+		"void main() { out_colour = vec4(1.0, 0.0, 0.0, 1.0); }\n";
+	static const char *source_b =
+		"#version 450\n"
+		"layout(location = 0) out vec4 out_colour;\n"
+		"void main() { out_colour = vec4(0.0, 1.0, 0.0, 1.0); }\n";
+
+	const char *shader_name = "zest_cache_invalidation_test";
+	zest_device device = tests->device;
+	zest_device_init_flags saved_flags = device->init_flags;
+	device->init_flags |= zest_device_init_flag_cache_shaders;
+
+	int failed_count = 0;
+
+	//First compile of source A populates the cache.
+	zest_shader_handle handle_a = zest_CreateShader(device, source_a, zest_fragment_shader, shader_name, NULL, ZEST_FALSE);
+	zest_shader shader_a = zest_GetShader(handle_a);
+	zest_key key_a = shader_a->cache_key;
+	zest_text_t path_a = ZEST__ZERO_INIT(zest_text_t);
+	zest_SetText(device->allocator, &path_a, shader_a->cache_path.str);
+
+	//Keep a copy of A's binary; the shader store can move entries as more shaders are added.
+	zest_size size_a = shader_a->binary_size;
+	char *binary_a = (char *)malloc(size_a);
+	memcpy(binary_a, shader_a->binary, size_a);
+
+	if (key_a == 0 || size_a == 0 || !cache_file_exists(path_a.str)) {
+		failed_count++;
+	}
+
+	//Recompiling the same source must land on the same key and produce the same binary.
+	zest_shader_handle handle_a2 = zest_CreateShader(device, source_a, zest_fragment_shader, shader_name, NULL, ZEST_FALSE);
+	zest_shader shader_a2 = zest_GetShader(handle_a2);
+	if (shader_a2->cache_key != key_a || shader_a2->binary_size != size_a || memcmp(shader_a2->binary, binary_a, size_a) != 0) {
+		failed_count++;
+	}
+
+	//The regression: same name, different source. This must compile fresh rather than return A's binary.
+	zest_shader_handle handle_b = zest_CreateShader(device, source_b, zest_fragment_shader, shader_name, NULL, ZEST_FALSE);
+	zest_shader shader_b = zest_GetShader(handle_b);
+	zest_key key_b = shader_b->cache_key;
+	zest_text_t path_b = ZEST__ZERO_INIT(zest_text_t);
+	zest_SetText(device->allocator, &path_b, shader_b->cache_path.str);
+
+	if (key_b == key_a || !cache_file_exists(path_b.str)) {
+		failed_count++;
+	}
+	if (shader_b->binary_size == size_a && memcmp(shader_b->binary, binary_a, size_a) == 0) {
+		failed_count++;
+	}
+
+	//Macro definitions change the compiled output, so they have to change the key too.
+	zest_shader_options options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(options, "ZEST_TEST_MACRO", "1");
+	zest_key key_macro = zest__shader_cache_key(source_a, zest_fragment_shader, "main", options);
+	if (key_macro == key_a) {
+		failed_count++;
+	}
+	zest_FreeShaderOptions(options);
+
+	free(binary_a);
+	remove(path_a.str);
+	remove(path_b.str);
+	zest_FreeText(device->allocator, &path_a);
+	zest_FreeText(device->allocator, &path_b);
+	zest_FreeShader(handle_a);
+	zest_FreeShader(handle_a2);
+	zest_FreeShader(handle_b);
+	device->init_flags = saved_flags;
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

@@ -599,6 +599,7 @@ zest_shader_handle zest_CreateShaderFromFile(zest_device device,
                                               const char *file,
                                               const char *name,
                                               zest_shader_type type,
+                                              zest_shader_options options,
                                               zest_bool disable_caching);
 ```
 
@@ -613,9 +614,10 @@ zest_shader_handle zest_CreateShaderFromFile(zest_device device,
 zest_shader_handle vert = zest_CreateShaderFromFile(
     device,
     "shaders/mesh.vert",
-    "mesh_vertex.spv",  //Will be cached to disk with this name
+    "mesh_vertex.spv",  //Cache files are named after this, plus a hash of the source
     zest_vertex_shader,
-    ZEST_FALSE  // Enable caching
+    NULL,       // No macro definitions
+    ZEST_FALSE  // Allow caching (the device must also opt in, see Shader Caching below)
 );
 
 zest_shader_handle frag = zest_CreateShaderFromFile(
@@ -623,6 +625,7 @@ zest_shader_handle frag = zest_CreateShaderFromFile(
     "shaders/mesh.frag",
     "mesh_fragment.spv",
     zest_fragment_shader,
+    NULL,
     ZEST_FALSE
 );
 ```
@@ -638,6 +641,7 @@ zest_shader_handle zest_CreateShader(zest_device device,
                                       const char *shader_code,
                                       zest_shader_type type,
                                       const char *name,
+                                      zest_shader_options options,
                                       zest_bool disable_caching);
 ```
 
@@ -645,8 +649,33 @@ zest_shader_handle zest_CreateShader(zest_device device,
 
 ```cpp
 const char *shader_source = "...";
-zest_shader_handle shader = zest_CreateShader(device, shader_source, zest_fragment_shader, "dynamic_frag", ZEST_TRUE);
+zest_shader_handle shader = zest_CreateShader(device, shader_source, zest_fragment_shader, "dynamic_frag", NULL, ZEST_TRUE);
 ```
+
+---
+
+### Shader Caching
+
+Compiled binaries can be cached to disk so that subsequent runs skip compilation. This is **off by default**
+and is enabled on the device builder:
+
+```cpp
+zest_device_builder builder = zest_BeginVulkanDeviceBuilder(0);
+zest_DeviceBuilderCacheShaders(builder);              // Turn caching on
+zest_SetDeviceBuilderCacheShaderPath(builder, "./spv/");  // Optional, this is the Vulkan default
+zest_device device = zest_EndDeviceBuilder(builder);
+```
+
+`zest_SetDeviceBuilderCacheShaderPath` only chooses the folder — on its own it does not enable caching.
+
+Each cache file is named `<cache path><shader name>.<key>`, where the key is a hash of the shader source,
+its type, its entry point and any macro definitions passed via `zest_shader_options`. Because the key follows
+the source, editing a shader always recompiles rather than reusing the previous binary. Superseded files are
+left behind in the cache folder, which is fully regenerable and safe to delete at any time.
+
+Pass `disable_caching = ZEST_TRUE` to keep an individual shader out of the cache regardless of the device
+setting. `zest_CheckShaderHotReload` does not rewrite cache files; an edited shader simply misses its old key
+on the next run.
 
 ---
 

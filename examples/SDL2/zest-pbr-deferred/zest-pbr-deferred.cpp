@@ -80,7 +80,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, NULL, true);
 	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, NULL, true);
 	app->lighting_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.frag", "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
-	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/composite.frag", "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
+	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/composite.frag", "composite_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
