@@ -2232,8 +2232,11 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     device->backend->supported_features_12.pNext = NULL;
 
     // --- Log device identity + driver (invaluable for user-submitted logs) ---
+    VkPhysicalDeviceDescriptorIndexingProperties indexing_props = ZEST__ZERO_INIT(VkPhysicalDeviceDescriptorIndexingProperties);
+    indexing_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
     VkPhysicalDeviceDriverProperties driver_props = ZEST__ZERO_INIT(VkPhysicalDeviceDriverProperties);
     driver_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+    driver_props.pNext = &indexing_props;
     VkPhysicalDeviceProperties2 props2 = ZEST__ZERO_INIT(VkPhysicalDeviceProperties2);
     props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     props2.pNext = &driver_props;
@@ -2295,6 +2298,25 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     if (base->shaderInt64)                                        supported |= zest_capability_shader_int64;
     if (base->fragmentStoresAndAtomics)                           supported |= zest_capability_fragment_stores_and_atomics;
     device->capabilities.supported = supported;
+
+    // --- Bindless descriptor ceilings ---
+    // The global set layout is created with UPDATE_AFTER_BIND_POOL, so every binding in it - including
+    // the uniform buffer binding, which does not itself carry UPDATE_AFTER_BIND - is measured against
+    // the UpdateAfterBind limits rather than the classic ones. Take the tighter of the per-stage and
+    // per-set limit for each type, since the bindings are declared for all stages in a single set.
+    device->max_bindless_samplers = ZEST__MIN(indexing_props.maxPerStageDescriptorUpdateAfterBindSamplers,
+                                              indexing_props.maxDescriptorSetUpdateAfterBindSamplers);
+    device->max_bindless_sampled_images = ZEST__MIN(indexing_props.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                                                    indexing_props.maxDescriptorSetUpdateAfterBindSampledImages);
+    device->max_bindless_storage_buffers = ZEST__MIN(indexing_props.maxPerStageDescriptorUpdateAfterBindStorageBuffers,
+                                                     indexing_props.maxDescriptorSetUpdateAfterBindStorageBuffers);
+    device->max_bindless_storage_images = ZEST__MIN(indexing_props.maxPerStageDescriptorUpdateAfterBindStorageImages,
+                                                    indexing_props.maxDescriptorSetUpdateAfterBindStorageImages);
+    device->max_bindless_uniform_buffers = ZEST__MIN(indexing_props.maxPerStageDescriptorUpdateAfterBindUniformBuffers,
+                                                     indexing_props.maxDescriptorSetUpdateAfterBindUniformBuffers);
+    ZEST_APPEND_LOG(log, "Bindless descriptor ceilings: samplers %u, sampled images %u, storage buffers %u, storage images %u, uniform buffers %u",
+        device->max_bindless_samplers, device->max_bindless_sampled_images, device->max_bindless_storage_buffers,
+        device->max_bindless_storage_images, device->max_bindless_uniform_buffers);
 
     // --- Dynamic rendering: re-check against the *selected* device (fixes multi-GPU flag bug) ---
     zest__vk_check_device_extension_support(device, physical_device);

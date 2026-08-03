@@ -4900,6 +4900,7 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_device device, 
 // --Device_set_up
 ZEST_PRIVATE void zest__initialise_device_stores(zest_device device);
 ZEST_PRIVATE void zest__set_default_pool_sizes(zest_device device);
+ZEST_PRIVATE void zest__clamp_bindless_counts(zest_device device, zest_device_builder builder);
 ZEST_PRIVATE zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info);
 ZEST_PRIVATE zest_bool zest__is_vulkan_device(zest_device device); 
 ZEST_PRIVATE void zest__create_default_images(zest_device device, zest_device_builder builder);
@@ -7024,6 +7025,16 @@ typedef struct zest_device_t {
 	zest_size buffer_offset_granularity;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
+	//Ceilings on how many descriptors of each type the global bindless set may declare, as reported by
+	//the backend. Each is already the minimum of the per-stage and per-set limit, so the counts in the
+	//device builder can be clamped straight against them (see zest__clamp_bindless_counts). The
+	//uniform buffer ceiling is by far the tightest in practice: the spec only guarantees 12 per stage,
+	//where the other types guarantee hundreds of thousands.
+	zest_uint max_bindless_samplers;
+	zest_uint max_bindless_sampled_images;
+	zest_uint max_bindless_storage_buffers;
+	zest_uint max_bindless_storage_images;
+	zest_uint max_bindless_uniform_buffers;
 	//Backend limit on the number of live device memory allocations (Vulkan:
 	//maxMemoryAllocationCount, commonly 4096) and the current live count. The count covers every
 	//backend memory allocation (pools, arenas, dedicated image memory) and is maintained
@@ -9039,6 +9050,11 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 
 	zest__initialise_device_stores(device);
 
+	//The backend has reported its descriptor ceilings by now, so bring the requested counts inside
+	//them before declaring the layout - otherwise an over-large count fails set layout or pool
+	//creation with nothing in the log to say which limit was exceeded.
+	zest__clamp_bindless_counts(device, builder);
+
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, builder->bindless_sampler_count, zest_shader_all_stages ) );
@@ -9584,6 +9600,81 @@ void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 Functions that create a vulkan device
 */
 
+
+void zest__clamp_bindless_counts(zest_device device, zest_device_builder builder) {
+	//A ceiling of zero means the backend reported no descriptor limits, so there is nothing to clamp
+	//against and the requested counts are left alone.
+	if (device->max_bindless_sampled_images == 0) {
+		return;
+	}
+
+	const char *log = device->log_path.str;
+	#define ZEST__CLAMP_BINDLESS(field, ceiling, type_name)                                          \
+		if (builder->field > (ceiling)) {                                                            \
+			ZEST_APPEND_LOG(log, "Bindless %s count reduced from %u to the device limit of %u.",     \
+				type_name, builder->field, (ceiling));                                               \
+			builder->field = (ceiling);                                                              \
+		}
+	ZEST__CLAMP_BINDLESS(bindless_sampler_count, device->max_bindless_samplers, "sampler");
+	ZEST__CLAMP_BINDLESS(bindless_storage_buffer_count, device->max_bindless_storage_buffers, "storage buffer");
+	ZEST__CLAMP_BINDLESS(bindless_storage_image_count, device->max_bindless_storage_images, "storage image");
+	ZEST__CLAMP_BINDLESS(bindless_uniform_buffer_count, device->max_bindless_uniform_buffers, "uniform buffer");
+	#undef ZEST__CLAMP_BINDLESS
+
+	//The five sampled image bindings (2d, cube, array, 3d, cube array) all draw on one descriptor
+	//budget, so it is their total that has to fit rather than each one on its own. Scale them down
+	//proportionally instead of picking a winner, holding a slot back for each binding still to come
+	//so none of them can be driven to zero.
+	zest_uint *sampled_counts[5] = {
+		&builder->bindless_texture_2d_count,
+		&builder->bindless_texture_cube_count,
+		&builder->bindless_texture_array_count,
+		&builder->bindless_texture_3d_count,
+		&builder->bindless_texture_cube_array_count,
+	};
+	zest_uint total = 0;
+	for (int i = 0; i != 5; ++i) {
+		total += *sampled_counts[i];
+	}
+	zest_uint budget = device->max_bindless_sampled_images;
+	if (total > budget) {
+		ZEST_APPEND_LOG(log, "Bindless sampled image counts total %u but the device allows %u, scaling them down proportionally.", total, budget);
+		if (budget < 5) {
+			//Too small to give every binding a slot. Leave one each so the ceiling is on record in
+			//the log, and let the layout creation report the failure.
+			ZEST_APPEND_LOG(log, "Device sampled image limit of %u is below the five bindings the global layout declares.", budget);
+			for (int i = 0; i != 5; ++i) {
+				*sampled_counts[i] = 1;
+			}
+		} else {
+			zest_uint remaining = budget;
+			for (int i = 0; i != 5; ++i) {
+				zest_uint reserve = (zest_uint)(4 - i);
+				zest_uint scaled = (zest_uint)(((zest_u64)*sampled_counts[i] * budget) / total);
+				if (scaled < 1) {
+					scaled = 1;
+				}
+				if (scaled > remaining - reserve) {
+					scaled = remaining - reserve;
+				}
+				*sampled_counts[i] = scaled;
+				remaining -= scaled;
+			}
+		}
+	}
+
+	//setup_info was copied from the builder before the backend came up, and the device reset path
+	//rebuilds the global layout from it, so it has to carry the clamped values too.
+	device->setup_info.bindless_sampler_count = builder->bindless_sampler_count;
+	device->setup_info.bindless_texture_2d_count = builder->bindless_texture_2d_count;
+	device->setup_info.bindless_texture_cube_count = builder->bindless_texture_cube_count;
+	device->setup_info.bindless_texture_array_count = builder->bindless_texture_array_count;
+	device->setup_info.bindless_texture_3d_count = builder->bindless_texture_3d_count;
+	device->setup_info.bindless_texture_cube_array_count = builder->bindless_texture_cube_array_count;
+	device->setup_info.bindless_storage_buffer_count = builder->bindless_storage_buffer_count;
+	device->setup_info.bindless_storage_image_count = builder->bindless_storage_image_count;
+	device->setup_info.bindless_uniform_buffer_count = builder->bindless_uniform_buffer_count;
+}
 
 void zest__initialise_device_stores(zest_device device) {
 	for (int i = 0; i != zest_max_device_handle_type; ++i) {
