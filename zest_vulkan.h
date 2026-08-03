@@ -414,7 +414,6 @@ typedef struct zest_execution_backend_t {
     zest_size *wave_wait_values;
     VkFence submit_fence;
     VkSemaphore *wait_semaphores;
-    VkPipelineStageFlags *wait_stages;
     VkSemaphore *signal_semaphores;
     zest_u64 *wait_values;
     zest_u64 *signal_values;
@@ -483,6 +482,9 @@ typedef struct zest_device_backend_t {
     VkPipelineCache pipeline_cache;
     zest_bool has_dynamic_rendering;
     zest_bool has_memory_budget;
+    //synchronization2 is core from Vulkan 1.3 and a 1.3 driver need not advertise the extension
+    //string. False means "core only" - do not name the extension at vkCreateDevice.
+    zest_bool has_sync2_extension;
     // Supported feature structs cached by the feasibility pass (zest__vk_query_device_capabilities)
     // and consumed by zest__vk_create_logical_device to decide what to enable.
     VkPhysicalDeviceFeatures supported_features;
@@ -967,11 +969,15 @@ ZEST_PRIVATE inline VkAccessFlags2 zest__to_vk_access_flags(zest_access_flags fl
     return (VkAccessFlags2)flags;
 }
 
-ZEST_PRIVATE inline VkPipelineStageFlags zest__to_vk_pipeline_stage(zest_pipeline_stage_flags flags) {
-	VkPipelineStageFlags out = (VkPipelineStageFlags)flags;
-	out &= ~zest_pipeline_stage_index_input_bit;
+//Must return the 64-bit sync2 type: VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT is bit 36, so a 32-bit
+//result would silently truncate it to zero (== VK_PIPELINE_STAGE_2_NONE, i.e. no synchronisation).
+//Every other zest_pipeline_stage_* value is deliberately numerically identical to its sync1
+//counterpart, so the cast covers them.
+ZEST_PRIVATE inline VkPipelineStageFlags2 zest__to_vk_pipeline_stage(zest_pipeline_stage_flags flags) {
+	VkPipelineStageFlags2 out = (VkPipelineStageFlags2)flags;
+	out &= ~(VkPipelineStageFlags2)zest_pipeline_stage_index_input_bit;
 	if (flags & zest_pipeline_stage_index_input_bit) out |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
-    return (VkPipelineStageFlags)out;
+    return out;
 }
 
 ZEST_PRIVATE inline VkShaderStageFlags zest__to_vk_shader_stage(zest_supported_shader_stages flags) {
@@ -1858,6 +1864,7 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
     zest_uint required_extensions_found = 0;
     zest_bool dynamic_rendering_found = ZEST_FALSE;
     zest_bool memory_budget_found = ZEST_FALSE;
+    zest_bool sync2_found = ZEST_FALSE;
     for (int i = 0; i != extension_count; ++i) {
         for (int e = 0; e != zest__required_extension_names_count; ++e) {
             if (strcmp(available_extensions[i].extensionName, zest_required_extensions[e]) == 0) {
@@ -1870,12 +1877,28 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
         if (strcmp(available_extensions[i].extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0) {
             memory_budget_found = ZEST_TRUE;
         }
+        if (strcmp(available_extensions[i].extensionName, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0) {
+            sync2_found = ZEST_TRUE;
+        }
+    }
+
+    // VK_KHR_synchronization2 was promoted to core in Vulkan 1.3, and a driver is not obliged to keep
+    // advertising a promoted extension. Count the requirement as satisfied when sync2 is reachable in
+    // its core form, otherwise a fully capable GPU would be rejected here. The usable version is the
+    // minimum of what the instance asked for and what the device reports - core commands from a newer
+    // version than the instance requested are not available even on a newer device.
+    VkPhysicalDeviceProperties device_properties;
+    vkGetPhysicalDeviceProperties(physical_device, &device_properties);
+    zest_uint effective_api_version = ZEST__MIN(device->api_version, device_properties.apiVersion);
+    if (!sync2_found && effective_api_version >= VK_API_VERSION_1_3) {
+        required_extensions_found++;
     }
 
     // Store dynamic rendering and memory budget availability for later use during logical device creation
     if (device->backend->physical_device == physical_device || device->backend->physical_device == VK_NULL_HANDLE) {
         device->backend->has_dynamic_rendering = dynamic_rendering_found;
         device->backend->has_memory_budget = memory_budget_found;
+        device->backend->has_sync2_extension = sync2_found;
     }
 
     ZEST__FREE(device->allocator, available_extensions);
@@ -2096,7 +2119,14 @@ zest_bool zest__vk_create_instance(zest_device device) {
     app_info.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
     app_info.pEngineName = "No Engine";
     app_info.engineVersion = VK_MAKE_VERSION(0, 0, 1);
-    app_info.apiVersion = VK_API_VERSION_1_2;
+    //Ask for 1.3 whenever the loader offers it. synchronization2 is core from 1.3 and a 1.3 driver is
+    //not obliged to keep advertising the promoted VK_KHR_synchronization2 string - if we pinned the
+    //request at 1.2 we could neither enable the extension (absent) nor use the core form (not
+    //requested), and would reject a fully capable GPU. Asking for a higher version only widens what
+    //we may use; physical devices reporting less than 1.3 still work, since the effective version is
+    //the minimum of the two. 1.2 remains the floor Zest supports.
+    app_info.apiVersion = instance_api_version_supported >= VK_API_VERSION_1_3
+                        ? VK_API_VERSION_1_3 : VK_API_VERSION_1_2;
     device->api_version = app_info.apiVersion;
 
     VkInstanceCreateInfo create_info = ZEST__ZERO_INIT(VkInstanceCreateInfo);
@@ -2270,6 +2300,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     zest__vk_check_device_extension_support(device, physical_device);
     device->backend->has_dynamic_rendering = device->backend->has_dynamic_rendering && dynamic_rendering.dynamicRendering;
     ZEST_APPEND_LOG(log, "Dynamic rendering supported: %s", device->backend->has_dynamic_rendering ? "yes" : "no (legacy render passes)");
+    ZEST_APPEND_LOG(log, "synchronization2 provided by: %s", device->backend->has_sync2_extension ? "VK_KHR_synchronization2 extension" : "core (Vulkan 1.3+)");
 
     // --- Log optional capability support ---
     ZEST_APPEND_LOG(log, "Optional capabilities (supported by hardware):");
@@ -2453,9 +2484,15 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 
 	// Build the enabled extension list: required + optional dynamic rendering + optional memory budget
 	const char *enabled_extensions[zest__required_extension_names_count + 2];
-	zest_uint enabled_extension_count = zest__required_extension_names_count;
+	zest_uint enabled_extension_count = 0;
 	for (int i = 0; i != zest__required_extension_names_count; ++i) {
-		enabled_extensions[i] = zest_required_extensions[i];
+		//Skip synchronization2 when the driver only provides it as core 1.3: naming an extension the
+		//device does not advertise fails vkCreateDevice with VK_ERROR_EXTENSION_NOT_PRESENT.
+		if (!device->backend->has_sync2_extension &&
+			strcmp(zest_required_extensions[i], VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0) {
+			continue;
+		}
+		enabled_extensions[enabled_extension_count++] = zest_required_extensions[i];
 	}
 
 	//Memory budget is pure telemetry (zest_GetDeviceMemoryBudget) so it is only requested when the
@@ -2523,9 +2560,28 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 		device->platform->build_pipeline = zest__vk_build_pipeline_legacy;
 		device->platform->flush_legacy_framebuffers = zest__vk_flush_legacy_framebuffers;
 	}
-    device->backend->pfn_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdPipelineBarrier2KHR");
-    device->backend->pfn_vkQueueSubmit2 = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkQueueSubmit2KHR");
-    device->backend->pfn_vkCmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdWriteTimestamp2KHR");
+    //Load the core 1.3 symbols first and fall back to the KHR aliases. A driver exposing sync2 only
+    //as core will not resolve the KHR names, and one exposing it only as the extension will not
+    //resolve the core names, so both spellings have to be tried.
+    zest_bool sync2_used_core_entry_points = ZEST_TRUE;
+    #define ZEST__LOAD_SYNC2_PFN(member, type, core_name, khr_name)                                              \
+        device->backend->member = (type)vkGetDeviceProcAddr(device->backend->logical_device, core_name);         \
+        if (!device->backend->member) {                                                                          \
+            device->backend->member = (type)vkGetDeviceProcAddr(device->backend->logical_device, khr_name);      \
+            sync2_used_core_entry_points = ZEST_FALSE;                                                           \
+        }
+    ZEST__LOAD_SYNC2_PFN(pfn_vkCmdPipelineBarrier2, PFN_vkCmdPipelineBarrier2KHR, "vkCmdPipelineBarrier2", "vkCmdPipelineBarrier2KHR");
+    ZEST__LOAD_SYNC2_PFN(pfn_vkQueueSubmit2, PFN_vkQueueSubmit2KHR, "vkQueueSubmit2", "vkQueueSubmit2KHR");
+    ZEST__LOAD_SYNC2_PFN(pfn_vkCmdWriteTimestamp2, PFN_vkCmdWriteTimestamp2KHR, "vkCmdWriteTimestamp2", "vkCmdWriteTimestamp2KHR");
+    #undef ZEST__LOAD_SYNC2_PFN
+
+    //Every barrier and submit in the renderer goes through these, so a null here is fatal rather
+    //than something to discover on the first frame.
+    if (!device->backend->pfn_vkCmdPipelineBarrier2 || !device->backend->pfn_vkQueueSubmit2) {
+        ZEST_APPEND_LOG(device->log_path.str, "Fatal Error: could not resolve the synchronization2 entry points (neither core nor KHR).");
+        return ZEST_FALSE;
+    }
+    ZEST_APPEND_LOG(device->log_path.str, "synchronization2 entry points resolved: %s", sync2_used_core_entry_points ? "core" : "KHR aliases");
 
 	//Loop over the available device queues and add queues for each one
 	zest_vec_foreach(i, device->queue_families) {
@@ -5658,9 +5714,12 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     //We need to mix the binary semaphores in the batches with the timeline semaphores in the queue,
     //so use these arrays for that. Because they're mixed we also need wait values for the binary values
     //even if they're not used (they're set to 0)
+    //These hold abstract zest stage flags, not VK ones: they are handed to batch->wait_stages /
+    //batch->signal_stages below, which the frame graph debug printer reads. Conversion to the VK
+    //form happens where the VkSemaphoreSubmitInfos are filled in.
     VkSemaphore *wait_semaphores = 0;
-    VkPipelineStageFlags *wait_stages = 0;
-    VkPipelineStageFlags *signal_stages = 0;
+    zest_pipeline_stage_flags *wait_stages = 0;
+    zest_pipeline_stage_flags *signal_stages = 0;
     VkSemaphore *signal_semaphores = 0;
     zest_u64 *wait_values = 0;
     zest_u64 *signal_values = 0;
@@ -5668,7 +5727,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     //Wait on the semaphores from the previous wave
     zest_vec_foreach(semaphore_index, backend->wave_wait_semaphores) {
         zest_vec_linear_push(allocator, wait_semaphores, backend->wave_wait_semaphores[semaphore_index]);
-        zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(batch->queue_wait_stages));
+        zest_vec_linear_push(allocator, wait_stages, batch->queue_wait_stages);
         zest_vec_linear_push(allocator, wait_values, backend->wave_wait_values[semaphore_index]);
     }
 
@@ -5676,7 +5735,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     zest_vec_foreach(semaphore_index, batch->wait_semaphores) {
         VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->wait_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, wait_semaphores, dynamic_semaphore);
-        zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(batch->wait_dst_stage_masks[semaphore_index]));
+        zest_vec_linear_push(allocator, wait_stages, batch->wait_dst_stage_masks[semaphore_index]);
         zest_vec_linear_push(allocator, wait_values, 0);
     }
 
@@ -5684,7 +5743,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		zest_execution_timeline timeline = frame_graph->wait_on_timeline;
 		if (timeline->current_value > 0) {
 			zest_vec_linear_push(allocator, wait_semaphores, timeline->backend->semaphore);
-			zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(timeline_wait_stage));
+			zest_vec_linear_push(allocator, wait_stages, timeline_wait_stage);
 			zest_vec_linear_push(allocator, wait_values, timeline->current_value);
 		}
     }
@@ -5697,7 +5756,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		zest_vec_foreach(i, wait_semaphores) {
 			VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 			wait_info.semaphore = wait_semaphores[i];
-			wait_info.stageMask = wait_stages[i];
+			wait_info.stageMask = zest__to_vk_pipeline_stage(wait_stages[i]);
 			wait_info.value = wait_values[i];
 			zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
 		}
@@ -5710,7 +5769,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->signal_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, signal_semaphores, dynamic_semaphore);
         zest_vec_linear_push(allocator, signal_values, 0);
-		zest_vec_linear_push(allocator, signal_stages, zest__to_vk_pipeline_stage(batch->signal_dst_stage_masks[semaphore_index]));
+		zest_vec_linear_push(allocator, signal_stages, batch->signal_dst_stage_masks[semaphore_index]);
     }
 
     //If this is the last batch, signal the frame timeline the CPU waits on each frame.
@@ -5723,7 +5782,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 			context->frame_sync_timeline[context->current_fif] = timeline;
 			zest_vec_linear_push(allocator, signal_semaphores, timeline->backend->semaphore);
 			zest_vec_linear_push(allocator, signal_values, timeline->current_value);
-			zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
+			zest_vec_linear_push(allocator, signal_stages, zest_pipeline_stage_bottom_of_pipe_bit);
         }
     } else {
         //Make sure the submission includes the queue semaphores to chain together the dependencies
@@ -5731,7 +5790,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         (*batch_value)++;
         zest_vec_linear_push(allocator, signal_semaphores, batch_semaphore);
         zest_vec_linear_push(allocator, signal_values, *batch_value);
-        zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
+        zest_vec_linear_push(allocator, signal_stages, zest_pipeline_stage_bottom_of_pipe_bit);
     }
 
     //Finish the rest of the queue submit info and submit the queue
@@ -5739,7 +5798,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 		signal_info.semaphore = signal_semaphores[i];
 		signal_info.value = signal_values[i];
-		signal_info.stageMask = signal_stages[i];
+		signal_info.stageMask = zest__to_vk_pipeline_stage(signal_stages[i]);
 		zest_vec_linear_push(allocator, signal_semaphore_infos, signal_info);
 	}
 
