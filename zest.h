@@ -4909,6 +4909,10 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_device device, 
 ZEST_PRIVATE void zest__initialise_device_stores(zest_device device);
 ZEST_PRIVATE void zest__set_default_pool_sizes(zest_device device);
 ZEST_PRIVATE void zest__clamp_bindless_counts(zest_device device, zest_device_builder builder);
+//Declares the global bindless layout and the pipeline layout that references it. Reads the binding
+//counts from device->setup_info, which zest__clamp_bindless_counts leaves holding the clamped values,
+//so device creation and device reset build an identical layout.
+ZEST_PRIVATE void zest__create_global_bindless_layout(zest_device device);
 ZEST_PRIVATE zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info);
 ZEST_PRIVATE zest_bool zest__is_vulkan_device(zest_device device); 
 ZEST_PRIVATE void zest__create_default_images(zest_device device, zest_device_builder builder);
@@ -9076,26 +9080,9 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	//creation with nothing in the log to say which limit was exceeded.
 	zest__clamp_bindless_counts(device, builder);
 
-    //Create a global bindless descriptor set for storage buffers and texture samplers
-    zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, builder->bindless_sampler_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_2d_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_cube_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_array_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_3d_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, builder->bindless_storage_buffer_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, builder->bindless_storage_image_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, builder->bindless_uniform_buffer_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, builder->bindless_texture_cube_array_count, zest_shader_all_stages ) );
-	device->global_layout_builder = layout_builder;
-    device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
-    device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
+	zest__create_global_bindless_layout(device);
 
-	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
-	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
-	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
-
-	zest__create_default_images(device, builder);
+	zest__create_default_images(device, &device->setup_info);
 
     ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
 
@@ -9104,6 +9091,32 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	zest__initialise_debug_font(device);
 
 	return device;
+}
+
+void zest__create_global_bindless_layout(zest_device device) {
+	//Counts come from setup_info rather than the caller's builder so that device creation and device
+	//reset declare the same layout. zest__clamp_bindless_counts writes the clamped values back into
+	//setup_info, and it runs before this on the creation path.
+	zest_device_builder info = &device->setup_info;
+
+    //Create a global bindless descriptor set for storage buffers and texture samplers
+    zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, info->bindless_sampler_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, info->bindless_texture_2d_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, info->bindless_texture_cube_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, info->bindless_texture_array_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, info->bindless_texture_3d_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, info->bindless_storage_buffer_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, info->bindless_storage_image_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, info->bindless_uniform_buffer_count, zest_shader_all_stages ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, info->bindless_texture_cube_array_count, zest_shader_all_stages ) );
+	device->global_layout_builder = layout_builder;
+    device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
+    device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
+
+	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
+	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
+	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
 }
 
 void zest__create_default_images(zest_device device, zest_device_builder builder) {
@@ -9561,24 +9574,7 @@ void zest_ResetDevice(zest_device device) {
 	//small buffers.
 	zest__set_default_pool_sizes(device);
 
-    //Create a global bindless descriptor set for storage buffers and texture samplers
-    zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(device->allocator);
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, device->setup_info.bindless_sampler_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_2d_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_cube_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_array_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_3d_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, device->setup_info.bindless_storage_buffer_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, device->setup_info.bindless_storage_image_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, device->setup_info.bindless_uniform_buffer_count, zest_shader_all_stages ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, device->setup_info.bindless_texture_cube_array_count, zest_shader_all_stages ) );
-	device->global_layout_builder = layout_builder;
-    device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
-    device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
-
-	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
-	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
-	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
+	zest__create_global_bindless_layout(device);
 
 	zest__create_default_images(device, &device->setup_info);
 
