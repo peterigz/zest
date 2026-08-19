@@ -2553,7 +2553,7 @@ int test__buffer_offset_alignment(ZestTests *tests, Test *test) {
 	//Growing with an odd unit size reallocates to a non-granular request; the invariant must hold
 	if (buffers[1]) {
 		zest_size old_size = zest_GetBufferSize(buffers[1]);
-		if (!zest_GrowBuffer(&buffers[1], 48, 0)) failed_count++;
+		if (!zest_GrowBuffer(&buffers[1], 48, old_size + 48)) failed_count++;
 		if (zest_GetBufferSize(buffers[1]) <= old_size) failed_count++;
 		if (buffers[1]->memory_offset % granularity) failed_count++;
 		if (buffers[1]->size % granularity) failed_count++;

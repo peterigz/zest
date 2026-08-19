@@ -85,8 +85,10 @@ zest_buffer zest_CreateStagingBuffer(
 
 ### zest_GrowBuffer
 
-A convenience function you can use to grow a buffer. It will grow the buffer to at least `minimum_bytes`, growing by `unit_size` increments. Returns true if the buffer grew.
+A convenience function you can use to grow a buffer so that it can hold at least `minimum_bytes`. If the buffer is already that size or larger it is left alone and the function returns false. When it does grow, the new size is the current unit count grown by half again (in `unit_size` increments) or `minimum_bytes`, whichever is larger, so incrementally topping a buffer up does not reallocate on every call. Returns true only if the buffer was reallocated.
 You could use this function if you are incrementally writing data to a staging buffer and planning to upload to a device buffer at some point. If the buffer runs out of space you can call this to grow the memory.
+
+`minimum_bytes` must be non-zero — it is the amount of space you require, not a "grow it anyway" flag. Zero asserts in debug builds and is a no-op in release; growing unconditionally on every call is how a buffer ratchets its way through all of GPU memory.
 
 **Contract (applies to `zest_ResizeBuffer` too):** growing can relocate the buffer to a different memory block, so `memory_offset` can change and anything caching it (descriptors, recorded copies) must be refreshed after a successful grow.
 

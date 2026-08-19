@@ -123,7 +123,7 @@ void main() {
 // Resize buffer (may reallocate) - takes pointer to buffer
 zest_ResizeBuffer(&buffer, new_size);
 
-// Grow buffer (only if needed) - takes pointer, unit size, and minimum bytes
+// Grow buffer (only if it cannot already hold minimum_bytes, which must be non-zero)
 zest_GrowBuffer(&buffer, unit_size, minimum_bytes);
 
 // Get current size

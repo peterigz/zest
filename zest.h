@@ -4774,6 +4774,7 @@ ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size);
+ZEST_PRIVATE zest_bool zest__grow_buffer_geometric(zest_buffer *buffer, zest_size unit_size);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 //End Buffer Management
 
@@ -5313,9 +5314,14 @@ ZEST_API zest_buffer zest_CreateDedicatedStagingBuffer(zest_device device, zest_
 //documented way to build buffer infos: describe what you need with zest_buffer_type and zest_memory_usage and
 //each backend maps that to its own memory model (memory types on Vulkan, heap types on D3D12, storage modes on Metal).
 ZEST_API zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usage usage);
-//Grow a buffer if minimum_bytes is more than the current buffer size. The new size is the current
-//unit count grown by half again (in multiples of unit_size) or minimum_bytes, whichever is larger.
-//Returns ZEST_TRUE if the buffer grew.
+//Grow a buffer so that it can hold at least minimum_bytes. Does nothing and returns ZEST_FALSE if
+//the buffer is already that size or larger. When it does grow, the new size is the current unit
+//count grown by half again (in multiples of unit_size) or minimum_bytes, whichever is larger, so
+//that repeatedly topping a buffer up doesn't reallocate on every call.
+//minimum_bytes must be non-zero: it is the amount of space you require, not a "grow it anyway"
+//flag. Passing zero asserts in debug and is a no-op in release (growing unconditionally on every
+//call is how a buffer ratchets its way through all of GPU memory).
+//Returns ZEST_TRUE only if the buffer was reallocated, in which case it may have moved.
 //Contract (applies to zest_ResizeBuffer too): growing can relocate the buffer to a different
 //memory block, so its memory_offset can change and anything caching it (descriptors, recorded
 //copies) must be refreshed after a successful grow.
@@ -10836,9 +10842,26 @@ zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
     return ZEST_TRUE;
 }
 
+zest_bool zest__grow_buffer_geometric(zest_buffer *buffer, zest_size unit_size) {
+    ZEST_ASSERT(unit_size);
+    zest_size units = (*buffer)->size / unit_size;
+    zest_size new_size = (units ? units + units / 2 : 8) * unit_size;
+    if (new_size <= (*buffer)->size) {
+        //A unit larger than the whole buffer leaves the geometric step at zero, so make sure the
+        //buffer always moves forward by at least one unit or the caller loops forever.
+        new_size = (*buffer)->size + unit_size;
+    }
+    return zest__reallocate_buffer(buffer, new_size);
+}
+
 zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size minimum_bytes) {
     ZEST_ASSERT(unit_size);
-    if (minimum_bytes && (*buffer)->size > minimum_bytes) {
+    ZEST_ASSERT(minimum_bytes);     //Must be a value. Simply don't call the function if there's nothing to grow
+    if (!minimum_bytes) {
+		//Return false for release builds
+        return ZEST_FALSE;
+    }
+    if ((*buffer)->size >= minimum_bytes) {
         return ZEST_FALSE;
     }
     zest_size units = (*buffer)->size / unit_size;
@@ -19570,21 +19593,24 @@ zest_uint zest_GetInstanceLayerCount(zest_layer layer) {
     return layer->memory_refs[layer->fif].instance_count;
 }
 
+//A minimum_size of 0 means the staging buffer is full and should grow geometrically. Any other
+//value is the capacity the caller needs, and the buffer is left alone if it already has it.
 zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size) {
-    zest_bool grown = 0;
+    zest_buffer *staging_buffer = &layer->memory_refs[layer->fif].staging_instance_data;
+    zest_bool grown = minimum_size
+        ? zest_GrowBuffer(staging_buffer, type_size, minimum_size)
+        : zest__grow_buffer_geometric(staging_buffer, type_size);
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_instance_data, type_size, minimum_size);
-        zest_GrowBuffer(&layer->memory_refs[layer->fif].device_vertex_data, type_size, layer->memory_refs[layer->fif].staging_instance_data->size);
-		layer->memory_refs[layer->fif].staging_instance_data = layer->memory_refs[layer->fif].staging_instance_data;
-		zest_uint array_index = layer->memory_refs[layer->fif].descriptor_array_index;
-        if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
-            zest_buffer instance_buffer = layer->memory_refs[layer->fif].device_vertex_data;
-			zest_context context = (zest_context)layer->handle.store->origin;
-			context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, instance_buffer, layer->bindless_set);
+        //The device buffer mirrors the staging buffer, so it only has to move when the staging
+        //buffer outgrows it, and the descriptor only needs rewriting when it actually relocated.
+        zest_buffer *device_buffer = &layer->memory_refs[layer->fif].device_vertex_data;
+        if (zest_GrowBuffer(device_buffer, type_size, (*staging_buffer)->size)) {
+            zest_uint array_index = layer->memory_refs[layer->fif].descriptor_array_index;
+            if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
+                zest_context context = (zest_context)layer->handle.store->origin;
+                context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, layer->bindless_set);
+            }
         }
-    } else {
-		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_instance_data, type_size, minimum_size);
-		layer->memory_refs[layer->fif].staging_instance_data = layer->memory_refs[layer->fif].staging_instance_data;
     }
     return grown;
 }
@@ -19765,11 +19791,12 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zes
     zest_byte *instance_ptr = (zest_byte *)layer->memory_refs[layer->fif].instance_ptr;
     int fif = context->current_fif;
     ptrdiff_t diff = (zest_byte *)zest_BufferDataEnd(layer->memory_refs[layer->fif].staging_instance_data) - (instance_ptr + size_in_bytes_to_copy);
-    if (diff <= 0) {
+    //A diff of 0 means the copy lands exactly on the end of the buffer, which still fits
+    if (diff < 0) {
         if (zest__grow_instance_buffer(layer, layer->instance_struct_size, (layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size) + size_in_bytes_to_copy)) {
             instance_ptr = (zest_byte *)zest_BufferData(layer->memory_refs[layer->fif].staging_instance_data);
             instance_ptr += layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
-            diff = (zest_byte *)zest_BufferData(layer->memory_refs[layer->fif].staging_instance_data) - instance_ptr;
+            diff = (zest_byte *)zest_BufferDataEnd(layer->memory_refs[layer->fif].staging_instance_data) - instance_ptr;
             result = zest_draw_buffer_result_buffer_grew;
         }
         else {
@@ -20174,12 +20201,14 @@ zest_buffer zest_GetIndexWriteBuffer(zest_layer layer) {
 void zest_GrowMeshVertexBuffers(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest_size memory_in_use = layer->memory_refs[layer->fif].vertex_memory_in_use;
+	if (!memory_in_use) return;		//Nothing written yet, so there is no capacity to ensure
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, layer->vertex_struct_size, memory_in_use);
 }
 
 void zest_GrowMeshIndexBuffers(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
-	zest_size memory_in_use = layer->memory_refs[layer->fif].vertex_memory_in_use;
+	zest_size memory_in_use = layer->memory_refs[layer->fif].index_memory_in_use;
+	if (!memory_in_use) return;		//Nothing written yet, so there is no capacity to ensure
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
@@ -20191,9 +20220,7 @@ void zest_PushIndex(zest_layer layer, zest_uint offset) {
     index_ptr = index_ptr + 1;
     ZEST_ASSERT(index_ptr >= (zest_uint*)zest_BufferData(layer->memory_refs[layer->fif].staging_index_data) && index_ptr <= (zest_uint*)zest_BufferDataEnd(layer->memory_refs[layer->fif].staging_index_data));
     if (index_ptr == zest_BufferDataEnd(layer->memory_refs[layer->fif].staging_index_data)) {
-        zest_bool grown = 0;
-		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, sizeof(zest_uint), 0);
-		layer->memory_refs[layer->fif].staging_vertex_data = layer->memory_refs[layer->fif].staging_index_data;
+        zest_bool grown = zest__grow_buffer_geometric(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint));
         if (grown) {
             layer->memory_refs[layer->fif].index_count++;
             layer->current_instruction.total_indexes++;
