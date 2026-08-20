@@ -10813,30 +10813,43 @@ zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
 	//them over (frame graphs read them to plan barriers).
 	zest_buffer_usage_flags usage_flags = (*buffer)->usage_flags;
     zest_buffer new_buffer = 0;
-    if (ZEST__NOT_FLAGGED(buffer_allocator->buffer_info.property_flags, zest_memory_property_host_visible_bit)) {
-        new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
-        if (!new_buffer) {
-            //Create a new memory pool and try again
-            zest_device_memory_pool buffer_pool = 0;
-            if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
-                return ZEST_FALSE;
-            }
-            new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
-            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-        }
-        zest_FreeBuffer(*buffer);
-    } else {
-        new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-        if (!new_buffer) {
-            //Create a new memory pool and try again
-            zest_device_memory_pool buffer_pool = 0;
-            if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
-                return ZEST_FALSE;
-            }
-            new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
-            ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-        }
-    }
+	if (!buffer_allocator->is_dedicated) {
+		if (ZEST__NOT_FLAGGED(buffer_allocator->buffer_info.property_flags, zest_memory_property_host_visible_bit)) {
+			new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
+			if (!new_buffer) {
+				//Create a new memory pool and try again
+				zest_device_memory_pool buffer_pool = 0;
+				if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+					return ZEST_FALSE;
+				}
+				new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
+				ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory? this needs to be much cleaner!
+			}
+			zest_FreeBuffer(*buffer);
+		} else {
+			new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+			if (!new_buffer) {
+				//Create a new memory pool and try again
+				zest_device_memory_pool buffer_pool = 0;
+				if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+					return ZEST_FALSE;
+				}
+				new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+				ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory? this needs to be much cleaner!
+			}
+		}
+	} else {
+		//Deal with dedicated buffers separately, they must always be freed and allocated as a new buffer
+		zest_buffer_info_t buffer_info = buffer_allocator->buffer_info;
+		new_buffer = zest_CreateDedicatedBuffer(buffer_allocator->device, new_size, &buffer_info);
+		if (!new_buffer) {
+			return false;
+		}
+		if (ZEST__FLAGGED(buffer_info.property_flags, zest_memory_property_host_visible_bit)) {
+			memcpy(zest_BufferData(new_buffer), zest_BufferData(*buffer), (*buffer)->size);
+		}
+		zest_FreeBuffer(*buffer);
+	}
     new_buffer->usage_flags = usage_flags;
     *buffer = new_buffer;
     return ZEST_TRUE;
