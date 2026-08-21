@@ -6121,6 +6121,17 @@ ZEST_API zest_uint zest_GetContextCheckedOutArenaCount(zest_context context);
 //binding indexes. Steady growth on a headless context means the lists are never being drained.
 //Usable in tests to assert steady-state resource usage across repeated flushes.
 ZEST_API zest_uint zest_GetContextPendingReleaseCount(zest_context context);
+//Give up the device memory the context's transient arenas are holding: every arena backing is
+//queued for release, every cached graph's persistent transient images are retired, and the high
+//water marks reset, so the next execution of each graph sizes its arenas to what that graph
+//actually needs rather than to the largest thing the context has ever run. Compiled graphs stay
+//cached - only the memory is given up - but the next execution of each one reallocates its arenas
+//and recreates its transient images, so this costs a frame hitch. Call it at a seam where that
+//hitch is free (a level load, entering a menu, once a window resize has settled), never every
+//frame. Returns the bytes queued for release; the memory comes back as the deferred lists drain
+//over the next frame in flight cycle, or at the next zest_DrainContextResources on a headless
+//context. Must not be called while a frame graph is being built.
+ZEST_API zest_size zest_TrimContextTransientMemory(zest_context context);
 //--End General Helper functions
 
 //-----------------------------------------------
@@ -13293,6 +13304,37 @@ zest_uint zest_GetContextPendingReleaseCount(zest_context context) {
 		count += zest_vec_size(context->deferred_resource_freeing_list.resources[fif]);
 	}
 	return count;
+}
+
+zest_size zest_TrimContextTransientMemory(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	ZEST_ASSERT_OR_VALIDATE(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_building_frame_graph),
+							context->device, "Cannot trim transient memory while a frame graph is being built - the graph in progress is placing its transients into the very arenas this would release. Call it outside of zest_BeginFrameGraph/zest_EndFrameGraph.",
+							0);
+	//Cached graphs keep their transient images bound to the arena backings between executions, so
+	//those images have to be retired before the backings go. Non cached graphs already retire at
+	//the end of every execution.
+	zest_map_foreach(i, context->cached_frame_graphs) {
+		zest__retire_frame_graph_images(context, context->cached_frame_graphs.data[i].frame_graph);
+	}
+	zest_size released = 0;
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *arena = context->transient_arenas[i];
+		zest_ForEachFrameInFlight(fif) {
+			arena->high_water[fif] = 0;
+			if (!arena->backing[fif]) continue;
+			released += arena->backing[fif]->size;
+			//Deferred for the same reason growth defers: this FIF slot's GPU work may still be reading
+			//these bytes. Clearing the placer affinity as well means the next checkout takes a fresh
+			//backing id, so nothing can match against the bytes that just went away.
+			zest_vec_push(context->allocator, context->deferred_resource_freeing_list.arena_backings[fif], arena->backing[fif]);
+			zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.arena_backings[fif]), "arena backing");
+			arena->backing[fif] = 0;
+			arena->generation[fif]++;
+			arena->last_placer[fif] = 0;
+		}
+	}
+	return released;
 }
 
 zest_uint zest__grow_capacity(void* T, zest_uint size) {

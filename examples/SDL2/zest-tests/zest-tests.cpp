@@ -110,6 +110,7 @@ void InitialiseTests(ZestTests *tests) {
 	//at the live working set while persistence and cross-graph isolation still hold.
 	RegisterTest(tests, { "Arena Memory Bound", test__arena_memory_bound, 0, ARENA_BOUND_KEY_COUNT * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Arena Alternation", test__arena_alternation, 0, 12, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Arena Trim", test__arena_trim, 0, ARENA_TRIM_RUN_COUNT, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Intraframe Two Graphs", test__intraframe_two_graphs, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.

@@ -1497,6 +1497,95 @@ int test__arena_alternation(ZestTests *tests, Test *test) {
 }
 
 /*
+Arena Trim: zest_TrimContextTransientMemory gives up the device memory the context's transient
+arenas are holding without throwing away the compiled graphs. Run a graph with a large transient
+image so an arena grows to fit it, trim, then run a graph with a small transient. The trim must
+report exactly the bytes that were live, the capacity afterwards must be well below the peak
+(rather than staying pinned at the largest thing the context ever ran, which is what the monotonic
+high water mark would otherwise do), and the large graph must still be in the cache.
+*/
+#define ARENA_TRIM_FRAME (ZEST_MAX_FIF * 3)
+#define ARENA_TRIM_RUN_COUNT (ZEST_MAX_FIF * 6)
+
+int test__arena_trim(ZestTests *tests, Test *test) {
+	static zest_size peak_capacity;
+	static zest_size trim_released;
+	static int big_key = 0;
+	static int small_key = 1;
+	if (test->frame_count == 0) {
+		peak_capacity = 0;
+		trim_released = 0;
+	}
+	zest_bool big_phase = test->frame_count < ARENA_TRIM_FRAME;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, big_phase ? &big_key : &small_key, sizeof(int));
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, big_phase ? "Trim Big" : "Trim Small", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+				info.width = big_phase ? 1024 : 64;
+				info.height = big_phase ? 1024 : 64;
+				zest_resource_node target = zest_AddTransientImageResource("Target", &info);
+
+				zest_BeginRenderPass("Write Target");
+				zest_ConnectOutput(target);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Read Target");
+				zest_ConnectInput(target);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == ARENA_TRIM_FRAME) {
+		//Both FIF slots have run the large graph, so the arenas are at their peak. Trim outside of
+		//any graph build - this is the level load / menu seam the function is meant for.
+		peak_capacity = zest_GetMemoryUsage(tests->context).gpu_transient_capacity;
+		trim_released = zest_TrimContextTransientMemory(tests->context);
+	}
+	if (test->frame_count == test->run_count) {
+		zest_memory_usage_t usage = zest_GetMemoryUsage(tests->context);
+		ZEST_PRINT("Arena Trim: peak %llu bytes, released %llu, settled at %llu",
+			(zest_ull)peak_capacity, (zest_ull)trim_released, (zest_ull)usage.gpu_transient_capacity);
+		if (test->cache_count == 0) {
+			test->result |= 2;   //The graphs never came from the cache
+		}
+		//Trim reports what it queued for release, which is everything that was live at that moment.
+		if (peak_capacity == 0 || trim_released != peak_capacity) {
+			ZEST_PRINT("Arena Trim: released %llu bytes, expected the %llu that were live",
+				(zest_ull)trim_released, (zest_ull)peak_capacity);
+			test->result |= 4;
+		}
+		//The small graph must not inherit the large graph's high water mark.
+		if (usage.gpu_transient_capacity >= peak_capacity) {
+			ZEST_PRINT("Arena Trim: capacity still %llu bytes after trimming a %llu byte peak",
+				(zest_ull)usage.gpu_transient_capacity, (zest_ull)peak_capacity);
+			test->result |= 8;
+		}
+		//Only the memory is given up - the compiled graph stays cached.
+		zest_frame_graph_cache_key_t big_cache_key = zest_InitialiseCacheKey(tests->context, &big_key, sizeof(int));
+		if (!zest_GetCachedFrameGraph(tests->context, &big_cache_key)) {
+			ZEST_PRINT("Arena Trim: the large graph was evicted from the cache");
+			test->result |= 16;
+		}
+	}
+	return test->result;
+}
+
+/*
 Intraframe Two Graphs: a command graph flushed (without a timeline wait) in the same frame as the
 render graph, both placing a transient buffer of the same category. The command graph's arena
 return is deferred by one FIF cycle precisely because its GPU work may still be in flight with no
