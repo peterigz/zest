@@ -3649,6 +3649,36 @@ typedef struct zest_memory_usage_t {
 	zest_uint max_backend_allocations;
 } zest_memory_usage_t;
 
+#define ZEST_MAX_ARENA_CATEGORY_NAME 32
+
+//Transient arena usage for one category as needed by a single frame graph. Fill with
+//zest_GetFrameGraphTransientReport. These figures are the graph's own requirement, independent of
+//which arena happened to serve it - arenas are recycled between graphs, so an arena's high water
+//mark is a max over every graph that ever used it and cannot tell you which graph drove the peak.
+typedef struct zest_frame_graph_transient_report_t {
+	zest_uint category;                              //ZEST_ARENA_CATEGORY_ value
+	char category_name[ZEST_MAX_ARENA_CATEGORY_NAME];//Human readable form of the category
+	zest_uint resource_count;                        //Transients placed in this category, last execution
+	zest_uint execution_count;                       //Executions that placed into this category
+	zest_size last_watermark;                        //Bytes the packer needed on the last execution
+	zest_size peak_watermark;                        //Largest watermark over every execution of this
+	                                                 //graph - the number to size a reservation from
+	zest_size unaliased_size;                        //Sum of the placed sizes on the last execution:
+	                                                 //what this category would need if nothing aliased
+} zest_frame_graph_transient_report_t;
+
+//A transient arena owned by a context. Fill with zest_GetContextArenaReport. This is what the
+//context is holding right now; zest_frame_graph_transient_report_t is what the graphs actually need.
+typedef struct zest_arena_report_t {
+	zest_uint category;
+	char category_name[ZEST_MAX_ARENA_CATEGORY_NAME];
+	zest_bool checked_out;                    //Currently held by a graph, or awaiting its deferred return
+	zest_size backing_size[ZEST_MAX_FIF];     //Bytes currently allocated, per frame in flight
+	zest_size high_water[ZEST_MAX_FIF];       //Largest watermark placed since creation or the last trim
+	zest_uint grow_count[ZEST_MAX_FIF];       //Times the backing had to be reallocated larger. Every one
+	                                          //of these recreated the transient images bound to it
+} zest_arena_report_t;
+
 #define ZEST_MAX_REPORTED_MEMORY_HEAPS 16
 
 //Budget and usage for a single backend memory heap. Both figures are driver estimates, not exact
@@ -6132,6 +6162,22 @@ ZEST_API zest_uint zest_GetContextPendingReleaseCount(zest_context context);
 //over the next frame in flight cycle, or at the next zest_DrainContextResources on a headless
 //context. Must not be called while a frame graph is being built.
 ZEST_API zest_size zest_TrimContextTransientMemory(zest_context context);
+//Fill reports with one entry per transient arena the context owns and return how many there are.
+//Pass a NULL reports (or a max_reports of 0) to get the count first. This is what the context is
+//holding; zest_GetFrameGraphTransientReport is what the graphs actually need.
+ZEST_API zest_uint zest_GetContextArenaReport(zest_context context, zest_arena_report_t *reports, zest_uint max_reports);
+//Fill reports with one entry per transient arena category this frame graph places into, and return
+//how many there are. Pass a NULL reports to get the count first. The figures accumulate over the
+//graph's executions and survive both an arena checkout being returned and a trim, so peak_watermark
+//stays a true record of what this graph needs. Only meaningful for a cached graph - one rebuilt
+//from scratch every frame reports a single execution.
+ZEST_API zest_uint zest_GetFrameGraphTransientReport(zest_frame_graph frame_graph, zest_frame_graph_transient_report_t *reports, zest_uint max_reports);
+//Print a human readable transient memory readout: the arenas the context is holding now with their
+//sizes, watermarks and reallocation counts, and what each cached graph has placed into them
+//including how much the packer's aliasing saved. Purely informational - it describes what the frame
+//graphs are doing with memory and prescribes nothing. Available in all builds, unlike
+//zest_PrintCompiledFrameGraph.
+ZEST_API void zest_PrintTransientMemoryReport(zest_context context);
 //--End General Helper functions
 
 //-----------------------------------------------
@@ -7358,6 +7404,17 @@ typedef struct zest_frame_graph_semaphores_t {
 	zest_size values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
 } zest_frame_graph_semaphores_t;
 
+//Per category transient requirement of one frame graph, accumulated across its executions. The
+//packer produces these figures each execution in zest__place_transient_resources.
+typedef struct zest_frame_graph_arena_stats_t {
+	zest_uint category;
+	zest_uint resource_count;
+	zest_uint execution_count;
+	zest_size last_watermark;
+	zest_size peak_watermark;
+	zest_size unaliased_size;
+} zest_frame_graph_arena_stats_t;
+
 typedef struct zest_frame_graph_t {
 	int magic;
 	zest_frame_graph_flags flags;
@@ -7385,6 +7442,10 @@ typedef struct zest_frame_graph_t {
 	//Arenas this graph has checked out from the context, looked up by category
 	zest_transient_arena_t *arenas[ZEST_MAX_GRAPH_ARENAS];
 	zest_uint arena_count;
+	//What this graph has needed per category, accumulated over its executions. Unlike arenas above
+	//this is never reset - a cached graph's peak is the durable figure a reservation would use.
+	zest_frame_graph_arena_stats_t arena_stats[ZEST_MAX_GRAPH_ARENAS];
+	zest_uint arena_stats_count;
 
 	zest_descriptor_set *descriptor_sets;
 	zest_pipeline_layout pipeline_layout;
@@ -7683,6 +7744,7 @@ typedef struct zest_transient_arena_t {
 	                                                //a stale match is benign because a freed graph's images are always
 	                                                //retired through the release paths before its memory goes away.
 	zest_size high_water[ZEST_MAX_FIF];
+	zest_uint grow_count[ZEST_MAX_FIF];             //Backing reallocations, not counting the first allocation
 	zest_device_memory_pool backing[ZEST_MAX_FIF];  //Created lazily, grown when a graph's watermark exceeds it
 } zest_transient_arena_t;
 
@@ -14040,6 +14102,8 @@ typedef struct zest__arena_free_range_t {
 typedef struct zest__arena_pack_state_t {
 	zest_uint category;
 	zest_size watermark;
+	zest_uint resource_count;                //Placements in this category this execution
+	zest_size unaliased_size;                //Sum of their sizes: the watermark without any aliasing
 	zest__arena_free_range_t *free_ranges;   //Scratch, frame-linear
 	zest_uint *active;                       //Schedule indices still alive at the sweep point
 } zest__arena_pack_state_t;
@@ -14104,6 +14168,7 @@ zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_
 		zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.arena_backings[fif]), "arena backing");
 		arena->backing[fif] = 0;
 		arena->generation[fif]++;
+		arena->grow_count[fif]++;
 	}
 	//Grow by at least half again so a watermark that creeps up doesn't reallocate every frame.
 	zest_size new_size = ZEST__MAX(required, previous_size + previous_size / 2);
@@ -14134,6 +14199,29 @@ void zest__retire_transient_image_slot(zest_context context, zest_resource_node 
 	slot->in_use = ZEST_FALSE;
 	slot->backend = 0;
 	slot->view = 0;
+}
+
+//Fold one execution's packing result for a category into the graph's durable per category stats.
+//These outlive the arena checkout (and a trim), so they stay a true record of what this graph needs.
+static void zest__record_graph_arena_stats(zest_frame_graph frame_graph, zest__arena_pack_state_t *state) {
+	zest_frame_graph_arena_stats_t *stats = 0;
+	for (zest_uint i = 0; i != frame_graph->arena_stats_count; ++i) {
+		if (frame_graph->arena_stats[i].category == state->category) {
+			stats = &frame_graph->arena_stats[i];
+			break;
+		}
+	}
+	if (!stats) {
+		if (frame_graph->arena_stats_count == ZEST_MAX_GRAPH_ARENAS) return;
+		stats = &frame_graph->arena_stats[frame_graph->arena_stats_count++];
+		*stats = ZEST__ZERO_INIT(zest_frame_graph_arena_stats_t);
+		stats->category = state->category;
+	}
+	stats->execution_count++;
+	stats->resource_count = state->resource_count;
+	stats->last_watermark = state->watermark;
+	stats->unaliased_size = state->unaliased_size;
+	stats->peak_watermark = ZEST__MAX(stats->peak_watermark, state->watermark);
 }
 
 zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator) {
@@ -14227,9 +14315,13 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 			state = &pack_states[pack_state_count++];
 			state->category = entry->category;
 			state->watermark = 0;
+			state->resource_count = 0;
+			state->unaliased_size = 0;
 			state->free_ranges = 0;
 			state->active = 0;
 		}
+		state->resource_count++;
+		state->unaliased_size += entry->size;
 
 		//Expire live placements that ended before this one begins; their ranges become
 		//candidates for reuse, tagged with the hazard info of their last use.
@@ -14294,6 +14386,7 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 	//Phase C: check out the arenas this graph needs and make sure their backings are big enough
 	for (zest_uint i = 0; i != pack_state_count; ++i) {
 		if (!pack_states[i].watermark) continue;
+		zest__record_graph_arena_stats(frame_graph, &pack_states[i]);
 		zest_transient_arena_t *arena = zest__checkout_transient_arena(context, frame_graph, pack_states[i].category);
 		if (!zest__ensure_arena_backing(context, arena, fif, pack_states[i].watermark)) {
 			return ZEST_FALSE;
@@ -16968,6 +17061,111 @@ static void zest__format_arena_category(zest_uint category, char *out, zest_size
     } else {
         zest_snprintf(out, out_size, "Image[mem type %u]", category - ZEST_ARENA_CATEGORY_IMAGE_BASE);
     }
+}
+
+zest_uint zest_GetFrameGraphTransientReport(zest_frame_graph frame_graph, zest_frame_graph_transient_report_t *reports, zest_uint max_reports) {
+	ZEST_ASSERT_HANDLE(frame_graph);	//Not a valid frame graph handle
+	zest_uint count = 0;
+	for (zest_uint i = 0; i != frame_graph->arena_stats_count; ++i) {
+		zest_frame_graph_arena_stats_t *stats = &frame_graph->arena_stats[i];
+		if (reports && count < max_reports) {
+			zest_frame_graph_transient_report_t *report = &reports[count];
+			*report = ZEST__ZERO_INIT(zest_frame_graph_transient_report_t);
+			report->category = stats->category;
+			zest__format_arena_category(stats->category, report->category_name, sizeof(report->category_name));
+			report->resource_count = stats->resource_count;
+			report->execution_count = stats->execution_count;
+			report->last_watermark = stats->last_watermark;
+			report->peak_watermark = stats->peak_watermark;
+			report->unaliased_size = stats->unaliased_size;
+		}
+		count++;
+	}
+	return count;
+}
+
+zest_uint zest_GetContextArenaReport(zest_context context, zest_arena_report_t *reports, zest_uint max_reports) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	zest_uint count = 0;
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *arena = context->transient_arenas[i];
+		if (reports && count < max_reports) {
+			zest_arena_report_t *report = &reports[count];
+			*report = ZEST__ZERO_INIT(zest_arena_report_t);
+			report->category = arena->category;
+			zest__format_arena_category(arena->category, report->category_name, sizeof(report->category_name));
+			report->checked_out = arena->checked_out;
+			zest_ForEachFrameInFlight(fif) {
+				report->backing_size[fif] = arena->backing[fif] ? arena->backing[fif]->size : 0;
+				report->high_water[fif] = arena->high_water[fif];
+				report->grow_count[fif] = arena->grow_count[fif];
+			}
+		}
+		count++;
+	}
+	return count;
+}
+
+void zest_PrintTransientMemoryReport(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	char category_name[ZEST_MAX_ARENA_CATEGORY_NAME];
+	zest_memory_usage_t usage = zest_GetMemoryUsage(context);
+
+	ZEST_PRINT("--- Transient Memory Report ---");
+	ZEST_PRINT("Context holds %u arena(s), %llu bytes total across %i frames in flight.",
+		usage.gpu_transient_arena_count, (zest_ull)usage.gpu_transient_capacity, (int)ZEST_MAX_FIF);
+
+	ZEST_PRINT("");
+	ZEST_PRINT("Arenas the context owns. Backing is what is allocated for that frame in flight now,");
+	ZEST_PRINT("High-Water the largest watermark placed into it since it was created or last trimmed,");
+	ZEST_PRINT("and Grows the number of times the backing had to be reallocated larger - each of those");
+	ZEST_PRINT("recreated every transient image bound to it. In-Use covers an arena a graph currently");
+	ZEST_PRINT("holds as well as one awaiting its deferred return:");
+	ZEST_PRINT("  %-22s %5s %3s %14s %14s %6s  %s", "Category", "Arena", "FIF", "Backing", "High-Water", "Grows", "In-Use");
+	if (zest_vec_size(context->transient_arenas) == 0) {
+		ZEST_PRINT("  (none)");
+	}
+	zest_vec_foreach(i, context->transient_arenas) {
+		zest_transient_arena_t *arena = context->transient_arenas[i];
+		zest__format_arena_category(arena->category, category_name, sizeof(category_name));
+		//One row per frame in flight: a backing of 0 means that slot has not been placed into since
+		//the arena was created or last trimmed, not that the arena is unused.
+		zest_ForEachFrameInFlight(fif) {
+			ZEST_PRINT("  %-22s %5u %3u %14llu %14llu %6u  %s", category_name, (zest_uint)i, fif,
+				(zest_ull)(arena->backing[fif] ? arena->backing[fif]->size : 0),
+				(zest_ull)arena->high_water[fif], arena->grow_count[fif],
+				arena->checked_out ? "yes" : "no");
+		}
+	}
+
+	ZEST_PRINT("");
+	ZEST_PRINT("Transients placed by each cached graph. Res is how many were placed in that category");
+	ZEST_PRINT("on the last execution, Last the bytes they needed and Peak the most this graph has ever");
+	ZEST_PRINT("needed. Unaliased is what those same transients would take with no memory reuse, so");
+	ZEST_PRINT("Saved is what the packer recovered by overlapping ones whose lifetimes do not touch:");
+	if (zest_map_size(context->cached_frame_graphs) == 0) {
+		ZEST_PRINT("  (no cached frame graphs - only cached graphs keep a history, a graph rebuilt");
+		ZEST_PRINT("   from scratch every frame has nowhere to record one. Build with a cache key.)");
+		ZEST_PRINT("--- End Transient Memory Report ---");
+		return;
+	}
+	ZEST_PRINT("  %-24s %-22s %4s %14s %14s %14s %6s", "Graph", "Category", "Res", "Last", "Peak", "Unaliased", "Saved");
+	zest_map_foreach(i, context->cached_frame_graphs) {
+		zest_frame_graph frame_graph = context->cached_frame_graphs.data[i].frame_graph;
+		for (zest_uint c = 0; c != frame_graph->arena_stats_count; ++c) {
+			zest_frame_graph_arena_stats_t *stats = &frame_graph->arena_stats[c];
+			zest__format_arena_category(stats->category, category_name, sizeof(category_name));
+			zest_uint saved_percent = stats->unaliased_size
+				? (zest_uint)(((stats->unaliased_size - stats->peak_watermark) * 100) / stats->unaliased_size)
+				: 0;
+			ZEST_PRINT("  %-24s %-22s %4u %14llu %14llu %14llu %5u%%",
+				c == 0 ? (frame_graph->name ? frame_graph->name : "(unnamed)") : "",
+				category_name, stats->resource_count,
+				(zest_ull)stats->last_watermark, (zest_ull)stats->peak_watermark,
+				(zest_ull)stats->unaliased_size, saved_percent);
+		}
+	}
+	ZEST_PRINT("--- End Transient Memory Report ---");
 }
 #endif
 

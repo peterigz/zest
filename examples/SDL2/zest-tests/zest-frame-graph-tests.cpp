@@ -1586,6 +1586,153 @@ int test__arena_trim(ZestTests *tests, Test *test) {
 }
 
 /*
+Transient Report: the per graph transient report exists because an arena's high water mark cannot
+say WHICH graph drove it - arenas are recycled between graphs, so their high water is a max over
+everything that ever used them. Run a large graph and a small graph alternately against the same
+arena and check the report attributes each peak to the right graph, accounts for the aliasing the
+packer achieved (the large graph chains four passes so its third transient can reuse the first
+one's bytes), and keeps those figures across a trim.
+*/
+#define REPORT_TRIM_FRAME (ZEST_MAX_FIF * 4)
+#define REPORT_RUN_COUNT (ZEST_MAX_FIF * 6)
+
+static void tst__build_report_graph(zest_bool big) {
+	zest_ImportSwapchainResource();
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	info.width = big ? 1024 : 64;
+	info.height = big ? 1024 : 64;
+	zest_resource_node t1 = zest_AddTransientImageResource("T1", &info);
+	zest_resource_node t2 = zest_AddTransientImageResource("T2", &info);
+	zest_resource_node t3 = zest_AddTransientImageResource("T3", &info);
+
+	zest_BeginRenderPass("Write T1");
+	zest_ConnectOutput(t1);
+	zest_SetPassTask(zest_EmptyRenderPass, NULL);
+	zest_EndPass();
+
+	zest_BeginRenderPass("T1 to T2");
+	zest_ConnectInput(t1);
+	zest_ConnectOutput(t2);
+	zest_SetPassTask(zest_EmptyRenderPass, NULL);
+	zest_EndPass();
+
+	//T1 is dead from here, so T3 can be packed into its bytes
+	zest_BeginRenderPass("T2 to T3");
+	zest_ConnectInput(t2);
+	zest_ConnectOutput(t3);
+	zest_SetPassTask(zest_EmptyRenderPass, NULL);
+	zest_EndPass();
+
+	zest_BeginRenderPass("T3 to Screen");
+	zest_ConnectInput(t3);
+	zest_ConnectSwapChainOutput();
+	zest_SetPassTask(zest_EmptyRenderPass, NULL);
+	zest_EndPass();
+}
+
+int test__transient_report(ZestTests *tests, Test *test) {
+	static zest_frame_graph big_graph;
+	static zest_frame_graph small_graph;
+	static zest_size big_peak_before_trim;
+	static int big_key = 0;
+	static int small_key = 1;
+	if (test->frame_count == 0) {
+		big_graph = NULL;
+		small_graph = NULL;
+		big_peak_before_trim = 0;
+	}
+	zest_bool big = ((test->frame_count / ZEST_MAX_FIF) % 2) == 0;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, big ? &big_key : &small_key, sizeof(int));
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, big ? "Report Big" : "Report Small", &cache_key)) {
+				tst__build_report_graph(big);
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		if (big) big_graph = frame_graph; else small_graph = frame_graph;
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+
+	if (test->frame_count == REPORT_TRIM_FRAME) {
+		zest_frame_graph_transient_report_t reports[ZEST_MAX_GRAPH_ARENAS];
+		zest_uint count = zest_GetFrameGraphTransientReport(big_graph, reports, ZEST_MAX_GRAPH_ARENAS);
+		for (zest_uint i = 0; i != count; ++i) {
+			big_peak_before_trim = ZEST__MAX(big_peak_before_trim, reports[i].peak_watermark);
+		}
+		zest_TrimContextTransientMemory(tests->context);
+	}
+
+	if (test->frame_count == test->run_count) {
+		zest_PrintTransientMemoryReport(tests->context);
+
+		zest_frame_graph_transient_report_t big_reports[ZEST_MAX_GRAPH_ARENAS];
+		zest_frame_graph_transient_report_t small_reports[ZEST_MAX_GRAPH_ARENAS];
+		zest_uint big_count = zest_GetFrameGraphTransientReport(big_graph, big_reports, ZEST_MAX_GRAPH_ARENAS);
+		zest_uint small_count = zest_GetFrameGraphTransientReport(small_graph, small_reports, ZEST_MAX_GRAPH_ARENAS);
+		if (big_count == 0 || small_count == 0) {
+			ZEST_PRINT("Transient Report: no categories reported (big %u, small %u)", big_count, small_count);
+			test->result |= 2;
+			return test->result;
+		}
+		zest_size big_peak = 0, small_peak = 0, big_unaliased = 0;
+		zest_uint big_executions = 0, big_resources = 0;
+		for (zest_uint i = 0; i != big_count; ++i) {
+			if (big_reports[i].peak_watermark > big_peak) {
+				big_peak = big_reports[i].peak_watermark;
+				big_unaliased = big_reports[i].unaliased_size;
+				big_executions = big_reports[i].execution_count;
+				big_resources = big_reports[i].resource_count;
+			}
+		}
+		for (zest_uint i = 0; i != small_count; ++i) {
+			small_peak = ZEST__MAX(small_peak, small_reports[i].peak_watermark);
+		}
+		//Each peak has to be attributed to the graph that actually needed it.
+		if (big_peak <= small_peak) {
+			ZEST_PRINT("Transient Report: peaks not attributed per graph (big %llu, small %llu)",
+				(zest_ull)big_peak, (zest_ull)small_peak);
+			test->result |= 4;
+		}
+		//Three transients placed, and the packer aliased one of them away.
+		if (big_resources != 3 || big_unaliased <= big_peak) {
+			ZEST_PRINT("Transient Report: expected 3 transients with aliasing, got %u placed, peak %llu, unaliased %llu",
+				big_resources, (zest_ull)big_peak, (zest_ull)big_unaliased);
+			test->result |= 8;
+		}
+		//The figures accumulate over executions and survive the trim at REPORT_TRIM_FRAME.
+		if (big_executions < 2 || big_peak_before_trim == 0 || big_peak != big_peak_before_trim) {
+			ZEST_PRINT("Transient Report: peak did not survive the trim (%llu before, %llu after, %u executions)",
+				(zest_ull)big_peak_before_trim, (zest_ull)big_peak, big_executions);
+			test->result |= 16;
+		}
+		//The arena the two graphs share cannot tell them apart - its high water is a max over both,
+		//which is exactly why the per graph report has to exist.
+		zest_arena_report_t arenas[16];
+		zest_uint arena_count = zest_GetContextArenaReport(tests->context, arenas, 16);
+		zest_size arena_high_water = 0;
+		for (zest_uint i = 0; i != arena_count; ++i) {
+			zest_ForEachFrameInFlight(fif) {
+				arena_high_water = ZEST__MAX(arena_high_water, arenas[i].high_water[fif]);
+			}
+		}
+		if (arena_count == 0 || arena_high_water < big_peak) {
+			ZEST_PRINT("Transient Report: %u arenas, high water %llu, expected at least the big graph's %llu",
+				arena_count, (zest_ull)arena_high_water, (zest_ull)big_peak);
+			test->result |= 32;
+		}
+	}
+	return test->result;
+}
+
+/*
 Intraframe Two Graphs: a command graph flushed (without a timeline wait) in the same frame as the
 render graph, both placing a transient buffer of the same category. The command graph's arena
 return is deferred by one FIF cycle precisely because its GPU work may still be in flight with no
