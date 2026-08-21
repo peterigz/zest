@@ -7583,6 +7583,10 @@ typedef struct zest_buffer_t {
 #define ZEST_ARENA_CATEGORY_GPU_BUFFERS 0
 #define ZEST_ARENA_CATEGORY_CPU_BUFFERS 1
 #define ZEST_ARENA_CATEGORY_IMAGE_BASE  2
+//Transient arena backings are sized up to a multiple of this. An arena is one raw device
+//allocation that the compile time packer assigns offsets into, so nothing inside it needs a power
+//of two size and rounding to one would strand the overshoot in every frame in flight.
+#define ZEST_ARENA_SIZE_GRANULARITY zloc__MEGABYTE(1)
 //Floor for the buffer offset granularity. 256 covers every Vulkan minimum offset alignment limit
 //(uniform/storage/texel) and the D3D12 constant buffer view rule. The actual granularity used for
 //all buffer suballocation (pools and transient arenas) is device->buffer_offset_granularity,
@@ -14049,6 +14053,7 @@ zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_
 	if (arena->backing[fif] && arena->backing[fif]->size >= required) {
 		return ZEST_TRUE;
 	}
+	zest_size previous_size = arena->backing[fif] ? arena->backing[fif]->size : 0;
 	if (arena->backing[fif]) {
 		//The backing must grow. Defer freeing the old one (this FIF slot's GPU work from the
 		//previous cycle may still reference it) and bump the generation so any images bound
@@ -14058,7 +14063,10 @@ zest_bool zest__ensure_arena_backing(zest_context context, zest_transient_arena_
 		arena->backing[fif] = 0;
 		arena->generation[fif]++;
 	}
-	zest_size new_size = zest_GetNextPower(ZEST__MAX(required, (zest_size)zloc__MEGABYTE(1)));
+	//Grow by at least half again so a watermark that creeps up doesn't reallocate every frame.
+	zest_size new_size = ZEST__MAX(required, previous_size + previous_size / 2);
+	new_size = ZEST__MAX(new_size, (zest_size)ZEST_ARENA_SIZE_GRANULARITY);
+	new_size = (new_size + ZEST_ARENA_SIZE_GRANULARITY - 1) & ~((zest_size)ZEST_ARENA_SIZE_GRANULARITY - 1);
 	arena->backing[fif] = context->device->platform->create_arena_backing(context->device, context, arena->category, new_size);
 	if (!arena->backing[fif]) {
 		ZEST_APPEND_LOG(context->device->log_path.str, "Failed to allocate a transient arena backing of %llu bytes for category %u.", (zest_ull)new_size, arena->category);
