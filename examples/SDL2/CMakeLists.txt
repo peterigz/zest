@@ -203,3 +203,8 @@ endif()
 buildExamples()
 
 
+
+# TimelineFX hot reload harness. Self contained: an engine DLL plus a headless and a
+# rendered host exe, its own TimelineFX working copy, and no use of buildExample() or
+# the shared TIMELINEFX variable. Skips itself if that working copy is missing.
+add_subdirectory(zest-timelinefx-reload)
