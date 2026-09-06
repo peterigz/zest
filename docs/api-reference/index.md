@@ -186,7 +186,7 @@ zest_SetPipelineShaders(pipeline, vert_shader, frag_shader);
 zest_SetPipelineTopology(pipeline, zest_topology_triangle_list);
 zest_SetPipelineCullMode(pipeline, zest_cull_mode_back);
 zest_SetPipelineDepthTest(pipeline, ZEST_TRUE, ZEST_TRUE);
-zest_SetPipelineBlend(pipeline, zest_BlendStateNone());
+zest_SetPipelineBlend(pipeline, zest_BlendStateOpaque());
 ```
 
 ### Image Presets

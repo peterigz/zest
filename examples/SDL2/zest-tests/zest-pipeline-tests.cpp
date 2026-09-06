@@ -72,9 +72,10 @@ int test__pipeline_state_depth(ZestTests *tests, Test *test) {
 
 //Pipeline state blending - test all available blend states
 int test__pipeline_state_blending(ZestTests *tests, Test *test) {
-	// Test all 9 available blend states
+	// Test all 10 available blend states
 	zest_color_blend_attachment_t blend_states[] = {
 		zest_BlendStateNone(),
+		zest_BlendStateOpaque(),
 		zest_AdditiveBlendState(),
 		zest_AdditiveBlendState2(),
 		zest_AlphaOnlyBlendState(),
@@ -87,6 +88,7 @@ int test__pipeline_state_blending(ZestTests *tests, Test *test) {
 	
 	const char* blend_names[] = {
 		"Blend State None",
+		"Blend State Opaque",
 		"Blend State Additive",
 		"Blend State Additive2", 
 		"Blend State Alpha Only",
@@ -97,12 +99,12 @@ int test__pipeline_state_blending(ZestTests *tests, Test *test) {
 		"Blend State ImGui"
 	};
 	
-	zest_pipeline pipelines[9];
+	zest_pipeline pipelines[10];
 	int failed_count = 0;
 
 	zest_command_list_t command_list = create_test_command_list(tests);
 	
-	for (int i = 0; i < 9; i++) {
+	for (int i = 0; i < 10; i++) {
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, blend_names[i]);
 		zest_SetPipelineBlend(pipeline, blend_states[i]);
 		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
