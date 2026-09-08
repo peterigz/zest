@@ -98,6 +98,10 @@ layout(location = 7) in uint captured_index;
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out flat ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
+#ifdef TFX_PER_SHAPE_IMAGES
+//Every shape has its own image so the descriptor index has to reach the fragment shader per particle
+layout(location = 3) out flat uint out_image_index;
+#endif
 
 mat3 QuaternionToRotationMatrix(vec4 q) {
     float xx = q.x * q.x; float xy = q.x * q.y; float xz = q.x * q.z; float xw = q.x * q.w;
@@ -264,7 +268,8 @@ void main() {
     modelView[2].xyz = !billboarding ? vec3(0, 0, 1) : modelView[2].xyz;
 
     vec2 uvs[4];
-	uint image_index = texture_indexes & 0x00001FFF;
+	//The sprite holds the animation frame only; the emitter's properties hold where its image starts
+	uint image_index = props.start_frame_index + (texture_indexes & 0x00001FFF);
 	vec4 uv = in_image_data[pc.image_data_index].data[image_index].uv;
     uvs[0] = uv.xy;
     uvs[1] = uv.zy;
@@ -279,6 +284,13 @@ void main() {
 	int ramp_y = int(props.color_ramp_indexes & 0xFFu);
 	int ramp_array = int((props.color_ramp_indexes >> 8) & 0xFFu);
 	out_texture_indexes = ivec3(ramp_y, ramp_array, life);
-	out_tex_coord = vec3(uvs[index], in_image_data[pc.image_data_index].data[image_index].texture_array_index);
+	uint packed_texture_index = in_image_data[pc.image_data_index].data[image_index].texture_array_index;
+#ifdef TFX_PER_SHAPE_IMAGES
+	//Packed as [bindless image index << 16 | animation frame]
+	out_image_index = packed_texture_index >> 16;
+	out_tex_coord = vec3(uvs[index], float(packed_texture_index & 0xFFFFu));
+#else
+	out_tex_coord = vec3(uvs[index], float(packed_texture_index));
+#endif
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
 }

@@ -13,6 +13,12 @@
 	Example showing how to use the timelinefx library and implementation to render particle effects
  */
 
+//Set to 1 to give every particle shape its own bindless image instead of packing all of the shapes into
+//one atlas texture. Both paths draw the particles in a single draw call, this only changes how the shapes
+//are stored and how the fragment shader reaches them. The implementation and the shaders have to agree,
+//so this one toggle switches both.
+#define TFX_PER_SHAPE_IMAGES 1
+
 typedef unsigned int u32;
 
 struct RenderCacheInfo {
@@ -59,12 +65,22 @@ zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, 
 }
 
 void TimelineFXExample::Init() {
-	zest_shader_handle particles_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle particles_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	zest_shader_options shader_options = NULL;
+#if TFX_PER_SHAPE_IMAGES
+	shader_options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(shader_options, "TFX_PER_SHAPE_IMAGES", "1");
+#endif
+	zest_shader_handle particles_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", zest_fragment_shader, shader_options, true);
+	zest_shader_handle particles_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", zest_vertex_shader, shader_options, true);
+	zest_shader_handle ribbon_rendering_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, shader_options, true);
+	zest_shader_handle ribbon_rendering_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, shader_options, true);
+	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, shader_options, true);
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
+#if TFX_PER_SHAPE_IMAGES
+	//Must be set before the library is loaded, it decides how the shapes get uploaded
+	zest_tfx_SetPerShapeImages(&tfx_rendering, ZEST_TRUE);
+	zest_FreeShaderOptions(shader_options);
+#endif
 
 	//Load the effects library and create the particle image atlas
 	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);

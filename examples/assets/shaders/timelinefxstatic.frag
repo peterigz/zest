@@ -4,6 +4,13 @@
 layout(location = 0) in vec3 in_tex_coord;
 layout(location = 1) in flat ivec3 in_color_ramp_coords;
 layout(location = 2) in vec4 in_intensity_curved_alpha_map;
+#ifdef TFX_PER_SHAPE_IMAGES
+layout(location = 3) in flat uint in_image_index;
+//The index varies per particle rather than per draw, so the descriptor read is non uniform
+#define TFX_PARTICLE_IMAGE images[nonuniformEXT(in_image_index)]
+#else
+#define TFX_PARTICLE_IMAGE images[pc.particle_texture_index]
+#endif
 
 layout(location = 0) out vec4 out_color;
 
@@ -26,7 +33,7 @@ layout(push_constant) uniform push_const
 } pc;
 
 void main() {
-	vec4 texel = texture(sampler2DArray(images[pc.particle_texture_index], samplers[pc.sampler_index]), in_tex_coord);
+	vec4 texel = texture(sampler2DArray(TFX_PARTICLE_IMAGE, samplers[pc.sampler_index]), in_tex_coord);
 	float lookup = clamp(texel.r * in_intensity_curved_alpha_map.w, 0.0, 1.0);
 	int ramp_x = int(lookup * 255);
 	ivec3 ramp = ivec3(ramp_x, in_color_ramp_coords.x, in_color_ramp_coords.y);

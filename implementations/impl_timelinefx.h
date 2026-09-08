@@ -81,6 +81,12 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint emitter_properties_index;
 	zest_uint atlas_layer_width;
 	zest_uint atlas_layer_height;
+	//Per shape images (see zest_tfx_SetPerShapeImages). When set, each particle shape gets its own
+	//layered image and bindless index rather than being packed into the atlas texture.
+	zest_device device;
+	zest_bool per_shape_images;
+	zest_image_handle *shape_images;
+	zest_uint shape_image_count;
 } tfx_library_render_resources_t;
 
 typedef struct tfx_ribbon_render_dispatch_t {
@@ -131,6 +137,11 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
 void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_stage pm);
 
 zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count);
+
+//Switch between packing every particle shape into one atlas texture (the default) and giving each shape
+//its own image with its own bindless index. Both draw in a single draw call. Call this before loading a
+//library or sprite data, and compile the timelinefx shaders with TFX_PER_SHAPE_IMAGES defined to match.
+void zest_tfx_SetPerShapeImages(tfx_library_render_resources_t *resources, zest_bool per_shape_images);
 void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 //-- Uniform buffer and rendering --
 
@@ -154,6 +165,7 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render
 void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library);
 void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers);
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
+void zest_tfx_GetUVPerShape(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
 void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
 
 #ifdef __cplusplus
