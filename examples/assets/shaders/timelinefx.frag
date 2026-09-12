@@ -4,13 +4,10 @@
 layout(location = 0) in vec3 in_tex_coord;
 layout(location = 1) in flat ivec3 in_color_ramp_coords;
 layout(location = 2) in vec4 in_intensity_curved_alpha_map;
-#ifdef TFX_PER_SHAPE_IMAGES
 layout(location = 3) in flat uint in_image_index;
-//The index varies per particle rather than per draw, so the descriptor read is non uniform
+//Every shape has its own image, so the index varies per particle rather than per draw and the descriptor
+//read is non uniform
 #define TFX_PARTICLE_IMAGE images[nonuniformEXT(in_image_index)]
-#else
-#define TFX_PARTICLE_IMAGE images[pc.particle_texture_index]
-#endif
 
 layout(location = 0) out vec4 out_color;
 
@@ -19,7 +16,6 @@ layout(set = 0, binding = 0) uniform sampler samplers[];
 
 layout(push_constant) uniform quad_index
 {
-    uint particle_texture_index;
     uint color_ramp_texture_index;
     uint image_data_index;
     uint properties_index;

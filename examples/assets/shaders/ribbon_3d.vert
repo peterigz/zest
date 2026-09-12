@@ -141,10 +141,8 @@ layout(location = 3) in uint ribbon_index;
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out ivec3 out_texture_indexes;
 layout(location = 2) out vec4 out_intensity_curved_alpha_map;
-#ifdef TFX_PER_SHAPE_IMAGES
 //Every shape has its own image so the descriptor index has to reach the fragment shader per particle
 layout(location = 3) out flat uint out_image_index;
-#endif
 
 vec2 unpack16bit_sscaled(uint packed) {
     int x_scaled = (int(packed) << 16) >> 16;
@@ -266,14 +264,10 @@ void main() {
 
 	int life = int(ribbon_position * 255);
 	uint packed_texture_index = images[pc.image_data_index].data[image_index].texture_array_index;
-#ifdef TFX_PER_SHAPE_IMAGES
 	//Packed as [bindless image index << 16 | animation frame]. The uv rect is the full 0..1 of the shape's
 	//own image, so the wrapping above reduces to the fraction and a repeat sampler could replace it.
 	out_image_index = packed_texture_index >> 16;
 	out_tex_coord = vec3(vec2(uv_x, uv_y), float(packed_texture_index & 0xFFFFu));
-#else
-	out_tex_coord = vec3(vec2(uv_x, uv_y), float(packed_texture_index));
-#endif
 	out_texture_indexes = ivec3((ribbon.texture_indexes & 0xFF000000) >> 24, (ribbon.texture_indexes & 0x00FF0000) >> 16, life);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * ribbon_intensity_gradient_map.x, curved_alpha.x * ribbon_curved_alpha.x, curved_alpha.y * ribbon_curved_alpha.y, intensity_gradient_map.y * ribbon_intensity_gradient_map.y);
 }
