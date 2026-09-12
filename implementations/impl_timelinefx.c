@@ -1,6 +1,54 @@
 #include "impl_timelinefx.h"
 #include "stb_image.h"
 
+//tfx keeps the pointer the shape loader hands it for as long as the shape is in the library, so a record
+//is allocated on its own and never moves. Only the pointer list grows, which it is free to do.
+ZEST_PRIVATE zest_tfx_shape_image_t *zest__tfx_add_shape_record(tfx_library_render_resources_t *resources) {
+	if (resources->shape_image_count == resources->shape_image_capacity) {
+		zest_uint capacity = resources->shape_image_capacity ? resources->shape_image_capacity * 2 : 64;
+		zest_tfx_shape_image_t **images = (zest_tfx_shape_image_t **)ZEST_UTILITIES_MALLOC(sizeof(zest_tfx_shape_image_t *) * capacity);
+		if (!images) {
+			return NULL;
+		}
+		if (resources->shape_images) {
+			memcpy(images, resources->shape_images, sizeof(zest_tfx_shape_image_t *) * resources->shape_image_count);
+			ZEST_UTILITIES_FREE(resources->shape_images);
+		}
+		resources->shape_images = images;
+		resources->shape_image_capacity = capacity;
+	}
+	zest_tfx_shape_image_t *record = (zest_tfx_shape_image_t *)ZEST_UTILITIES_MALLOC(sizeof(zest_tfx_shape_image_t));
+	if (!record) {
+		return NULL;
+	}
+	*record = ZEST__ZERO_INIT(zest_tfx_shape_image_t);
+	resources->shape_images[resources->shape_image_count++] = record;
+	return record;
+}
+
+//The sheet comes from stb_image so it goes back the same way rather than through zest_FreeBitmap. When the
+//decoder could not read it the sheet is tfx's own buffer and is not ours to release.
+ZEST_PRIVATE void zest__tfx_free_shape_pixels(zest_tfx_shape_image_t *record) {
+	if (record->pixels_owned && record->pixels.data) {
+		free(record->pixels.data);
+	}
+	record->pixels.data = NULL;
+	record->pixels_owned = ZEST_FALSE;
+}
+
+ZEST_PRIVATE void zest__tfx_free_shape_record(tfx_library_render_resources_t *resources, zest_uint index) {
+	zest_tfx_shape_image_t *record = resources->shape_images[index];
+	//zest_FreeImage releases the image's bindless index as part of the deferred cleanup, which is the right
+	//time: the descriptor can still be read by frames in flight until then. Releasing it here as well would
+	//hand the index out again while the cleanup still means to free it.
+	if (record->image.value) {
+		zest_FreeImage(record->image);
+	}
+	zest__tfx_free_shape_pixels(record);
+	ZEST_UTILITIES_FREE(record);
+	resources->shape_images[index] = resources->shape_images[--resources->shape_image_count];
+}
+
 //Before you load an effects file, you will need to define a ShapeLoader function that passes the following parameters:
 //const char* filename			- this will be the filename of the image being loaded from the library. You don't have to do anything with this if you don't need to.
 //ImageData	&image_data			- A struct containing data about the image. You will have to set image_data.ptr to point to the texture in your renderer for later use in the Render function that you will create to render the particles
@@ -14,35 +62,169 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
 	int width, height, channels;
 	stbi_uc *pixels = stbi_load_from_memory(raw_image_data, image_memory_size, &width, &height, &channels, 4);
-	//Convert the image to RGBA which is necessary for this particular renderer
-	zest_size pixels_size = width * height * 4;
-	//The editor has the option to convert an bitmap to an alpha map. I will probably change this so that it gets baked into the saved effect so you won't need to apply the filter here.
-	//Alpha map is where all color channels are set to 255
-	zest_bitmap_t bitmap = { 0 };
-	bitmap.data = pixels;
-	bitmap.meta.size = pixels_size;
-	bitmap.meta.channels = 4;
-	bitmap.meta.width = width;
-	bitmap.meta.height = height;
-	bitmap.meta.format = zest_format_r8g8b8a8_unorm;
-
-	//Get the texture where we're storing all the particle shapes
-	//You'll probably need to load the image in such a way depending on whether or not it's an animation or not
-	if (tfx_GetImageFrameCount(image_data) > 1) {
-		//Add the spritesheet to the texture in our renderer
-		float max_radius = 0;
-		void *ptr = zest_AddImageAtlasAnimationPixels(&resources->particle_images, pixels, pixels_size, width, height, (tfxU32)tfx_GetImageWidth(image_data), (tfxU32)tfx_GetImageHeight(image_data), (tfxU32)tfx_GetImageFrameCount(image_data), zest_format_r8g8b8a8_unorm);
-		tfx_SetImagePointer(image_data, ptr);
-		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
-		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
-	} else {
-		//Add the image to the texture in our renderer
-		void *ptr = zest_AddImageAtlasPixels(&resources->particle_images, pixels, pixels_size, width, height, zest_format_r8g8b8a8_unorm);
-		tfx_SetImagePointer(image_data, ptr);
-		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
-		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
+	bool pixels_not_loaded = !pixels ? true : false;
+	if (pixels_not_loaded) {
+		pixels = (stbi_uc *)raw_image_data;
+		width = tfx_GetImageWidth(image_data);
+		height = tfx_GetImageHeight(image_data);
 	}
-	free(pixels);
+
+	zest_tfx_shape_image_t *record = zest__tfx_add_shape_record(resources);
+	if (!record) {
+		if (!pixels_not_loaded) {
+			free(pixels);
+		}
+		return;
+	}
+
+	//The sheet is kept whole and its frames are cut straight into the staging buffer when the image is made,
+	//so an animation costs one allocation here rather than one per frame.
+	record->pixels.data = (zest_byte *)pixels;
+	record->pixels.meta.width = width;
+	record->pixels.meta.height = height;
+	record->pixels.meta.channels = 4;
+	record->pixels.meta.bytes_per_pixel = 4;
+	record->pixels.meta.stride = width * 4;
+	record->pixels.meta.size = (zest_size)width * height * 4;
+	record->pixels.meta.format = zest_format_r8g8b8a8_unorm;
+	record->pixels.is_imported = ZEST_TRUE;
+	record->pixels_owned = pixels_not_loaded ? ZEST_FALSE : ZEST_TRUE;
+
+	zest_uint frames = (zest_uint)tfx_GetImageFrameCount(image_data);
+	record->frames = frames > 1 ? frames : 1;
+	record->frame_width = record->frames > 1 ? (zest_uint)tfx_GetImageWidth(image_data) : (zest_uint)width;
+	record->frame_height = record->frames > 1 ? (zest_uint)tfx_GetImageHeight(image_data) : (zest_uint)height;
+	resources->pending_count++;
+
+	//Important step: the record is what the uv lookup is handed for this shape, which is how a particle
+	//finds the image made for it below.
+	tfx_SetImagePointer(image_data, record);
+}
+
+//Create one layered image per particle shape. The frames of an animated shape become the array layers of
+//that one image, so an animation costs a single descriptor like any other shape. Only the shapes the loader
+//has just queued are processed, so a refresh only uploads what it added.
+static void zest__tfx_upload_pending_shapes(zest_context context, tfx_library_render_resources_t *resources) {
+	if (!resources->pending_count) {
+		return;
+	}
+	zest_device device = zest_GetContextDevice(context);
+	zest_uint first_pending = resources->shape_image_count - resources->pending_count;
+
+	zest_size total_size = 0;
+	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+		zest_tfx_shape_image_t *record = resources->shape_images[i];
+		total_size += (zest_size)record->frames * record->frame_width * record->frame_height * 4;
+	}
+
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, total_size, 0);
+	if (!staging_buffer) {
+		return;
+	}
+
+	//A shape's frames go into the staging buffer back to back so that they upload as one region. A shape
+	//with a single frame is the same copy with nothing to step over.
+	zest_byte *staging_data = (zest_byte *)zest_BufferData(staging_buffer);
+	//A sheet whose grid does not hold every frame it claims leaves the frames past the end of the grid
+	//uncopied below, so the buffer starts blank rather than uploading whatever was in host memory.
+	memset(staging_data, 0, total_size);
+	zest_size staging_offset = 0;
+	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+		zest_tfx_shape_image_t *record = resources->shape_images[i];
+		zest_uint columns = record->frame_width ? record->pixels.meta.width / record->frame_width : 1;
+		if (!columns) {
+			columns = 1;
+		}
+		for (zest_uint f = 0; f != record->frames; ++f) {
+			zest_bitmap_t frame = ZEST__ZERO_INIT(zest_bitmap_t);
+			frame.meta = record->pixels.meta;
+			frame.meta.width = record->frame_width;
+			frame.meta.height = record->frame_height;
+			frame.meta.stride = record->frame_width * 4;
+			frame.meta.size = (zest_size)frame.meta.stride * record->frame_height;
+			frame.data = staging_data + staging_offset;
+			frame.is_imported = ZEST_TRUE;
+			zest_CopyBitmap(&record->pixels, (f % columns) * record->frame_width, (f / columns) * record->frame_height,
+				record->frame_width, record->frame_height, &frame, 0, 0);
+			staging_offset += frame.meta.size;
+		}
+	}
+
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	zest_size buffer_offset = 0;
+	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+		zest_tfx_shape_image_t *record = resources->shape_images[i];
+		zest_size shape_size = (zest_size)record->frames * record->frame_width * record->frame_height * 4;
+
+		zest_image_info_t image_info = zest_CreateImageInfo(record->frame_width, record->frame_height);
+		image_info.format = zest_format_r8g8b8a8_unorm;
+		image_info.layer_count = record->frames;
+		//Force the array view so that single frame shapes still sample as a texture2DArray in the shader
+		image_info.flags = zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array;
+		record->image = zest_CreateImage(device, &image_info);
+		if (!record->image.value) {
+			//Nothing can be done for the shape now, tfx already has the record. Its bindless index is still
+			//the zero it was created with, which addresses the device's default image.
+			ZEST_PRINT("Unable to create an image for a particle shape. It will render as the default image.");
+			buffer_offset += shape_size;
+			continue;
+		}
+		zest_image image = zest_GetImage(record->image);
+		zest_uint mip_levels = zest_ImageInfo(image)->mip_levels;
+
+		zest_buffer_image_copy_t copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+		copy_region.buffer_offset = buffer_offset;
+		copy_region.image_aspect = zest_image_aspect_color_bit;
+		copy_region.layer_count = record->frames;
+		copy_region.image_extent.width = record->frame_width;
+		copy_region.image_extent.height = record->frame_height;
+		copy_region.image_extent.depth = 1;
+
+		zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, record->frames);
+		zest_imm_CopyBufferRegionsToImage(queue, &copy_region, 1, staging_buffer, image);
+		if (mip_levels > 1) {
+			zest_imm_GenerateMipMaps(queue, image);
+		} else {
+			zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, record->frames);
+		}
+		buffer_offset += shape_size;
+	}
+	zest_imm_EndCommandBuffer(queue);
+	zest_FreeBufferNow(staging_buffer);
+
+	//Descriptor indexes can only be acquired once an image is in a layout valid for sampling, so the shapes
+	//get walked a second time now that the uploads have run. The sheets have done their job by this point.
+	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+		zest_tfx_shape_image_t *record = resources->shape_images[i];
+		if (record->image.value) {
+			record->bindless_index = zest_AcquireSampledImageIndex(device, zest_GetImage(record->image), zest_texture_array_binding);
+		}
+		zest__tfx_free_shape_pixels(record);
+	}
+	resources->pending_count = 0;
+}
+
+//tfx reports a removed shape by hash only and does not hand back the pointer the shape loader set, so the
+//live set is read out of the gpu shape rebuild instead: it calls the uv lookup once for every shape still
+//in the library, and the lookup marks the record it is given. Clear the marks, rebuild, then sweep.
+static void zest__tfx_clear_shape_marks(tfx_library_render_resources_t *resources) {
+	for (zest_uint i = 0; i != resources->shape_image_count; ++i) {
+		resources->shape_images[i]->live = ZEST_FALSE;
+	}
+}
+
+static zest_uint zest__tfx_sweep_shape_images(tfx_library_render_resources_t *resources) {
+	zest_uint removed = 0;
+	zest_uint i = 0;
+	while (i < resources->shape_image_count) {
+		if (resources->shape_images[i]->live) {
+			++i;
+			continue;
+		}
+		zest__tfx_free_shape_record(resources, i);
+		removed++;
+	}
+	return removed;
 }
 
 //Basic function for updating the uniform buffer
@@ -63,21 +245,10 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resou
 }
 
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
-	zest_atlas_region_t *region = (zest_atlas_region_t*)(ptr) + offset;
-	image_data->uv.x = region->uv.x;
-	image_data->uv.y = region->uv.y;
-	image_data->uv.z = region->uv.z;
-	image_data->uv.w = region->uv.w;
-	image_data->texture_array_index = region->layer_index;
-	image_data->uv_packed = region->uv_packed;
-}
-
-void zest_tfx_SetPerShapeImages(tfx_library_render_resources_t *resources, zest_bool per_shape_images) {
-	resources->per_shape_images = per_shape_images;
-}
-
-void zest_tfx_GetUVPerShape(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
-	zest_atlas_region_t *region = (zest_atlas_region_t*)(ptr) + offset;
+	zest_tfx_shape_image_t *shape = (zest_tfx_shape_image_t *)ptr;
+	//The rebuild this runs inside visits every shape still in the library, so it is also where a shape
+	//proves it is still there. See zest__tfx_sweep_shape_images.
+	shape->live = ZEST_TRUE;
 	//Each shape owns its image so the whole 0..1 rect is the shape and the descriptor index travels with
 	//the particle instead of arriving in the push constants. The frame is the array layer of that image.
 	image_data->uv.x = 0.f;
@@ -85,132 +256,20 @@ void zest_tfx_GetUVPerShape(void *ptr, tfx_gpu_image_data_t *image_data, int off
 	image_data->uv.z = 1.f;
 	image_data->uv.w = 1.f;
 	image_data->uv_packed = zest_Pack16bit4SNorm(0.f, 0.f, 1.f, 1.f);
-	image_data->texture_array_index = (region->image_index << 16) | (region->layer_index & 0xFFFF);
+	image_data->texture_array_index = (shape->bindless_index << 16) | ((zest_uint)offset & 0xFFFF);
 }
 
-//Create one layered image per particle shape rather than packing every shape into an atlas. Animation
-//frames become the array layers of the shape's image so an animation still costs a single descriptor.
-//Every bitmap in the collection uploads through one staging buffer and one command buffer.
-static void zest__tfx_create_shape_images(zest_context context, tfx_library_render_resources_t *resources) {
-	zest_device device = zest_GetContextDevice(context);
-	zest_image_collection_t *collection = &resources->particle_images;
-	if (!collection->image_count) {
-		return;
-	}
-
-	zest_size total_size = 0;
-	for (zest_uint i = 0; i != collection->image_count; ++i) {
-		total_size += collection->image_bitmaps[i].meta.size;
-	}
-
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, total_size, 0);
-	if (!staging_buffer) {
-		return;
-	}
-	zest_byte *staging_data = (zest_byte *)zest_BufferData(staging_buffer);
-	zest_size staging_offset = 0;
-	for (zest_uint i = 0; i != collection->image_count; ++i) {
-		zest_bitmap_t *bitmap = &collection->image_bitmaps[i];
-		memcpy(staging_data + staging_offset, bitmap->data, bitmap->meta.size);
-		staging_offset += bitmap->meta.size;
-	}
-
-	resources->shape_images = (zest_image_handle *)ZEST_UTILITIES_MALLOC(sizeof(zest_image_handle) * collection->image_count);
-	resources->shape_image_count = 0;
-
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	zest_size buffer_offset = 0;
-	zest_uint region_index = 0;
-	while (region_index < collection->image_count) {
-		//A single image leaves frames at 0 in its region, an animation has the frame count on every frame
-		zest_uint frames = collection->regions[region_index].frames ? collection->regions[region_index].frames : 1;
-		zest_bitmap_t *first_frame = &collection->image_bitmaps[region_index];
-
-		zest_image_info_t image_info = zest_CreateImageInfo(first_frame->meta.width, first_frame->meta.height);
-		image_info.format = collection->format;
-		image_info.layer_count = frames;
-		//Force the array view so that single frame shapes still sample as a texture2DArray in the shader
-		image_info.flags = zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array;
-		zest_image_handle image_handle = zest_CreateImage(device, &image_info);
-		if (!image_handle.value) {
-			break;
-		}
-		zest_image image = zest_GetImage(image_handle);
-		zest_uint mip_levels = zest_ImageInfo(image)->mip_levels;
-
-		//The frames of a shape went into the staging buffer back to back so they upload as one region
-		zest_buffer_image_copy_t copy_region = { 0 };
-		copy_region.buffer_offset = buffer_offset;
-		copy_region.image_aspect = zest_image_aspect_color_bit;
-		copy_region.layer_count = frames;
-		copy_region.image_extent.width = first_frame->meta.width;
-		copy_region.image_extent.height = first_frame->meta.height;
-		copy_region.image_extent.depth = 1;
-
-		zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, frames);
-		zest_imm_CopyBufferRegionsToImage(queue, &copy_region, 1, staging_buffer, image);
-		if (mip_levels > 1) {
-			zest_imm_GenerateMipMaps(queue, image);
-		} else {
-			zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, frames);
-		}
-
-		resources->shape_images[resources->shape_image_count++] = image_handle;
-		for (zest_uint f = 0; f != frames; ++f) {
-			buffer_offset += collection->image_bitmaps[region_index + f].meta.size;
-		}
-		region_index += frames;
-	}
-	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBufferNow(staging_buffer);
-
-	//Descriptor indexes can only be acquired once an image is in a layout valid for sampling, so the
-	//shapes get walked a second time now that the uploads have run.
-	zest_uint image_index = 0;
-	region_index = 0;
-	while (region_index < collection->image_count && image_index < resources->shape_image_count) {
-		zest_uint frames = collection->regions[region_index].frames ? collection->regions[region_index].frames : 1;
-		zest_image image = zest_GetImage(resources->shape_images[image_index++]);
-		zest_uint bindless_index = zest_AcquireSampledImageIndex(device, image, zest_texture_array_binding);
-		for (zest_uint f = 0; f != frames; ++f) {
-			zest_atlas_region_t *region = &collection->regions[region_index + f];
-			region->image_index = bindless_index;
-			region->layer_index = f;
-			region->sampler_index = resources->sampler_index;
-		}
-		region_index += frames;
-	}
-}
-
-zest_image_collection_t zest_tfx_CreateImageCollection(zest_uint shape_count) {
-	return zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, shape_count);
-}
-
-tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path, int atlas_width, int atlas_height) {
-	zest_device device = zest_GetContextDevice(context);
-	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	resources->particle_images = zest_tfx_CreateImageCollection(shape_count);
-
-	resources->device = device;
-
-	if (resources->per_shape_images) {
-		tfx_library per_shape_library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUVPerShape, resources);
-		zest__tfx_create_shape_images(context, resources);
-		return per_shape_library;
-	}
-
+tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path) {
+	resources->device = zest_GetContextDevice(context);
 	tfx_library library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources);
-
-	resources->particle_texture = zest_CreateImageAtlas(context, &resources->particle_images, atlas_width, atlas_height, 0);
-	zest_image particle_image = zest_GetImage(resources->particle_texture);
-	resources->particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
-
+	zest__tfx_upload_pending_shapes(context, resources);
 	return library;
 }
 
-void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
+//The library hands out colour ramp indexes by position in its bitmap list, and a refresh rebuilds that
+//list from scratch, so the texture has to be built again from the current bitmaps whenever it changes.
+static void zest__tfx_build_color_ramps_texture(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
 	zest_device device = zest_GetContextDevice(context);
-
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
 	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
@@ -220,30 +279,23 @@ void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources
 	resources->color_ramps_texture = zest_CreateImageAtlas(context, &resources->color_ramps_collection, 256, 256, zest_image_preset_texture);
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
 	resources->color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
+}
+
+void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
+	zest__tfx_build_color_ramps_texture(context, resources, library);
 
 	tfx_UpdateLibraryGPUImageData(library);
 	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
 	zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
 }
 
-tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager, int shape_count, int atlas_width, int atlas_height) {
-	zest_device device = zest_GetContextDevice(context);
-	resources->particle_images = zest_tfx_CreateImageCollection(shape_count);
-
-	resources->device = device;
+tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager) {
+	resources->device = zest_GetContextDevice(context);
 
 	tfxErrorFlags result = tfx_LoadSpriteData(path, animation_manager, zest_tfx_ShapeLoader, resources);
 	if (result != 0) return result;
 
-	if (resources->per_shape_images) {
-		zest__tfx_create_shape_images(context, resources);
-		return result;
-	}
-
-	resources->particle_texture = zest_CreateImageAtlas(context, &resources->particle_images, atlas_width, atlas_height, 0);
-	zest_image particle_image = zest_GetImage(resources->particle_texture);
-	resources->particle_texture_index = zest_AcquireSampledImageIndex(device, particle_image, zest_texture_array_binding);
-
+	zest__tfx_upload_pending_shapes(context, resources);
 	return result;
 }
 
@@ -260,7 +312,7 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	zest_image color_ramps_image = zest_GetImage(resources->color_ramps_texture);
 	resources->color_ramps_index = zest_AcquireSampledImageIndex(device, color_ramps_image, zest_texture_array_binding);
 
-	tfx_BuildAnimationManagerGPUShapeData(animation_manager, gpu_image_data, resources->per_shape_images ? zest_tfx_GetUVPerShape : zest_tfx_GetUV);
+	tfx_BuildAnimationManagerGPUShapeData(animation_manager, gpu_image_data, zest_tfx_GetUV);
 	zest_tfx_UpdateTimelineFXImageData(context, resources, gpu_image_data);
 
 	//Create GPU storage buffers for sprite data and emitter properties
@@ -303,10 +355,6 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	resources->ribbon_rendering.frag_shader = ribbon_frag;
 	resources->ribbon_rendering.vert_shader = ribbon_vert;
 	resources->ribbon_rendering.comp_shader = ribbon_comp;
-	if (resources->atlas_layer_width == 0 || resources->atlas_layer_height == 0) {
-		resources->atlas_layer_width = 1024;
-		resources->atlas_layer_height = 1024;
-	}
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps
@@ -400,18 +448,70 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
     }
 }
 
+zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library, tfx_global_library_buffers_t *global_buffers, tfx_library_refresh_t *refresh) {
+	zest_device device = zest_GetContextDevice(context);
+	memset(refresh, 0, sizeof(tfx_library_refresh_t));
+
+	zest_uint images_before = resources->shape_image_count;
+
+	tfx_RefreshLibrary(library, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources, &refresh->result);
+
+	tfxRefreshFlags applied = tfxRefreshFlags_shapes_changed | tfxRefreshFlags_merged
+		| tfxRefreshFlags_effects_added | tfxRefreshFlags_effects_removed;
+	if ((refresh->result.flags & applied) == 0) {
+		//Either the file has not moved or the change needs a full reload, and nothing on the gpu has to move
+		return ZEST_FALSE;
+	}
+
+	//What follows frees and overwrites resources that frames still in flight are reading
+	zest_WaitForIdleDevice(device);
+
+	zest_bool shapes_changed = (refresh->result.flags & tfxRefreshFlags_shapes_changed) != 0;
+	if (shapes_changed) {
+		//Only the shapes the refresh just added get uploaded, everything already resident is left alone
+		zest__tfx_upload_pending_shapes(context, resources);
+		refresh->images_added = resources->shape_image_count - images_before;
+	}
+
+	//The refresh built the gpu shape list while the new shapes still had no image, so it gets rebuilt now
+	//that the uv lookup can answer for all of them. That also rebuilds each emitter's start_frame_index,
+	//which is why the properties buffer goes up with it. The rebuild marks every shape the library still
+	//has, so it is also what the sweep below reads to find the images of shapes that have gone.
+	zest__tfx_clear_shape_marks(resources);
+	tfx_UpdateLibraryGPUImageData(library);
+	if (shapes_changed) {
+		refresh->images_removed = zest__tfx_sweep_shape_images(resources);
+	}
+
+	//The refresh rebuilds the library's colour ramp bitmaps from scratch, which reassigns every ramp index
+	//even for effects it did not touch, so the texture those indexes address has to be rebuilt with them.
+	zest_FreeImage(resources->color_ramps_texture);
+	zest_FreeImageCollection(&resources->color_ramps_collection);
+	zest__tfx_build_color_ramps_texture(context, resources, library);
+
+	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
+	zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
+
+	//The refresh also rebuilds the global graph lookup table, moving every emitter's lookup offset, and the
+	//ribbon compute shader indexes that table by offset. Nothing marks the buffer dirty on its own, so the
+	//table is uploaded again here or the ribbons read curves belonging to some other emitter.
+	if (global_buffers) {
+		zest_tfx_InitialiseGlobalData(context, global_buffers);
+	}
+
+	return ZEST_TRUE;
+}
+
 void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources) {
+	while (resources->shape_image_count) {
+		zest__tfx_free_shape_record(resources, resources->shape_image_count - 1);
+	}
 	if (resources->shape_images) {
-		for (zest_uint i = 0; i != resources->shape_image_count; ++i) {
-			zest_image image = zest_GetImage(resources->shape_images[i]);
-			zest_ReleaseImageIndex(resources->device, image, zest_texture_array_binding);
-			zest_FreeImage(resources->shape_images[i]);
-		}
 		ZEST_UTILITIES_FREE(resources->shape_images);
 		resources->shape_images = 0;
-		resources->shape_image_count = 0;
+		resources->shape_image_capacity = 0;
 	}
-	zest_FreeImageCollection(&resources->particle_images);
+	resources->pending_count = 0;
 	zest_FreeImageCollection(&resources->color_ramps_collection);
 }
 
@@ -463,7 +563,6 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 
 		tfx_push_constants_t *push_constants = (tfx_push_constants_t *)current->push_constant;
 		push_constants->color_ramp_texture_index = tfx_resources->color_ramps_index;
-		push_constants->particle_texture_index = tfx_resources->particle_texture_index;
 		push_constants->sampler_index = tfx_resources->sampler_index;
 		push_constants->image_data_index = tfx_resources->image_data_index;
 		push_constants->particle_properties_index = tfx_resources->particle_properties_index;
@@ -612,7 +711,6 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
 	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
 		tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
-		push->particle_texture_index = render_dispatch->render_resources->particle_texture_index;
 		push->sampler_index = render_dispatch->render_resources->sampler_index;
 		push->color_ramp_texture_index = render_dispatch->render_resources->color_ramps_index;
 		push->image_data_index = render_dispatch->render_resources->image_data_index;

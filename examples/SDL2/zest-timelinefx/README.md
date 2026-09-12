@@ -9,8 +9,9 @@ Shows how to load and play real-time particle effects created with the [Timeline
 ## Zest Features Used
 
 - **TimelineFX Integration**: `zest_tfx_InitTimelineFXRenderResources`, `zest_tfx_ShapeLoader`
-- **Image Atlases**: `zest_CreateImageAtlas` for particle textures and color ramps
-- **Texture Arrays**: `zest_texture_array_binding` for sprite sheets
+- **Per Shape Images**: one layered image and bindless index per particle shape, animation frames as array layers
+- **Image Atlases**: `zest_CreateImageAtlas` for the color ramps
+- **Texture Arrays**: `zest_texture_array_binding` for the shape images
 - **Frame Graph**: Transfer pass + render pass with TimelineFX rendering
 - **Uniform Buffers**: Camera view/projection for 3D effect positioning
 - **Push Constants**: Texture and sampler indices

@@ -355,7 +355,7 @@ void VadersGame::Init() {
 	tfx_RandomReseedTime(&random);
 
 	//Load the effects library and create the particle image atlas
-	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);
+	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
 
 	//Prepare all the Effect templates we need from the library - must be done before FinaliseLibrary
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
