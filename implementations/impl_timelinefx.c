@@ -89,6 +89,18 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 	record->pixels.meta.format = zest_format_r8g8b8a8_unorm;
 	record->pixels.is_imported = ZEST_TRUE;
 	record->pixels_owned = pixels_not_loaded ? ZEST_FALSE : ZEST_TRUE;
+	//The upload is deferred, so a buffer we don't own has to be copied now: tfx frees it as soon as this
+	//callback returns. The encoded source is usually shorter than the sheet, so the tail stays blank.
+	if (!record->pixels_owned && record->pixels.meta.size) {
+		zest_byte *owned_pixels = (zest_byte *)malloc(record->pixels.meta.size);
+		if (owned_pixels) {
+			zest_size available = (zest_size)image_memory_size < record->pixels.meta.size ? (zest_size)image_memory_size : record->pixels.meta.size;
+			memset(owned_pixels, 0, record->pixels.meta.size);
+			memcpy(owned_pixels, record->pixels.data, available);
+			record->pixels.data = owned_pixels;
+			record->pixels_owned = ZEST_TRUE;
+		}
+	}
 
 	zest_uint frames = (zest_uint)tfx_GetImageFrameCount(image_data);
 	record->frames = frames > 1 ? frames : 1;
@@ -249,13 +261,17 @@ void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	//The rebuild this runs inside visits every shape still in the library, so it is also where a shape
 	//proves it is still there. See zest__tfx_sweep_shape_images.
 	shape->live = ZEST_TRUE;
-	//Each shape owns its image so the whole 0..1 rect is the shape and the descriptor index travels with
-	//the particle instead of arriving in the push constants. The frame is the array layer of that image.
-	image_data->uv.x = 0.f;
-	image_data->uv.y = 0.f;
-	image_data->uv.z = 1.f;
-	image_data->uv.w = 1.f;
-	image_data->uv_packed = zest_Pack16bit4SNorm(0.f, 0.f, 1.f, 1.f);
+	//Each shape owns its image so the rect is the whole shape and the descriptor index travels with the
+	//particle instead of arriving in the push constants. The frame is the array layer of that image.
+	//Inset by half a texel the way the atlas packer did, so the outermost texel centres land on the quad
+	//edges. Running the full 0..1 samples past them into the clamped edge and hardens the falloff.
+	float half_texel_x = shape->frame_width > 0 ? 0.5f / (float)shape->frame_width : 0.f;
+	float half_texel_y = shape->frame_height > 0 ? 0.5f / (float)shape->frame_height : 0.f;
+	image_data->uv.x = half_texel_x;
+	image_data->uv.y = half_texel_y;
+	image_data->uv.z = 1.f - half_texel_x;
+	image_data->uv.w = 1.f - half_texel_y;
+	image_data->uv_packed = zest_Pack16bit4SNorm(image_data->uv.x, image_data->uv.y, image_data->uv.z, image_data->uv.w);
 	image_data->texture_array_index = (shape->bindless_index << 16) | ((zest_uint)offset & 0xFFFF);
 }
 
