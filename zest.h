@@ -10519,12 +10519,13 @@ zest_device_memory zest__create_device_memory(zest_device device, zest_size size
     zest_device_memory memory = (zest_device_memory)ZEST__NEW(device->allocator, zest_device_memory);
     *memory = ZEST__ZERO_INIT(zest_device_memory_t);
 	memory->backend = (zest_device_memory_backend)device->platform->new_memory_backend(device);
+	//Set before the call that can fail: the cleanup path reads it back to free the backend
+	memory->device = device;
 	if (!device->platform->create_device_memory(device, size, buffer_info, backend_memory_bits, memory)) {
 		device->platform->cleanup_memory_backend(memory);
 		ZEST__FREE(device->allocator, memory);
 		return NULL;
 	}
-	memory->device = device;
 	return memory;
 }
 
