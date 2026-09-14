@@ -37,8 +37,8 @@ struct TimelineFXExample {
 	tfx_library library;
 	tfx_stage pm;
 
-	tfx_effect_template effect_template1;
-	tfx_effect_template effect_template2;
+	tfx_effect_template title_effect;
+	tfx_effect_template powerup_effect;
 	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
@@ -82,8 +82,8 @@ void TimelineFXExample::Init() {
 	library = zest_tfx_LoadLibrary(context, &tfx_rendering, TFX_LIBRARY_PATH);
 
 	//Create effect templates - must be done before calling FinaliseLibrary so that color ramps are set up correctly
-	effect_template1 = tfx_CreateEffectTemplate(library, "Title");
-	effect_template2 = tfx_CreateEffectTemplate(library, "Got Power Up");
+	title_effect = tfx_CreateEffectTemplate(library, "Title");
+	powerup_effect = tfx_CreateEffectTemplate(library, "Got Power Up");
 
 	//Finalise the library - uploads color ramps and GPU image data
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
@@ -205,8 +205,8 @@ void MainLoop(TimelineFXExample *game) {
 				game->last_refresh = refresh;
 				game->refresh_count++;
 				//An effect whose original is gone from the library can no longer be spawned
-				game->template_orphaned = tfx_EffectTemplateIsMarkedForDeletion(game->effect_template1)
-					|| tfx_EffectTemplateIsMarkedForDeletion(game->effect_template2);
+				game->template_orphaned = tfx_EffectTemplateIsMarkedForDeletion(game->title_effect)
+					|| tfx_EffectTemplateIsMarkedForDeletion(game->powerup_effect);
 			}
 			game->needs_reload = (refresh.result.flags & tfxRefreshFlags_needs_reload) != 0;
 		}
@@ -224,7 +224,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template1);
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->title_effect);
 					//Add the effect template to the particle manager
 					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
@@ -237,7 +237,7 @@ void MainLoop(TimelineFXExample *game) {
 
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template2);
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->powerup_effect);
 					//Add the effect template to the particle manager
 					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
