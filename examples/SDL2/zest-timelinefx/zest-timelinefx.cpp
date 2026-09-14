@@ -39,6 +39,11 @@ struct TimelineFXExample {
 
 	tfx_effect_template title_effect;
 	tfx_effect_template powerup_effect;
+	tfx_effect_template vader_explosion_effect;
+	tfx_effect_template player_explosion_effect;
+	tfx_effect_template big_explosion_effect;
+	tfx_effect_template player_bullet_effect;
+	tfx_effect_template vader_bullet_effect;
 	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
@@ -84,6 +89,11 @@ void TimelineFXExample::Init() {
 	//Create effect templates - must be done before calling FinaliseLibrary so that color ramps are set up correctly
 	title_effect = tfx_CreateEffectTemplate(library, "Title");
 	powerup_effect = tfx_CreateEffectTemplate(library, "Got Power Up");
+	vader_explosion_effect = tfx_CreateEffectTemplate(library, "Vader Explosion");
+	player_explosion_effect = tfx_CreateEffectTemplate(library, "Player Explosion");
+	big_explosion_effect = tfx_CreateEffectTemplate(library, "Big Explosion");
+	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
+	vader_bullet_effect = tfx_CreateEffectTemplate(library, "Vader Bullet");
 
 	//Finalise the library - uploads color ramps and GPU image data
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
@@ -100,6 +110,36 @@ void TimelineFXExample::Init() {
 
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
+
+	//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+	tfxEffectID effect_id = tfx_AddEffectTemplateToStage(pm, title_effect);
+	//Add the effect template to the particle manager
+	if (tfx_EffectIDIsValid(effect_id)) {
+		//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+		zest_vec3 position = ScreenRay(context, zest_ScreenWidthf(context) / 2.f, zest_ScreenHeightf(context) / 2.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		//Set the effect position
+		tfx_SetEffectPositionVec3(pm, effect_id, &position.x);
+		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
+	}
+
+	effect_id = tfx_AddEffectTemplateToStage(pm, player_bullet_effect);
+	if (tfx_EffectIDIsValid(effect_id)) {
+		float x = zest_ScreenWidthf(context) * 0.5f;
+		float y = zest_ScreenHeightf(context) * 0.75f;
+		zest_vec3 position = ScreenRay(context, x, y, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		tfx_SetEffectPositionVec3(pm, effect_id, &position.x);
+		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
+	}
+
+	effect_id = tfx_AddEffectTemplateToStage(pm, vader_bullet_effect);
+	if (tfx_EffectIDIsValid(effect_id)) {
+		float x = zest_ScreenWidthf(context) * 0.75f;
+		float y = zest_ScreenHeightf(context) * 0.75f;
+		zest_vec3 position = ScreenRay(context, x, y, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		tfx_SetEffectPositionVec3(pm, effect_id, &position.x);
+		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
+	}
+
 }
 
 //Draw a Dear ImGui window to output some basic stats
@@ -169,8 +209,10 @@ void MainLoop(TimelineFXExample *game) {
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
 	zest_microsecs last_hot_reload_check = zest_Microsecs();
+	zest_microsecs last_effect_trigger_check = zest_Microsecs();
 	zest_microsecs last_library_check = zest_Microsecs();
-	const zest_microsecs hot_reload_interval = ZEST_MICROSECS_SECOND / 2;    //Poll the filesystem twice a second
+	const zest_microsecs hot_reload_interval = ZEST_MICROSECS_SECOND;    //Poll the filesystem twice a second
+	const zest_microsecs effect_trigger_interval = ZEST_MICROSECS_SECOND;
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
@@ -212,6 +254,42 @@ void MainLoop(TimelineFXExample *game) {
 		}
 		zest_UpdateDevice(game->device);
 
+		if (zest_Microsecs() - last_effect_trigger_check >= effect_trigger_interval) {
+			last_effect_trigger_check = zest_Microsecs();
+			tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->powerup_effect);
+			if (tfx_EffectIDIsValid(effect_id)) {
+				float x = zest_ScreenWidthf(game->context) * 0.25f;
+				float y = zest_ScreenHeightf(game->context) * 0.25f;
+				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
+			}
+			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->vader_explosion_effect);
+			if (tfx_EffectIDIsValid(effect_id)) {
+				float x = zest_ScreenWidthf(game->context) * 0.5f;
+				float y = zest_ScreenHeightf(game->context) * 0.25f;
+				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
+			}
+			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->player_explosion_effect);
+			if (tfx_EffectIDIsValid(effect_id)) {
+				float x = zest_ScreenWidthf(game->context) * 0.75f;
+				float y = zest_ScreenHeightf(game->context) * 0.25f;
+				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
+			}
+			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->big_explosion_effect);
+			if (tfx_EffectIDIsValid(effect_id)) {
+				float x = zest_ScreenWidthf(game->context) * 0.25f;
+				float y = zest_ScreenHeightf(game->context) * 0.75f;
+				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
+				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
+			}
+		}
+
 		//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 		//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 		//if the window is resized for example.
@@ -222,32 +300,6 @@ void MainLoop(TimelineFXExample *game) {
 			zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
 
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
-				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->title_effect);
-					//Add the effect template to the particle manager
-					if (tfx_EffectIDIsValid(effect_id)) {
-						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-						//Set the effect position
-						tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-						tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-					}
-				}
-
-				if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->powerup_effect);
-					//Add the effect template to the particle manager
-					if (tfx_EffectIDIsValid(effect_id)) {
-						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-						zest_vec3 position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-						//Set the effect position
-						tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-						tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-					}
-				}
-
 				//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
 				//then rather then run the update particle manager multiple times, simply run it once but multiply the frame length
 				//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles

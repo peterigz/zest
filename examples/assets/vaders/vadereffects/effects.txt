@@ -1,4 +1,4 @@
-library_version=1
+library_version=7
 file_version=4
 16776966
 Flare2.png,0,1,128,128,0,1208908377009984400
@@ -9,6 +9,7 @@ title.png,0,1,512,128,0,13464785059741576663
 p.png,0,1,128,128,0,489904380866257962
 Cloud1.png,0,1,512,512,0,11844875533055573618
 default_shape.png,0,1,128,128,0,7185954606787231110
+default_shape,0,1,8,8,0,12635818527678487157
 16776967
 16776960
 name=Player Bullet
@@ -20,7 +21,7 @@ sort_passes=1
 noise_base_offset_range=3.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=7
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -158,9 +159,9 @@ delay_spawning=0.000000
 loop_length=5000.000000
 drag_half_life=0.000000
 noise_speed_bias=0.000000
-base_noise_step_x=0.000000
-base_noise_step_y=0.000000
-base_noise_step_z=0.000000
+base_noise_step_x=0.063000
+base_noise_step_y=0.080000
+base_noise_step_z=0.135000
 noise_offset_variation=0.000000
 spawn_impulse=0.000000
 spawn_impulse_variation=0.000000
@@ -193,7 +194,7 @@ alt_size_lifetime_sampling=0
 use_path_as_trajectory=0
 color_interpolation_mode=0
 16776995
-force3,0,4,2,1,1.000000,0.000000,3,0.000000,0.000000,0.000000,0.000000
+force3,0,4,2,1,2.370000,0.000000,3,0.000000,0.000000,0.000000,0.000000
 16776996
 16776997
 force_wave_0,0.000000,1.000000,0,0.000000,0.000000,0.000000,0.000000
@@ -274,7 +275,7 @@ overtime_roll_spin,1.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_stretch,0.000000,1.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_stretch,1.000000,2.490000,0,0.000000,0.000000,0.000000,0.000000
 overtime_velocity_turbulance,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
-overtime_velocity_turbulance,1.000000,6.097561,0,0.000000,0.000000,0.000000,0.000000
+overtime_velocity_turbulance,1.000000,3.978287,0,0.000000,0.000000,0.000000,0.000000
 overtime_direction_turbulance,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_direction_turbulance,1.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_direction,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
@@ -602,7 +603,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -948,7 +949,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -1291,7 +1292,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -2101,7 +2102,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=6
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -2871,7 +2872,7 @@ overtime_curved_alpha,easing_type=0,use_bezier_sampling=0,multi_node=0,enable_os
 overtime_heat_response,easing_type=16,use_bezier_sampling=0,multi_node=4,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
 overtime_gradient_mapper,easing_type=16,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
 overtime_velocity,easing_type=16,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
-overtime_width,easing_type=5,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
+overtime_width,easing_type=16,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
 overtime_height,easing_type=0,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
 overtime_weight,easing_type=0,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
 overtime_pitch_spin,easing_type=0,use_bezier_sampling=0,multi_node=0,enable_oscillator=0,oscillator_type=0,oscillator_frequency=0.000000,oscillator_amplitude=0.000000,oscillator_offset_x=0.000000,oscillator_offset_y=0.000000
@@ -3137,7 +3138,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=10000.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -3716,7 +3717,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -4523,7 +4524,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=5
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -5105,7 +5106,7 @@ grid_spawn_random=0
 emitter_handle_auto_center=64
 random_color=0
 exclude_from_global_hue=0
-image_hash=16667973576362282698
+image_hash=12635818527678487157
 image_start_frame=0.000000
 image_end_frame=0.000000
 image_frame_rate=30.000000
@@ -5182,7 +5183,7 @@ property_arc_offset,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 base_life,0.000000,233.000000,0,0.000000,233.000000,0.000000,233.000000
 base_amount,0.000000,158.750000,0,0.000000,158.750000,0.000000,158.750000
 base_velocity,0.000000,0.930000,0,0.000000,0.930000,0.000000,0.930000
-base_width,0.000000,0.124000,0,0.000000,0.124000,0.000000,0.124000
+base_width,0.000000,0.081000,0,0.000000,0.081000,0.000000,0.081000
 base_height,0.000000,0.512000,0,0.000000,0.512000,0.000000,0.512000
 base_weight,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 base_pitch_spin,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
@@ -5231,7 +5232,7 @@ overtime_yaw_spin,0.000000,1.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_yaw_spin,1.000000,1.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_roll_spin,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_roll_spin,1.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
-overtime_stretch,0.000000,3.010000,0,0.000000,0.000000,0.000000,0.000000
+overtime_stretch,0.000000,15.150000,0,0.000000,0.000000,0.000000,0.000000
 overtime_stretch,1.000000,3.010000,0,0.000000,0.000000,0.000000,0.000000
 overtime_velocity_turbulance,0.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
 overtime_velocity_turbulance,1.000000,0.000000,0,0.000000,0.000000,0.000000,0.000000
@@ -5330,7 +5331,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -6129,7 +6130,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -6932,7 +6933,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -7975,7 +7976,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -8811,7 +8812,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -9625,7 +9626,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=10000.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -10439,7 +10440,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -10782,7 +10783,7 @@ sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=1
+version=2
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
