@@ -29,7 +29,6 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	//Draw all the instance_data in the buffer
 	tfx_sprite_sheet_push_t push{};
 	push.color_ramp_texture_index = example->tfx_rendering.color_ramps_index;
-	push.particle_texture_index = example->tfx_rendering.particle_texture_index;
 	push.sampler_index = example->tfx_rendering.sampler_index;
 	push.image_data_index = example->tfx_rendering.image_data_index;
 	push.emitter_properties_index = example->tfx_rendering.emitter_properties_index;
@@ -135,7 +134,7 @@ void InitExample(tfxPrerecordedExample *example) {
 	example->record_time = zest_Millisecs();		//See how long it takes to record.
 
 	//Load prerecorded sprite data and create the particle image atlas
-	tfxErrorFlags result = zest_tfx_LoadSpriteData(example->context, &example->tfx_rendering, "examples/assets/prerecorded_effects.tfxsd", example->animation_manager_3d, 32, 1024, 1024);
+	tfxErrorFlags result = zest_tfx_LoadSpriteData(example->context, &example->tfx_rendering, "examples/assets/prerecorded_effects.tfxsd", example->animation_manager_3d);
 	assert(result == tfxErrorCode_success);		//Unable to load the sprite data!
 
 	//Finalise sprite data - upload color ramps, GPU image data, and create/upload sprite data and emitter properties buffers

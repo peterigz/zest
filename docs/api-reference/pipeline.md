@@ -398,7 +398,7 @@ void zest_SetPipelineBlend(zest_pipeline_template pipeline_template,
 ```cpp
 zest_SetPipelineBlend(transparent_pipeline, zest_AlphaBlendState());
 zest_SetPipelineBlend(additive_pipeline, zest_AdditiveBlendState());
-zest_SetPipelineBlend(opaque_pipeline, zest_BlendStateNone());
+zest_SetPipelineBlend(opaque_pipeline, zest_BlendStateOpaque());
 ```
 
 ---
@@ -441,7 +441,8 @@ zest_SetPipelineLayout(pipeline, custom_layout);
 Pre-configured blend states for common scenarios.
 
 ```cpp
-zest_color_blend_attachment_t zest_BlendStateNone(void);               // No blending (opaque)
+zest_color_blend_attachment_t zest_BlendStateNone(void);               // No blending AND no color writes
+zest_color_blend_attachment_t zest_BlendStateOpaque(void);             // No blending, writes RGBA
 zest_color_blend_attachment_t zest_AlphaBlendState(void);              // Standard alpha blending
 zest_color_blend_attachment_t zest_AlphaOnlyBlendState(void);          // Blend alpha channel only
 zest_color_blend_attachment_t zest_AdditiveBlendState(void);           // Additive blending
@@ -456,7 +457,7 @@ zest_color_blend_attachment_t zest_ImGuiBlendState(void);              // ImGui-
 
 ```cpp
 // Opaque geometry
-zest_SetPipelineBlend(opaque_pipeline, zest_BlendStateNone());
+zest_SetPipelineBlend(opaque_pipeline, zest_BlendStateOpaque());
 
 // Transparent with alpha
 zest_SetPipelineBlend(transparent_pipeline, zest_AlphaBlendState());
@@ -874,7 +875,7 @@ zest_pipeline_template create_mesh_pipeline(zest_device device) {
     zest_SetPipelineDepthTest(pipeline, ZEST_TRUE, ZEST_TRUE);
 
     // Configure blending (opaque)
-    zest_SetPipelineBlend(pipeline, zest_BlendStateNone());
+    zest_SetPipelineBlend(pipeline, zest_BlendStateOpaque());
 
     return pipeline;
 }

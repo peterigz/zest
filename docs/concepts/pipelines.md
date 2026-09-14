@@ -191,7 +191,8 @@ zest_SetPipelineDepthTest(my_template, false, false);
 ### Built-in Blend States
 
 ```cpp
-zest_SetPipelineBlend(my_template, zest_BlendStateNone());       // No blending
+zest_SetPipelineBlend(my_template, zest_BlendStateOpaque());     // Opaque, writes RGBA
+zest_SetPipelineBlend(my_template, zest_BlendStateNone());       // No blending AND no color writes
 zest_SetPipelineBlend(my_template, zest_AlphaBlendState());      // Standard alpha
 zest_SetPipelineBlend(my_template, zest_AdditiveBlendState());   // Additive
 zest_SetPipelineBlend(my_template, zest_PreMultiplyBlendState()); // Pre-multiplied

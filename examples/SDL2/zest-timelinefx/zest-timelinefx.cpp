@@ -13,6 +13,11 @@
 	Example showing how to use the timelinefx library and implementation to render particle effects
  */
 
+//The library is polled for changes at this interval. Save vadereffects.tfx from the editor while the
+//example is running and the change is picked up without reloading the library or rebuilding the atlas.
+#define TFX_LIBRARY_PATH "examples/assets/vaders/vadereffects"
+#define TFX_REFRESH_INTERVAL (ZEST_MICROSECS_SECOND)
+
 typedef unsigned int u32;
 
 struct RenderCacheInfo {
@@ -32,8 +37,8 @@ struct TimelineFXExample {
 	tfx_library library;
 	tfx_stage pm;
 
-	tfx_effect_template effect_template1;
-	tfx_effect_template effect_template2;
+	tfx_effect_template title_effect;
+	tfx_effect_template powerup_effect;
 	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
@@ -43,6 +48,13 @@ struct TimelineFXExample {
 
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
+
+	//Live library refresh
+	tfx_library_refresh_t last_refresh;
+	zest_uint refresh_count;
+	bool request_refresh;
+	bool needs_reload;
+	bool template_orphaned;
 
 	zest_imgui_t imgui;
 
@@ -66,12 +78,12 @@ void TimelineFXExample::Init() {
 	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
 
-	//Load the effects library and create the particle image atlas
-	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx", 1024, 1024);
+	//Load the effects library. Every particle shape is given its own image and bindless index.
+	library = zest_tfx_LoadLibrary(context, &tfx_rendering, TFX_LIBRARY_PATH);
 
 	//Create effect templates - must be done before calling FinaliseLibrary so that color ramps are set up correctly
-	effect_template1 = tfx_CreateEffectTemplate(library, "Title");
-	effect_template2 = tfx_CreateEffectTemplate(library, "Got Power Up");
+	title_effect = tfx_CreateEffectTemplate(library, "Title");
+	powerup_effect = tfx_CreateEffectTemplate(library, "Got Power Up");
 
 	//Finalise the library - uploads color ramps and GPU image data
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
@@ -100,6 +112,30 @@ void BuildUI(TimelineFXExample *game, zest_uint fps) {
 	ImGui::Text("Particles: %i", tfx_GetParticleCount(game->pm));
 	ImGui::Text("Effects: %i", tfx_GetEffectCount(game->pm));
 	ImGui::Text("Emitters: %i", tfx_GetEmitterCount(game->pm));
+	if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
+		//Only ask for it here. Applying the refresh waits for the device to go idle and frees images, which
+		//cannot happen inside a frame that has already begun, so MainLoop runs it before the next one starts.
+		game->request_refresh = true;
+	}
+
+	ImGui::Separator();
+	ImGui::Text("Library refreshes: %u", game->refresh_count);
+	if (game->refresh_count) {
+		const tfx_library_refresh_t &refresh = game->last_refresh;
+		ImGui::Text("Last: v%u  effects +%u/-%u/~%u", refresh.result.library_version,
+			refresh.result.added_count, refresh.result.removed_count, refresh.result.changed_count);
+		ImGui::Text("      shapes +%u/-%u  images +%u/-%u", refresh.result.added_shape_count,
+			refresh.result.removed_shape_count, refresh.images_added, refresh.images_removed);
+		if (refresh.result.restart_count) {
+			ImGui::Text("      %u effect(s) need restarting to show the change", refresh.result.restart_count);
+		}
+	}
+	if (game->needs_reload) {
+		ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Change needs a full library reload");
+	}
+	if (game->template_orphaned) {
+		ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "An effect template was orphaned");
+	}
 	if (ImGui::Button("Print Render Graph")) {
 		game->request_graph_print = true;
 	}
@@ -133,6 +169,7 @@ void MainLoop(TimelineFXExample *game) {
 	zest_microsecs running_time = zest_Microsecs();
 	zest_microsecs frame_time = 0;
 	zest_microsecs last_hot_reload_check = zest_Microsecs();
+	zest_microsecs last_library_check = zest_Microsecs();
 	const zest_microsecs hot_reload_interval = ZEST_MICROSECS_SECOND / 2;    //Poll the filesystem twice a second
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
@@ -154,6 +191,25 @@ void MainLoop(TimelineFXExample *game) {
 			last_hot_reload_check = zest_Microsecs();
 			zest_CheckShaderHotReload(game->device);
 		}
+		//Poll the library file for changes. This has to happen between frames like the shader hot reload
+		//above: applying a change waits for the device to go idle and then frees images and re-uploads
+		//buffers, none of which can happen inside a frame that has already begun.
+		//Almost every call only reads the version at the head of the file and returns false; when it does
+		//return true the library, the shape images and the gpu buffers are already up to date.
+		if (game->request_refresh) {
+			// || zest_Microsecs() - last_library_check >= TFX_REFRESH_INTERVAL
+			last_library_check = zest_Microsecs();
+			game->request_refresh = false;
+			tfx_library_refresh_t refresh = {};
+			if (zest_tfx_RefreshLibrary(game->context, &game->tfx_rendering, game->library, &game->global_buffers, &refresh)) {
+				game->last_refresh = refresh;
+				game->refresh_count++;
+				//An effect whose original is gone from the library can no longer be spawned
+				game->template_orphaned = tfx_EffectTemplateIsMarkedForDeletion(game->title_effect)
+					|| tfx_EffectTemplateIsMarkedForDeletion(game->powerup_effect);
+			}
+			game->needs_reload = (refresh.result.flags & tfxRefreshFlags_needs_reload) != 0;
+		}
 		zest_UpdateDevice(game->device);
 
 		//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
@@ -168,7 +224,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template1);
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->title_effect);
 					//Add the effect template to the particle manager
 					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
@@ -181,7 +237,7 @@ void MainLoop(TimelineFXExample *game) {
 
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
 					//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->effect_template2);
+					tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->powerup_effect);
 					//Add the effect template to the particle manager
 					if (tfx_EffectIDIsValid(effect_id)) {
 						//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates

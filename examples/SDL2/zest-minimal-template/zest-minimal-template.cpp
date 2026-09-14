@@ -5,17 +5,46 @@
 #include <string>
 
 /**
-	Minimal app with a frame graph that renders a blank screen to the swapchain
+	Minimal app with a frame graph that renders a hello world triangle to the swapchain.
+	The triangle needs no vertex or index buffers at all - the vertex shader generates the
+	positions and colors from gl_VertexIndex.
  */
 
 struct minimal_app_t {
 	zest_device device;
 	zest_context context;
+	zest_pipeline_template triangle_pipeline;
 };
 
-void BlankScreen(const zest_command_list command_list, void *user_data) {
-	//Usually you'd have zest_cmd_ commands like zest_cmd_Draw or zest_cmd_DrawIndexed
-	//But with nothing here it will just be a blank screen.
+void InitApp(minimal_app_t *app) {
+	//Compile the shaders. Paths are relative to the working directory, which is expected to
+	//be the root of the Zest repository.
+	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-minimal-template/shaders/triangle.vert", "triangle_vert", zest_vertex_shader, NULL, ZEST_TRUE);
+	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-minimal-template/shaders/triangle.frag", "triangle_frag", zest_fragment_shader, NULL, ZEST_TRUE);
+
+	//Create the pipeline template. New templates already use the device's default (bindless)
+	//pipeline layout so there's nothing else to set up here.
+	app->triangle_pipeline = zest_CreatePipelineTemplate(app->device, "Triangle Pipeline");
+	zest_SetPipelineShaders(app->triangle_pipeline, vert, frag);
+	//The triangle is opaque. Note this is not zest_BlendStateNone, which masks out color writes entirely.
+	zest_SetPipelineBlend(app->triangle_pipeline, zest_BlendStateOpaque());
+	//No vertex buffers, so the pipeline needs no vertex input state
+	zest_SetPipelineDisableVertexInput(app->triangle_pipeline);
+}
+
+void DrawTriangle(const zest_command_list command_list, void *user_data) {
+	minimal_app_t *app = (minimal_app_t*)user_data;
+
+	//Viewport and scissor are dynamic state, so set them to the size of the swapchain
+	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+
+	//Fetch the pipeline for this context/render pass combination and bind it
+	zest_pipeline pipeline = zest_GetPipeline(app->triangle_pipeline, command_list);
+	zest_cmd_BindPipeline(command_list, pipeline);
+
+	//Draw 3 vertices, 1 instance. No vertex buffer is bound - the vertex shader builds the
+	//triangle from gl_VertexIndex.
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
 }
 
 int PollSDLEvents(zest_context context, SDL_Event *event) {
@@ -52,12 +81,11 @@ void MainLoop(minimal_app_t *app) {
 					//Import the swap chain as a resource
 					zest_ImportSwapchainResource();
 					//Create a new render pass to draw to the swapchain
-					zest_BeginRenderPass("Draw Nothing"); {
+					zest_BeginRenderPass("Draw Triangle"); {
 						//Tell the render pass that we want to output to the swap chain
 						zest_ConnectSwapChainOutput();
-						//Set the callback that will record the command buffer that draws to the swap chain. In this
-						//case though we're not drawing anything other then a blank screen.
-						zest_SetPassTask(BlankScreen, 0);
+						//Set the callback that will record the command buffer that draws to the swap chain
+						zest_SetPassTask(DrawTriangle, app);
 						//Declare the end of the render pass
 						zest_EndPass();
 					}
@@ -88,6 +116,9 @@ int main(int argc, char *argv[]) {
 
 	//Initialise Zest
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);
+
+	//Create the shaders and pipeline used to draw the triangle
+	InitApp(&app);
 
 	//Start the Zest main loop
 	MainLoop(&app);

@@ -5273,7 +5273,10 @@ ZEST_API void zest_SetPipelineViewCount(zest_pipeline_template pipeline_template
 ZEST_API void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout pipeline_layout);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
+//Note that zest_BlendStateNone writes nothing at all (empty color write mask). For an opaque
+//pipeline that still writes color, use zest_BlendStateOpaque.
 ZEST_API zest_color_blend_attachment_t zest_BlendStateNone(void);
+ZEST_API zest_color_blend_attachment_t zest_BlendStateOpaque(void);
 ZEST_API zest_color_blend_attachment_t zest_AdditiveBlendState(void);
 ZEST_API zest_color_blend_attachment_t zest_AdditiveBlendState2(void);
 ZEST_API zest_color_blend_attachment_t zest_AlphaOnlyBlendState(void);
@@ -10516,12 +10519,13 @@ zest_device_memory zest__create_device_memory(zest_device device, zest_size size
     zest_device_memory memory = (zest_device_memory)ZEST__NEW(device->allocator, zest_device_memory);
     *memory = ZEST__ZERO_INIT(zest_device_memory_t);
 	memory->backend = (zest_device_memory_backend)device->platform->new_memory_backend(device);
+	//Set before the call that can fail: the cleanup path reads it back to free the backend
+	memory->device = device;
 	if (!device->platform->create_device_memory(device, size, buffer_info, backend_memory_bits, memory)) {
 		device->platform->cleanup_memory_backend(memory);
 		ZEST__FREE(device->allocator, memory);
 		return NULL;
 	}
-	memory->device = device;
 	return memory;
 }
 
@@ -12512,6 +12516,13 @@ zest_color_blend_attachment_t zest_AlphaOnlyBlendState(void) {
 zest_color_blend_attachment_t zest_BlendStateNone(void) {
     zest_color_blend_attachment_t color_blend_attachment = ZEST__ZERO_INIT(zest_color_blend_attachment_t);
     color_blend_attachment.color_write_mask = 0;
+    color_blend_attachment.blend_enable = ZEST_FALSE;
+    return color_blend_attachment;
+}
+
+zest_color_blend_attachment_t zest_BlendStateOpaque(void) {
+    zest_color_blend_attachment_t color_blend_attachment = ZEST__ZERO_INIT(zest_color_blend_attachment_t);
+    color_blend_attachment.color_write_mask = zest_color_component_r_bit | zest_color_component_g_bit | zest_color_component_b_bit | zest_color_component_a_bit;
     color_blend_attachment.blend_enable = ZEST_FALSE;
     return color_blend_attachment;
 }

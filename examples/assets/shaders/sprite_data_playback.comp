@@ -218,7 +218,7 @@ void main()
 
 	//Now load the data into the sprite buffer ready for the vertex buffer
 	sprites[pc.billboards_index].data[index].position = vec4(lerped_position.x, lerped_position.y, lerped_position.z, lerped_stretch);
-	sprites[pc.billboards_index].data[index].quaternion = sprite_data[pc.sprite_data_index].data[sprite_data_index].quaternion;
+	sprites[pc.billboards_index].data[index].quaternion = uvec2(packSnorm2x16(lerped_quaternion.xy), packSnorm2x16(lerped_quaternion.zw));
 	sprites[pc.billboards_index].data[index].size = (uint(lerped_scale.y * size_max_divisor) << 16) + uint(lerped_scale.x * size_max_divisor);
 	sprites[pc.billboards_index].data[index].intensity_gradient_map = (uint(lerped_intensity_gradient_map.y * intensity_max_divisor) << 16) + uint(lerped_intensity_gradient_map.x * intensity_max_divisor);
 	sprites[pc.billboards_index].data[index].alignment = packSnorm4x8(vec4(lerped_alignment, 0));

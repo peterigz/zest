@@ -16,7 +16,6 @@ struct AnimationComputeConstants {
 
 struct tfx_sprite_sheet_push_t {
     zest_vec4 offset;
-	tfxU32 particle_texture_index;
 	tfxU32 color_ramp_texture_index;
 	tfxU32 image_data_index;
 	tfxU32 emitter_properties_index;
