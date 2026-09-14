@@ -46,7 +46,16 @@ ZEST_PRIVATE void zest__tfx_free_shape_record(tfx_library_render_resources_t *re
 	}
 	zest__tfx_free_shape_pixels(record);
 	ZEST_UTILITIES_FREE(record);
-	resources->shape_images[index] = resources->shape_images[--resources->shape_image_count];
+	//The shapes still waiting to be uploaded are the tail of this array, and a refresh removes shapes after
+	//the loader has already appended them, so the order has to hold: swapping the last record into the hole
+	//would carry a pending shape out of that tail and it would never be uploaded.
+	if (index >= resources->shape_image_count - resources->pending_count) {
+		resources->pending_count--;
+	}
+	resources->shape_image_count--;
+	for (zest_uint i = index; i != resources->shape_image_count; ++i) {
+		resources->shape_images[i] = resources->shape_images[i + 1];
+	}
 }
 
 //Before you load an effects file, you will need to define a ShapeLoader function that passes the following parameters:
@@ -216,27 +225,25 @@ static void zest__tfx_upload_pending_shapes(zest_context context, tfx_library_re
 	resources->pending_count = 0;
 }
 
-//tfx reports a removed shape by hash only and does not hand back the pointer the shape loader set, so the
-//live set is read out of the gpu shape rebuild instead: it calls the uv lookup once for every shape still
-//in the library, and the lookup marks the record it is given. Clear the marks, rebuild, then sweep.
-static void zest__tfx_clear_shape_marks(tfx_library_render_resources_t *resources) {
+//tfx calls this once for each shape a refresh took out of the library, handing back the record the shape
+//loader set with tfx_SetImagePointer. Freeing here rather than after the refresh returns is safe because
+//zest_FreeImage defers the release until the frames that can still be reading the descriptor have finished,
+//and a refresh is only ever run between frames.
+void zest_tfx_ShapeRemover(tfx_image_data_t *image_data, void *custom_data) {
+	tfx_library_render_resources_t *resources = (tfx_library_render_resources_t *)custom_data;
+	zest_tfx_shape_image_t *record = (zest_tfx_shape_image_t *)tfx_GetImagePointer(image_data);
+	if (!record) {
+		//The shape loader never took this one, so there is nothing of ours to free
+		return;
+	}
+	//The records are held by pointer in an unordered array, so the one to drop has to be found by identity
 	for (zest_uint i = 0; i != resources->shape_image_count; ++i) {
-		resources->shape_images[i]->live = ZEST_FALSE;
-	}
-}
-
-static zest_uint zest__tfx_sweep_shape_images(tfx_library_render_resources_t *resources) {
-	zest_uint removed = 0;
-	zest_uint i = 0;
-	while (i < resources->shape_image_count) {
-		if (resources->shape_images[i]->live) {
-			++i;
-			continue;
+		if (resources->shape_images[i] == record) {
+			zest__tfx_free_shape_record(resources, i);
+			resources->images_removed++;
+			return;
 		}
-		zest__tfx_free_shape_record(resources, i);
-		removed++;
 	}
-	return removed;
 }
 
 //Basic function for updating the uniform buffer
@@ -258,9 +265,6 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resou
 
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	zest_tfx_shape_image_t *shape = (zest_tfx_shape_image_t *)ptr;
-	//The rebuild this runs inside visits every shape still in the library, so it is also where a shape
-	//proves it is still there. See zest__tfx_sweep_shape_images.
-	shape->live = ZEST_TRUE;
 	//Each shape owns its image so the rect is the whole shape and the descriptor index travels with the
 	//particle instead of arriving in the push constants. The frame is the array layer of that image.
 	//Inset by half a texel the way the atlas packer did, so the outermost texel centres land on the quad
@@ -469,8 +473,11 @@ zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resou
 	memset(refresh, 0, sizeof(tfx_library_refresh_t));
 
 	zest_uint images_before = resources->shape_image_count;
+	resources->images_removed = 0;
 
-	tfx_RefreshLibrary(library, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources, &refresh->result);
+	//The shape remover runs inside this call, so any shape the refresh drops has already had its image and
+	//its descriptor index handed back by the time it returns
+	tfx_RefreshLibrary(library, zest_tfx_ShapeLoader, zest_tfx_GetUV, zest_tfx_ShapeRemover, resources, &refresh->result);
 
 	tfxRefreshFlags applied = tfxRefreshFlags_shapes_changed | tfxRefreshFlags_merged
 		| tfxRefreshFlags_effects_added | tfxRefreshFlags_effects_removed;
@@ -482,22 +489,19 @@ zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resou
 	//What follows frees and overwrites resources that frames still in flight are reading
 	zest_WaitForIdleDevice(device);
 
+	refresh->images_removed = resources->images_removed;
+
 	zest_bool shapes_changed = (refresh->result.flags & tfxRefreshFlags_shapes_changed) != 0;
 	if (shapes_changed) {
 		//Only the shapes the refresh just added get uploaded, everything already resident is left alone
 		zest__tfx_upload_pending_shapes(context, resources);
-		refresh->images_added = resources->shape_image_count - images_before;
+		refresh->images_added = resources->shape_image_count - (images_before - refresh->images_removed);
 	}
 
 	//The refresh built the gpu shape list while the new shapes still had no image, so it gets rebuilt now
 	//that the uv lookup can answer for all of them. That also rebuilds each emitter's start_frame_index,
-	//which is why the properties buffer goes up with it. The rebuild marks every shape the library still
-	//has, so it is also what the sweep below reads to find the images of shapes that have gone.
-	zest__tfx_clear_shape_marks(resources);
+	//which is why the properties buffer goes up with it.
 	tfx_UpdateLibraryGPUImageData(library);
-	if (shapes_changed) {
-		refresh->images_removed = zest__tfx_sweep_shape_images(resources);
-	}
 
 	//The refresh rebuilds the library's colour ramp bitmaps from scratch, which reassigns every ramp index
 	//even for effects it did not touch, so the texture those indexes address has to be rebuilt with them.

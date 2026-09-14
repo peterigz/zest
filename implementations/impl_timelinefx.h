@@ -63,7 +63,6 @@ typedef struct zest_tfx_shape_image_t {
 	zest_uint frame_height;
 	zest_bitmap_t pixels;		//The decoded sheet, alive only between the shape loader and the upload
 	zest_bool pixels_owned;		//Clear when the sheet is tfx's own buffer and is not ours to release
-	zest_bool live;				//Set by the uv lookup, read by the sweep that follows a refresh
 } zest_tfx_shape_image_t;
 
 typedef struct tfx_library_render_resources_s {
@@ -97,6 +96,7 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint shape_image_count;
 	zest_uint shape_image_capacity;
 	zest_uint pending_count;
+	zest_uint images_removed;	//Counted by the shape remover across one refresh
 } tfx_library_render_resources_t;
 
 typedef struct tfx_ribbon_render_dispatch_t {
@@ -185,6 +185,7 @@ void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_libra
 void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers);
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset);
 void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data);
+void zest_tfx_ShapeRemover(tfx_image_data_t *image_data, void *custom_data);
 
 #ifdef __cplusplus
 }
