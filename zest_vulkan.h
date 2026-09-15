@@ -4654,6 +4654,7 @@ zest_bool zest__vk_copy_buffer_regions_to_image(zest_queue queue, zest_buffer_im
 }
 
 zest_image_view_t *zest__vk_create_swapchain_image_view(zest_context context, zest_image image) {
+    //No component mapping here: the swapchain view is a colour attachment, which Vulkan requires to be identity.
     VkImageViewCreateInfo viewInfo = ZEST__ZERO_INIT(VkImageViewCreateInfo);
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image->backend->vk_image;
@@ -4694,6 +4695,10 @@ zest_image_view_t *zest__vk_create_image_view(zest_device device, zest_image ima
     viewInfo.image = image->backend->vk_image;
     viewInfo.viewType = (VkImageViewType)view_type;
     viewInfo.format = image->backend->vk_format;
+    viewInfo.components.r = (VkComponentSwizzle)image->info.swizzle.r;
+    viewInfo.components.g = (VkComponentSwizzle)image->info.swizzle.g;
+    viewInfo.components.b = (VkComponentSwizzle)image->info.swizzle.b;
+    viewInfo.components.a = (VkComponentSwizzle)image->info.swizzle.a;
     viewInfo.subresourceRange.aspectMask = image->backend->vk_view_aspect;
     viewInfo.subresourceRange.baseMipLevel = base_mip;
     viewInfo.subresourceRange.levelCount = mip_levels_this_view;
@@ -4740,6 +4745,10 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_device device, ze
     viewInfo.image = image->backend->vk_image;
     viewInfo.viewType = (VkImageViewType)view_type;
     viewInfo.format = image->backend->vk_format;
+    viewInfo.components.r = (VkComponentSwizzle)image->info.swizzle.r;
+    viewInfo.components.g = (VkComponentSwizzle)image->info.swizzle.g;
+    viewInfo.components.b = (VkComponentSwizzle)image->info.swizzle.b;
+    viewInfo.components.a = (VkComponentSwizzle)image->info.swizzle.a;
     viewInfo.subresourceRange.aspectMask = image->backend->vk_view_aspect;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = base_array_index;
@@ -5541,6 +5550,7 @@ VkImageView zest__vk_get_single_mip_view(zest_context context, zest_image_view_t
 	}
 
 	// Image has multiple mip levels — create a single-mip view for framebuffer use
+	// No component mapping: framebuffer attachment views must be identity (VUID-VkFramebuffer-pAttachments-00884)
 	zest_device device = context->device;
 	VkImageViewCreateInfo view_info = ZEST__ZERO_INIT(VkImageViewCreateInfo);
 	view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

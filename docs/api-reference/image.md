@@ -31,6 +31,54 @@ info.format = zest_format_r8g8b8a8_unorm;
 
 ---
 
+### Component Swizzle
+
+`zest_image_info_t` carries a `swizzle` field that remaps the channels an image view reports to the shader. It is applied when the image's views are created, so the pixel data on the GPU is untouched - only what a sample returns changes.
+
+```cpp
+typedef enum {
+    zest_component_swizzle_identity = 0,
+    zest_component_swizzle_zero     = 1,
+    zest_component_swizzle_one      = 2,
+    zest_component_swizzle_r        = 3,
+    zest_component_swizzle_g        = 4,
+    zest_component_swizzle_b        = 5,
+    zest_component_swizzle_a        = 6,
+} zest_component_swizzle;
+
+typedef struct zest_component_mapping_t {
+    zest_component_swizzle r, g, b, a;
+} zest_component_mapping_t;
+```
+
+Identity is `0`, so an image info left alone by `zest_CreateImageInfo` applies no swizzle at all.
+
+Two helpers cover the common cases:
+
+```cpp
+zest_component_mapping_t zest_SwizzleAlphaOnly(void);        // rgb = 1, a = r
+zest_component_mapping_t zest_SwizzleLuminanceAlpha(void);   // rgb = r, a = g
+```
+
+`zest_SwizzleAlphaOnly` reads a single channel image (an `r8_unorm` font or mask) as an alpha mask with white rgb, so a tint colour multiplies cleanly. `zest_SwizzleLuminanceAlpha` reads a two channel image as the old luminance/alpha pair.
+
+**Example:**
+```cpp
+// An r8_unorm coverage mask sampled as vec4(1, 1, 1, coverage)
+zest_image_info_t info = zest_CreateImageInfo(256, 256);
+info.format = zest_format_r8_unorm;
+info.flags = zest_image_preset_texture;
+info.swizzle = zest_SwizzleAlphaOnly();
+zest_image_handle mask = zest_CreateImageWithPixels(device, pixels, 256 * 256, &info);
+```
+
+!!! warning "Sampled only"
+    A non identity swizzle is legal only on sampled only images. Vulkan requires an identity component mapping for a view used as a framebuffer attachment (`VUID-VkFramebuffer-pAttachments-00884`) or as a storage image descriptor, and `zest_CreateImage` asserts if the swizzle is set alongside `zest_image_flag_color_attachment`, `zest_image_flag_depth_stencil_attachment`, `zest_image_flag_storage` or `zest_image_flag_input_attachment`. Swapchain views and the single mip views the frame graph builds for framebuffer attachments always stay identity.
+
+    Note also that the D3D12 and Metal backends would map this straight onto SRV component mapping and `MTLTextureSwizzleChannels`, but WebGPU has no per-view swizzle - a WebGPU backend would have to expand narrow formats to RGBA at upload time instead.
+
+---
+
 ### zest_CreateImage
 
 Creates an empty GPU image with the specified configuration.
@@ -438,5 +486,6 @@ zest_uint sampler_index = zest_AcquireSamplerIndex(device, sampler);
 
 ## See Also
 
+- `examples/SDL2/zest-image-swizzle` - identity vs alpha only swizzle side by side
 - [Images Concept](../concepts/images.md)
 - [Bindless Concept](../concepts/bindless.md)

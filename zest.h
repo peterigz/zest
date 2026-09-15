@@ -1816,6 +1816,22 @@ typedef enum {
 	zest_image_view_type_cube_array = 6,
 } zest_image_view_type;
 
+//Identity is 0 so a zero initialised zest_component_mapping_t means "no swizzle".
+//Vulkan, D3D12 and Metal map this directly; WebGPU has no per-view swizzle, so a WebGPU backend would have to expand narrow formats to RGBA at upload instead.
+typedef enum {
+	zest_component_swizzle_identity = 0,
+	zest_component_swizzle_zero     = 1,
+	zest_component_swizzle_one      = 2,
+	zest_component_swizzle_r        = 3,
+	zest_component_swizzle_g        = 4,
+	zest_component_swizzle_b        = 5,
+	zest_component_swizzle_a        = 6,
+} zest_component_swizzle;
+
+typedef struct zest_component_mapping_t {
+	zest_component_swizzle r, g, b, a;
+} zest_component_mapping_t;
+
 //-----------------------------------------------------------------------------------------------------------
 //INTERNAL: The following image layout, access mask and pipeline stage enums are internal synchronization
 //vocabulary used by the frame graph compiler and the platform backends (they mirror Vulkan's model, which
@@ -3870,6 +3886,7 @@ typedef struct zest_image_info_t {
 	zest_image_aspect_flags aspect_flags;
 	zest_sample_count_flags sample_count;
 	zest_image_flags flags;
+	zest_component_mapping_t swizzle;    //Sampled-only images. Attachment and storage views must stay identity.
 } zest_image_info_t;
 
 typedef struct zest_sampler_info_t {
@@ -5774,6 +5791,9 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 //struct to create the create that you need.
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
 ZEST_API zest_image_info_t zest_CreateImageInfo3D(zest_uint width, zest_uint height, zest_uint depth);
+//Component mappings for the two common single/dual channel cases. Only legal on sampled-only images.
+ZEST_API zest_component_mapping_t zest_SwizzleAlphaOnly(void);
+ZEST_API zest_component_mapping_t zest_SwizzleLuminanceAlpha(void);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image image);
 ZEST_API zest_image_handle zest_CreateImage(zest_device device, zest_image_info_t *create_info);
 ZEST_API zest_image_handle zest_CreateImageWithPixels(zest_device device, void *pixels, zest_size size, zest_image_info_t *create_info);
@@ -19109,6 +19129,12 @@ ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image
 		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_generate_mipmaps),
 			device, "Automatic mipmap generation is not supported for 3D images. Provide pre-generated mips or specify mip_levels = 1.", null_handle);
 	}
+	if (create_info->swizzle.r != zest_component_swizzle_identity || create_info->swizzle.g != zest_component_swizzle_identity ||
+		create_info->swizzle.b != zest_component_swizzle_identity || create_info->swizzle.a != zest_component_swizzle_identity) {
+		ZEST_ASSERT_OR_VALIDATE(!ZEST__FLAGGED(create_info->flags, zest_image_flag_color_attachment | zest_image_flag_depth_stencil_attachment |
+			zest_image_flag_storage | zest_image_flag_input_attachment),
+			device, "A non identity swizzle is only legal on sampled only images. Views used as an attachment or as a storage image must have an identity component mapping.", null_handle);
+	}
 	//Check if the format is supported with the requested flags
 	ZEST_ASSERT_OR_VALIDATE(device->platform->is_image_format_supported(device, create_info->format, create_info->flags),
 		device, "Image format is not supported with the requested usage flags", null_handle);
@@ -19591,7 +19617,8 @@ zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height) {
         zest_format_r8g8b8a8_unorm,
         0,
         zest_sample_count_1_bit,
-        0
+        0,
+        {zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity}
     };
     return info;
 }
@@ -19604,9 +19631,32 @@ zest_image_info_t zest_CreateImageInfo3D(zest_uint width, zest_uint height, zest
         zest_format_r8g8b8a8_unorm,
         0,
         zest_sample_count_1_bit,
-        0
+        0,
+        {zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity}
     };
     return info;
+}
+
+//Reads a single channel image as an alpha mask with white rgb, so a tint colour multiplies cleanly.
+zest_component_mapping_t zest_SwizzleAlphaOnly(void) {
+    zest_component_mapping_t mapping = {
+        zest_component_swizzle_one,
+        zest_component_swizzle_one,
+        zest_component_swizzle_one,
+        zest_component_swizzle_r
+    };
+    return mapping;
+}
+
+//Reads a two channel image as the old luminance/alpha pair: rgb from red, alpha from green.
+zest_component_mapping_t zest_SwizzleLuminanceAlpha(void) {
+    zest_component_mapping_t mapping = {
+        zest_component_swizzle_r,
+        zest_component_swizzle_r,
+        zest_component_swizzle_r,
+        zest_component_swizzle_g
+    };
+    return mapping;
 }
 
 zest_image_view_type zest__get_image_view_type(zest_image image) {

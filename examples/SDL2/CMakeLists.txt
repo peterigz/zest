@@ -176,6 +176,7 @@ endfunction(buildExample)
 
 set(EXAMPLES
 	zest-minimal-template
+	zest-image-swizzle
 	zest-imgui-template
 	zest-tests
 	zest-vaders
