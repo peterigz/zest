@@ -100,6 +100,45 @@ zest_image_handle render_target = zest_CreateImage(device, &info);
 
 ---
 
+### zest_IsImageFormatSupported
+
+Checks whether the device can create an image with a given format and usage flags.
+
+```cpp
+zest_bool zest_IsImageFormatSupported(zest_device device, zest_format format, zest_image_flags flags);
+```
+
+`zest_CreateImage` runs the same check and fails validation if it doesn't pass. In debug builds that failure is an assert. If you have a fallback format, call this first and pick the format before creating the image.
+
+The check covers every usage in `flags`. For example, a format that can be sampled but not rendered to returns `ZEST_FALSE` when `flags` includes `zest_image_flag_color_attachment`. `zest_image_flag_host_visible` checks linear tiling support. Otherwise the check uses optimal tiling.
+
+A block compressed format also needs its device capability enabled. Zest enables each of these automatically when the GPU supports it:
+
+| Formats | Capability |
+|---------|------------|
+| `zest_format_bc1_*` to `zest_format_bc7_*` | `zest_capability_texture_compression_bc` |
+| `zest_format_etc2_*`, `zest_format_eac_*` | `zest_capability_texture_compression_etc2` |
+| `zest_format_astc_*` | `zest_capability_texture_compression_astc_ldr` |
+
+If the capability isn't enabled, the function returns `ZEST_FALSE`, even when the driver reports that the format can be sampled.
+
+**Example:**
+```cpp
+// Upload BC4 blocks when the device can sample them, otherwise decode to R8 on the CPU
+zest_image_flags flags = zest_image_preset_texture | zest_image_flag_force_image_array;
+if (zest_IsImageFormatSupported(device, zest_format_bc4_unorm_block, flags)) {
+    info.format = zest_format_bc4_unorm_block;
+    info.mip_levels = stored_level_count;
+} else {
+    info.format = zest_format_r8_unorm;
+    flags = zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array;
+}
+info.flags = flags;
+info.swizzle = zest_SwizzleAlphaOnly();
+```
+
+---
+
 ### zest_CreateImageWithPixels
 
 Creates a GPU image and uploads pixel data from CPU memory.

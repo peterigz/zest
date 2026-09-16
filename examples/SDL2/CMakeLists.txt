@@ -155,6 +155,9 @@ function(buildExample EXAMPLE_NAME)
 	endif()
 
 	target_link_libraries(${EXAMPLE_NAME} freetype)
+	if(IMPLEMENTATIONS_SOURCE MATCHES "impl_timelinefx.c")
+		target_link_libraries(${EXAMPLE_NAME} zstd-decompress)
+	endif()
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
@@ -173,6 +176,19 @@ function(buildExample EXAMPLE_NAME)
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endfunction(buildExample)
+
+# impl_timelinefx.c inflates zstd supercompressed KTX2 shapes. Only the decoder half of zstd is built.
+include(FetchContent)
+FetchContent_Declare(zstd
+	GIT_REPOSITORY https://github.com/facebook/zstd.git
+	GIT_TAG v1.5.7
+	GIT_SHALLOW TRUE
+	SOURCE_SUBDIR lib)
+FetchContent_MakeAvailable(zstd)
+file(GLOB ZSTD_DECOMPRESS_SOURCE ${zstd_SOURCE_DIR}/lib/common/*.c ${zstd_SOURCE_DIR}/lib/decompress/*.c)
+add_library(zstd-decompress STATIC ${ZSTD_DECOMPRESS_SOURCE})
+target_include_directories(zstd-decompress PUBLIC ${zstd_SOURCE_DIR}/lib)
+target_compile_definitions(zstd-decompress PRIVATE ZSTD_DISABLE_ASM)
 
 set(EXAMPLES
 	zest-minimal-template

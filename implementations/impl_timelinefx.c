@@ -1,5 +1,340 @@
 #include "impl_timelinefx.h"
 #include "stb_image.h"
+#include <zstd.h>
+#define BCDEC_STATIC
+#define BCDEC_IMPLEMENTATION
+#include "bcdec.h"
+
+#define ZEST__TFX_KTX2_HEADER_SIZE 80
+#define ZEST__TFX_KTX2_LEVEL_ENTRY_SIZE 24
+#define ZEST__TFX_KTX2_MAX_LEVELS 32
+#define ZEST__TFX_KTX2_SUPERCOMPRESSION_NONE 0
+#define ZEST__TFX_KTX2_SUPERCOMPRESSION_ZSTD 2
+//Every copy offset has to be a multiple of its texel or block size, and 16 covers all of the shape formats
+#define ZEST__TFX_STAGING_ALIGNMENT 16
+//Force the array view so that single frame shapes still sample as a texture2DArray in the shader
+#define ZEST__TFX_PIXEL_IMAGE_FLAGS (zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array)
+#define ZEST__TFX_BLOCK_IMAGE_FLAGS (zest_image_preset_texture | zest_image_flag_force_image_array)
+
+static const unsigned char zest__tfx_ktx2_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
+
+//How a tfx shape format is read and what it is uploaded as
+typedef struct zest__tfx_shape_layout_t {
+	zest_format block_format;		//zest_format_undefined for the formats stb_image decodes
+	zest_format pixel_format;		//The upload format for decoded pixels
+	zest_uint channels;
+	zest_component_mapping_t swizzle;
+} zest__tfx_shape_layout_t;
+
+//The level pointers point into the file the shape loader was handed
+typedef struct zest__tfx_ktx2_t {
+	zest_uint width;
+	zest_uint height;
+	zest_uint layers;
+	zest_uint level_count;
+	zest_uint supercompression;
+	const unsigned char *stored_data[ZEST__TFX_KTX2_MAX_LEVELS];
+	zest_size stored_sizes[ZEST__TFX_KTX2_MAX_LEVELS];
+	zest_size level_sizes[ZEST__TFX_KTX2_MAX_LEVELS];
+} zest__tfx_ktx2_t;
+
+static zest_component_mapping_t zest__tfx_swizzle(zest_component_swizzle r, zest_component_swizzle g, zest_component_swizzle b, zest_component_swizzle a) {
+	zest_component_mapping_t mapping = { r, g, b, a };
+	return mapping;
+}
+
+static zest_bool zest__tfx_shape_layout(tfx_image_format format, zest__tfx_shape_layout_t *layout) {
+	*layout = ZEST__ZERO_INIT(zest__tfx_shape_layout_t);
+	layout->swizzle = zest__tfx_swizzle(zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity, zest_component_swizzle_identity);
+	zest_component_mapping_t luminance = zest__tfx_swizzle(zest_component_swizzle_r, zest_component_swizzle_r, zest_component_swizzle_r, zest_component_swizzle_one);
+	switch (format) {
+	case tfx_image_format_unknown:
+	case tfx_image_format_rgba8_png:
+	case tfx_image_format_rgba8_raw:
+		layout->pixel_format = zest_format_r8g8b8a8_unorm;
+		layout->channels = 4;
+		return ZEST_TRUE;
+	case tfx_image_format_la8_png:
+		layout->pixel_format = zest_format_r8g8_unorm;
+		layout->channels = 2;
+		layout->swizzle = zest_SwizzleLuminanceAlpha();
+		return ZEST_TRUE;
+	case tfx_image_format_l8_png:
+		layout->pixel_format = zest_format_r8_unorm;
+		layout->channels = 1;
+		layout->swizzle = luminance;
+		return ZEST_TRUE;
+	case tfx_image_format_a8_png:
+		layout->pixel_format = zest_format_r8_unorm;
+		layout->channels = 1;
+		layout->swizzle = zest_SwizzleAlphaOnly();
+		return ZEST_TRUE;
+	case tfx_image_format_a_bc4_ktx2:
+		layout->block_format = zest_format_bc4_unorm_block;
+		layout->pixel_format = zest_format_r8_unorm;
+		layout->channels = 1;
+		layout->swizzle = zest_SwizzleAlphaOnly();
+		return ZEST_TRUE;
+	case tfx_image_format_l_bc4_ktx2:
+		layout->block_format = zest_format_bc4_unorm_block;
+		layout->pixel_format = zest_format_r8_unorm;
+		layout->channels = 1;
+		layout->swizzle = luminance;
+		return ZEST_TRUE;
+	case tfx_image_format_la_bc5_ktx2:
+		layout->block_format = zest_format_bc5_unorm_block;
+		layout->pixel_format = zest_format_r8g8_unorm;
+		layout->channels = 2;
+		layout->swizzle = zest_SwizzleLuminanceAlpha();
+		return ZEST_TRUE;
+	case tfx_image_format_rgba_bc7_ktx2:
+		layout->block_format = zest_format_bc7_unorm_block;
+		layout->pixel_format = zest_format_r8g8b8a8_unorm;
+		layout->channels = 4;
+		return ZEST_TRUE;
+	default:
+		return ZEST_FALSE;
+	}
+}
+
+static zest_uint zest__tfx_read_u32(const unsigned char *bytes) {
+	return (zest_uint)bytes[0] | ((zest_uint)bytes[1] << 8) | ((zest_uint)bytes[2] << 16) | ((zest_uint)bytes[3] << 24);
+}
+
+static zest_u64 zest__tfx_read_u64(const unsigned char *bytes) {
+	return (zest_u64)zest__tfx_read_u32(bytes) | ((zest_u64)zest__tfx_read_u32(bytes + 4) << 32);
+}
+
+static zest_uint zest__tfx_block_bytes(zest_format format) {
+	int channels, bytes_per_pixel, block_width, block_height, bytes_per_block;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);
+	return (zest_uint)bytes_per_block;
+}
+
+static zest_size zest__tfx_block_level_size(zest_uint width, zest_uint height, zest_uint level, zest_uint layers, zest_uint block_bytes) {
+	zest_uint level_width = ZEST__MAX(width >> level, 1u);
+	zest_uint level_height = ZEST__MAX(height >> level, 1u);
+	return (zest_size)((level_width + 3) / 4) * ((level_height + 3) / 4) * block_bytes * layers;
+}
+
+//Returns why the file can't be used, or NULL
+static const char *zest__tfx_parse_ktx2(const unsigned char *data, zest_size size, zest_format block_format, zest__tfx_ktx2_t *ktx2) {
+	*ktx2 = ZEST__ZERO_INIT(zest__tfx_ktx2_t);
+	if (!data || size < ZEST__TFX_KTX2_HEADER_SIZE || memcmp(data, zest__tfx_ktx2_identifier, sizeof(zest__tfx_ktx2_identifier)) != 0) {
+		return "it is not a KTX2 file";
+	}
+	if (zest__tfx_read_u32(data + 12) != (zest_uint)block_format) {
+		return "the KTX2 vkFormat does not match its shape format";
+	}
+	if (zest__tfx_read_u32(data + 28) != 0 || zest__tfx_read_u32(data + 36) != 1) {
+		return "it is not a 2D KTX2 file with a single face";
+	}
+	ktx2->width = zest__tfx_read_u32(data + 20);
+	ktx2->height = zest__tfx_read_u32(data + 24);
+	ktx2->layers = ZEST__MAX(zest__tfx_read_u32(data + 32), 1u);
+	ktx2->level_count = ZEST__MAX(zest__tfx_read_u32(data + 40), 1u);
+	ktx2->supercompression = zest__tfx_read_u32(data + 44);
+	if (ktx2->supercompression != ZEST__TFX_KTX2_SUPERCOMPRESSION_NONE && ktx2->supercompression != ZEST__TFX_KTX2_SUPERCOMPRESSION_ZSTD) {
+		return "it uses a KTX2 supercompression scheme this loader can't inflate";
+	}
+	if (!ktx2->width || !ktx2->height) {
+		return "the KTX2 file has no size";
+	}
+	zest_uint largest = ZEST__MAX(ktx2->width, ktx2->height);
+	zest_uint full_level_count = 1;
+	while (largest > 1) {
+		largest >>= 1;
+		full_level_count++;
+	}
+	if (ktx2->level_count > full_level_count) {
+		return "the KTX2 file has more mip levels than its size allows";
+	}
+	if (ZEST__TFX_KTX2_HEADER_SIZE + (zest_size)ktx2->level_count * ZEST__TFX_KTX2_LEVEL_ENTRY_SIZE > size) {
+		return "the KTX2 level index is truncated";
+	}
+	zest_uint block_bytes = zest__tfx_block_bytes(block_format);
+	for (zest_uint level = 0; level != ktx2->level_count; ++level) {
+		const unsigned char *entry = data + ZEST__TFX_KTX2_HEADER_SIZE + level * ZEST__TFX_KTX2_LEVEL_ENTRY_SIZE;
+		zest_u64 offset = zest__tfx_read_u64(entry);
+		zest_u64 length = zest__tfx_read_u64(entry + 8);
+		zest_u64 uncompressed_length = zest__tfx_read_u64(entry + 16);
+		if (uncompressed_length != zest__tfx_block_level_size(ktx2->width, ktx2->height, level, ktx2->layers, block_bytes)) {
+			return "a KTX2 mip level has the wrong size";
+		}
+		if (!length || offset > size || length > size - offset) {
+			return "a KTX2 mip level lies outside the file";
+		}
+		if (ktx2->supercompression == ZEST__TFX_KTX2_SUPERCOMPRESSION_NONE && length != uncompressed_length) {
+			return "a KTX2 mip level has the wrong size";
+		}
+		ktx2->stored_data[level] = data + offset;
+		ktx2->stored_sizes[level] = (zest_size)length;
+		ktx2->level_sizes[level] = (zest_size)uncompressed_length;
+	}
+	return NULL;
+}
+
+static zest_bool zest__tfx_inflate_ktx2_level(const zest__tfx_ktx2_t *ktx2, zest_uint level, zest_byte *destination) {
+	if (ktx2->supercompression == ZEST__TFX_KTX2_SUPERCOMPRESSION_NONE) {
+		memcpy(destination, ktx2->stored_data[level], ktx2->level_sizes[level]);
+		return ZEST_TRUE;
+	}
+	size_t inflated_size = ZSTD_decompress(destination, ktx2->level_sizes[level], ktx2->stored_data[level], ktx2->stored_sizes[level]);
+	return !ZSTD_isError(inflated_size) && inflated_size == ktx2->level_sizes[level];
+}
+
+//Edge blocks are clipped to the image size
+static void zest__tfx_decode_blocks(const zest__tfx_shape_layout_t *layout, const zest_byte *blocks, zest_uint width, zest_uint height, zest_byte *pixels) {
+	zest_uint block_bytes = zest__tfx_block_bytes(layout->block_format);
+	zest_uint blocks_wide = (width + 3) / 4;
+	zest_uint blocks_high = (height + 3) / 4;
+	zest_uint channels = layout->channels;
+	zest_byte texels[16 * 4];
+	for (zest_uint block_y = 0; block_y != blocks_high; ++block_y) {
+		for (zest_uint block_x = 0; block_x != blocks_wide; ++block_x) {
+			const zest_byte *block = blocks + ((zest_size)block_y * blocks_wide + block_x) * block_bytes;
+			switch (layout->block_format) {
+			case zest_format_bc4_unorm_block: bcdec_bc4(block, texels, 4); break;
+			case zest_format_bc5_unorm_block: bcdec_bc5(block, texels, 4 * 2); break;
+			default: bcdec_bc7(block, texels, 4 * 4); break;
+			}
+			for (zest_uint texel_y = 0; texel_y != 4; ++texel_y) {
+				zest_uint y = block_y * 4 + texel_y;
+				if (y >= height) {
+					break;
+				}
+				for (zest_uint texel_x = 0; texel_x != 4; ++texel_x) {
+					zest_uint x = block_x * 4 + texel_x;
+					if (x < width) {
+						memcpy(pixels + ((zest_size)y * width + x) * channels, texels + (texel_y * 4 + texel_x) * channels, channels);
+					}
+				}
+			}
+		}
+	}
+}
+
+//Each layer of the KTX2 is an animation frame. When the device can sample the blocks the stored mip chain is
+//uploaded as it is, otherwise the largest level is decoded and stacked into a one column sheet.
+static const char *zest__tfx_load_block_shape(zest_device device, const zest__tfx_shape_layout_t *layout, const unsigned char *data, zest_size size, zest_tfx_shape_image_t *record) {
+	zest__tfx_ktx2_t ktx2;
+	const char *error = zest__tfx_parse_ktx2(data, size, layout->block_format, &ktx2);
+	if (error) {
+		return error;
+	}
+	record->frames = ktx2.layers;
+	record->frame_width = ktx2.width;
+	record->frame_height = ktx2.height;
+	record->swizzle = layout->swizzle;
+
+	if (zest_IsImageFormatSupported(device, layout->block_format, ZEST__TFX_BLOCK_IMAGE_FLAGS)) {
+		zest_size total_size = 0;
+		for (zest_uint level = 0; level != ktx2.level_count; ++level) {
+			total_size += ktx2.level_sizes[level];
+		}
+		zest_byte *levels = (zest_byte *)malloc(total_size);
+		if (!levels) {
+			return "there was not enough memory to load it";
+		}
+		zest_byte *level_bytes = levels;
+		for (zest_uint level = 0; level != ktx2.level_count; ++level) {
+			if (!zest__tfx_inflate_ktx2_level(&ktx2, level, level_bytes)) {
+				free(levels);
+				return "a zstd supercompressed mip level could not be inflated";
+			}
+			level_bytes += ktx2.level_sizes[level];
+		}
+		record->format = layout->block_format;
+		record->stored_mip_levels = ktx2.level_count;
+		record->pixels.data = levels;
+		record->pixels.meta.width = ktx2.width;
+		record->pixels.meta.height = ktx2.height;
+		record->pixels.meta.size = total_size;
+		record->pixels.meta.format = layout->block_format;
+		return NULL;
+	}
+
+	zest_byte *largest_level = (zest_byte *)malloc(ktx2.level_sizes[0]);
+	zest_size frame_size = (zest_size)ktx2.width * ktx2.height * layout->channels;
+	zest_byte *pixels = (zest_byte *)malloc(frame_size * ktx2.layers);
+	if (!largest_level || !pixels) {
+		free(largest_level);
+		free(pixels);
+		return "there was not enough memory to decode it";
+	}
+	if (!zest__tfx_inflate_ktx2_level(&ktx2, 0, largest_level)) {
+		free(largest_level);
+		free(pixels);
+		return "a zstd supercompressed mip level could not be inflated";
+	}
+	zest_size layer_size = ktx2.level_sizes[0] / ktx2.layers;
+	for (zest_uint layer = 0; layer != ktx2.layers; ++layer) {
+		zest__tfx_decode_blocks(layout, largest_level + layer * layer_size, ktx2.width, ktx2.height, pixels + layer * frame_size);
+	}
+	free(largest_level);
+	record->format = layout->pixel_format;
+	record->stored_mip_levels = 0;
+	record->pixels.data = pixels;
+	record->pixels.meta.width = ktx2.width;
+	record->pixels.meta.height = ktx2.height * ktx2.layers;
+	record->pixels.meta.channels = layout->channels;
+	record->pixels.meta.bytes_per_pixel = layout->channels;
+	record->pixels.meta.stride = ktx2.width * layout->channels;
+	record->pixels.meta.size = frame_size * ktx2.layers;
+	record->pixels.meta.format = layout->pixel_format;
+	return NULL;
+}
+
+//The frames of an animated shape are laid out in a grid on one sheet
+static const char *zest__tfx_load_pixel_shape(const zest__tfx_shape_layout_t *layout, tfx_image_format format, tfx_image_data_t *image_data, const unsigned char *data, int size, zest_tfx_shape_image_t *record) {
+	int width = 0;
+	int height = 0;
+	int file_channels = 0;
+	zest_byte *pixels = NULL;
+	if (format != tfx_image_format_rgba8_raw) {
+		pixels = (zest_byte *)stbi_load_from_memory(data, size, &width, &height, &file_channels, (int)layout->channels);
+	}
+	zest_size sheet_size;
+	if (pixels) {
+		sheet_size = (zest_size)width * height * layout->channels;
+	} else {
+		//Libraries saved before the format was recorded can hold raw sheets, so only they get the raw reading
+		if (format != tfx_image_format_rgba8_raw && format != tfx_image_format_unknown) {
+			return "its png could not be decoded";
+		}
+		width = tfx_GetImageWidth(image_data);
+		height = tfx_GetImageHeight(image_data);
+		sheet_size = (zest_size)width * height * 4;
+		pixels = (zest_byte *)malloc(sheet_size);
+		if (!pixels) {
+			return "there was not enough memory to load it";
+		}
+		//tfx frees its buffer as soon as the loader returns, so it is copied. The source is usually shorter than
+		//the sheet, so the tail stays blank.
+		zest_size available = (zest_size)size < sheet_size ? (zest_size)size : sheet_size;
+		memset(pixels, 0, sheet_size);
+		memcpy(pixels, data, available);
+	}
+
+	record->format = layout->pixel_format;
+	record->swizzle = layout->swizzle;
+	record->stored_mip_levels = 0;
+	record->pixels.data = pixels;
+	record->pixels.meta.width = width;
+	record->pixels.meta.height = height;
+	record->pixels.meta.channels = layout->channels;
+	record->pixels.meta.bytes_per_pixel = layout->channels;
+	record->pixels.meta.stride = width * layout->channels;
+	record->pixels.meta.size = sheet_size;
+	record->pixels.meta.format = layout->pixel_format;
+	record->pixels.is_imported = ZEST_TRUE;
+
+	zest_uint frames = (zest_uint)tfx_GetImageFrameCount(image_data);
+	record->frames = frames > 1 ? frames : 1;
+	record->frame_width = record->frames > 1 ? (zest_uint)tfx_GetImageWidth(image_data) : (zest_uint)width;
+	record->frame_height = record->frames > 1 ? (zest_uint)tfx_GetImageHeight(image_data) : (zest_uint)height;
+	return NULL;
+}
 
 //tfx keeps the pointer the shape loader hands it for as long as the shape is in the library, so a record
 //is allocated on its own and never moves. Only the pointer list grows, which it is free to do.
@@ -26,14 +361,10 @@ ZEST_PRIVATE zest_tfx_shape_image_t *zest__tfx_add_shape_record(tfx_library_rend
 	return record;
 }
 
-//The sheet comes from stb_image so it goes back the same way rather than through zest_FreeBitmap. When the
-//decoder could not read it the sheet is tfx's own buffer and is not ours to release.
+//stb_image and the shape loader both allocate the pixels with malloc
 ZEST_PRIVATE void zest__tfx_free_shape_pixels(zest_tfx_shape_image_t *record) {
-	if (record->pixels_owned && record->pixels.data) {
-		free(record->pixels.data);
-	}
+	free(record->pixels.data);
 	record->pixels.data = NULL;
-	record->pixels_owned = ZEST_FALSE;
 }
 
 ZEST_PRIVATE void zest__tfx_free_shape_record(tfx_library_render_resources_t *resources, zest_uint index) {
@@ -68,58 +399,45 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 	//Cast your custom data, this can be anything you want
 	tfx_library_render_resources_t *resources = (tfx_library_render_resources_t *)custom_data;
 
-	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
-	int width, height, channels;
-	stbi_uc *pixels = stbi_load_from_memory(raw_image_data, image_memory_size, &width, &height, &channels, 4);
-	bool pixels_not_loaded = !pixels ? true : false;
-	if (pixels_not_loaded) {
-		pixels = (stbi_uc *)raw_image_data;
-		width = tfx_GetImageWidth(image_data);
-		height = tfx_GetImageHeight(image_data);
-	}
-
 	zest_tfx_shape_image_t *record = zest__tfx_add_shape_record(resources);
 	if (!record) {
-		if (!pixels_not_loaded) {
-			free(pixels);
-		}
 		return;
 	}
 
-	//The sheet is kept whole and its frames are cut straight into the staging buffer when the image is made,
-	//so an animation costs one allocation here rather than one per frame.
-	record->pixels.data = (zest_byte *)pixels;
-	record->pixels.meta.width = width;
-	record->pixels.meta.height = height;
-	record->pixels.meta.channels = 4;
-	record->pixels.meta.bytes_per_pixel = 4;
-	record->pixels.meta.stride = width * 4;
-	record->pixels.meta.size = (zest_size)width * height * 4;
-	record->pixels.meta.format = zest_format_r8g8b8a8_unorm;
-	record->pixels.is_imported = ZEST_TRUE;
-	record->pixels_owned = pixels_not_loaded ? ZEST_FALSE : ZEST_TRUE;
-	//The upload is deferred, so a buffer we don't own has to be copied now: tfx frees it as soon as this
-	//callback returns. The encoded source is usually shorter than the sheet, so the tail stays blank.
-	if (!record->pixels_owned && record->pixels.meta.size) {
-		zest_byte *owned_pixels = (zest_byte *)malloc(record->pixels.meta.size);
-		if (owned_pixels) {
-			zest_size available = (zest_size)image_memory_size < record->pixels.meta.size ? (zest_size)image_memory_size : record->pixels.meta.size;
-			memset(owned_pixels, 0, record->pixels.meta.size);
-			memcpy(owned_pixels, record->pixels.data, available);
-			record->pixels.data = owned_pixels;
-			record->pixels_owned = ZEST_TRUE;
-		}
+	//The format the shape was saved in decides how it is decoded and what the image is created with
+	tfx_image_format format = tfx_GetImageFormat(image_data);
+	zest__tfx_shape_layout_t layout;
+	const char *error = NULL;
+	if (!zest__tfx_shape_layout(format, &layout)) {
+		error = "its image format is not one this loader recognises";
+	} else if (layout.block_format != zest_format_undefined) {
+		error = zest__tfx_load_block_shape(resources->device, &layout, (const unsigned char *)raw_image_data, (zest_size)image_memory_size, record);
+	} else {
+		error = zest__tfx_load_pixel_shape(&layout, format, image_data, (const unsigned char *)raw_image_data, image_memory_size, record);
 	}
-
-	zest_uint frames = (zest_uint)tfx_GetImageFrameCount(image_data);
-	record->frames = frames > 1 ? frames : 1;
-	record->frame_width = record->frames > 1 ? (zest_uint)tfx_GetImageWidth(image_data) : (zest_uint)width;
-	record->frame_height = record->frames > 1 ? (zest_uint)tfx_GetImageHeight(image_data) : (zest_uint)height;
+	if (error) {
+		zest__tfx_free_shape_pixels(record);
+		record->unreadable = ZEST_TRUE;
+		record->frames = 1;
+		record->frame_width = (zest_uint)ZEST__MAX(tfx_GetImageWidth(image_data), 1);
+		record->frame_height = (zest_uint)ZEST__MAX(tfx_GetImageHeight(image_data), 1);
+		resources->unreadable_shapes++;
+		ZEST_PRINT("Skipped particle shape %s (image format %i) because %s. It will render as the default image.", filename ? filename : "", (int)format, error);
+	}
 	resources->pending_count++;
 
 	//Important step: the record is what the uv lookup is handed for this shape, which is how a particle
 	//finds the image made for it below.
 	tfx_SetImagePointer(image_data, record);
+}
+
+static zest_size zest__tfx_shape_upload_size(zest_tfx_shape_image_t *record) {
+	if (record->unreadable) {
+		return 0;
+	}
+	zest_size size = record->stored_mip_levels ? record->pixels.meta.size
+		: (zest_size)record->frames * record->frame_width * record->frame_height * record->pixels.meta.bytes_per_pixel;
+	return (size + ZEST__TFX_STAGING_ALIGNMENT - 1) & ~(zest_size)(ZEST__TFX_STAGING_ALIGNMENT - 1);
 }
 
 //Create one layered image per particle shape. The frames of an animated shape become the array layers of
@@ -134,84 +452,122 @@ static void zest__tfx_upload_pending_shapes(zest_context context, tfx_library_re
 
 	zest_size total_size = 0;
 	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
-		zest_tfx_shape_image_t *record = resources->shape_images[i];
-		total_size += (zest_size)record->frames * record->frame_width * record->frame_height * 4;
+		total_size += zest__tfx_shape_upload_size(resources->shape_images[i]);
 	}
 
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, total_size, 0);
-	if (!staging_buffer) {
-		return;
-	}
-
-	//A shape's frames go into the staging buffer back to back so that they upload as one region. A shape
-	//with a single frame is the same copy with nothing to step over.
-	zest_byte *staging_data = (zest_byte *)zest_BufferData(staging_buffer);
-	//A sheet whose grid does not hold every frame it claims leaves the frames past the end of the grid
-	//uncopied below, so the buffer starts blank rather than uploading whatever was in host memory.
-	memset(staging_data, 0, total_size);
-	zest_size staging_offset = 0;
-	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
-		zest_tfx_shape_image_t *record = resources->shape_images[i];
-		zest_uint columns = record->frame_width ? record->pixels.meta.width / record->frame_width : 1;
-		if (!columns) {
-			columns = 1;
+	if (total_size) {
+		zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, total_size, 0);
+		if (!staging_buffer) {
+			return;
 		}
-		for (zest_uint f = 0; f != record->frames; ++f) {
-			zest_bitmap_t frame = ZEST__ZERO_INIT(zest_bitmap_t);
-			frame.meta = record->pixels.meta;
-			frame.meta.width = record->frame_width;
-			frame.meta.height = record->frame_height;
-			frame.meta.stride = record->frame_width * 4;
-			frame.meta.size = (zest_size)frame.meta.stride * record->frame_height;
-			frame.data = staging_data + staging_offset;
-			frame.is_imported = ZEST_TRUE;
-			zest_CopyBitmap(&record->pixels, (f % columns) * record->frame_width, (f / columns) * record->frame_height,
-				record->frame_width, record->frame_height, &frame, 0, 0);
-			staging_offset += frame.meta.size;
+
+		//A shape's frames go into the staging buffer back to back so that they upload as one region. A shape
+		//with a single frame is the same copy with nothing to step over. Stored mip levels are already packed.
+		zest_byte *staging_data = (zest_byte *)zest_BufferData(staging_buffer);
+		//A sheet whose grid does not hold every frame it claims leaves the frames past the end of the grid
+		//uncopied below, so the buffer starts blank rather than uploading whatever was in host memory.
+		memset(staging_data, 0, total_size);
+		zest_size staging_offset = 0;
+		for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+			zest_tfx_shape_image_t *record = resources->shape_images[i];
+			if (record->unreadable) {
+				continue;
+			}
+			zest_size shape_offset = staging_offset;
+			staging_offset += zest__tfx_shape_upload_size(record);
+			if (record->stored_mip_levels) {
+				memcpy(staging_data + shape_offset, record->pixels.data, record->pixels.meta.size);
+				continue;
+			}
+			zest_uint bytes_per_pixel = record->pixels.meta.bytes_per_pixel;
+			zest_uint columns = record->frame_width ? record->pixels.meta.width / record->frame_width : 1;
+			if (!columns) {
+				columns = 1;
+			}
+			for (zest_uint f = 0; f != record->frames; ++f) {
+				zest_bitmap_t frame = ZEST__ZERO_INIT(zest_bitmap_t);
+				frame.meta = record->pixels.meta;
+				frame.meta.width = record->frame_width;
+				frame.meta.height = record->frame_height;
+				frame.meta.stride = record->frame_width * bytes_per_pixel;
+				frame.meta.size = (zest_size)frame.meta.stride * record->frame_height;
+				frame.data = staging_data + shape_offset;
+				frame.is_imported = ZEST_TRUE;
+				zest_CopyBitmap(&record->pixels, (f % columns) * record->frame_width, (f / columns) * record->frame_height,
+					record->frame_width, record->frame_height, &frame, 0, 0);
+				shape_offset += frame.meta.size;
+			}
 		}
-	}
 
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	zest_size buffer_offset = 0;
-	for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
-		zest_tfx_shape_image_t *record = resources->shape_images[i];
-		zest_size shape_size = (zest_size)record->frames * record->frame_width * record->frame_height * 4;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		zest_size buffer_offset = 0;
+		for (zest_uint i = first_pending; i != resources->shape_image_count; ++i) {
+			zest_tfx_shape_image_t *record = resources->shape_images[i];
+			if (record->unreadable) {
+				continue;
+			}
+			zest_size shape_size = zest__tfx_shape_upload_size(record);
 
-		zest_image_info_t image_info = zest_CreateImageInfo(record->frame_width, record->frame_height);
-		image_info.format = zest_format_r8g8b8a8_unorm;
-		image_info.layer_count = record->frames;
-		//Force the array view so that single frame shapes still sample as a texture2DArray in the shader
-		image_info.flags = zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array;
-		record->image = zest_CreateImage(device, &image_info);
-		if (!record->image.value) {
-			//Nothing can be done for the shape now, tfx already has the record. Its bindless index is still
-			//the zero it was created with, which addresses the device's default image.
-			ZEST_PRINT("Unable to create an image for a particle shape. It will render as the default image.");
+			zest_image_info_t image_info = zest_CreateImageInfo(record->frame_width, record->frame_height);
+			image_info.format = record->format;
+			image_info.layer_count = record->frames;
+			image_info.swizzle = record->swizzle;
+			if (record->stored_mip_levels) {
+				image_info.mip_levels = record->stored_mip_levels;
+				image_info.flags = ZEST__TFX_BLOCK_IMAGE_FLAGS;
+			} else {
+				image_info.flags = ZEST__TFX_PIXEL_IMAGE_FLAGS;
+			}
+			record->image = zest_CreateImage(device, &image_info);
+			if (!record->image.value) {
+				//Nothing can be done for the shape now, tfx already has the record. Its bindless index is still
+				//the zero it was created with, which addresses the device's default image.
+				ZEST_PRINT("Unable to create an image for a particle shape. It will render as the default image.");
+				buffer_offset += shape_size;
+				continue;
+			}
+			zest_image image = zest_GetImage(record->image);
+			zest_uint mip_levels = zest_ImageInfo(image)->mip_levels;
+
+			zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, record->frames);
+			if (record->stored_mip_levels) {
+				zest_buffer_image_copy_t copy_regions[ZEST__TFX_KTX2_MAX_LEVELS];
+				zest_uint block_bytes = zest__tfx_block_bytes(record->format);
+				zest_size level_offset = buffer_offset;
+				for (zest_uint level = 0; level != record->stored_mip_levels; ++level) {
+					zest_buffer_image_copy_t copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+					copy_region.buffer_offset = level_offset;
+					copy_region.image_aspect = zest_image_aspect_color_bit;
+					copy_region.mip_level = level;
+					copy_region.layer_count = record->frames;
+					copy_region.image_extent.width = ZEST__MAX(record->frame_width >> level, 1u);
+					copy_region.image_extent.height = ZEST__MAX(record->frame_height >> level, 1u);
+					copy_region.image_extent.depth = 1;
+					copy_regions[level] = copy_region;
+					level_offset += zest__tfx_block_level_size(record->frame_width, record->frame_height, level, record->frames, block_bytes);
+				}
+				zest_imm_CopyBufferRegionsToImage(queue, copy_regions, record->stored_mip_levels, staging_buffer, image);
+				zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, record->frames);
+			} else {
+				zest_buffer_image_copy_t copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+				copy_region.buffer_offset = buffer_offset;
+				copy_region.image_aspect = zest_image_aspect_color_bit;
+				copy_region.layer_count = record->frames;
+				copy_region.image_extent.width = record->frame_width;
+				copy_region.image_extent.height = record->frame_height;
+				copy_region.image_extent.depth = 1;
+				zest_imm_CopyBufferRegionsToImage(queue, &copy_region, 1, staging_buffer, image);
+				if (mip_levels > 1) {
+					zest_imm_GenerateMipMaps(queue, image);
+				} else {
+					zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, record->frames);
+				}
+			}
 			buffer_offset += shape_size;
-			continue;
 		}
-		zest_image image = zest_GetImage(record->image);
-		zest_uint mip_levels = zest_ImageInfo(image)->mip_levels;
-
-		zest_buffer_image_copy_t copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
-		copy_region.buffer_offset = buffer_offset;
-		copy_region.image_aspect = zest_image_aspect_color_bit;
-		copy_region.layer_count = record->frames;
-		copy_region.image_extent.width = record->frame_width;
-		copy_region.image_extent.height = record->frame_height;
-		copy_region.image_extent.depth = 1;
-
-		zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, record->frames);
-		zest_imm_CopyBufferRegionsToImage(queue, &copy_region, 1, staging_buffer, image);
-		if (mip_levels > 1) {
-			zest_imm_GenerateMipMaps(queue, image);
-		} else {
-			zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, record->frames);
-		}
-		buffer_offset += shape_size;
+		zest_imm_EndCommandBuffer(queue);
+		zest_FreeBufferNow(staging_buffer);
 	}
-	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBufferNow(staging_buffer);
 
 	//Descriptor indexes can only be acquired once an image is in a layout valid for sampling, so the shapes
 	//get walked a second time now that the uploads have run. The sheets have done their job by this point.

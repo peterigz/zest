@@ -2341,6 +2341,10 @@ typedef enum zest_device_capability_bits {
 	zest_capability_fragment_stores_and_atomics        = 1 << 11,
 	// Auto-enabled (listed out of group order to keep the existing bit values stable).
 	zest_capability_nonuniform_sampled_image_indexing  = 1 << 12,
+	// Block compressed texture families. A compressed format only reports as supported while its family is enabled.
+	zest_capability_texture_compression_bc             = 1 << 13,
+	zest_capability_texture_compression_astc_ldr       = 1 << 14,
+	zest_capability_texture_compression_etc2           = 1 << 15,
 } zest_device_capability_bits;
 
 // Populated once during device creation and queryable thereafter via
@@ -2364,7 +2368,10 @@ typedef struct zest_device_capabilities_t {
 	zest_capability_anisotropic_filtering | \
 	zest_capability_wireframe | \
 	zest_capability_image_cube_array | \
-	zest_capability_nonuniform_sampled_image_indexing )
+	zest_capability_nonuniform_sampled_image_indexing | \
+	zest_capability_texture_compression_bc | \
+	zest_capability_texture_compression_astc_ldr | \
+	zest_capability_texture_compression_etc2 )
 #define ZEST_CAPABILITY_OPT_IN_MASK ( \
 	zest_capability_tessellation | \
 	zest_capability_geometry_shader | \
@@ -4993,6 +5000,7 @@ ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format for
 ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag_for_view(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_depth_stencil_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_compressed_format(zest_format format);
+ZEST_PRIVATE zest_capability_flags zest__compressed_format_capability(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
 ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
@@ -5795,6 +5803,10 @@ ZEST_API zest_image_info_t zest_CreateImageInfo3D(zest_uint width, zest_uint hei
 ZEST_API zest_component_mapping_t zest_SwizzleAlphaOnly(void);
 ZEST_API zest_component_mapping_t zest_SwizzleLuminanceAlpha(void);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image image);
+//Check whether an image with this format and these flags can be created on the device. zest_CreateImage fails
+//validation on an unsupported combination, so check first when you have a fallback format. Block compressed
+//formats also need their zest_capability_texture_compression_* capability enabled.
+ZEST_API zest_bool zest_IsImageFormatSupported(zest_device device, zest_format format, zest_image_flags flags);
 ZEST_API zest_image_handle zest_CreateImage(zest_device device, zest_image_info_t *create_info);
 ZEST_API zest_image_handle zest_CreateImageWithPixels(zest_device device, void *pixels, zest_size size, zest_image_info_t *create_info);
 ZEST_API zest_image zest_GetImage(zest_image_handle handle);
@@ -16539,6 +16551,20 @@ zest_bool zest__is_compressed_format(zest_format format) {
 	return format >= zest_format_bc1_rgb_unorm_block && format <= zest_format_astc_12X12_srgb_block;
 }
 
+//The capability that has to be enabled before a compressed format can be used, none for an uncompressed format
+zest_capability_flags zest__compressed_format_capability(zest_format format) {
+	if (format >= zest_format_bc1_rgb_unorm_block && format <= zest_format_bc7_srgb_block) {
+		return zest_capability_texture_compression_bc;
+	}
+	if (format >= zest_format_etc2_r8g8b8_unorm_block && format <= zest_format_eac_r11g11_snorm_block) {
+		return zest_capability_texture_compression_etc2;
+	}
+	if (format >= zest_format_astc_4X4_unorm_block && format <= zest_format_astc_12X12_srgb_block) {
+		return zest_capability_texture_compression_astc_ldr;
+	}
+	return zest_capability_none;
+}
+
 void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints) {
     if (usage_hints & zest_resource_usage_hint_copy_dst) {
         resource->image.info.flags |= zest_image_flag_transfer_dst;
@@ -19669,6 +19695,14 @@ zest_image_view_type zest__get_image_view_type(zest_image image) {
         view_type = (image->info.layer_count > 1 || (image->info.flags & zest_image_flag_force_image_array)) ? zest_image_view_type_2d_array : zest_image_view_type_2d;
     }
     return view_type;
+}
+
+zest_bool zest_IsImageFormatSupported(zest_device device, zest_format format, zest_image_flags flags) {
+	ZEST_ASSERT_HANDLE(device);
+	if (format <= zest_format_undefined || format >= zest_max_format) {
+		return ZEST_FALSE;
+	}
+	return device->platform->is_image_format_supported(device, format, flags);
 }
 
 zest_image_handle zest_CreateImage(zest_device device, zest_image_info_t *create_info) {

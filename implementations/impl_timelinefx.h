@@ -61,8 +61,11 @@ typedef struct zest_tfx_shape_image_t {
 	zest_uint frames;			//Array layers in the image
 	zest_uint frame_width;
 	zest_uint frame_height;
-	zest_bitmap_t pixels;		//The decoded sheet, alive only between the shape loader and the upload
-	zest_bool pixels_owned;		//Clear when the sheet is tfx's own buffer and is not ours to release
+	zest_format format;					//What the image is created with
+	zest_component_mapping_t swizzle;
+	zest_uint stored_mip_levels;		//Mip levels read from the file, 0 when the mips are generated after upload
+	zest_bitmap_t pixels;		//The decoded sheet, or the stored mip levels back to back with the largest first. Alive only until the upload
+	zest_bool unreadable;		//No image is made and the shape renders as the default image
 } zest_tfx_shape_image_t;
 
 typedef struct tfx_library_render_resources_s {
@@ -97,6 +100,7 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint shape_image_capacity;
 	zest_uint pending_count;
 	zest_uint images_removed;	//Counted by the shape remover across one refresh
+	zest_uint unreadable_shapes;	//Shapes the loader could not decode, which render as the default image
 } tfx_library_render_resources_t;
 
 typedef struct tfx_ribbon_render_dispatch_t {

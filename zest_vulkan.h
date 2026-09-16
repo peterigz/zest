@@ -2297,6 +2297,9 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     if (base->geometryShader)                                     supported |= zest_capability_geometry_shader;
     if (base->shaderInt64)                                        supported |= zest_capability_shader_int64;
     if (base->fragmentStoresAndAtomics)                           supported |= zest_capability_fragment_stores_and_atomics;
+    if (base->textureCompressionBC)                               supported |= zest_capability_texture_compression_bc;
+    if (base->textureCompressionASTC_LDR)                         supported |= zest_capability_texture_compression_astc_ldr;
+    if (base->textureCompressionETC2)                             supported |= zest_capability_texture_compression_etc2;
     device->capabilities.supported = supported;
 
     // --- Bindless descriptor ceilings ---
@@ -2334,6 +2337,9 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     ZEST_APPEND_LOG(log, "  nonuniform_sampled_image_indexing: %s",   (supported & zest_capability_nonuniform_sampled_image_indexing) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  anisotropic_filtering: %s",               (supported & zest_capability_anisotropic_filtering) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  wireframe: %s",                           (supported & zest_capability_wireframe) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  texture_compression_bc: %s",              (supported & zest_capability_texture_compression_bc) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  texture_compression_astc_ldr: %s",        (supported & zest_capability_texture_compression_astc_ldr) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  texture_compression_etc2: %s",            (supported & zest_capability_texture_compression_etc2) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  tessellation (opt-in): %s",               (supported & zest_capability_tessellation) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  geometry_shader (opt-in): %s",            (supported & zest_capability_geometry_shader) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  shader_int64 (opt-in): %s",               (supported & zest_capability_shader_int64) ? "yes" : "no");
@@ -2450,6 +2456,9 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features.tessellationShader = (enabled & zest_capability_tessellation) ? VK_TRUE : VK_FALSE;
     device_features.geometryShader = (enabled & zest_capability_geometry_shader) ? VK_TRUE : VK_FALSE;
     device_features.fragmentStoresAndAtomics = (enabled & zest_capability_fragment_stores_and_atomics) ? VK_TRUE : VK_FALSE;
+    device_features.textureCompressionBC = (enabled & zest_capability_texture_compression_bc) ? VK_TRUE : VK_FALSE;
+    device_features.textureCompressionASTC_LDR = (enabled & zest_capability_texture_compression_astc_ldr) ? VK_TRUE : VK_FALSE;
+    device_features.textureCompressionETC2 = (enabled & zest_capability_texture_compression_etc2) ? VK_TRUE : VK_FALSE;
     // Required bindless core (guaranteed present - feasibility pass would have failed otherwise).
     // Dynamically uniform indexing of every bindless array type; see zest__vk_query_device_capabilities.
     device_features.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
@@ -4120,6 +4129,11 @@ zest_bool zest__vk_build_pipeline_legacy(zest_pipeline pipeline, zest_command_li
 
 // -- Images
 zest_bool zest__vk_is_image_format_supported(zest_device device, zest_format format, zest_image_flags flags) {
+	//The driver reports compressed formats as usable even when the feature that makes them legal is off
+	zest_capability_flags required_capability = zest__compressed_format_capability(format);
+	if (required_capability && !ZEST__FLAGGED(device->capabilities.enabled, required_capability)) {
+		return ZEST_FALSE;
+	}
 	VkImageTiling tiling = ZEST__FLAGGED(flags, zest_image_flag_host_visible) ? VK_IMAGE_TILING_LINEAR : VK_IMAGE_TILING_OPTIMAL;
 	VkFormatProperties props;
 	vkGetPhysicalDeviceFormatProperties(device->backend->physical_device, (VkFormat)format, &props);
