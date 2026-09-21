@@ -68,6 +68,7 @@ void MainLoop(minimal_app_t *app) {
 	while (running) {
 		//Check if the window was closed
 		running = PollSDLEvents(app->context, &event);
+		//The device must be updated each loop
 		zest_UpdateDevice(app->device);
 		//Generate a cache key
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
