@@ -56,8 +56,13 @@ struct Player {
 struct PlayerBullet {
 	zest_vec3 position;
 	float speed = 20.f;
-	tfxEffectID effect_index;
+	tfxSpawnLocationID location_id;
 	bool remove = false;
+};
+
+struct PowerUp {
+	zest_vec3 position;
+	tfxSpawnLocationID location_id;
 };
 
 struct VaderBullet {
@@ -142,7 +147,8 @@ struct VadersGame {
 	simple_vector_t<Vader> vaders[2];
 	simple_vector_t<Vader> big_vaders[2];
 	simple_vector_t<VaderBullet> vader_bullets[2];
-	simple_vector_t<tfxEffectID> power_ups[2];
+	simple_vector_t<PowerUp> power_ups[2];
+	simple_vector_t<tfxSpawnLocationID> got_power_ups[2];
 	int current_buffer = 0;
 	float noise_offset = 0.f;
 
@@ -188,6 +194,12 @@ struct VadersGame {
 
 	tfxEffectID background_index;
 	tfxEffectID title_index;
+	tfxEffectID player_bullet_index;
+	tfxEffectID vader_explosion_index;
+	tfxEffectID big_explosion_index;
+	tfxEffectID player_explosion_index;
+	tfxEffectID power_up_index;
+	tfxEffectID got_power_up_index;
 	zest_context context;
 	zest_device device;
 	zest_msdf_font_t font;
@@ -246,12 +258,6 @@ zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, 
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &data->proj, &data->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
-}
-
-//Update the power up effect to follow the player
-void UpdateGotPowerUpEffect(tfx_stage pm, tfxEffectID effect_index) {
-	VadersGame *game = static_cast<VadersGame*>(tfx_GetEffectUserData(pm, effect_index));
-	tfx_SetEffectPositionVec3(pm, effect_index, &game->player.position.x);
 }
 
 void UpdateMouse(VadersGame *app) {
@@ -355,7 +361,7 @@ void VadersGame::Init() {
 	tfx_RandomReseedTime(&random);
 
 	//Load the effects library and create the particle image atlas
-	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
+	library = zest_tfx_LoadLibrary(context, &tfx_rendering, "examples/assets/vaders/vadereffects");
 
 	//Prepare all the Effect templates we need from the library - must be done before FinaliseLibrary
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
@@ -396,10 +402,6 @@ void VadersGame::Init() {
 	//Player setup
 	player.rate_of_fire = 4.f * UpdateFrequency;
 	high_score = 0;
-
-	//Set the user data in the got power up effect and the update callback so that we can position it each frame
-	tfx_SetTemplateEffectUserData(got_power_up, this);
-	tfx_SetTemplateEffectUpdateCallback(got_power_up, UpdateGotPowerUpEffect);
 
 	//Initialise imgui
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
@@ -584,15 +586,8 @@ void UpdateVaders(VadersGame *game) {
 			if (tfx_GetDistance(bullet.position.z, bullet.position.y, vader.position.z, vader.position.y) < 0.3f) {
 				hit = true;
 				bullet.remove = true;
-				//Blow up the vader. Add teh vader_explosion_effect template to the particle manager
-				tfxEffectID effect_index;
-				effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->vader_explosion_effect);
-				if (tfx_EffectIDIsValid(effect_index)) {
-					//Set the effect position
-					tfx_SetEffectPositionVec3(game->game_pm, effect_index, &vader.position.x);
-					//Alter the effect scale
-					tfx_SetEffectOverallScale(game->game_pm, effect_index, 2.5f);
-				}
+				//Blow up the vader
+				tfx_AddSpawnLocation(game->game_pm, game->vader_explosion_index, &vader.position.x, tfxSpawnLocationAdd_none);
 				game->score += 150;
 				game->high_score = ZEST__MAX(game->score, game->high_score);
 				break;
@@ -650,23 +645,19 @@ void UpdateVaders(VadersGame *game) {
 				}
 				if (vader.health == 0) {
 					dead = true;
-					//blow up the big vader, add the big_explosion template to the particle manager and set position and scale
-					tfxEffectID effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->big_explosion);
-					if (tfx_EffectIDIsValid(effect_index)) {
-						tfx_SetEffectPositionVec3(game->game_pm, effect_index, &vader.position.x);
-						tfx_SetEffectOverallScale(game->game_pm, effect_index, 2.5f);
-					}
+					//blow up the big vader
+					tfx_AddSpawnLocation(game->game_pm, game->big_explosion_index, &vader.position.x, tfxSpawnLocationAdd_none);
 					game->score += 500;
 					game->high_score = ZEST__MAX(game->score, game->high_score);
 					if (vader.flags & VaderFlags_firing_laser) {
 						tfx_SoftExpireEffect(game->game_pm, vader.laser);
 					}
 					//Add the power up effect that floats downward to the particle manager and set its position and scale
-					tfxEffectID power_up_index = tfx_AddEffectTemplateToStage(game->game_pm, game->weapon_power_up);
-					if (tfx_EffectIDIsValid(power_up_index)) {
-						tfx_SetEffectPositionVec3(game->game_pm, power_up_index, &vader.position.x);
-						tfx_SetEffectOverallScale(game->game_pm, power_up_index, 3.f);
-						game->power_ups[game->current_buffer].push_back(power_up_index);
+					PowerUp power_up;
+					power_up.position = vader.position;
+					power_up.location_id = tfx_AddSpawnLocation(game->game_pm, game->power_up_index, &power_up.position.x, tfxSpawnLocationAdd_none);
+					if (power_up.location_id != tfxINVALID_SPAWN_LOCATION) {
+						game->power_ups[game->current_buffer].push_back(power_up);
 					}
 					break;
 				}
@@ -727,12 +718,8 @@ void UpdateVaders(VadersGame *game) {
 				//Check to see if the laser is colliding with the player
 				zest_vec3 offsetted_laser = zest_AddVec3(vader.position, laser_offset);
 				if (game->state != GameState_game_over && IsLineCircleCollision(offsetted_laser, zest_AddVec3(offsetted_laser, zest_ScaleVec3(laser_normal, 20.f)), game->player.position, .3f)) {
-					//Destroy the player. Add the player explosion to the particle manager and position/scale it.
-					tfxEffectID effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->player_explosion);
-					if (tfx_EffectIDIsValid(effect_index)) {
-						tfx_SetEffectPositionVec3(game->game_pm, effect_index, &game->player.position.x);
-						tfx_SetEffectOverallScale(game->game_pm, effect_index, 1.5f);
-					}
+					//Destroy the player
+					tfx_AddSpawnLocation(game->game_pm, game->player_explosion_index, &game->player.position.x, tfxSpawnLocationAdd_none);
 					game->state = GameState_game_over;
 				}
 			}
@@ -745,25 +732,80 @@ void UpdateVaders(VadersGame *game) {
 	}
 }
 
+void AddGotPowerUp(VadersGame *game) {
+	tfxSpawnLocationID location_id = tfx_AddSpawnLocation(game->game_pm, game->got_power_up_index, &game->player.position.x, tfxSpawnLocationAdd_none);
+	if (location_id != tfxINVALID_SPAWN_LOCATION) {
+		game->got_power_ups[game->current_buffer].push_back(location_id);
+	}
+}
+
+//The effect is finite so its locations remove themselves once it has played out, until then they follow the player
+void UpdateGotPowerUps(VadersGame *game) {
+	int next_buffer = !game->current_buffer;
+	game->got_power_ups[next_buffer].clear();
+	for (auto location_id : game->got_power_ups[game->current_buffer]) {
+		if (tfx_SpawnLocationIsValid(game->game_pm, location_id)) {
+			tfx_UpdateSpawnLocation(game->game_pm, location_id, &game->player.position.x);
+			game->got_power_ups[next_buffer].push_back(location_id);
+		}
+	}
+}
+
 void UpdatePowerUps(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->power_ups[next_buffer].clear();
 	for (auto &power_up : game->power_ups[game->current_buffer]) {
-		zest_vec3 position;
-		tfx_GetEffectPositionVec3(game->game_pm, power_up, &position.x);
-		if (tfx_GetDistance(position.z, position.y, game->player.position.z, game->player.position.y) < 0.3f) {
-			tfxEffectID effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->got_power_up);
-			if (tfx_EffectIDIsValid(effect_index)) {
-				tfx_SetEffectPositionVec3(game->game_pm, effect_index, &game->player.position.x);
-				tfx_SetEffectOverallScale(game->game_pm, effect_index, 2.5f);
-			}
-			tfx_HardExpireEffect(game->game_pm, power_up);
+		if (tfx_GetDistance(power_up.position.z, power_up.position.y, game->player.position.z, game->player.position.y) < 0.3f) {
+			AddGotPowerUp(game);
+			tfx_RemoveSpawnLocation(game->game_pm, power_up.location_id);
 			game->player.rate_of_fire += 1 * UpdateFrequency;
 			continue;
 		}
-		tfx_MoveEffect(game->game_pm, power_up, 0.f, -1.f * UpdateFrequency, 0.f);
+		power_up.position.y -= UpdateFrequency;
+		if (power_up.position.y < game->bottom_right_bound.y - 1.f) {
+			tfx_RemoveSpawnLocation(game->game_pm, power_up.location_id);
+			continue;
+		}
+		tfx_UpdateSpawnLocation(game->game_pm, power_up.location_id, &power_up.position.x);
 		game->power_ups[next_buffer].push_back(power_up);
 	}
+}
+
+//Each of these effects serves every instance of its kind, so they're added to the stage once and each instance gets a spawn location
+//within them. The overall scale is set on the effect because it's shared by all of its locations
+void AddSharedEffects(VadersGame *game) {
+	game->player_bullet_index = tfx_AddEffectTemplateToStage(game->game_pm, game->player_bullet_effect);
+	if (tfx_EffectIDIsValid(game->player_bullet_index)) {
+		tfx_SetEffectBaseNoiseOffset(game->game_pm, game->player_bullet_index, game->noise_offset);
+	}
+	for (auto &bullet : game->player_bullets[game->current_buffer]) {
+		bullet.location_id = tfx_AddSpawnLocation(game->game_pm, game->player_bullet_index, &bullet.position.x, tfxSpawnLocationAdd_none);
+	}
+	game->vader_explosion_index = tfx_AddEffectTemplateToStage(game->game_pm, game->vader_explosion_effect);
+	if (tfx_EffectIDIsValid(game->vader_explosion_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->vader_explosion_index, 3.5f);
+	}
+	game->big_explosion_index = tfx_AddEffectTemplateToStage(game->game_pm, game->big_explosion);
+	if (tfx_EffectIDIsValid(game->big_explosion_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->big_explosion_index, 2.5f);
+	}
+	game->player_explosion_index = tfx_AddEffectTemplateToStage(game->game_pm, game->player_explosion);
+	if (tfx_EffectIDIsValid(game->player_explosion_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->player_explosion_index, 2.5f);
+	}
+	game->power_up_index = tfx_AddEffectTemplateToStage(game->game_pm, game->weapon_power_up);
+	if (tfx_EffectIDIsValid(game->power_up_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->power_up_index, 3.f);
+	}
+	for (auto &power_up : game->power_ups[game->current_buffer]) {
+		power_up.location_id = tfx_AddSpawnLocation(game->game_pm, game->power_up_index, &power_up.position.x, tfxSpawnLocationAdd_none);
+	}
+	game->got_power_up_index = tfx_AddEffectTemplateToStage(game->game_pm, game->got_power_up);
+	if (tfx_EffectIDIsValid(game->got_power_up_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->got_power_up_index, 2.5f);
+	}
+	//Collect bursts are short so they're dropped rather than restarted in the new effect
+	game->got_power_ups[game->current_buffer].clear();
 }
 
 void UpdatePlayerPosition(VadersGame *game, Player *player) {
@@ -775,12 +817,10 @@ void UpdatePlayer(VadersGame *game, Player *player) {
 		player->fire_count += player->rate_of_fire;
 		if (player->fire_count >= 1.f) {
 			player->fire_count = 0;
-			PlayerBullet new_bullet{}; 
-			new_bullet.effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->player_bullet_effect);
-			if(tfx_EffectIDIsValid(new_bullet.effect_index)){
-				new_bullet.position = player->position;
-				tfx_SetEffectPositionVec3(game->game_pm, new_bullet.effect_index, &new_bullet.position.x);
-				tfx_SetEffectBaseNoiseOffset(game->game_pm, new_bullet.effect_index, game->noise_offset);
+			PlayerBullet new_bullet{};
+			new_bullet.position = player->position;
+			new_bullet.location_id = tfx_AddSpawnLocation(game->game_pm, game->player_bullet_index, &new_bullet.position.x, tfxSpawnLocationAdd_none);
+			if (new_bullet.location_id != tfxINVALID_SPAWN_LOCATION) {
 				game->player_bullets[game->current_buffer].push_back(new_bullet);
 			}
 		}
@@ -788,11 +828,7 @@ void UpdatePlayer(VadersGame *game, Player *player) {
 		player->fire_count = 1.f;
 	}
 	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-		tfxEffectID effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->got_power_up);
-		if (tfx_EffectIDIsValid(effect_index)) {
-			tfx_SetEffectPositionVec3(game->game_pm, effect_index, &game->player.position.x);
-			tfx_SetEffectOverallScale(game->game_pm, effect_index, 2.5f);
-		}
+		AddGotPowerUp(game);
 	}
 }
 
@@ -802,17 +838,16 @@ void UpdatePlayerBullets(VadersGame *game) {
 	zest_vec3 top_left = ScreenRay(game->context, 0.f, 0.f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 	for (auto &bullet : game->player_bullets[game->current_buffer]) {
 		if (bullet.remove) {
-			tfx_SoftExpireEffect(game->game_pm, bullet.effect_index);
+			//Soft expire so that the trail fades out rather than disappearing with the location
+			tfx_SoftExpireSpawnLocation(game->game_pm, bullet.location_id, 0.f);
 			continue;
 		}
 		bullet.position.y += bullet.speed * UpdateFrequency;
 		if (bullet.position.y > top_left.y + 1.f) {
-			//Expire the effect if it hits the top of the screen
-			tfx_SoftExpireEffect(game->game_pm, bullet.effect_index);
+			tfx_SoftExpireSpawnLocation(game->game_pm, bullet.location_id, 0.f);
 		}
 		else {
-			//Update the bullet effect position
-			tfx_SetEffectPositionVec3(game->game_pm, bullet.effect_index, &bullet.position.x);
+			tfx_UpdateSpawnLocation(game->game_pm, bullet.location_id, &bullet.position.x);
 			game->player_bullets[next_buffer].push_back(bullet);
 		}
 	}
@@ -824,12 +859,8 @@ void UpdateVaderBullets(VadersGame *game) {
 	for (auto &bullet : game->vader_bullets[game->current_buffer]) {
 		//Does the vader bullet collide with the player?
 		if (game->state != GameState_game_over && tfx_GetDistance(bullet.position.z, bullet.position.y, game->player.position.z, game->player.position.y) < 0.3f) {
-			//Blow up the player, add the player_explosion effect to the particle manager and set it's position/scale
-			tfxEffectID effect_index = tfx_AddEffectTemplateToStage(game->game_pm, game->player_explosion);
-			if (tfx_EffectIDIsValid(effect_index)) {
-				tfx_SetEffectPositionVec3(game->game_pm, effect_index, &bullet.position.x);
-				tfx_SetEffectOverallScale(game->game_pm, effect_index, 1.5f);
-			}
+			//Blow up the player
+			tfx_AddSpawnLocation(game->game_pm, game->player_explosion_index, &bullet.position.x, tfxSpawnLocationAdd_none);
 			game->state = GameState_game_over;
 			continue;
 		}
@@ -943,6 +974,16 @@ void SetParticleOption(VadersGame *game) {
 			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, &title_position.x);
 		}
 	}
+	//The shared effects are already on the stage so they have to be restarted to pick up the template changes
+	if (game->state != GameState_title) {
+		tfx_SoftExpireEffect(game->game_pm, game->player_bullet_index);
+		tfx_SoftExpireEffect(game->game_pm, game->vader_explosion_index);
+		tfx_SoftExpireEffect(game->game_pm, game->big_explosion_index);
+		tfx_SoftExpireEffect(game->game_pm, game->player_explosion_index);
+		tfx_SoftExpireEffect(game->game_pm, game->power_up_index);
+		tfx_SoftExpireEffect(game->game_pm, game->got_power_up_index);
+		AddSharedEffects(game);
+	}
 }
 
 void BuildUI(VadersGame *game) {
@@ -1038,6 +1079,7 @@ void ResetGame(VadersGame *game) {
 	game->player_bullets[game->current_buffer].clear();
 	game->vader_bullets[game->current_buffer].clear();
 	game->power_ups[game->current_buffer].clear();
+	AddSharedEffects(game);
 	game->player.rate_of_fire = 4.f * UpdateFrequency;
 	game->score = 0;
 	game->current_wave = 0;
@@ -1173,6 +1215,7 @@ void VadersGame::Update(float ellapsed) {
 					UpdateVaderBullets(this);
 					UpdatePlayerBullets(this);
 					UpdatePowerUps(this);
+					UpdateGotPowerUps(this);
 					current_buffer = current_buffer ^ 1;
 					if (vaders[current_buffer].size() == 0) {
 						current_wave++;
@@ -1198,6 +1241,7 @@ void VadersGame::Update(float ellapsed) {
 				UpdateVaderBullets(this);
 				UpdatePlayerBullets(this);
 				UpdatePowerUps(this);
+				UpdateGotPowerUps(this);
 				current_buffer = current_buffer ^ 1;
 				if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
 					if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1434,6 +1478,7 @@ int main(int argc, char *argv[]) {
 		game.big_vaders[i].free();
 		game.vader_bullets[i].free();
 		game.power_ups[i].free();
+		game.got_power_ups[i].free();
 	}
 
 	ImGui_ImplSDL2_Shutdown();
