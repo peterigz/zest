@@ -712,8 +712,7 @@ void UpdateVaders(VadersGame *game) {
 				//and any remaining particles expire naturally
 				tfx_SoftExpireEffect(game->game_pm, vader.laser);
 				vader.flags &= ~VaderFlags_firing_laser;
-			}
-			else {
+			} else {
 				zest_vec3 laser_normal = NormalizeVec3(&laser_offset);
 				//Check to see if the laser is colliding with the player
 				zest_vec3 offsetted_laser = zest_AddVec3(vader.position, laser_offset);
@@ -728,7 +727,7 @@ void UpdateVaders(VadersGame *game) {
 		game->big_vaders[next_buffer].push_back(vader);
 	}
 	if (game->big_vaders[next_buffer].size()) {
-		game->countdown_to_big_vader = tfx_RandomRangeFromTo(&game->random, 1.f, 3.f);
+		game->countdown_to_big_vader = tfx_RandomRangeFromTo(&game->random, 15.f, 35.f);
 	}
 }
 
@@ -1083,7 +1082,7 @@ void ResetGame(VadersGame *game) {
 	game->player.rate_of_fire = 4.f * UpdateFrequency;
 	game->score = 0;
 	game->current_wave = 0;
-	game->countdown_to_big_vader = tfx_RandomRangeFromTo(&game->random, 1.f, 5.f);
+	game->countdown_to_big_vader = tfx_RandomRangeFromTo(&game->random, 15.f, 35.f);
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
