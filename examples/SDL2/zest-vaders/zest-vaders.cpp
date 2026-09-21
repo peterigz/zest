@@ -1183,17 +1183,8 @@ void VadersGame::Update(float ellapsed) {
 		billboard_push.uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
 		zest_StartTimerLoop(tfx_rendering.timer) {
-			if (pending_ticks > 0) {
-				tfx_UpdateStage(background_pm, FrameLength * pending_ticks);
-			}
 			//Render based on the current game state
 			if (state == GameState_title) {
-				//Update the background particle manager
-				if (pending_ticks > 0) {
-					//Update the title particle manager
-					tfx_UpdateStage(title_pm, FrameLength * pending_ticks);
-					pending_ticks = 0;
-				}
 				if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
 					if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 						ResetGame(this);
@@ -1227,11 +1218,6 @@ void VadersGame::Update(float ellapsed) {
 					else {
 						countdown_to_big_vader -= UpdateFrequency;
 					}
-					//Update the main game particle manager and the background particle manager
-					if (pending_ticks > 0) {
-						tfx_UpdateStage(game_pm, FrameLength * pending_ticks);
-						pending_ticks = 0;
-					}
 				}
 			}
 			else if (state == GameState_game_over) {
@@ -1263,11 +1249,6 @@ void VadersGame::Update(float ellapsed) {
 						wait_for_mouse_release = false;
 					}
 				}
-				//Update the main game particle manager and the background particle manager
-				if (pending_ticks > 0) {
-					tfx_UpdateStage(game_pm, FrameLength * pending_ticks);
-					pending_ticks = 0;
-				}
 			}
 			//Draw the Imgui window
 			BuildUI(this);
@@ -1276,6 +1257,16 @@ void VadersGame::Update(float ellapsed) {
 		zest_uint fif = zest_CurrentFIF(context);
 
 		tfx_SetStageCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
+
+		//Updated once every tick has run, because tfx_UpdateStage returns while the work is still running and a later tick would change the stage underneath it
+		if (pending_ticks > 0) {
+			tfx_UpdateStage(background_pm, FrameLength * pending_ticks);
+			if (state == GameState_title) {
+				tfx_UpdateStage(title_pm, FrameLength * pending_ticks);
+			} else if (state == GameState_game_over || !paused) {
+				tfx_UpdateStage(game_pm, FrameLength * pending_ticks);
+			}
+		}
 		zest_tfx_UpdateRibbonStagingBuffers(context, &title_ribbon_buffers, title_pm);
 
 		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
