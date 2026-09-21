@@ -44,6 +44,8 @@ struct TimelineFXExample {
 	tfx_effect_template big_explosion_effect;
 	tfx_effect_template player_bullet_effect;
 	tfx_effect_template vader_bullet_effect;
+	tfx_effect_template laser_effect;
+	tfxEffectID laser_id;
 	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
@@ -94,6 +96,7 @@ void TimelineFXExample::Init() {
 	big_explosion_effect = tfx_CreateEffectTemplate(library, "Big Explosion");
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
 	vader_bullet_effect = tfx_CreateEffectTemplate(library, "Vader Bullet");
+	laser_effect = tfx_CreateEffectTemplate(library, "Laser");
 
 	//Finalise the library - uploads color ramps and GPU image data
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
@@ -138,6 +141,15 @@ void TimelineFXExample::Init() {
 		zest_vec3 position = ScreenRay(context, x, y, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
 		tfx_SetEffectPositionVec3(pm, effect_id, &position.x);
 		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
+	}
+
+	laser_id = tfx_AddEffectTemplateToStage(pm, laser_effect);
+	if (tfx_EffectIDIsValid(laser_id)) {
+		float x = zest_ScreenWidthf(context) * 0.5f;
+		float y = zest_ScreenHeightf(context) * 0.5f;
+		zest_vec3 position = ScreenRay(context, x, y, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		tfx_SetEffectPositionVec3(pm, laser_id, &position.x);
+		tfx_SetEffectOverallScale(pm, laser_id, 2.5f);
 	}
 
 }
@@ -298,6 +310,11 @@ void MainLoop(TimelineFXExample *game) {
 			UpdateMouse(game);
 
 			zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
+
+			float x = ImGui::GetMousePos().x;
+			float y = ImGui::GetMousePos().y;
+			zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+			tfx_PointEffectAt(game->pm, game->laser_id, position.x, position.y, position.z, tfxEffectFace_up);
 
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
 				//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
