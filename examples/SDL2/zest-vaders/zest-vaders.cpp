@@ -835,6 +835,7 @@ void UpdatePlayerBullets(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->player_bullets[next_buffer].clear();
 	zest_vec3 top_left = ScreenRay(game->context, 0.f, 0.f, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	tfx_SetEffectBaseNoiseOffset(game->game_pm, game->player_bullet_index, game->noise_offset);
 	for (auto &bullet : game->player_bullets[game->current_buffer]) {
 		if (bullet.remove) {
 			//Soft expire so that the trail fades out rather than disappearing with the location
