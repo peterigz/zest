@@ -45,6 +45,7 @@ struct RenderCacheInfo {
 	bool draw_timeline_fx;
 	bool draw_sprites;
 	bool draw_title_ribbons;
+	bool draw_game_ribbons;
 };
 
 struct Player {
@@ -200,6 +201,7 @@ struct VadersGame {
 	tfxEffectID player_explosion_index;
 	tfxEffectID power_up_index;
 	tfxEffectID got_power_up_index;
+	tfxEffectID damage_index;
 	zest_context context;
 	zest_device device;
 	zest_msdf_font_t font;
@@ -211,8 +213,9 @@ struct VadersGame {
 	zest_pipeline_template billboard_pipeline;
 	tfx_library_render_resources_t tfx_rendering;
 	tfx_global_library_buffers_t global_buffers;
-	tfx_ribbon_buffers_t title_ribbon_buffers;
-	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
+	tfx_ribbon_buffers_t ribbon_buffers;
+	tfx_ribbon_render_dispatch_t title_ribbon_dispatch;
+	tfx_ribbon_render_dispatch_t game_ribbon_dispatch;
 	billboard_push_constant_t billboard_push;
 	zest_image_collection_t game_sprites;
 	zest_sampler_handle sampler_handle;
@@ -471,7 +474,7 @@ void VadersGame::Init() {
 	}
 
 	//Create shared ribbon buffers sized across all effect managers
-	zest_tfx_CreateRibbonBuffers(context, &title_ribbon_buffers);
+	zest_tfx_CreateRibbonBuffers(context, &ribbon_buffers);
 	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
 	zest_tfx_InitialiseGlobalData(context, &global_buffers);
 }
@@ -638,11 +641,7 @@ void UpdateVaders(VadersGame *game) {
 			if (tfx_GetDistance(bullet.position.z, bullet.position.y, vader.position.z, vader.position.y) < 0.3f) {
 				bullet.remove = true;
 				vader.health--;
-				//Add the damage taken effect to the particle manager and set it's position
-				tfxEffectID damage_index = tfx_AddEffectTemplateToStage(game->game_pm, game->damage);
-				if (tfx_EffectIDIsValid(damage_index)) {
-					tfx_SetEffectPositionVec3(game->game_pm, damage_index, &bullet.position.x);
-				}
+				tfx_AddSpawnLocation(game->game_pm, game->damage_index, &bullet.position.x, tfxSpawnLocationAdd_none);
 				if (vader.health == 0) {
 					dead = true;
 					//blow up the big vader
@@ -799,6 +798,7 @@ void AddSharedEffects(VadersGame *game) {
 	for (auto &power_up : game->power_ups[game->current_buffer]) {
 		power_up.location_id = tfx_AddSpawnLocation(game->game_pm, game->power_up_index, &power_up.position.x, tfxSpawnLocationAdd_none);
 	}
+	game->damage_index = tfx_AddEffectTemplateToStage(game->game_pm, game->damage);
 	game->got_power_up_index = tfx_AddEffectTemplateToStage(game->game_pm, game->got_power_up);
 	if (tfx_EffectIDIsValid(game->got_power_up_index)) {
 		tfx_SetEffectOverallScale(game->game_pm, game->got_power_up_index, 2.5f);
@@ -1257,6 +1257,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_uint fif = zest_CurrentFIF(context);
 
 		tfx_SetStageCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
+		tfx_SetStageCamera(game_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
 
 		//Updated once every tick has run, because tfx_UpdateStage returns while the work is still running and a later tick would change the stage underneath it
 		if (pending_ticks > 0) {
@@ -1267,7 +1268,9 @@ void VadersGame::Update(float ellapsed) {
 				tfx_UpdateStage(game_pm, FrameLength * pending_ticks);
 			}
 		}
-		zest_tfx_UpdateRibbonStagingBuffers(context, &title_ribbon_buffers, title_pm);
+		//Only one stage is drawn at a time so they share the ribbon staging buffers
+		tfx_stage ribbon_stage = state == GameState_title ? title_pm : game_pm;
+		zest_tfx_UpdateRibbonStagingBuffers(context, &ribbon_buffers, ribbon_stage);
 
 		zest_SetMSDFFontDrawing(font_layer, &font, &font_resources);
 		zest_SetLayerColor(font_layer, 255, 255, 255, 255);
@@ -1328,7 +1331,8 @@ void VadersGame::Update(float ellapsed) {
 		cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&imgui);
 		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
-		cache_info.draw_title_ribbons = tfx_HasRibbonsToDraw(title_pm) && state == GameState_title;
+		cache_info.draw_title_ribbons = state == GameState_title && tfx_HasRibbonsToDraw(title_pm);
+		cache_info.draw_game_ribbons = state != GameState_title && tfx_HasRibbonsToDraw(game_pm);
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
 
@@ -1371,9 +1375,13 @@ void VadersGame::Update(float ellapsed) {
 					zest_EndPass();
 				}
 
+				//Each stage gets its own dispatch because cached graphs keep pointing at the one they were built with
 				if (cache_info.draw_title_ribbons) {
-					zest_tfx_SetRibbonRenderDispatch(&ribbon_render_dispatch, title_pm, &title_ribbon_buffers, &tfx_rendering, &global_buffers);
-					zest_tfx_AddRibbonsToFrameGraph(&ribbon_render_dispatch, 0);
+					zest_tfx_SetRibbonRenderDispatch(&title_ribbon_dispatch, title_pm, &ribbon_buffers, &tfx_rendering, &global_buffers);
+					zest_tfx_AddRibbonsToFrameGraph(&title_ribbon_dispatch, 0);
+				} else if (cache_info.draw_game_ribbons) {
+					zest_tfx_SetRibbonRenderDispatch(&game_ribbon_dispatch, game_pm, &ribbon_buffers, &tfx_rendering, &global_buffers);
+					zest_tfx_AddRibbonsToFrameGraph(&game_ribbon_dispatch, 0);
 				}
 				//----------------------------------------------------------------------------------------------------
 
