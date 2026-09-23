@@ -30,9 +30,8 @@ struct TimelineFXExample {
 	zest_context context;
 	zest_device device;
 	tfx_library_render_resources_t tfx_rendering;
-	tfx_ribbon_buffers_t ribbon_buffers;
 	tfx_global_library_buffers_t global_buffers;
-	tfx_ribbon_render_dispatch_t ribbon_render_dispatch;
+	tfx_ribbon_renderer_t ribbon_renderer;
 
 	tfx_library library;
 	tfx_stage pm;
@@ -105,9 +104,9 @@ void TimelineFXExample::Init() {
 	tfx_stage_info_t pm_info = tfx_CreateStageInfo(tfxStageSetup_group_sprites_by_effect);
 	pm = tfx_CreateStage(pm_info);
 
-	zest_tfx_CreateRibbonBuffers(context, &ribbon_buffers);
 	zest_tfx_CreateGlobalBuffers(context, &global_buffers);
 	zest_tfx_InitialiseGlobalData(context, &global_buffers);
+	zest_tfx_CreateRibbonRenderer(context, &ribbon_renderer, &tfx_rendering, &global_buffers);
 
 	zest_SetShaderHotReload(tfx_rendering.ribbon_rendering.comp_shader, ZEST_TRUE);
 
@@ -331,7 +330,8 @@ void MainLoop(TimelineFXExample *game) {
 			} zest_EndTimerLoop(game->tfx_rendering.timer);
 
 			tfx_SetStageCamera(game->pm, &game->tfx_rendering.camera.front.x, &game->tfx_rendering.camera.position.x);
-			zest_tfx_UpdateRibbonStagingBuffers(game->context, &game->ribbon_buffers, game->pm);
+			zest_tfx_BeginRibbons(&game->ribbon_renderer);
+			zest_tfx_AddRibbonStage(&game->ribbon_renderer, game->pm);
 
 			//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 			//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
@@ -343,7 +343,7 @@ void MainLoop(TimelineFXExample *game) {
 
 			game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&game->imgui);
 			game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
-			game->cache_info.has_title_ribbons = tfx_HasRibbonsToDraw(game->pm);
+			game->cache_info.has_title_ribbons = zest_tfx_HasRibbonsToDraw(&game->ribbon_renderer);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
 
@@ -385,10 +385,8 @@ void MainLoop(TimelineFXExample *game) {
 						zest_EndPass();
 					}
 
-					if (tfx_HasRibbonsToDraw(game->pm)) {
-						//Connect buffers and textures
-						zest_tfx_SetRibbonRenderDispatch(&game->ribbon_render_dispatch, game->pm, &game->ribbon_buffers, &game->tfx_rendering, &game->global_buffers);
-						zest_tfx_AddRibbonsToFrameGraph(&game->ribbon_render_dispatch, 0);
+					if (game->cache_info.has_title_ribbons) {
+						zest_tfx_AddRibbonsToFrameGraph(&game->ribbon_renderer, 0);
 					}
 
 					//If there's imgui to draw then draw it

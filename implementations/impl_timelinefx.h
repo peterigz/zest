@@ -22,14 +22,6 @@ typedef struct tfx_uniform_buffer_data_t {
     float update_time;
 } tfx_uniform_buffer_data_t;
 
-typedef struct tfx_ribbon_buffers_t {
-	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
-	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
-	zest_buffer emitter_staging_buffer[ZEST_MAX_FIF];
-	tfx_ribbon_buffer_info_t ribbon_buffer_info;
-	tfx_ribbon_bucket_globals_t globals;
-} tfx_ribbon_buffers_t;
-
 typedef struct tfx_ribbon_rendering_t {
 	zest_pipeline_template pipeline;
 	zest_shader_handle vert_shader;
@@ -109,14 +101,24 @@ typedef struct tfx_library_render_resources_s {
 #define TFX_RIBBON_VERTEX_BUFFER_NAME "Ribbon Vertex Buffer"
 #define TFX_RIBBON_INDEX_BUFFER_NAME "Ribbon Index Buffer"
 
-typedef struct tfx_ribbon_render_dispatch_t {
-	//This struct will be used in cached frame graphs so this data must not change unless
-	//you rebuild/cache the frame graph
-	tfx_stage stage;
-	tfx_ribbon_buffers_t *buffers;
+#ifndef ZEST_TFX_MAX_RIBBON_STAGES
+#define ZEST_TFX_MAX_RIBBON_STAGES 16
+#endif
+
+//Draws the ribbons of any number of stages with one upload, one compute pass and one draw pass. Pick the
+//stages to draw each frame with zest_tfx_BeginRibbons / zest_tfx_AddRibbonStage. A cached frame graph reads
+//the stage list every execution, so which stages are drawn doesn't need to be part of the cache key.
+typedef struct tfx_ribbon_renderer_t {
+	zest_context context;
 	tfx_library_render_resources_t *render_resources;
 	tfx_global_library_buffers_t *global_buffers;
-} tfx_ribbon_render_dispatch_t;
+	zest_buffer segment_staging_buffer[ZEST_MAX_FIF];
+	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
+	zest_buffer emitter_staging_buffer[ZEST_MAX_FIF];
+	tfx_ribbon_batch_t batch;
+	tfx_stage stages[ZEST_TFX_MAX_RIBBON_STAGES];
+	tfx_ribbon_batch_offsets_t stage_offsets[ZEST_TFX_MAX_RIBBON_STAGES];
+} tfx_ribbon_renderer_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -141,14 +143,21 @@ tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_r
 //Finalise prerecorded sprite data - uploads color ramps from the animation manager and GPU image data.
 void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resources_t *resources, tfx_animation_manager animation_manager, tfx_gpu_shapes gpu_image_data);
 
-//Create a single shared set of ribbon buffers sized across all registered effect managers.
-//Call this after all effect managers have been created.
-void zest_tfx_CreateRibbonBuffers(zest_context context, tfx_ribbon_buffers_t *buffers);
 void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
 
-//Copy ribbon data from all effect managers to staging buffers for GPU upload.
-//Handles the camera setup and HasRibbonsToDraw check internally.
-void zest_tfx_UpdateRibbonStagingBuffers(zest_context context, tfx_ribbon_buffers_t *buffers, tfx_stage pm);
+//-- Ribbons --
+
+void zest_tfx_CreateRibbonRenderer(zest_context context, tfx_ribbon_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
+void zest_tfx_FreeRibbonRenderer(tfx_ribbon_renderer_t *renderer);
+//Start this frame's list of stages to draw. Call after zest_BeginFrame and after the stages have been updated.
+void zest_tfx_BeginRibbons(tfx_ribbon_renderer_t *renderer);
+//Copy a stage's ribbons for drawing this frame. A stage that wasn't updated this frame still has to be added
+//to be drawn. Returns false if the stage couldn't be added.
+zest_bool zest_tfx_AddRibbonStage(tfx_ribbon_renderer_t *renderer, tfx_stage stage);
+zest_bool zest_tfx_HasRibbonsToDraw(tfx_ribbon_renderer_t *renderer);
+//Add the upload, compute and draw passes for everything added this frame. Only needed when
+//zest_tfx_HasRibbonsToDraw returns true. Draws to the swapchain when output_resource is null.
+void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resource_node output_resource);
 
 //What a call to zest_tfx_RefreshLibrary did. The tfx result's lists point into the library and stay valid
 //until the next refresh of that library.
@@ -166,7 +175,6 @@ typedef struct tfx_library_refresh_t {
 //any ribbon in the library will sample the wrong curves.
 //Returns true when something was applied, in which case refresh describes it.
 zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library, tfx_global_library_buffers_t *global_buffers, tfx_library_refresh_t *refresh);
-void zest_tfx_SetRibbonRenderDispatch(tfx_ribbon_render_dispatch_t *render_dispatch, tfx_stage effect_manager, tfx_ribbon_buffers_t *buffers, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 //-- Uniform buffer and rendering --
 
 void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
@@ -181,7 +189,6 @@ void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_
 void zest_tfx_UploadGraphData(const zest_command_list command_list, void *user_data);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
 void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data);
-void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_render_dispatch_t *render_dispatch, zest_resource_node output_resource);
 
 //-- Low-level functions (for custom renderer integration) --
 
