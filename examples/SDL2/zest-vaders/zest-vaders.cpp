@@ -183,6 +183,7 @@ struct VadersGame {
 
 	tfx_effect_template player_bullet_effect;
 	tfx_effect_template vader_explosion_effect;
+	tfx_effect_template vader_explosion_effect_2;
 	tfx_effect_template player_explosion;
 	tfx_effect_template big_explosion;
 	tfx_effect_template background;
@@ -197,6 +198,7 @@ struct VadersGame {
 	tfxEffectID title_index;
 	tfxEffectID player_bullet_index;
 	tfxEffectID vader_explosion_index;
+	tfxEffectID vader_explosion_2_index;
 	tfxEffectID big_explosion_index;
 	tfxEffectID player_explosion_index;
 	tfxEffectID power_up_index;
@@ -369,6 +371,7 @@ void VadersGame::Init() {
 	//Prepare all the Effect templates we need from the library - must be done before FinaliseLibrary
 	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
 	vader_explosion_effect = tfx_CreateEffectTemplate(library, "Vader Explosion");
+	vader_explosion_effect_2 = tfx_CreateEffectTemplate(library, "Vader Explosion 2");
 	big_explosion = tfx_CreateEffectTemplate(library, "Big Explosion");
 	player_explosion = tfx_CreateEffectTemplate(library, "Player Explosion");
 	background = tfx_CreateEffectTemplate(library, "Background");
@@ -590,7 +593,12 @@ void UpdateVaders(VadersGame *game) {
 				hit = true;
 				bullet.remove = true;
 				//Blow up the vader
-				tfx_AddSpawnLocation(game->game_pm, game->vader_explosion_index, &vader.position.x, tfxSpawnLocationAdd_none);
+				float explosion_chance = tfx_GenerateRandom(&game->random);
+				if (explosion_chance <= .2) {
+					tfx_AddSpawnLocation(game->game_pm, game->vader_explosion_2_index, &vader.position.x, tfxSpawnLocationAdd_none);
+				} else {
+					tfx_AddSpawnLocation(game->game_pm, game->vader_explosion_index, &vader.position.x, tfxSpawnLocationAdd_none);
+				}
 				game->score += 150;
 				game->high_score = ZEST__MAX(game->score, game->high_score);
 				break;
@@ -782,6 +790,10 @@ void AddSharedEffects(VadersGame *game) {
 	game->vader_explosion_index = tfx_AddEffectTemplateToStage(game->game_pm, game->vader_explosion_effect);
 	if (tfx_EffectIDIsValid(game->vader_explosion_index)) {
 		tfx_SetEffectOverallScale(game->game_pm, game->vader_explosion_index, 3.5f);
+	}
+	game->vader_explosion_2_index = tfx_AddEffectTemplateToStage(game->game_pm, game->vader_explosion_effect_2);
+	if (tfx_EffectIDIsValid(game->vader_explosion_2_index)) {
+		tfx_SetEffectOverallScale(game->game_pm, game->vader_explosion_2_index, 3.5f);
 	}
 	game->big_explosion_index = tfx_AddEffectTemplateToStage(game->game_pm, game->big_explosion);
 	if (tfx_EffectIDIsValid(game->big_explosion_index)) {
@@ -978,6 +990,7 @@ void SetParticleOption(VadersGame *game) {
 	if (game->state != GameState_title) {
 		tfx_SoftExpireEffect(game->game_pm, game->player_bullet_index);
 		tfx_SoftExpireEffect(game->game_pm, game->vader_explosion_index);
+		tfx_SoftExpireEffect(game->game_pm, game->vader_explosion_2_index);
 		tfx_SoftExpireEffect(game->game_pm, game->big_explosion_index);
 		tfx_SoftExpireEffect(game->game_pm, game->player_explosion_index);
 		tfx_SoftExpireEffect(game->game_pm, game->power_up_index);

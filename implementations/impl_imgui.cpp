@@ -488,7 +488,7 @@ zest_resource_node zest_imgui_AddIndexResources(ImDrawData *draw_data, const cha
 		info.size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_resource_node node = zest_AddTransientBufferResource(name, &info);
 		zest_SetResourceUserData(node, draw_data);
-		zest_SetResourceBufferProvider(node, zest__imgui_get_vertex_buffer_size);
+		zest_SetResourceBufferProvider(node, zest__imgui_get_index_buffer_size);
         return node;
     }
     return NULL;

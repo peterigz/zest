@@ -103,6 +103,12 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint unreadable_shapes;	//Shapes the loader could not decode, which render as the default image
 } tfx_library_render_resources_t;
 
+#define TFX_RIBBON_SEGMENT_BUFFER_NAME "Ribbon Segment Buffer"
+#define TFX_RIBBON_INSTANCE_BUFFER_NAME "Ribbon Instance Buffer"
+#define TFX_RIBBON_EMITTER_BUFFER_NAME "Emitter Buffer"
+#define TFX_RIBBON_VERTEX_BUFFER_NAME "Ribbon Vertex Buffer"
+#define TFX_RIBBON_INDEX_BUFFER_NAME "Ribbon Index Buffer"
+
 typedef struct tfx_ribbon_render_dispatch_t {
 	//This struct will be used in cached frame graphs so this data must not change unless
 	//you rebuild/cache the frame graph
@@ -110,11 +116,6 @@ typedef struct tfx_ribbon_render_dispatch_t {
 	tfx_ribbon_buffers_t *buffers;
 	tfx_library_render_resources_t *render_resources;
 	tfx_global_library_buffers_t *global_buffers;
-	zest_resource_node segment_buffer;
-	zest_resource_node ribbon_instance_buffer;
-	zest_resource_node emitter_buffer;
-	zest_resource_node vertex_buffer;
-	zest_resource_node index_buffer;
 } tfx_ribbon_render_dispatch_t;
 
 #ifdef __cplusplus

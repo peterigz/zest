@@ -986,14 +986,17 @@ void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_
 	zest_uint fif = zest_CurrentFIF(context);
 	
 	tfx_ribbon_buffer_requirements_t ribbon_buffer_requirements = tfx_GetRibbonBufferRequirements();
-	if (render_dispatch->segment_buffer) {
-		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->ribbon_staging_buffer[fif], zest_GetResourceBuffer(render_dispatch->segment_buffer), ribbon_buffer_requirements.segment_buffer_size_in_bytes);
+	zest_buffer segment_buffer = zest_GetPassOutputBuffer(command_list, TFX_RIBBON_SEGMENT_BUFFER_NAME);
+	zest_buffer ribbon_instance_buffer = zest_GetPassOutputBuffer(command_list, TFX_RIBBON_INSTANCE_BUFFER_NAME);
+	zest_buffer emitter_buffer = zest_GetPassOutputBuffer(command_list, TFX_RIBBON_EMITTER_BUFFER_NAME);
+	if (segment_buffer) {
+		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->ribbon_staging_buffer[fif], segment_buffer, ribbon_buffer_requirements.segment_buffer_size_in_bytes);
 	}
-	if (render_dispatch->ribbon_instance_buffer) {
-		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->ribbon_instance_staging_buffer[fif], zest_GetResourceBuffer(render_dispatch->ribbon_instance_buffer), ribbon_buffer_requirements.ribbon_buffer_size_in_bytes);
+	if (ribbon_instance_buffer) {
+		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->ribbon_instance_staging_buffer[fif], ribbon_instance_buffer, ribbon_buffer_requirements.ribbon_buffer_size_in_bytes);
 	}
-	if (render_dispatch->emitter_buffer) {
-		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->emitter_staging_buffer[fif], zest_GetResourceBuffer(render_dispatch->emitter_buffer), ribbon_buffer_requirements.emitter_buffer_size_in_bytes);
+	if (emitter_buffer) {
+		zest_cmd_CopyBuffer(command_list, render_dispatch->buffers->emitter_staging_buffer[fif], emitter_buffer, ribbon_buffer_requirements.emitter_buffer_size_in_bytes);
 	}
 }
 
@@ -1051,6 +1054,12 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 
 	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(render_dispatch->render_resources->ribbon_rendering.ribbon_compute));
 
+	zest_uint emitters_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_EMITTER_BUFFER_NAME));
+	zest_uint ribbon_segments_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_SEGMENT_BUFFER_NAME));
+	zest_uint ribbons_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_INSTANCE_BUFFER_NAME));
+	zest_uint vertexes_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME));
+	zest_uint indexes_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
+
 	tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonDispatch();
 	while (tfx_NextRibbonDispatch(render_dispatch->stage, &ribbon_dispatch)) {
 		tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
@@ -1059,11 +1068,11 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 		zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(render_dispatch->render_resources->uniform_buffer);
 		push->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 		push->graphs_index = render_dispatch->global_buffers->lookup_index[fif];
-		push->emitters_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->emitter_buffer);
-		push->ribbon_segments_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->segment_buffer);
-		push->ribbons_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->ribbon_instance_buffer);
-		push->vertexes_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->vertex_buffer);
-		push->indexes_index = zest_GetTransientBufferBindlessIndex(command_list, render_dispatch->index_buffer);
+		push->emitters_index = emitters_index;
+		push->ribbon_segments_index = ribbon_segments_index;
+		push->ribbons_index = ribbons_index;
+		push->vertexes_index = vertexes_index;
+		push->indexes_index = indexes_index;
 		zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
 
 		zest_cmd_DispatchCompute(command_list, (ribbon_dispatch.total_segments / 1024) + 1, 1, 1);
@@ -1074,8 +1083,8 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 	tfx_ribbon_render_dispatch_t *render_dispatch = (tfx_ribbon_render_dispatch_t*)(user_data);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
-	zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetResourceBuffer(render_dispatch->vertex_buffer));
-	zest_cmd_BindIndexBuffer(command_list, zest_GetResourceBuffer(render_dispatch->index_buffer));
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetPassInputBuffer(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME));
+	zest_cmd_BindIndexBuffer(command_list, zest_GetPassInputBuffer(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
 
 	//Draw all the sprites in the buffer that is built by the compute shader
 	zest_pipeline pipeline = zest_GetPipeline(render_dispatch->render_resources->ribbon_rendering.pipeline, command_list);
@@ -1101,33 +1110,33 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_render_dispatch_t *render_dispat
 	zest_buffer_resource_info_t vertex_buffer_info = { zest_resource_usage_hint_vertex_buffer, tfx_GetTotalSegmentVertexBufferMaxSizeInBytes(0) };
 	zest_buffer_resource_info_t index_buffer_info = { zest_resource_usage_hint_index_buffer, tfx_GetTotalSegmentIndexBufferMaxSizeInBytes() };
 	zest_buffer_resource_info_t emitter_buffer_info = { 0, tfx_GetTotalEmitterBufferMaxSizeInBytes() };
-	render_dispatch->segment_buffer = zest_AddTransientBufferResource("Ribbon Segment Buffer", &segment_buffer_info);
-	render_dispatch->ribbon_instance_buffer = zest_AddTransientBufferResource("Ribbon Instance Buffer", &instance_buffer_info);
-	render_dispatch->emitter_buffer = zest_AddTransientBufferResource("Emitter Buffer", &emitter_buffer_info);
-	render_dispatch->vertex_buffer = zest_AddTransientBufferResource("Ribbon Vertex Buffer", &vertex_buffer_info);
-	render_dispatch->index_buffer = zest_AddTransientBufferResource("Ribbon Index Buffer", &index_buffer_info);
+	zest_resource_node segment_buffer = zest_AddTransientBufferResource(TFX_RIBBON_SEGMENT_BUFFER_NAME, &segment_buffer_info);
+	zest_resource_node ribbon_instance_buffer = zest_AddTransientBufferResource(TFX_RIBBON_INSTANCE_BUFFER_NAME, &instance_buffer_info);
+	zest_resource_node emitter_buffer = zest_AddTransientBufferResource(TFX_RIBBON_EMITTER_BUFFER_NAME, &emitter_buffer_info);
+	zest_resource_node vertex_buffer = zest_AddTransientBufferResource(TFX_RIBBON_VERTEX_BUFFER_NAME, &vertex_buffer_info);
+	zest_resource_node index_buffer = zest_AddTransientBufferResource(TFX_RIBBON_INDEX_BUFFER_NAME, &index_buffer_info);
 
 	zest_BeginTransferPass("Transfer Ribbon Data"); {
-		zest_ConnectOutput(render_dispatch->segment_buffer);
-		zest_ConnectOutput(render_dispatch->ribbon_instance_buffer);
-		zest_ConnectOutput(render_dispatch->emitter_buffer);
+		zest_ConnectOutput(segment_buffer);
+		zest_ConnectOutput(ribbon_instance_buffer);
+		zest_ConnectOutput(emitter_buffer);
 		zest_SetPassTask(zest_tfx_UploadRibbonData, render_dispatch);
 		zest_EndPass();
 	}
 
 	zest_BeginComputePass("Compute Ribbons"); {
-		zest_ConnectInput(render_dispatch->segment_buffer);
-		zest_ConnectInput(render_dispatch->ribbon_instance_buffer);
-		zest_ConnectInput(render_dispatch->emitter_buffer);
-		zest_ConnectOutput(render_dispatch->vertex_buffer);
-		zest_ConnectOutput(render_dispatch->index_buffer);
+		zest_ConnectInput(segment_buffer);
+		zest_ConnectInput(ribbon_instance_buffer);
+		zest_ConnectInput(emitter_buffer);
+		zest_ConnectOutput(vertex_buffer);
+		zest_ConnectOutput(index_buffer);
 		zest_SetPassTask(zest_tfx_RibbonComputeFunction, render_dispatch);
 		zest_EndPass();
 	}
 
 	zest_BeginRenderPass("Draw Ribbons Pass"); {
-		zest_ConnectInput(render_dispatch->vertex_buffer);
-		zest_ConnectInput(render_dispatch->index_buffer);
+		zest_ConnectInput(vertex_buffer);
+		zest_ConnectInput(index_buffer);
 		if (output_resource) {
 			zest_ConnectOutput(output_resource);
 		} else {
