@@ -45,6 +45,10 @@ struct TimelineFXExample {
 	tfx_effect_template vader_bullet_effect;
 	tfx_effect_template laser_effect;
 	tfxEffectID laser_id;
+	tfxEffectID powerup_id;
+	tfxEffectID vader_explosion_id;
+	tfxEffectID player_explosion_id;
+	tfxEffectID big_explosion_id;
 	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
@@ -74,6 +78,25 @@ zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, 
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return pos;
+}
+
+//Places a spawn location at a point on the screen given as a fraction of the screen size
+void AddSpawnLocation(TimelineFXExample *game, tfxEffectID effect_id, float x_fraction, float y_fraction) {
+	if (!tfx_EffectIDIsValid(effect_id)) {
+		return;
+	}
+	float x = zest_ScreenWidthf(game->context) * x_fraction;
+	float y = zest_ScreenHeightf(game->context) * y_fraction;
+	zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	tfx_AddSpawnLocation(game->pm, effect_id, &position.x, tfxSpawnLocationAdd_none);
+}
+
+tfxEffectID AddUserSpawnEffect(tfx_stage pm, tfx_effect_template effect_template) {
+	tfxEffectID effect_id = tfx_AddEffectTemplateToStage(pm, effect_template);
+	if (tfx_EffectIDIsValid(effect_id)) {
+		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
+	}
+	return effect_id;
 }
 
 void TimelineFXExample::Init() {
@@ -124,14 +147,15 @@ void TimelineFXExample::Init() {
 		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
 	}
 
-	effect_id = tfx_AddEffectTemplateToStage(pm, player_bullet_effect);
-	if (tfx_EffectIDIsValid(effect_id)) {
-		float x = zest_ScreenWidthf(context) * 0.5f;
-		float y = zest_ScreenHeightf(context) * 0.75f;
-		zest_vec3 position = ScreenRay(context, x, y, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
-		tfx_SetEffectPositionVec3(pm, effect_id, &position.x);
-		tfx_SetEffectOverallScale(pm, effect_id, 2.5f);
-	}
+	//Effects saved with user spawn locations only spawn at locations added with tfx_AddSpawnLocation, so they're added
+	//to the stage once and then given locations rather than being added to the stage each time
+	effect_id = AddUserSpawnEffect(pm, player_bullet_effect);
+	AddSpawnLocation(this, effect_id, 0.5f, 0.75f);
+
+	powerup_id = AddUserSpawnEffect(pm, powerup_effect);
+	vader_explosion_id = AddUserSpawnEffect(pm, vader_explosion_effect);
+	player_explosion_id = AddUserSpawnEffect(pm, player_explosion_effect);
+	big_explosion_id = AddUserSpawnEffect(pm, big_explosion_effect);
 
 	effect_id = tfx_AddEffectTemplateToStage(pm, vader_bullet_effect);
 	if (tfx_EffectIDIsValid(effect_id)) {
@@ -177,8 +201,8 @@ void BuildUI(TimelineFXExample *game, zest_uint fps) {
 			refresh.result.added_count, refresh.result.removed_count, refresh.result.changed_count);
 		ImGui::Text("      shapes +%u/-%u  images +%u/-%u", refresh.result.added_shape_count,
 			refresh.result.removed_shape_count, refresh.images_added, refresh.images_removed);
-		if (refresh.result.restart_count) {
-			ImGui::Text("      %u effect(s) need restarting to show the change", refresh.result.restart_count);
+		if (refresh.result.changed_count) {
+			ImGui::Text("      %u effect(s) need restarting to show the change", refresh.result.changed_count);
 		}
 	}
 	if (game->needs_reload) {
@@ -267,38 +291,10 @@ void MainLoop(TimelineFXExample *game) {
 
 		if (zest_Microsecs() - last_effect_trigger_check >= effect_trigger_interval) {
 			last_effect_trigger_check = zest_Microsecs();
-			tfxEffectID effect_id = tfx_AddEffectTemplateToStage(game->pm, game->powerup_effect);
-			if (tfx_EffectIDIsValid(effect_id)) {
-				float x = zest_ScreenWidthf(game->context) * 0.25f;
-				float y = zest_ScreenHeightf(game->context) * 0.25f;
-				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-			}
-			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->vader_explosion_effect);
-			if (tfx_EffectIDIsValid(effect_id)) {
-				float x = zest_ScreenWidthf(game->context) * 0.5f;
-				float y = zest_ScreenHeightf(game->context) * 0.25f;
-				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-			}
-			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->player_explosion_effect);
-			if (tfx_EffectIDIsValid(effect_id)) {
-				float x = zest_ScreenWidthf(game->context) * 0.75f;
-				float y = zest_ScreenHeightf(game->context) * 0.25f;
-				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-			}
-			effect_id = tfx_AddEffectTemplateToStage(game->pm, game->big_explosion_effect);
-			if (tfx_EffectIDIsValid(effect_id)) {
-				float x = zest_ScreenWidthf(game->context) * 0.25f;
-				float y = zest_ScreenHeightf(game->context) * 0.75f;
-				zest_vec3 position = ScreenRay(game->context, x, y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				tfx_SetEffectPositionVec3(game->pm, effect_id, &position.x);
-				tfx_SetEffectOverallScale(game->pm, effect_id, 2.5f);
-			}
+			AddSpawnLocation(game, game->powerup_id, 0.25f, 0.25f);
+			AddSpawnLocation(game, game->vader_explosion_id, 0.5f, 0.25f);
+			AddSpawnLocation(game, game->player_explosion_id, 0.75f, 0.25f);
+			AddSpawnLocation(game, game->big_explosion_id, 0.25f, 0.75f);
 		}
 
 		//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
