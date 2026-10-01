@@ -14299,6 +14299,13 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 			//Per-execution info fixup (providers may have changed the extent)
 			image->info.flags |= zest_image_flag_transient;
 			image->info.flags |= zest_image_flag_device_local;
+			if (!image->info.extent.width || !image->info.extent.height || !image->info.extent.depth) {
+				//A zero extent is invalid usage and some drivers (RADV) report a 0 byte requirement for it
+				ZEST_REPORT(device, zest_report_invalid_resource, "Transient image [%s] has a zero extent (%u x %u x %u), clamping to 1. Check the image provider.", resource->name, image->info.extent.width, image->info.extent.height, image->info.extent.depth);
+				image->info.extent.width = ZEST__MAX(1u, image->info.extent.width);
+				image->info.extent.height = ZEST__MAX(1u, image->info.extent.height);
+				image->info.extent.depth = ZEST__MAX(1u, image->info.extent.depth);
+			}
 			image->info.aspect_flags = zest__determine_aspect_flag_for_view(image->info.format);
 			image->info.mip_levels = image->info.mip_levels > 0 ? image->info.mip_levels : 1;
 			if (ZEST__FLAGGED(image->info.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
@@ -14449,7 +14456,11 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 				break;
 			}
 		}
-		ZEST_ASSERT(arena);   //Phase C checked out an arena for every category with a watermark
+		if (!arena) {
+			//Only possible when every placement in the category resolved to 0 bytes, so Phase C checked nothing out
+			ZEST_APPEND_LOG(device->log_path.str, "Transient resource %s resolved to a 0 byte placement in category %u, no arena to place it in.", resource->name ? resource->name : "(unnamed)", entry->category);
+			return ZEST_FALSE;
+		}
 		zest_device_memory_pool backing = arena->backing[fif];
 
 		if (resource->type & zest_resource_type_buffer) {
