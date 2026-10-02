@@ -4836,6 +4836,7 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
 ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
+ZEST_PRIVATE void zest__release_context_queues(zest_context context);
 ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
 //End Queue_management
 
@@ -5168,6 +5169,8 @@ ZEST_API zest_uint zest_AcquireUniformBufferIndex(zest_device device, zest_buffe
 ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_device device, zest_image image, zest_image_view_array image_view_array, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer);
 ZEST_API void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index);
+//Release the index once the frames in flight that may still read through it have finished
+ZEST_API void zest_ReleaseStorageBufferIndexDeferred(zest_context context, zest_uint array_index);
 ZEST_API void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseImageMipIndexes(zest_device device, zest_image image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseAllImageIndexes(zest_device device, zest_image image);
@@ -9537,20 +9540,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
 	ZEST_CPU_PROFILE_BEGIN(context, "Release Queues");
-	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
-		zest_context_queue context_queue = context->queues[i];
-		if (context_queue && context_queue->queue) {
-			zest__release_queue(context_queue->queue);
-			context_queue->queue = NULL;
-		}
-		zest_map_foreach(j, context->cached_frame_graph_queues[i]) {
-			zest_context_queue fg_queue = context->cached_frame_graph_queues[i].data[j];
-			if (fg_queue->queue) {
-				zest__release_queue(fg_queue->queue);
-				fg_queue->queue = NULL;
-			}
-		}
-	}
+	zest__release_context_queues(context);
 	ZEST_CPU_PROFILE_END(context);  //Release Queues
 	ZEST_CPU_PROFILE_END(context);	//End Frame
 }
@@ -10832,19 +10822,42 @@ zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager) {
 		if (old_free <= 0) break;
 	} while (!zest__atomic_compare_exchange(&queue_manager->free_queues, old_free - 1, old_free));
 	if (old_free <= 0) return NULL;
-	//Reserved a slot, pick the next queue via atomic fetch-add
-	int queue_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % (int)queue_manager->queue_count;
-	if (queue_index < 0) queue_index += (int)queue_manager->queue_count;
-	zest_queue queue = &queue_manager->queues[queue_index];
-	zest__atomic_store(&queue->in_use, 1);
-	return queue;
+	//The reservation guarantees a free queue exists; claiming in_use decides which, so no two threads share one
+	int queue_count = (int)queue_manager->queue_count;
+	int start_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % queue_count;
+	if (start_index < 0) start_index += queue_count;
+	for (;;) {
+		for (int offset = 0; offset != queue_count; ++offset) {
+			zest_queue queue = &queue_manager->queues[(start_index + offset) % queue_count];
+			if (zest__atomic_compare_exchange(&queue->in_use, 1, 0)) {
+				return queue;
+			}
+		}
+	}
 }
 
 void zest__release_queue(zest_queue queue) {
-	zest_queue_manager queue_manager = queue->manager;
-	zest__atomic_store(&queue->in_use, 0);
-	zest__atomic_store(&queue_manager->next_queue_index, queue->index);
-	zest__atomic_fetch_add(&queue_manager->free_queues, 1);
+	//Only a held queue returns its slot, so releasing an idle queue (zest_WaitForIdleDevice) can't inflate free_queues
+	if (zest__atomic_compare_exchange(&queue->in_use, 0, 1)) {
+		zest__atomic_fetch_add(&queue->manager->free_queues, 1);
+	}
+}
+
+void zest__release_context_queues(zest_context context) {
+	for (int i = 0; i != ZEST_QUEUE_COUNT; i++) {
+		zest_context_queue context_queue = context->queues[i];
+		if (context_queue && context_queue->queue) {
+			zest__release_queue(context_queue->queue);
+			context_queue->queue = NULL;
+		}
+		zest_map_foreach(j, context->cached_frame_graph_queues[i]) {
+			zest_context_queue frame_graph_queue = context->cached_frame_graph_queues[i].data[j];
+			if (frame_graph_queue->queue) {
+				zest__release_queue(frame_graph_queue->queue);
+				frame_graph_queue->queue = NULL;
+			}
+		}
+	}
 }
 
 zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
@@ -11776,6 +11789,7 @@ void zest__cleanup_context(zest_context context) {
 	}
 
 	zest__scan_memory_and_free_resources(context, ZEST_FALSE);
+	zest__release_context_queues(context);
 
     zest_map_foreach(i, context->cached_frame_graph_semaphores) {
         zest_frame_graph_semaphores semaphores = context->cached_frame_graph_semaphores.data[i];
@@ -13123,15 +13137,7 @@ void zest_SetDPIScale(zest_context context, float scale) { context->dpi_scale = 
 void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 void zest_WaitForIdleDevice(zest_device device) { 
-	device->platform->wait_for_idle_device(device); 
-	zest_vec_foreach(i, device->queue_families) {
-		zest_queue_manager queue_manager = device->queue_families[i];
-		if (!queue_manager) continue;
-		zest_vec_foreach(j, queue_manager->queues) {
-			zest_queue queue = &queue_manager->queues[j];
-			zest__release_queue(queue);
-		}
-	}
+	device->platform->wait_for_idle_device(device);
 }
 
 zest_uint zest_GetUniformBufferDescriptorIndex(zest_uniform_buffer uniform_buffer) {
@@ -16406,6 +16412,8 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	} else if (frame_graph->error_status & ZEST_FGS_FATAL) {
 		status = zest_semaphore_status_error;
 	} else if (zest__execute_frame_graph(context, frame_graph)) {
+		//Command graphs never reach zest_EndFrame, and queue exclusivity only matters while submitting, so release before waiting
+		zest__release_context_queues(context);
 		if (frame_graph->signal_timeline) {
 			//In debug builds use a large-but-finite timeout so a genuine hang surfaces as a
 			//diagnosable report instead of freezing the process indefinitely.
@@ -16451,6 +16459,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 		//Execution failed part way through. zest__execute_frame_graph has already drained any
 		//in-flight work, so it is safe to free resources, but the signal never arrived - report an
 		//error rather than waiting on a timeline that will never be signalled.
+		zest__release_context_queues(context);
 		status = zest_semaphore_status_error;
 	}
 	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif])) {
@@ -17803,6 +17812,12 @@ void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer) 
 
 void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index) {
     zest__release_bindless_index(device->bindless_set_layout, zest_storage_buffer_binding, array_index);
+}
+
+void zest_ReleaseStorageBufferIndexDeferred(zest_context context, zest_uint array_index) {
+	ZEST_ASSERT_HANDLE(context);	//Not a valid context handle
+	zest_binding_index_for_release_t binding_index = { context->device->bindless_set_layout, array_index, zest_storage_buffer_binding };
+	zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], binding_index);
 }
 
 void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number) {

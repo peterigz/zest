@@ -240,6 +240,7 @@ ZEST_PRIVATE zest_bool zest__vk_initialise_context_backend(zest_context context)
 ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_device device);
 ZEST_PRIVATE void zest__vk_wait_for_fif_semaphore(zest_context context, zest_uint fif);
 ZEST_PRIVATE void zest__vk_queue_wait_idle(zest_context context, zest_context_queue queue);
+ZEST_PRIVATE void zest__vk_release_immediate_queue(zest_queue queue);
 ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context);
 
 //Allocation callbacks
@@ -2622,7 +2623,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 		for (int k = 0; k != manager->queue_count; k++) {
 			manager->queues[k] = ZEST__ZERO_INIT(zest_queue_t);
 			manager->queues[k].magic = zest_INIT_MAGIC(zest_struct_type_queue);
-			manager->queues[k].index = i;
+			manager->queues[k].index = k;
 			manager->queues[k].manager = manager;
 			manager->queues[k].family_index = manager->family_index;
 			manager->queues[k].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, manager->family_index);
@@ -5044,8 +5045,22 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
 #endif
 }
 
+//The command buffer goes back to the pool before the queue is released, as the next holder allocates from that same pool
+void zest__vk_release_immediate_queue(zest_queue queue) {
+	if (queue->backend->command_buffer != VK_NULL_HANDLE) {
+		vkFreeCommandBuffers(queue->device->backend->logical_device, queue->backend->command_pool, 1, &queue->backend->command_buffer);
+		queue->backend->command_buffer = VK_NULL_HANDLE;
+	}
+	queue->last_bound_compute = NULL;
+	zest__release_queue(queue);
+}
+
 zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
 	zest_queue queue = zest__acquire_queue(device, target_queue);
+	if (!queue) {
+		ZEST_REPORT(device, zest_report_submission_failure, "No queue of the requested type was free for an immediate command buffer.");
+		return NULL;
+	}
 
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -5054,7 +5069,13 @@ zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_typ
     alloc_info.commandBufferCount = 1;
 
     ZEST_SET_MEMORY_CONTEXT(device, zest_memory_context_device, zest_command_command_buffer);
-    ZEST_RETURN_FALSE_ON_FAIL(device, vkAllocateCommandBuffers(device->backend->logical_device, &alloc_info, &queue->backend->command_buffer));
+	device->backend->last_result = vkAllocateCommandBuffers(device->backend->logical_device, &alloc_info, &queue->backend->command_buffer);
+	if (device->backend->last_result != VK_SUCCESS) {
+		zest__log_vulkan_error(device, device->backend->last_result, __FILE__, __LINE__);
+		queue->backend->command_buffer = VK_NULL_HANDLE;
+		zest__vk_release_immediate_queue(queue);
+		return NULL;
+	}
 
     VkCommandBufferBeginInfo begin_info = ZEST__ZERO_INIT(VkCommandBufferBeginInfo);
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -5079,14 +5100,19 @@ zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_typ
     return queue;
 
 cleanup:
-	zest__release_queue(queue);
+	zest__log_vulkan_error(device, device->backend->last_result, __FILE__, __LINE__);
+	zest__vk_release_immediate_queue(queue);
 	return NULL;
 }
 
 zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
-    ZEST_VK_ASSERT_RESULT(queue->device, vkEndCommandBuffer(queue->backend->command_buffer));
-
 	zest_device device = queue->device;
+	device->backend->last_result = vkEndCommandBuffer(queue->backend->command_buffer);
+	if (device->backend->last_result != VK_SUCCESS) {
+		zest__log_vulkan_error(device, device->backend->last_result, __FILE__, __LINE__);
+		zest__vk_release_immediate_queue(queue);
+		return ZEST_FALSE;
+	}
 
 	VkCommandBufferSubmitInfo buffer_submit_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 	buffer_submit_info.commandBuffer = queue->backend->command_buffer;
@@ -5103,26 +5129,18 @@ zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
     submit_info.pCommandBufferInfos = &buffer_submit_info;
 	submit_info.signalSemaphoreInfoCount = 1;
 	submit_info.pSignalSemaphoreInfos = &signal_info;
-	zest_semaphore_status semaphore_stature;
-
-	ZEST_CLEANUP_ON_FAIL(device, device->backend->pfn_vkQueueSubmit2(queue->backend->vk_queue, 1, &submit_info, VK_NULL_HANDLE));
-
-	semaphore_stature = zest_WaitForSignal(&queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
-	queue->last_bound_compute = NULL;
-	if (semaphore_stature == zest_semaphore_status_success) {
-		zest__release_queue(queue);
-		vkFreeCommandBuffers(device->backend->logical_device, queue->backend->command_pool, 1, &queue->backend->command_buffer);
-		queue->backend->command_buffer = VK_NULL_HANDLE;
-
-		return ZEST_TRUE;
+	device->backend->last_result = device->backend->pfn_vkQueueSubmit2(queue->backend->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
+	if (device->backend->last_result != VK_SUCCESS) {
+		//The signal was never queued, so roll the value back to one a later wait can actually reach
+		queue->timeline.current_value--;
+		zest__log_vulkan_error(device, device->backend->last_result, __FILE__, __LINE__);
+		zest__vk_release_immediate_queue(queue);
+		return ZEST_FALSE;
 	}
 
-	cleanup:
-    vkFreeCommandBuffers(device->backend->logical_device, queue->backend->command_pool, 1, &queue->backend->command_buffer);
-    queue->backend->command_buffer = VK_NULL_HANDLE;
-	zest__release_queue(queue);
-
-	return ZEST_FALSE;
+	zest_semaphore_status semaphore_status = zest_WaitForSignal(&queue->timeline, ZEST_SECONDS_IN_MICROSECONDS(1000));
+	zest__vk_release_immediate_queue(queue);
+	return semaphore_status == zest_semaphore_status_success;
 }
 // -- End General_helpers
  
