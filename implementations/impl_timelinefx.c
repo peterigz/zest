@@ -963,24 +963,52 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources) {
 	zest_FreeImageCollection(&resources->color_ramps_collection);
 }
 
+//False if the buffer can't hold minimum_bytes; the old index is only released once frames in flight are done with it
+static zest_bool zest__tfx_grow_storage_buffer(zest_context context, zest_buffer *buffer, zest_uint *descriptor_index, zest_size unit_size, zest_size minimum_bytes) {
+	zest_buffer previous_buffer = *buffer;
+	zest_size previous_size = zest_GetBufferSize(previous_buffer);
+	if (!zest_GrowBuffer(buffer, unit_size, minimum_bytes)) {
+		return zest_GetBufferSize(*buffer) >= minimum_bytes;
+	}
+	if (*buffer == previous_buffer && zest_GetBufferSize(*buffer) == previous_size) {
+		return ZEST_TRUE;
+	}
+	zest_uint previous_index = *descriptor_index;
+	*descriptor_index = zest_AcquireStorageBufferIndex(zest_GetContextDevice(context), *buffer);
+	zest_ReleaseStorageBufferIndexDeferred(context, previous_index);
+	return ZEST_TRUE;
+}
+
 void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes) {
-	//Upload the timelinefx image data to the image data buffer created
-	zest_buffer image_data_buffer = tfx_rendering->image_data;
+	zest_size upload_size = tfx_GetGPUShapesSizeInBytes(shapes);
+	if (!upload_size) {
+		return;
+	}
+	if (!zest__tfx_grow_storage_buffer(context, &tfx_rendering->image_data, &tfx_rendering->image_data_index, sizeof(tfx_gpu_image_data_t), upload_size)) {
+		ZEST_PRINT("Unable to grow the TimelineFX image data buffer to %zu bytes, the image data was not uploaded.", (size_t)upload_size);
+		return;
+	}
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, upload_size, tfx_GetGPUShapesArray(shapes));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_imm_CopyBuffer(queue, staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_imm_CopyBuffer(queue, staging_buffer, tfx_rendering->image_data, upload_size);
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBufferNow(staging_buffer);
 }
 
 void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library) {
-	//Upload the timelinefx image data to the image data buffer created
-	zest_buffer property_buffer = tfx_rendering->particle_properties;
+	zest_size upload_size = tfx_GetParticlePropertiesBufferSizeInBytes(library);
+	if (!upload_size) {
+		return;
+	}
+	if (!zest__tfx_grow_storage_buffer(context, &tfx_rendering->particle_properties, &tfx_rendering->particle_properties_index, sizeof(tfx_gpu_particle_properties_t), upload_size)) {
+		ZEST_PRINT("Unable to grow the TimelineFX particle properties buffer to %zu bytes, the properties were not uploaded.", (size_t)upload_size);
+		return;
+	}
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, tfx_GetParticlePropertiesBufferSizeInBytes(library), tfx_GetParticlePropertiesBuffer(library));
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, upload_size, tfx_GetParticlePropertiesBuffer(library));
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_imm_CopyBuffer(queue, staging_buffer, property_buffer, tfx_GetParticlePropertiesBufferSizeInBytes(library));
+	zest_imm_CopyBuffer(queue, staging_buffer, tfx_rendering->particle_properties, upload_size);
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBufferNow(staging_buffer);
 }
