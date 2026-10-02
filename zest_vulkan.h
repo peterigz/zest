@@ -1592,9 +1592,8 @@ zest_shader_handle zest__vk_get_db_overlay_fragment_shader(zest_device device) {
 zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetCommandPool(context->device->backend->logical_device, context->backend->utility_command_pool[context->current_fif], 0));
 
-	if (!context->queues[context->graphics_queue_index]->queue) {
-		context->queues[context->graphics_queue_index]->queue = zest__acquire_queue(context->device, zest_queue_graphics);
-	}
+	zest_context_queue graphics_queue = context->queues[context->graphics_queue_index];
+	zest__acquire_context_queue(context, graphics_queue, context->graphics_queue_index);
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1666,10 +1665,18 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	submit_info2.signalSemaphoreInfoCount = 2;
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
-    VkFence fence = VK_NULL_HANDLE;
-	context->device->backend->pfn_vkQueueSubmit2(context->device->queue_pool[zest_queue_graphics]->managers[0]->queues[0].backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
-
+	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(graphics_queue->queue->backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
+	context->device->backend->last_result = submit_result;
 	zloc_ResetLinearAllocator(&context->device->scratch_arena);
+	if (submit_result != VK_SUCCESS) {
+		//The signal was never queued, so roll the value back to one the next frame's wait can reach
+		timeline->current_value -= 1;
+		zest__log_vulkan_error(context->device, submit_result, __FILE__, __LINE__);
+		if (submit_result == VK_ERROR_DEVICE_LOST) {
+			ZEST__FLAG(context->flags, zest_context_flag_device_lost);
+		}
+		return ZEST_FALSE;
+	}
 
     return ZEST_TRUE;
 }
@@ -5869,9 +5876,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	submit_info2.signalSemaphoreInfoCount = zest_vec_size(signal_semaphore_infos);
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
-    while(!batch->queue->queue) {
-        batch->queue->queue = zest__acquire_manager_queue(batch->queue->queue_manager);
-    }
+	zest__acquire_context_queue(context, batch->queue, queue_index);
 
 	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
 	context->device->backend->last_result = submit_result;

@@ -4834,7 +4834,8 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
-ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager);
+ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager, zest_uint preferred_index, zest_bool search_downwards);
+ZEST_PRIVATE void zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
 ZEST_PRIVATE void zest__release_context_queues(zest_context context);
 ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
@@ -7094,7 +7095,6 @@ typedef struct zest_queue_manager_t {
 	zest_device_queue_type type;
 	zest_queue_t *queues;
 	zest_uint queue_count;
-	volatile int next_queue_index;
 	volatile int free_queues;
 } zest_queue_manager_t;
 
@@ -7267,6 +7267,9 @@ typedef struct zest_context_t {
 
 	//Queues and command buffer pools
 	zest_context_queue queues[ZEST_QUEUE_COUNT];
+	//The queue each slot last submitted on, so every frame graph on the context keeps to one VkQueue
+	zest_uint preferred_queue_index[ZEST_QUEUE_COUNT];
+	zest_bool has_preferred_queue[ZEST_QUEUE_COUNT];
 	zest_uint graphics_queue_index;
 	zest_uint compute_queue_index;
 	zest_uint transfer_queue_index;
@@ -10807,14 +10810,33 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 	zest_queue_manager_list_t *manager_list = device->queue_pool[queue_type];
 	zest_vec_foreach(i, manager_list->managers) {
 		zest_queue_manager queue_manager = manager_list->managers[i];
-		//Atomically decrement free_queues to reserve a slot
-		zest_queue queue = zest__acquire_manager_queue(queue_manager);
+		//Search from the highest index to stay clear of the low queues that contexts keep to
+		zest_queue queue = zest__acquire_manager_queue(queue_manager, queue_manager->queue_count - 1, ZEST_TRUE);
 		if(queue) return queue;
 	}
 	return NULL;
 }
 
-zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager) {
+void zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot) {
+	if (context_queue->queue) return;
+	zest_queue queue = NULL;
+	while (!queue) {
+		queue = zest__acquire_manager_queue(context_queue->queue_manager, context->preferred_queue_index[queue_slot], ZEST_FALSE);
+	}
+	if (context->has_preferred_queue[queue_slot] && queue->index != context->preferred_queue_index[queue_slot]) {
+		//Frame to frame waits rely on submission order within one VkQueue, so earlier frames must finish before switching
+		zest_ForEachFrameInFlight(fif) {
+			if (fif != context->current_fif) {
+				context->device->platform->wait_for_fif_semaphore(context, fif);
+			}
+		}
+	}
+	context_queue->queue = queue;
+	context->preferred_queue_index[queue_slot] = queue->index;
+	context->has_preferred_queue[queue_slot] = ZEST_TRUE;
+}
+
+zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager, zest_uint preferred_index, zest_bool search_downwards) {
 	//Atomically decrement free_queues to reserve a slot
 	int old_free;
 	do {
@@ -10823,15 +10845,16 @@ zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager) {
 	} while (!zest__atomic_compare_exchange(&queue_manager->free_queues, old_free - 1, old_free));
 	if (old_free <= 0) return NULL;
 	//The reservation guarantees a free queue exists; claiming in_use decides which, so no two threads share one
-	int queue_count = (int)queue_manager->queue_count;
-	int start_index = zest__atomic_fetch_add(&queue_manager->next_queue_index, 1) % queue_count;
-	if (start_index < 0) start_index += queue_count;
+	zest_uint queue_count = queue_manager->queue_count;
+	zest_uint step = search_downwards ? queue_count - 1 : 1;
 	for (;;) {
-		for (int offset = 0; offset != queue_count; ++offset) {
-			zest_queue queue = &queue_manager->queues[(start_index + offset) % queue_count];
+		zest_uint queue_index = preferred_index % queue_count;
+		for (zest_uint attempt = 0; attempt != queue_count; ++attempt) {
+			zest_queue queue = &queue_manager->queues[queue_index];
 			if (zest__atomic_compare_exchange(&queue->in_use, 1, 0)) {
 				return queue;
 			}
+			queue_index = (queue_index + step) % queue_count;
 		}
 	}
 }
