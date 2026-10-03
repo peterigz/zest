@@ -2905,6 +2905,7 @@ ZEST__MAKE_USER_HANDLE(zest_compute)
 #include <process.h>
 #else
 #include <pthread.h>
+#include <sched.h>
 #endif
 
 #ifndef ZEST_MAX_QUEUES
@@ -2951,6 +2952,14 @@ ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int ex
 	return atomic_compare_exchange_strong((_Atomic int *)dest, &expected, exchange);
 	#else
 	return __sync_bool_compare_and_swap(dest, comparand, exchange);
+	#endif
+}
+
+ZEST_PRIVATE inline void zest__thread_yield(void) {
+	#ifdef _WIN32
+	SwitchToThread();
+	#else
+	sched_yield();
 	#endif
 }
 
@@ -4835,7 +4844,8 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
 ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager, zest_uint preferred_index, zest_bool search_downwards);
-ZEST_PRIVATE void zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot);
+//Returns true when the queue differs from the one the slot last submitted on
+ZEST_PRIVATE zest_bool zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot);
 ZEST_PRIVATE void zest__release_queue(zest_queue queue);
 ZEST_PRIVATE void zest__release_context_queues(zest_context context);
 ZEST_PRIVATE zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_t *timeline);
@@ -6275,6 +6285,7 @@ ZEST_API void zest_EnableCPUProfiling(zest_context context, zest_bool enabled);
 
 //Helper functions for executing commands on the GPU immediately
 //For now this just handles buffer/image copying but will expand this as we go.
+//Waits for a free queue. Returns NULL if the queue type is unavailable or Vulkan fails; zest_imm_ functions given NULL do nothing and return false
 ZEST_API zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue);
 //End the immediate command buffer, submit and wait for completion (blocking). Queue is released immediately after
 ZEST_API zest_bool zest_imm_EndCommandBuffer(zest_queue queue);
@@ -7270,6 +7281,8 @@ typedef struct zest_context_t {
 	//The queue each slot last submitted on, so every frame graph on the context keeps to one VkQueue
 	zest_uint preferred_queue_index[ZEST_QUEUE_COUNT];
 	zest_bool has_preferred_queue[ZEST_QUEUE_COUNT];
+	//Signalled by every submission on a slot, so a submission on a different VkQueue can wait for all earlier ones
+	zest_execution_timeline_t queue_ordering_timelines[ZEST_QUEUE_COUNT];
 	zest_uint graphics_queue_index;
 	zest_uint compute_queue_index;
 	zest_uint transfer_queue_index;
@@ -10817,23 +10830,18 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 	return NULL;
 }
 
-void zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot) {
-	if (context_queue->queue) return;
-	zest_queue queue = NULL;
+zest_bool zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot) {
+	if (context_queue->queue) return ZEST_FALSE;
+	zest_queue queue = zest__acquire_manager_queue(context_queue->queue_manager, context->preferred_queue_index[queue_slot], ZEST_FALSE);
 	while (!queue) {
+		zest__thread_yield();
 		queue = zest__acquire_manager_queue(context_queue->queue_manager, context->preferred_queue_index[queue_slot], ZEST_FALSE);
 	}
-	if (context->has_preferred_queue[queue_slot] && queue->index != context->preferred_queue_index[queue_slot]) {
-		//Frame to frame waits rely on submission order within one VkQueue, so earlier frames must finish before switching
-		zest_ForEachFrameInFlight(fif) {
-			if (fif != context->current_fif) {
-				context->device->platform->wait_for_fif_semaphore(context, fif);
-			}
-		}
-	}
+	zest_bool switched_queue = context->has_preferred_queue[queue_slot] && queue->index != context->preferred_queue_index[queue_slot];
 	context_queue->queue = queue;
 	context->preferred_queue_index[queue_slot] = queue->index;
 	context->has_preferred_queue[queue_slot] = ZEST_TRUE;
+	return switched_queue;
 }
 
 zest_queue zest__acquire_manager_queue(zest_queue_manager queue_manager, zest_uint preferred_index, zest_bool search_downwards) {
@@ -10884,6 +10892,7 @@ void zest__release_context_queues(zest_context context) {
 }
 
 zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	mip_levels = ZEST__MIN(mip_levels, image->info.mip_levels);
@@ -10895,12 +10904,14 @@ zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_reso
 }
 
 zest_bool zest_imm_CopyBufferRegionsToImage(zest_queue queue, zest_buffer_image_copy_t *regions, zest_uint regions_count, zest_buffer staging_buffer, zest_image image) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	if (!regions_count) return ZEST_FALSE;
 	return queue->device->platform->copy_buffer_regions_to_image(queue, regions, regions_count, staging_buffer, staging_buffer->memory_offset, image);
 }
 
 zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_OR_VALIDATE(!zest__is_compressed_format(image->info.format), queue->device,
 		"Cannot generate mipmaps for compressed formats. Use pre-compressed mipmaps in image files instead.", ZEST_FALSE);
@@ -10910,6 +10921,7 @@ zest_bool zest_imm_GenerateMipMaps(zest_queue queue, zest_image image) {
 }
 
 zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
     ZEST_ASSERT(size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");      
     ZEST_ASSERT(size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");
@@ -10918,6 +10930,7 @@ zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buf
 }
 
 zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, zest_size src_offset, zest_buffer dst_buffer, zest_size dst_offset, zest_size size) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
     ZEST_ASSERT(src_offset + size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
     ZEST_ASSERT(dst_offset + size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
@@ -10926,6 +10939,7 @@ zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, ze
 }
 
 zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);						//Not a valid queue handle
     ZEST_ASSERT(size <= src_buffer->size);       	//size must be less than or equal to the staging buffer size and the device buffer size
 	//The image's backing is a pool sub-allocation or a dedicated allocation depending on how it
@@ -11272,6 +11286,9 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 	ZEST_ASSERT(context->queues[context->graphics_queue_index], "Unable to create a graphics queue!");
 	if (!context->queues[context->compute_queue_index]) context->queues[context->compute_queue_index] = context->queues[context->graphics_queue_index];
 	if (!context->queues[context->transfer_queue_index]) context->queues[context->transfer_queue_index] = context->queues[context->graphics_queue_index];
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		zest__initialise_timeline(context->device, &context->queue_ordering_timelines[queue_slot]);
+	}
 
     zest_ForEachFrameInFlight(fif) {
 		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
@@ -11875,6 +11892,9 @@ void zest__cleanup_context(zest_context context) {
 
 		context->device->platform->cleanup_execution_timeline_backend(&context->frame_timeline[fif]);
     }
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		context->device->platform->cleanup_execution_timeline_backend(&context->queue_ordering_timelines[queue_slot]);
+	}
 
 	if (context->utility_timeline) {
 		zest__cleanup_execution_timeline(context->utility_timeline);

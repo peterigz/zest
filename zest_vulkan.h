@@ -241,6 +241,7 @@ ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_device device);
 ZEST_PRIVATE void zest__vk_wait_for_fif_semaphore(zest_context context, zest_uint fif);
 ZEST_PRIVATE void zest__vk_queue_wait_idle(zest_context context, zest_context_queue queue);
 ZEST_PRIVATE void zest__vk_release_immediate_queue(zest_queue queue);
+ZEST_PRIVATE zest_execution_timeline zest__vk_add_queue_ordering_semaphores(zest_context context, zest_bool switched_queue, zest_uint queue_slot, zloc_linear_allocator_t *allocator, VkSemaphoreSubmitInfo **wait_infos, VkSemaphoreSubmitInfo **signal_infos);
 ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context);
 
 //Allocation callbacks
@@ -1593,7 +1594,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetCommandPool(context->device->backend->logical_device, context->backend->utility_command_pool[context->current_fif], 0));
 
 	zest_context_queue graphics_queue = context->queues[context->graphics_queue_index];
-	zest__acquire_context_queue(context, graphics_queue, context->graphics_queue_index);
+	zest_bool switched_queue = zest__acquire_context_queue(context, graphics_queue, context->graphics_queue_index);
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1642,6 +1643,8 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	wait_info.stageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 	wait_info.value = 0;
 
+	VkSemaphoreSubmitInfo *wait_semaphore_infos = 0;
+	zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
 	VkSemaphoreSubmitInfo *signal_semaphore_infos = 0;
 	VkSemaphoreSubmitInfo render_signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	render_signal_info.semaphore = context->swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
@@ -1659,10 +1662,11 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 
 	zest_vec_linear_push(allocator, signal_semaphore_infos, render_signal_info);
 	zest_vec_linear_push(allocator, signal_semaphore_infos, frame_signal_info);
+	zest_execution_timeline ordering_timeline = zest__vk_add_queue_ordering_semaphores(context, switched_queue, context->graphics_queue_index, allocator, &wait_semaphore_infos, &signal_semaphore_infos);
 
-	submit_info2.waitSemaphoreInfoCount = 1;
-	submit_info2.pWaitSemaphoreInfos = &wait_info;
-	submit_info2.signalSemaphoreInfoCount = 2;
+	submit_info2.waitSemaphoreInfoCount = zest_vec_size(wait_semaphore_infos);
+	submit_info2.pWaitSemaphoreInfos = wait_semaphore_infos;
+	submit_info2.signalSemaphoreInfoCount = zest_vec_size(signal_semaphore_infos);
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
 	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(graphics_queue->queue->backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
@@ -1671,6 +1675,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	if (submit_result != VK_SUCCESS) {
 		//The signal was never queued, so roll the value back to one the next frame's wait can reach
 		timeline->current_value -= 1;
+		ordering_timeline->current_value -= 1;
 		zest__log_vulkan_error(context->device, submit_result, __FILE__, __LINE__);
 		if (submit_result == VK_ERROR_DEVICE_LOST) {
 			ZEST__FLAG(context->flags, zest_context_flag_device_lost);
@@ -5063,10 +5068,22 @@ void zest__vk_release_immediate_queue(zest_queue queue) {
 }
 
 zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
+	if (!device->queue_pool[target_queue]) {
+		ZEST_REPORT(device, zest_report_submission_failure, "The device has no queue of the requested type for an immediate command buffer.");
+		return NULL;
+	}
 	zest_queue queue = zest__acquire_queue(device, target_queue);
 	if (!queue) {
-		ZEST_REPORT(device, zest_report_submission_failure, "No queue of the requested type was free for an immediate command buffer.");
-		return NULL;
+		zest_microsecs wait_start = zest_Microsecs();
+		zest_bool reported_long_wait = ZEST_FALSE;
+		while (!queue) {
+			zest__thread_yield();
+			if (!reported_long_wait && zest_Microsecs() - wait_start > ZEST_SECONDS_IN_MICROSECONDS(5)) {
+				ZEST_REPORT(device, zest_report_submission_failure, "Still waiting for a free queue for an immediate command buffer after 5 seconds. Immediate commands can't be recorded on a thread that is already holding the only queue of the family, such as inside frame graph execution.");
+				reported_long_wait = ZEST_TRUE;
+			}
+			queue = zest__acquire_queue(device, target_queue);
+		}
 	}
 
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
@@ -5113,6 +5130,7 @@ cleanup:
 }
 
 zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
+	if (!queue) return ZEST_FALSE;
 	zest_device device = queue->device;
 	device->backend->last_result = vkEndCommandBuffer(queue->backend->command_buffer);
 	if (device->backend->last_result != VK_SUCCESS) {
@@ -5753,6 +5771,26 @@ void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_subm
 	}
 }
 
+//Waits on the slot's earlier submissions when this one lands on a different VkQueue, and signals the next ordering value
+zest_execution_timeline zest__vk_add_queue_ordering_semaphores(zest_context context, zest_bool switched_queue, zest_uint queue_slot, zloc_linear_allocator_t *allocator, VkSemaphoreSubmitInfo **wait_infos, VkSemaphoreSubmitInfo **signal_infos) {
+	zest_execution_timeline timeline = &context->queue_ordering_timelines[queue_slot];
+	if (switched_queue && timeline->current_value > 0) {
+		VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		wait_info.semaphore = timeline->backend->semaphore;
+		wait_info.value = timeline->current_value;
+		wait_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		zest_vec_linear_push(allocator, *wait_infos, wait_info);
+	}
+	timeline->current_value += 1;
+	VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	signal_info.semaphore = timeline->backend->semaphore;
+	signal_info.value = timeline->current_value;
+	signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	zest_vec_linear_push(allocator, *signal_infos, signal_info);
+	return timeline;
+}
+
+
 zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues) {
 	zest_context context = frame_graph->command_list.context;
 	zest_device device = context->device;
@@ -5823,17 +5861,17 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	VkSemaphoreSubmitInfo *signal_semaphore_infos = 0;
 
     // Set wait semaphores for this batch
-    if (wait_semaphores) {
-		zest_vec_foreach(i, wait_semaphores) {
-			VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-			wait_info.semaphore = wait_semaphores[i];
-			wait_info.stageMask = zest__to_vk_pipeline_stage(wait_stages[i]);
-			wait_info.value = wait_values[i];
-			zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
-		}
-        submit_info2.waitSemaphoreInfoCount = zest_vec_size(wait_semaphore_infos);
-        submit_info2.pWaitSemaphoreInfos = wait_semaphore_infos;
-    }
+	zest_vec_foreach(i, wait_semaphores) {
+		VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		wait_info.semaphore = wait_semaphores[i];
+		wait_info.stageMask = zest__to_vk_pipeline_stage(wait_stages[i]);
+		wait_info.value = wait_values[i];
+		zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
+	}
+	zest_bool switched_queue = zest__acquire_context_queue(context, batch->queue, queue_index);
+	zest_execution_timeline ordering_timeline = zest__vk_add_queue_ordering_semaphores(context, switched_queue, queue_index, allocator, &wait_semaphore_infos, &signal_semaphore_infos);
+	submit_info2.waitSemaphoreInfoCount = zest_vec_size(wait_semaphore_infos);
+	submit_info2.pWaitSemaphoreInfos = wait_semaphore_infos;
 
     //push any additional binary semaphores in the batch
     zest_vec_foreach(semaphore_index, batch->signal_semaphores) {
@@ -5876,8 +5914,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 	submit_info2.signalSemaphoreInfoCount = zest_vec_size(signal_semaphore_infos);
 	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
-	zest__acquire_context_queue(context, batch->queue, queue_index);
-
 	VkResult submit_result = context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
 	context->device->backend->last_result = submit_result;
 	if (submit_result != VK_SUCCESS) {
@@ -5887,6 +5923,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		if (bumped_timeline) {
 			bumped_timeline->current_value -= 1;
 		}
+		ordering_timeline->current_value -= 1;
 		zest__log_vulkan_error(context->device, submit_result, __FILE__, __LINE__);
 		if (submit_result == VK_ERROR_DEVICE_LOST) {
 			ZEST__FLAG(context->flags, zest_context_flag_device_lost);
@@ -6484,12 +6521,14 @@ zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buffer buffer, ze
 }
 
 void zest_imm_FillBuffer(zest_queue queue, zest_buffer buffer, zest_uint value) {
+	if (!queue) return;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
 	vkCmdFillBuffer(queue->backend->command_buffer, buffer->memory_pool->backend->vk_buffer, buffer->memory_offset, buffer->size, value);
 }
 
 void zest_imm_UpdateBuffer(zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size) {
+	if (!queue) return;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
 	zest_size size = ZEST__MIN(zloc__align_size_up(intended_size, 4), ZEST__MIN(buffer->size, 65536));
@@ -6497,6 +6536,7 @@ void zest_imm_UpdateBuffer(zest_queue queue, zest_buffer buffer, void *data, zes
 }
 
 zest_bool zest_imm_ClearColorImage(zest_queue queue, zest_image image, zest_clear_value_t clear_value) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
@@ -6546,6 +6586,7 @@ zest_bool zest_imm_ClearColorImage(zest_queue queue, zest_image image, zest_clea
 }
 
 zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, float depth, zest_uint stencil) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(image);			//Not a valid image handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
@@ -6605,6 +6646,7 @@ zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, fl
 }
 
 zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
@@ -6711,6 +6753,7 @@ zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image 
 }
 
 zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_image dst_image) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(src_image);		//Not a valid source image handle
 	ZEST_ASSERT_HANDLE(dst_image);		//Not a valid destination image handle
@@ -6813,6 +6856,7 @@ zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_ima
 }
 
 void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size) {
+	if (!queue) return;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
 	ZEST_ASSERT(data);					//No data provided
@@ -6823,6 +6867,7 @@ void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size) {
 }
 
 void zest_imm_BindComputePipeline(zest_queue queue, zest_compute compute) {
+	if (!queue) return;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT_HANDLE(compute);		//Not a valid compute handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
@@ -6831,6 +6876,7 @@ void zest_imm_BindComputePipeline(zest_queue queue, zest_compute compute) {
 }
 
 zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
 	ZEST_ASSERT(queue->backend->command_buffer);	//No command buffer found
 	ZEST_ASSERT_OR_VALIDATE(queue->last_bound_compute, queue->device, "You must bind a compute pipeline by calling zest_imm_BindComputePipeline before calling this function", ZEST_FALSE);	
