@@ -119,6 +119,9 @@ static void render_shape_loader(const char *filename, tfx_image_data_t *image_da
 	free(pixels);
 }
 
+/* uv_lookup takes no user data, so the atlas's bindless index reaches it through here. */
+static zest_uint render_particle_texture_index;
+
 /* tfx_gpu_image_data_t is a public struct, so this one needs nothing from the
    engine. Its address still has to survive the reload - see the header note. */
 static void render_uv_lookup(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
@@ -127,7 +130,8 @@ static void render_uv_lookup(void *ptr, tfx_gpu_image_data_t *image_data, int of
 	image_data->uv.y = region->uv.y;
 	image_data->uv.z = region->uv.z;
 	image_data->uv.w = region->uv.w;
-	image_data->texture_array_index = region->layer_index;
+	/* The stock shaders read [bindless image index << 16 | array layer] */
+	image_data->texture_array_index = (render_particle_texture_index << 16) | (region->layer_index & 0xFFFF);
 	image_data->uv_packed = region->uv_packed;
 }
 
@@ -286,7 +290,6 @@ static void render_draw_particle_layer(const zest_command_list command_list, voi
 
 		tfx_push_constants_t *push_constants = (tfx_push_constants_t *)current->push_constant;
 		push_constants->color_ramp_texture_index    = app->color_ramps_index;
-		push_constants->particle_texture_index      = app->particle_texture_index;
 		push_constants->sampler_index               = app->sampler_index;
 		push_constants->image_data_index            = app->image_data_index;
 		push_constants->particle_properties_index   = app->particle_properties_index;
@@ -438,6 +441,7 @@ int main(int argc, char *argv[]) {
 	}
 	app.particle_texture = zest_CreateImageAtlas(app.context, &app.particle_images, 1024, 1024, 0);
 	app.particle_texture_index = zest_AcquireSampledImageIndex(app.device, zest_GetImage(app.particle_texture), zest_texture_array_binding);
+	render_particle_texture_index = app.particle_texture_index;
 
 	if (!app.harness.module.start_effect(options.effect_name, TFX_RELOAD_SEED, &app.harness.saved)) {
 		fprintf(stderr, "[platform] no effect named '%s' in %s\n", options.effect_name, options.library_path);
