@@ -11286,8 +11286,9 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
 	ZEST_ASSERT(context->queues[context->graphics_queue_index], "Unable to create a graphics queue!");
 	if (!context->queues[context->compute_queue_index]) context->queues[context->compute_queue_index] = context->queues[context->graphics_queue_index];
 	if (!context->queues[context->transfer_queue_index]) context->queues[context->transfer_queue_index] = context->queues[context->graphics_queue_index];
+	zest_bool timelines_created = ZEST_TRUE;
 	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
-		zest__initialise_timeline(context->device, &context->queue_ordering_timelines[queue_slot]);
+		timelines_created &= zest__initialise_timeline(context->device, &context->queue_ordering_timelines[queue_slot]);
 	}
 
     zest_ForEachFrameInFlight(fif) {
@@ -11295,13 +11296,17 @@ zest_bool zest__initialise_context(zest_context context, zest_create_context_inf
         int result = zloc_InitialiseLinearAllocator(&context->frame_graph_allocator[fif], frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 		ZEST_ASSERT(result, "Unable to allocate a frame graph allocator, out of memory.");
 		zloc_SetLinearAllocatorUserData(&context->frame_graph_allocator[fif], context);
-		zest__initialise_timeline(context->device, &context->frame_timeline[fif]);
+		timelines_created &= zest__initialise_timeline(context->device, &context->frame_timeline[fif]);
 
 		if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_debug_overlay)) {
 			context->db_overlay.index_staging_buffer[fif] = zest_CreateStagingBuffer(device, zloc__MEGABYTE(2), 0);
 			context->db_overlay.vertex_staging_buffer[fif] = zest_CreateStagingBuffer(device, zloc__MEGABYTE(4), 0);
 		}
     }
+	if (!timelines_created) {
+		ZEST_APPEND_LOG(context->device->log_path.str, "Unable to create the context timeline semaphores!");
+		return ZEST_FALSE;
+	}
 
 	if (ZEST__FLAGGED(create_info->flags, zest_context_init_flag_gpu_profiling)) {
 		zest__init_gpu_profiler(context);
@@ -19038,7 +19043,8 @@ zest_bool zest__initialise_timeline(zest_device device, zest_execution_timeline_
         if (timeline->backend) {
             ZEST__FREE(device->allocator, timeline->backend);
         }
-		ZEST__FREE(device->allocator, timeline);
+		//The timeline belongs to the caller, often embedded in another struct, so only the backend is freed here
+		timeline->backend = NULL;
 		return ZEST_FALSE;
     }
 	return ZEST_TRUE;

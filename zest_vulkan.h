@@ -2628,6 +2628,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     ZEST_APPEND_LOG(device->log_path.str, "synchronization2 entry points resolved: %s", sync2_used_core_entry_points ? "core" : "KHR aliases");
 
 	//Loop over the available device queues and add queues for each one
+	zest_bool timelines_created = ZEST_TRUE;
 	zest_vec_foreach(i, device->queue_families) {
 		zest_queue_manager_t *manager = device->queue_families[i];
 		if (!manager) continue;
@@ -2640,12 +2641,16 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 			manager->queues[k].family_index = manager->family_index;
 			manager->queues[k].backend = (zest_queue_backend)zest__vk_new_queue_backend(device, manager->family_index);
 			manager->queues[k].device = device;
-			zest__initialise_timeline(device, &manager->queues[k].timeline);
+			timelines_created &= zest__initialise_timeline(device, &manager->queues[k].timeline);
 			vkGetDeviceQueue(device->backend->logical_device, manager->family_index, k, &manager->queues[k].backend->vk_queue);
 		}
 	}
-
 	zloc_ResetLinearAllocator(scratch_arena);
+
+	if (!timelines_created) {
+		ZEST_APPEND_LOG(device->log_path.str, "Fatal Error: could not create the queue timeline semaphores.");
+		return ZEST_FALSE;
+	}
 
     return ZEST_TRUE;
 }
@@ -2667,8 +2672,10 @@ zest_bool zest__vk_create_execution_timeline_backend(zest_device device, zest_ex
 }
 
 void zest__vk_cleanup_execution_timeline_backend(zest_execution_timeline timeline) {
+	if (!timeline->backend) return;
 	vkDestroySemaphore(timeline->device->backend->logical_device, timeline->backend->semaphore, &timeline->device->backend->allocation_callbacks);
 	ZEST__FREE(timeline->device->allocator, timeline->backend);
+	timeline->backend = NULL;
 }
 // -- End General_create_functions
 
