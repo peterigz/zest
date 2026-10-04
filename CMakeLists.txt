@@ -25,131 +25,16 @@ add_library(zest STATIC zest.cpp)
 target_include_directories(zest PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # --- Optional Slang Integration ---
-option(ZEST_ENABLE_SLANG "Enable Slang shader compiler support" OFF)
-set(ZEST_SLANG_CONFIGS "" CACHE STRING "Configurations to enable Slang in, e.g. Debug. Empty enables it in every configuration.")
-
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ZestSlang.cmake)
 if(ZEST_ENABLE_SLANG)
-    message(STATUS "Slang support enabled.")
-
-    # ZEST_SLANG_ENABLED_GENEX is true in the configurations Slang is enabled for
-    if(ZEST_SLANG_CONFIGS)
-        set(_zest_slang_config_checks "")
-        foreach(_zest_slang_config IN LISTS ZEST_SLANG_CONFIGS)
-            list(APPEND _zest_slang_config_checks "$<CONFIG:${_zest_slang_config}>")
-        endforeach()
-        string(REPLACE ";" "," _zest_slang_config_checks "${_zest_slang_config_checks}")
-        set(ZEST_SLANG_ENABLED_GENEX "$<OR:${_zest_slang_config_checks}>")
-        message(STATUS "Slang enabled for configurations: ${ZEST_SLANG_CONFIGS}")
-        # $<CONFIG:...> ignores case, so compare upper case here too
-        string(TOUPPER "${CMAKE_BUILD_TYPE}" _zest_build_type_upper)
-        string(TOUPPER "${ZEST_SLANG_CONFIGS}" _zest_slang_configs_upper)
-        if(NOT CMAKE_CONFIGURATION_TYPES AND NOT _zest_build_type_upper IN_LIST _zest_slang_configs_upper)
-            message(WARNING "ZEST_SLANG_CONFIGS (${ZEST_SLANG_CONFIGS}) doesn't include CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}', so this build has no Slang. Set CMAKE_BUILD_TYPE to one of them or clear ZEST_SLANG_CONFIGS.")
-        endif()
-    else()
-        set(ZEST_SLANG_ENABLED_GENEX "1")
-    endif()
-
-    # Add a preprocessor definition to use in your code (#ifdef ZEST_ENABLE_SLANG)
+    # Use #ifdef ZEST_ENABLE_SLANG in your code; it is only defined in the configurations Slang is enabled for
     target_compile_definitions(zest-interface INTERFACE $<${ZEST_SLANG_ENABLED_GENEX}:ZEST_ENABLE_SLANG>)
-
-    # Find slang/slang.h first, then the library beside it, so another library called slang (such as S-Lang) isn't picked up
-    set(SLANG_SEARCH_PATHS "")
-    set(SLANG_INCLUDE_SEARCH_PATHS "")
-    if(DEFINED ENV{VULKAN_SDK})
-        list(APPEND SLANG_SEARCH_PATHS "$ENV{VULKAN_SDK}/lib" "$ENV{VULKAN_SDK}/macOS/lib")
-        list(APPEND SLANG_INCLUDE_SEARCH_PATHS "$ENV{VULKAN_SDK}/Include" "$ENV{VULKAN_SDK}/include" "$ENV{VULKAN_SDK}/macOS/include")
-    endif()
-    list(APPEND SLANG_INCLUDE_SEARCH_PATHS "/opt/homebrew/include" "/usr/local/include")
-
-    find_path(SLANG_INCLUDE_DIR
-        NAMES slang/slang.h
-        HINTS ${SLANG_INCLUDE_SEARCH_PATHS}
-        DOC "Directory containing slang/slang.h"
-    )
-    if(SLANG_INCLUDE_DIR)
-        list(INSERT SLANG_SEARCH_PATHS 0 "${SLANG_INCLUDE_DIR}/../lib" "${SLANG_INCLUDE_DIR}/../lib64")
-    endif()
-
-    find_library(SLANG_LIBRARY
-        NAMES slang
-        HINTS ${SLANG_SEARCH_PATHS}
-        DOC "Path to slang library"
-    )
-
-    if(NOT SLANG_LIBRARY)
-        message(FATAL_ERROR "Could not find Slang library. Set VULKAN_SDK or install slang (e.g. via brew).")
-    else()
-        message(STATUS "Found Slang library: ${SLANG_LIBRARY}")
-    endif()
-
-    # The library must sit under the folder holding slang/slang.h and, off Windows, beside Slang companions that S-Lang lacks
-    get_filename_component(_zest_slang_library_dir "${SLANG_LIBRARY}" DIRECTORY)
-    set(_zest_slang_library_valid TRUE)
-    if(SLANG_INCLUDE_DIR)
-        get_filename_component(_zest_slang_include_root "${SLANG_INCLUDE_DIR}/.." ABSOLUTE)
-        get_filename_component(_zest_slang_library_dir_absolute "${_zest_slang_library_dir}" ABSOLUTE)
-        string(TOUPPER "${_zest_slang_include_root}/" _zest_slang_include_root)
-        string(TOUPPER "${_zest_slang_library_dir_absolute}/" _zest_slang_library_dir_absolute)
-        string(FIND "${_zest_slang_library_dir_absolute}" "${_zest_slang_include_root}" _zest_slang_root_position)
-        if(NOT _zest_slang_root_position EQUAL 0)
-            set(_zest_slang_library_valid FALSE)
-        endif()
-    endif()
-    if(NOT WIN32)
-        file(GLOB _zest_slang_companions "${_zest_slang_library_dir}/libslang-glslang*" "${_zest_slang_library_dir}/libslang-compiler*")
-        if(NOT _zest_slang_companions)
-            set(_zest_slang_library_valid FALSE)
-        endif()
-    endif()
-    if(NOT _zest_slang_library_valid)
-        message(FATAL_ERROR "Found ${SLANG_LIBRARY} with headers in ${SLANG_INCLUDE_DIR}, but they don't look like one Slang install, so the library may be another one called slang such as S-Lang. Set SLANG_LIBRARY and SLANG_INCLUDE_DIR to the Slang install.")
-    endif()
+    target_compile_definitions(zest PRIVATE $<${ZEST_SLANG_ENABLED_GENEX}:ZEST_ENABLE_SLANG>)
     if(SLANG_INCLUDE_DIR)
         target_include_directories(zest-interface INTERFACE ${SLANG_INCLUDE_DIR})
         target_include_directories(zest PUBLIC ${SLANG_INCLUDE_DIR})
-    else()
-        message(WARNING "Could not find slang/slang.h, the Slang include directory must be added by the host.")
     endif()
-
-    # Runtime libraries that zest_copy_slang_runtime copies next to a target
-    set(ZEST_SLANG_RUNTIME_FILES "")
-    if(WIN32)
-        # The DLLs sit in the bin folder beside the lib folder slang.lib was found in, so they match the linked version
-        get_filename_component(_zest_slang_binary_dir "${_zest_slang_library_dir}/../bin" ABSOLUTE)
-        # slang-compiler.dll does the work behind slang.dll, slang-glslang.dll runs spirv-opt, slang-glsl-module.dll is GLSL compatibility
-        foreach(_zest_slang_dll slang.dll slang-compiler.dll slang-glslang.dll slang-glsl-module.dll)
-            if(EXISTS "${_zest_slang_binary_dir}/${_zest_slang_dll}")
-                list(APPEND ZEST_SLANG_RUNTIME_FILES "${_zest_slang_binary_dir}/${_zest_slang_dll}")
-            endif()
-        endforeach()
-    else()
-        # The found library and its companions by name, never libslang* which also matches S-Lang
-        get_filename_component(_zest_slang_library_file "${SLANG_LIBRARY}" REALPATH)
-        file(GLOB ZEST_SLANG_RUNTIME_FILES "${_zest_slang_library_dir}/libslang-compiler*" "${_zest_slang_library_dir}/libslang-glslang*" "${_zest_slang_library_dir}/libslang-glsl-module*")
-        list(APPEND ZEST_SLANG_RUNTIME_FILES "${SLANG_LIBRARY}" "${_zest_slang_library_file}")
-        list(REMOVE_DUPLICATES ZEST_SLANG_RUNTIME_FILES)
-    endif()
-
-    # Only link Slang in the configurations it is enabled for
-    set(SLANG_LIBRARY_LINK "$<${ZEST_SLANG_ENABLED_GENEX}:${SLANG_LIBRARY}>")
-else()
-	SET(SLANG_LIBRARY_LINK "")
-	set(ZEST_SLANG_RUNTIME_FILES "")
-    message(STATUS "Slang support disabled.")
 endif()
-
-# Copy the Slang runtime libraries next to a target after it builds, in the configurations Slang is enabled for
-function(zest_copy_slang_runtime TARGET_NAME)
-    if(NOT ZEST_ENABLE_SLANG OR NOT ZEST_SLANG_RUNTIME_FILES)
-        return()
-    endif()
-    add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E $<IF:${ZEST_SLANG_ENABLED_GENEX},copy_if_different,echo> "$<${ZEST_SLANG_ENABLED_GENEX}:${ZEST_SLANG_RUNTIME_FILES}>" "$<${ZEST_SLANG_ENABLED_GENEX}:$<TARGET_FILE_DIR:${TARGET_NAME}>>"
-        COMMAND_EXPAND_LISTS
-        VERBATIM
-    )
-endfunction()
 # --- End Slang Integration ---
 
 # Use FindVulkan module added with CMAKE 3.7
@@ -281,16 +166,12 @@ endif()
 # Link zest static library with Vulkan
 if(MSVC)
 	if(ZEST_ENABLE_SLANG)
-		target_compile_definitions(zest PRIVATE $<${ZEST_SLANG_ENABLED_GENEX}:ZEST_ENABLE_SLANG>)
 		target_link_libraries(zest PUBLIC Vulkan::Vulkan Vulkan::shaderc_combined ${SLANG_LIBRARY_LINK})
 	else ()
 		target_link_libraries(zest PUBLIC Vulkan::Vulkan Vulkan::shaderc_combined)
 	endif ()
 	target_link_options(zest PUBLIC "/ignore:4099")
 else()
-	if(ZEST_ENABLE_SLANG)
-		target_compile_definitions(zest PRIVATE $<${ZEST_SLANG_ENABLED_GENEX}:ZEST_ENABLE_SLANG>)
-	endif()
 	# Try Vulkan SDK's shaderc first
 	if(TARGET Vulkan::shaderc_combined)
 		if(ZEST_ENABLE_SLANG)

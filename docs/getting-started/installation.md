@@ -107,6 +107,22 @@ cmake -B build -DZEST_ENABLE_SLANG=ON -DZEST_SLANG_CONFIGS=Debug
 `slang-glslang.dll` and `slang-glsl-module.dll` on Windows) next to a target after it builds, so it runs without the
 Vulkan SDK on the `PATH`. Without `slang-glslang.dll` Slang can't run its SPIR-V optimiser and outputs unoptimised code.
 
+Projects that compile zest into their own target instead of using `add_subdirectory` can include the same logic from
+`cmake/ZestSlang.cmake`. Set the options first; `zest_target_use_slang` then defines `ZEST_ENABLE_SLANG`, adds the Slang
+headers, links Slang and copies its runtime, all only in the configurations Slang is enabled for:
+
+```cmake
+set(ZEST_ENABLE_SLANG ON)
+set(ZEST_SLANG_CONFIGS Debug)
+include(${ZEST}/cmake/ZestSlang.cmake)
+zest_target_use_slang(${NAME})
+```
+
+The module also sets `ZEST_SLANG_ENABLED_GENEX`, `SLANG_INCLUDE_DIR`, `SLANG_LIBRARY`, `SLANG_LIBRARY_LINK` and
+`ZEST_SLANG_RUNTIME_FILES`, and can be included more than once, for example by the host and by zest as a subdirectory.
+`zest_target_use_slang` links with the plain `target_link_libraries` signature, so call it on targets that don't use the
+`PUBLIC`/`PRIVATE` keyword form.
+
 !!! warning "Slang Requirement"
     The `VULKAN_SDK` environment variable must be set when using Slang. On Linux, source the Vulkan SDK setup script before running CMake:
     ```bash
