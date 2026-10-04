@@ -124,7 +124,7 @@ void TimelineFXExample::Init() {
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
 
 	//Create the effect manager
-	tfx_stage_info_t pm_info = tfx_CreateStageInfo(tfxStageSetup_group_sprites_by_effect);
+	tfx_stage_info_t pm_info = tfx_CreateStageInfo(tfxStageSetup_auto_order_effects);
 	pm = tfx_CreateStage(pm_info);
 
 	zest_tfx_CreateGlobalBuffers(context, &global_buffers);

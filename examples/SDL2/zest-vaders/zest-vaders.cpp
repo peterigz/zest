@@ -383,9 +383,9 @@ void VadersGame::Init() {
 	zest_tfx_FinaliseLibrary(context, &tfx_rendering, library);
 
 	//Initialise effect managers
-	tfx_stage_info_t background_pm_info = tfx_CreateStageInfo(tfxStageSetup_group_sprites_by_effect);
+	tfx_stage_info_t background_pm_info = tfx_CreateStageInfo(tfxStageSetup_auto_order_effects);
 	background_pm = tfx_CreateStage(background_pm_info);
-	tfx_stage_info_t game_pm_info = tfx_CreateStageInfo(tfxStageSetup_group_sprites_by_effect);
+	tfx_stage_info_t game_pm_info = tfx_CreateStageInfo(tfxStageSetup_auto_order_effects);
 	game_pm = tfx_CreateStage(game_pm_info);
 	game_pm_info.max_effects = 10;
 	title_pm = tfx_CreateStage(game_pm_info);
@@ -1119,10 +1119,12 @@ void RenderEffectParticles(tfx_stage pm, VadersGame *game, zest_layer layer) {
 	tfx_instance_t *billboards = nullptr;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
-	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
-		zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
+	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+		while (tfx_GetNextInstanceBuffer(pm, layer_index, &billboards, &instance_data, &instance_count)) {
+			zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
+		}
+		tfx_ResetInstanceBufferLoopIndex(pm);
 	}
-	tfx_ResetInstanceBufferLoopIndex(pm);
 }
 
 void UploadGameLayerData(const zest_command_list command_list, void *user_data) {

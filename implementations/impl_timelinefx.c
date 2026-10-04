@@ -1072,11 +1072,13 @@ void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources
 	tfx_instance_t *billboards = NULL;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
-	//Loop over the effects to get each instance buffer to render
-	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
-		zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
+	//The instance buffer is grouped by layer, so loop over the effects once per layer to get each instance buffer to render
+	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+		while (tfx_GetNextInstanceBuffer(pm, layer_index, &billboards, &instance_data, &instance_count)) {
+			zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
+		}
+		tfx_ResetInstanceBufferLoopIndex(pm);
 	}
-	tfx_ResetInstanceBufferLoopIndex(pm);
 }
 
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data) {
