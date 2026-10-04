@@ -12,6 +12,7 @@
 #include "zest-compute-tests.cpp"
 #include "zest-layer-tests.cpp"
 #include "zest-device-reset-tests.cpp"
+#include "zest-slang-tests.cpp"
 
 void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
@@ -120,6 +121,15 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Layer Test Buffer Growth", test__instance_layer_grow, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Layer Test Instance Draw", test__instance_layer_draw, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Layer Test Frame In Flight", test__instance_layer_fif, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
+#ifdef ZEST_ENABLE_SLANG
+	RegisterTest(tests, { "Slang Variants And Linking", test__slang_variants_and_linking, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang Compile Failures", test__slang_compile_failures, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang Type Size", test__slang_type_size, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang Debug Info", test__slang_debug_info, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang Hot Reload", test__slang_hot_reload, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang Shadowing Module", test__slang_shadowing_module, 0, 1, 0, 0, tests->headless_create_info });
+#endif
+	RegisterTest(tests, { "Shader Hot Reload Keeps Macros", test__shader_hot_reload_keeps_macros, 0, 1, 0, 0, tests->simple_create_info });
 	//Device reset tests run their own reset cycles internally, which rebuilds the bindless index
 	//free lists among other things, so they stay last where they can't disturb any test that is
 	//sensitive to accumulated device state.

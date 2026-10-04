@@ -2313,6 +2313,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     if (base->textureCompressionBC)                               supported |= zest_capability_texture_compression_bc;
     if (base->textureCompressionASTC_LDR)                         supported |= zest_capability_texture_compression_astc_ldr;
     if (base->textureCompressionETC2)                             supported |= zest_capability_texture_compression_etc2;
+    if (features_12.scalarBlockLayout)                            supported |= zest_capability_scalar_block_layout;
     device->capabilities.supported = supported;
 
     // --- Bindless descriptor ceilings ---
@@ -2353,6 +2354,7 @@ zest_bool zest__vk_query_device_capabilities(zest_device device) {
     ZEST_APPEND_LOG(log, "  texture_compression_bc: %s",              (supported & zest_capability_texture_compression_bc) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  texture_compression_astc_ldr: %s",        (supported & zest_capability_texture_compression_astc_ldr) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  texture_compression_etc2: %s",            (supported & zest_capability_texture_compression_etc2) ? "yes" : "no");
+    ZEST_APPEND_LOG(log, "  scalar_block_layout: %s",                 (supported & zest_capability_scalar_block_layout) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  tessellation (opt-in): %s",               (supported & zest_capability_tessellation) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  geometry_shader (opt-in): %s",            (supported & zest_capability_geometry_shader) ? "yes" : "no");
     ZEST_APPEND_LOG(log, "  shader_int64 (opt-in): %s",               (supported & zest_capability_shader_int64) ? "yes" : "no");
@@ -2508,6 +2510,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device_features_12.shaderStorageBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_storage_buffer_indexing) ? VK_TRUE : VK_FALSE;
     device_features_12.shaderUniformBufferArrayNonUniformIndexing = (enabled & zest_capability_nonuniform_uniform_buffer_indexing) ? VK_TRUE : VK_FALSE;
     device_features_12.bufferDeviceAddress = (enabled & zest_capability_buffer_device_address) ? VK_TRUE : VK_FALSE;
+    device_features_12.scalarBlockLayout = (enabled & zest_capability_scalar_block_layout) ? VK_TRUE : VK_FALSE;
 
 	VkPhysicalDeviceVulkan11Features device_features_11 = ZEST__ZERO_INIT(VkPhysicalDeviceVulkan11Features);
 	device_features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;

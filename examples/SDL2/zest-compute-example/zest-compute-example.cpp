@@ -4,7 +4,9 @@
 #include "zest-compute-example.h"
 #include <zest.h>
 #include "imgui_internal.h"
+#ifdef ZEST_ENABLE_SLANG
 #include "impl_slang.hpp"
+#endif
 #include <random>
 #include "examples/Common/sdl_events.cpp"
 
@@ -18,6 +20,8 @@ the compute shader can be done asynchronisely as there are no dependencies betwe
 graph to see the frame graph set up.
 */
 
+//The shaders are compiled with Slang, which ZEST_SLANG_CONFIGS can leave out of some configurations
+#ifdef ZEST_ENABLE_SLANG
 void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
@@ -411,3 +415,9 @@ int main(int argc, char *argv[]) {
 
 	return 0;
 }
+#else
+int main(int argc, char *argv[]) {
+	printf("zest-compute-example needs Slang, which isn't enabled for this configuration (see ZEST_SLANG_CONFIGS).\n");
+	return 0;
+}
+#endif

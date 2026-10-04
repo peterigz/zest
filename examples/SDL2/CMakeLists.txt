@@ -212,12 +212,15 @@ set(EXAMPLES
 	zest-sdl2-imgui-template
 )
 
-# zest-compute-example requires Slang
+# zest-compute-example requires Slang. In configurations left out by ZEST_SLANG_CONFIGS it builds as a stub.
 if(ZEST_ENABLE_SLANG)
 	list(APPEND EXAMPLES zest-compute-example)
 endif()
 
 buildExamples()
+
+zest_copy_slang_runtime(zest-compute-example)
+zest_copy_slang_runtime(zest-tests)
 
 
 

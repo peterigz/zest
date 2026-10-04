@@ -595,3 +595,94 @@ int test__shader_cache_invalidation(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+//Rewrites the file until its mtime moves past before, so the reload check can't miss the edit
+static zest_bool macro_test__write_file(const char *path, const char *text, zest_u64 before) {
+	for (int attempt = 0; attempt != 100; ++attempt) {
+		FILE *file = fopen(path, "wb");
+		if (!file) return ZEST_FALSE;
+		fputs(text, file);
+		fclose(file);
+		zest_u64 after = 0;
+		if (zest_GetFileModifiedTime(path, &after) && after != before) return ZEST_TRUE;
+		SDL_Delay(10);
+	}
+	return ZEST_FALSE;
+}
+
+//Hot reload recompiles with the macros the shader was created or last compiled with
+int test__shader_hot_reload_keeps_macros(ZestTests *tests, Test *test) {
+	static const char *source =
+		"#version 450\n"
+		"layout(local_size_x = 1) in;\n"
+		"#ifndef ZEST_RELOAD_MACRO\n"
+		"#error ZEST_RELOAD_MACRO is missing\n"
+		"#endif\n"
+		"void main() {}\n";
+	static const char *source_edited =
+		"#version 450\n"
+		"layout(local_size_x = 1) in;\n"
+		"#ifndef ZEST_RELOAD_MACRO\n"
+		"#error ZEST_RELOAD_MACRO is missing\n"
+		"#endif\n"
+		"void main() {}\n"
+		"//edited\n";
+	static const char *source_second_macro =
+		"#version 450\n"
+		"layout(local_size_x = 1) in;\n"
+		"#if !defined(ZEST_RELOAD_MACRO) || !defined(ZEST_SECOND_MACRO)\n"
+		"#error a macro is missing\n"
+		"#endif\n"
+		"void main() {}\n";
+	const char *path = "zest_macro_reload_test.comp";
+	zest_device device = tests->device;
+	if (!macro_test__write_file(path, source, 0)) {
+		ZEST_PRINT("\tCould not write %s", path);
+		test->result = 1;
+		test->frame_count++;
+		return test->result;
+	}
+	int failed_count = 0;
+
+	zest_shader_options options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(options, "ZEST_RELOAD_MACRO", "1");
+	zest_shader_handle shader_handle = zest_CreateShaderFromFile(device, path, "zest_macro_reload_test", zest_compute_shader, options, ZEST_TRUE);
+	//The shader has to keep its own copy of the options
+	zest_FreeShaderOptions(options);
+	zest_SetShaderHotReload(shader_handle, ZEST_TRUE);
+
+	if (!macro_test__write_file(path, source_edited, zest_GetShader(shader_handle)->last_mtime) || zest_CheckShaderHotReload(device) != 1 || zest_GetShaderLastError(shader_handle)[0]) {
+		ZEST_PRINT("\tHot reload lost the shader's macros: %s", zest_GetShaderLastError(shader_handle));
+		failed_count++;
+	}
+
+	//NULL options recompile with the stored ones instead of dropping them
+	if (!zest_CompileShader(shader_handle, NULL)) {
+		ZEST_PRINT("\tzest_CompileShader with NULL options dropped the shader's macros");
+		failed_count++;
+	}
+	if (!macro_test__write_file(path, source, zest_GetShader(shader_handle)->last_mtime) || zest_CheckShaderHotReload(device) != 1 || zest_GetShaderLastError(shader_handle)[0]) {
+		ZEST_PRINT("\tHot reload lost the macros after zest_CompileShader with NULL: %s", zest_GetShaderLastError(shader_handle));
+		failed_count++;
+	}
+
+	//Compiling with new options makes them the ones hot reload uses
+	zest_shader_options second_options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(second_options, "ZEST_RELOAD_MACRO", "1");
+	zest_AddMacroDefinition(second_options, "ZEST_SECOND_MACRO", "1");
+	if (!zest_CompileShader(shader_handle, second_options)) {
+		failed_count++;
+	}
+	zest_FreeShaderOptions(second_options);
+	if (!macro_test__write_file(path, source_second_macro, zest_GetShader(shader_handle)->last_mtime) || zest_CheckShaderHotReload(device) != 1 || zest_GetShaderLastError(shader_handle)[0]) {
+		ZEST_PRINT("\tHot reload lost the macros from zest_CompileShader: %s", zest_GetShaderLastError(shader_handle));
+		failed_count++;
+	}
+
+	zest_FreeShader(shader_handle);
+	remove(path);
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}

@@ -678,6 +678,33 @@ Pass `disable_caching = ZEST_TRUE` to keep an individual shader out of the cache
 setting. `zest_CheckShaderHotReload` does not rewrite cache files; an edited shader simply misses its old key
 on the next run.
 
+### Hot Reload
+
+`zest_SetShaderHotReload(shader, ZEST_TRUE)` marks a shader for reloading, and `zest_CheckShaderHotReload(device)`
+(called once per frame, outside frame graph recording) recompiles any marked shader whose source changed on disk.
+On success the pipeline templates and compute pipelines using the shader are rebuilt on their next use. On failure
+the previous binary keeps running, the error is available from `zest_GetShaderLastError` and a
+`zest_report_shader_reload_error` report is raised.
+
+Shaders compiled outside zest can take part through a reload callback, which replaces the file check:
+
+```cpp
+void zest_SetShaderReloadCallback(zest_shader_handle shader,
+                                  zest_shader_reload_callback reload_callback,
+                                  zest_shader_reload_free_callback free_callback,
+                                  void *user_data);
+
+typedef zest_shader_reload_result (*zest_shader_reload_callback)(zest_shader shader, zest_uint check_index, void *user_data);
+```
+
+`check_index` goes up by one on every `zest_CheckShaderHotReload` call, so a callback can read each file once per
+check and share the result across shaders. File shaders go through the same path with a built-in callback.
+
+The callback returns `zest_shader_reload_unchanged`, `zest_shader_reload_success` (after writing `binary` and
+`binary_size`) or `zest_shader_reload_failed` (after setting `last_error`, leaving the binary alone). The free
+callback is called with `user_data` when the shader is freed. Slang session shaders use this automatically, see
+[Slang Sessions](compute.md#slang-sessions).
+
 ---
 
 ### `zest_CreateShaderFromBinary`
@@ -765,10 +792,11 @@ if (file_changed) {
 
 ### `zest_CompileShader`
 
-Compile or recompile a shader.
+Compile or recompile a shader's current source. On success `options` become the ones hot reload uses; NULL reuses the
+options the shader was last compiled with. Pass an empty `zest_shader_options` to compile without macros.
 
 ```cpp
-zest_bool zest_CompileShader(zest_shader_handle shader);
+zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
 ```
 
 ---

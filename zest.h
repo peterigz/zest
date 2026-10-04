@@ -2024,6 +2024,7 @@ typedef enum zest_struct_type {
 	zest_struct_type_resource_store = 48 << 16,
 	zest_struct_type_pipeline_layout = 50 << 16,
 	zest_struct_type_shader_options = 51 << 16,
+	zest_struct_type_slang_session = 52 << 16,
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -2345,6 +2346,8 @@ typedef enum zest_device_capability_bits {
 	zest_capability_texture_compression_bc             = 1 << 13,
 	zest_capability_texture_compression_astc_ldr       = 1 << 14,
 	zest_capability_texture_compression_etc2           = 1 << 15,
+	// Auto-enabled. Allows scalar (C-like) buffer layouts in shaders, e.g. Slang's scalar_block_layout option.
+	zest_capability_scalar_block_layout                = 1 << 16,
 } zest_device_capability_bits;
 
 // Populated once during device creation and queryable thereafter via
@@ -2371,7 +2374,8 @@ typedef struct zest_device_capabilities_t {
 	zest_capability_nonuniform_sampled_image_indexing | \
 	zest_capability_texture_compression_bc | \
 	zest_capability_texture_compression_astc_ldr | \
-	zest_capability_texture_compression_etc2 )
+	zest_capability_texture_compression_etc2 | \
+	zest_capability_scalar_block_layout )
 #define ZEST_CAPABILITY_OPT_IN_MASK ( \
 	zest_capability_tessellation | \
 	zest_capability_geometry_shader | \
@@ -4356,6 +4360,16 @@ typedef struct zest_rendering_info_t {
 typedef zest_buffer(*zest_resource_buffer_provider)(zest_context context, zest_resource_node resource);
 typedef zest_image_view(*zest_resource_image_provider)(zest_context context, zest_resource_node resource);
 
+typedef enum zest_shader_reload_result {
+	zest_shader_reload_unchanged,
+	zest_shader_reload_success,
+	zest_shader_reload_failed,
+} zest_shader_reload_result;
+
+//Writes binary and binary_size on success or last_error on failure; check_index goes up once per zest_CheckShaderHotReload.
+typedef zest_shader_reload_result(*zest_shader_reload_callback)(zest_shader shader, zest_uint check_index, void *user_data);
+typedef void(*zest_shader_reload_free_callback)(zest_shader shader, void *user_data);
+
 typedef struct zest_semaphore_reference_t {
 	zest_dynamic_resource_type type;
 	zest_u64 semaphore;
@@ -5217,7 +5231,7 @@ ZEST_API zest_shader zest_GetShader(zest_shader_handle shader_handle);
 //zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
 //the pipeline that uses the shader. Returns true if the shader was successfully loaded.
 ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
-//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
+//Recompiles the shader's source. options become the ones hot reload uses; NULL reuses the shader's current options.
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
 //Add a shader straight from a precompiled binary file and return a handle to the shader. The binary format is
 //defined by the device's backend (SPIR-V for the Vulkan backend). Note that no prefix is added to the filename here
@@ -5236,6 +5250,8 @@ ZEST_API void zest_FreeShader(zest_shader_handle shader);
 //created via zest_CreateShaderFromFile (or a path-bearing equivalent). If the initial mtime could not be read, the
 //shader will still be marked for reload but the first check will attempt a reload.
 ZEST_API void zest_SetShaderHotReload(zest_shader_handle shader, zest_bool enable);
+//Let an external compiler drive hot reload in place of file_path; free_callback (optional) releases user_data with the shader.
+ZEST_API void zest_SetShaderReloadCallback(zest_shader_handle shader, zest_shader_reload_callback reload_callback, zest_shader_reload_free_callback free_callback, void *user_data);
 //Walk all shaders with hot reload enabled and reload any whose source file has changed on disk. Call once per frame
 //(outside of frame-graph recording) from your main loop. Returns the number of shaders that were successfully reloaded.
 //On compile failure the shader keeps its previous compiled binary so rendering continues, and the error is captured via
@@ -6124,10 +6140,8 @@ zest_TimerSet(&timer);
 ZEST_API zest_file zest_ReadEntireFile(zest_device device, const char *file_name, zest_bool terminate);
 //Free the data from a file
 ZEST_API void zest_FreeFile(zest_device device, zest_file file);
-//Get the last modification time of a file on disk, used by the shader hot reload system. Returns ZEST_FALSE if
-//the file can't be stat'd. The returned value is platform-specific: nanoseconds since epoch on POSIX where
-//available, otherwise whole seconds — only valid for equality comparison against previous values.
-ZEST_PRIVATE zest_bool zest__get_file_mtime(const char *path, zest_u64 *out_mtime);
+//Last modification time of a file in platform units (FILETIME on Windows, ns on POSIX), only for comparing against earlier values.
+ZEST_API zest_bool zest_GetFileModifiedTime(const char *path, zest_u64 *out_mtime);
 //Get the swap chain extent which will basically be the size of the window returned in a zest_extent2d_t struct.
 ZEST_API zest_extent2d_t zest_GetSwapChainExtent(zest_context context);
 //Get the window size in a zest_extent2d_t. In most cases this is the same as the swap chain extent.
@@ -7246,6 +7260,7 @@ typedef struct zest_device_t {
 
 	//Slang
 	void *slang_info;
+	zest_uint shader_reload_check_index;             //Incremented by every zest_CheckShaderHotReload
 
 	//Debug font
 	zest_image_handle debug_font_image;
@@ -7615,6 +7630,10 @@ typedef struct zest_shader_t {
 	zest_u64 last_mtime;                             //File modification time at last successful load, used by hot reload
 	zest_shader_type type;
 	zest_bool hot_reload_enabled;
+	zest_shader_options_t options;                   //Copy of the options it was created with, reused by hot reload
+	zest_shader_reload_callback reload_callback;     //Replaces the file based reload when set
+	zest_shader_reload_free_callback reload_free_callback;
+	void *reload_user_data;
 	zest_pipeline_template *dependent_templates;     //Graphics pipeline templates that reference this shader (vec)
 	zest_compute *dependent_computes;                //Compute pipelines that reference this shader (vec)
 } zest_shader_t;
@@ -12749,14 +12768,36 @@ zest_shader_options zest_CreateShaderOptions(zest_device device) {
 	return options;
 }
 
+ZEST_PRIVATE void zest__free_macro_definitions(zloc_allocator *allocator, zest_shader_options options) {
+	zest_vec_foreach(index, options->macro_definitions) {
+		zest_FreeText(allocator, &options->macro_definitions[index].name);
+		zest_FreeText(allocator, &options->macro_definitions[index].value);
+	}
+	zest_vec_free(allocator, options->macro_definitions);
+}
+
+//Replaces the shader's stored options with a copy of options, or with none when options is NULL
+ZEST_PRIVATE void zest__copy_shader_options(zest_device device, zest_shader shader, zest_shader_options options) {
+	shader->options.magic = zest_INIT_MAGIC(zest_struct_type_shader_options);
+	shader->options.device = device;
+	if (options == &shader->options) return;
+	zest__free_macro_definitions(device->allocator, &shader->options);
+	if (!options) return;
+	zest_vec_foreach(index, options->macro_definitions) {
+		zest_macro_definition_t *definition = &options->macro_definitions[index];
+		zest_AddMacroDefinition(&shader->options, definition->name.str, definition->value.str);
+	}
+}
+
+//Keyed on a hash of the source and options rather than the name, so an edited shader lands on a different cache file
+ZEST_PRIVATE void zest__rekey_shader(zest_device device, zest_shader shader) {
+	shader->cache_key = zest__shader_cache_key(shader->shader_code.str, shader->type, "main", &shader->options);
+	zest__build_shader_cache_path(device, &shader->cache_path, shader->name.str, shader->cache_key);
+}
+
 void zest_FreeShaderOptions(zest_shader_options options) {
 	ZEST_ASSERT_HANDLE(options);	//Not a valid shader options handle
-	zest_vec_foreach(i, options->macro_definitions) {
-		zest_macro_definition_t *definition = &options->macro_definitions[i];
-		zest_FreeText(options->device->allocator, &definition->name);
-		zest_FreeText(options->device->allocator, &definition->value);
-	}
-	zest_vec_free(options->device->allocator, options->macro_definitions);
+	zest__free_macro_definitions(options->device->allocator, options);
 	ZEST__FREE(options->device->allocator, options);
 }
 
@@ -12783,8 +12824,12 @@ zest_bool zest_CompileShader(zest_shader_handle shader_handle, zest_shader_optio
 	zest_device device = (zest_device)shader_handle.store->origin;
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 	
-    if (device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", options)) {
+	//NULL options reuses the ones the shader was last compiled with
+	zest_shader_options compile_options = options ? options : &shader->options;
+    if (device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", compile_options)) {
 		ZEST_APPEND_LOG(device->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
+		zest__copy_shader_options(device, shader, compile_options);
+		zest__rekey_shader(device, shader);
         return ZEST_TRUE;
     }
     return ZEST_FALSE;
@@ -12796,7 +12841,7 @@ zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *fil
     zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, options, disable_caching);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->file_path, file);
-    zest__get_file_mtime(file, &shader->last_mtime);
+    zest_GetFileModifiedTime(file, &shader->last_mtime);
     zest_vec_free(device->allocator, shader_code);
     return shader_handle;
 }
@@ -12858,22 +12903,19 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->name, name);
-    //Keyed on a hash of the source rather than the name, so editing a shader lands on a different cache file
-    //instead of silently reusing the binary compiled from the old source.
-    shader->cache_key = zest__shader_cache_key(shader_code, type, "main", options);
-    zest__build_shader_cache_path(device, &shader->cache_path, name, shader->cache_key);
+    zest__copy_shader_options(device, shader, options);
+	zest_SetText(device->allocator, &shader->shader_code, shader_code);
+    zest__rekey_shader(device, shader);
     if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
         shader->binary = zest_ReadEntireFile(device, shader->cache_path.str, ZEST_FALSE);
         if (shader->binary) {
             shader->binary_size = zest_vec_size(shader->binary);
-			zest_SetText(device->allocator, &shader->shader_code, shader_code);
 			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache (%s).", name, shader->cache_path.str);
 			zest__activate_resource(shader_handle.store, shader_handle.value);
             return shader_handle;
         }
     }
 
-	zest_SetText(device->allocator, &shader->shader_code, shader_code);
 	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", options)) {
 		zest__activate_resource(shader_handle.store, shader_handle.value);
         zest_FreeShader(shader_handle);
@@ -12965,11 +13007,15 @@ zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *n
 void zest_FreeShader(zest_shader_handle shader_handle) {
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 	zest_device device = (zest_device)shader_handle.store->origin;
+    if (shader->reload_free_callback) {
+        shader->reload_free_callback(shader, shader->reload_user_data);
+    }
     zest_FreeText(device->allocator, &shader->name);
     zest_FreeText(device->allocator, &shader->cache_path);
     zest_FreeText(device->allocator, &shader->shader_code);
     zest_FreeText(device->allocator, &shader->file_path);
     zest_FreeText(device->allocator, &shader->last_error);
+    zest__free_macro_definitions(device->allocator, &shader->options);
     zest_vec_free(device->allocator, shader->dependent_templates);
     zest_vec_free(device->allocator, shader->dependent_computes);
     if (shader->binary) {
@@ -12981,8 +13027,19 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
 void zest_SetShaderHotReload(zest_shader_handle shader_handle, zest_bool enable) {
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     ZEST_ASSERT_HANDLE(shader);                          //Not a valid shader handle
-    ZEST_ASSERT(zest_TextLength(&shader->file_path));    //Shader must have been created from a file for hot reload to work
+    ZEST_ASSERT(zest_TextLength(&shader->file_path) || shader->reload_callback);    //Shader must have been created from a file or have a reload callback for hot reload to work
     shader->hot_reload_enabled = enable ? ZEST_TRUE : ZEST_FALSE;
+}
+
+void zest_SetShaderReloadCallback(zest_shader_handle shader_handle, zest_shader_reload_callback reload_callback, zest_shader_reload_free_callback free_callback, void *user_data) {
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);                          //Not a valid shader handle
+    if (shader->reload_free_callback && shader->reload_user_data != user_data) {
+        shader->reload_free_callback(shader, shader->reload_user_data);
+    }
+    shader->reload_callback = reload_callback;
+    shader->reload_free_callback = free_callback;
+    shader->reload_user_data = user_data;
 }
 
 const char *zest_GetShaderLastError(zest_shader_handle shader_handle) {
@@ -13026,49 +13083,57 @@ ZEST_PRIVATE zest_bool zest__rebuild_compute_from_shader(zest_device device, zes
     return device->platform->finish_compute(device, compute);
 }
 
+ZEST_PRIVATE zest_shader_reload_result zest__reload_shader_from_file(zest_shader shader, zest_uint check_index, void *user_data) {
+    zest_device device = (zest_device)shader->handle.store->origin;
+    if (zest_TextLength(&shader->file_path) == 0) return zest_shader_reload_unchanged;
+
+    zest_u64 mtime = 0;
+    if (!zest_GetFileModifiedTime(shader->file_path.str, &mtime) || mtime == shader->last_mtime) return zest_shader_reload_unchanged;
+
+    //Always advance the mtime so a broken file doesn't re-fire every frame.
+    shader->last_mtime = mtime;
+
+    char *new_code = zest_ReadEntireFile(device, shader->file_path.str, ZEST_TRUE);
+    if (!new_code) {
+        zest_SetTextf(device->allocator, &shader->last_error, "Failed to read shader file '%s'", shader->file_path.str);
+        return zest_shader_reload_failed;
+    }
+    zest_SetText(device->allocator, &shader->shader_code, new_code);
+    zest_vec_free(device->allocator, new_code);
+
+    //compile_shader only writes shader->binary on success, so a failed compile keeps the last good binary.
+    if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", &shader->options)) {
+        return zest_shader_reload_failed;
+    }
+
+    //The old cache file simply stops matching and the next run compiles fresh.
+    zest__rekey_shader(device, shader);
+    return zest_shader_reload_success;
+}
+
 zest_uint zest_CheckShaderHotReload(zest_device device) {
     ZEST_ASSERT_HANDLE(device);    //Not a valid device handle
     zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
     zest_uint reload_count = 0;
     zest_bool waited_for_idle = ZEST_FALSE;
+    //0 means outside a check to reload callbacks, so skip it when the counter wraps
+    if (++device->shader_reload_check_index == 0) device->shader_reload_check_index = 1;
 
     for (int i = 0; i != (int)store->data.current_size; ++i) {
         if (!zest__resource_is_initialised(store, i)) continue;
         zest_shader shader = zest_bucket_array_get(&store->data, zest_shader_t, i);
         if (!shader || !ZEST_VALID_HANDLE(shader, zest_struct_type_shader)) continue;
         if (!shader->hot_reload_enabled) continue;
-        if (zest_TextLength(&shader->file_path) == 0) continue;
 
-        zest_u64 mtime = 0;
-        if (!zest__get_file_mtime(shader->file_path.str, &mtime)) continue;
-        if (mtime == shader->last_mtime) continue;
-
-        //Always advance the mtime so a broken file doesn't re-fire every frame.
-        shader->last_mtime = mtime;
-
-        char *new_code = zest_ReadEntireFile(device, shader->file_path.str, ZEST_TRUE);
-        if (!new_code) {
-            ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: failed to read shader file '%s'", shader->file_path.str);
-            continue;
-        }
-        zest_SetText(device->allocator, &shader->shader_code, new_code);
-        zest_vec_free(device->allocator, new_code);
-
-        //Compile into a new binary. On failure the shader->binary is untouched so rendering keeps using the last good binary.
-        //compile_shader rewrites shader->binary via zest_vec_resize, which is not an atomic swap; however pipelines that already
-        //hold backend pipeline handles don't read shader->binary again — only rebuilt pipelines do. So a failed compile leaves the
-        //binary in an indeterminate state, which is fine because rebuild is only triggered on success.
-        if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL)) {
-            ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: compile failed for '%s': %s", shader->name.str, shader->last_error.str ? shader->last_error.str : "(no message)");
+        zest_shader_reload_callback reload = shader->reload_callback ? shader->reload_callback : zest__reload_shader_from_file;
+        zest_shader_reload_result result = reload(shader, device->shader_reload_check_index, shader->reload_user_data);
+        if (result == zest_shader_reload_unchanged) continue;
+        if (result == zest_shader_reload_failed) {
+            ZEST_REPORT(device, zest_report_shader_reload_error, "Hot reload: failed to reload '%s': %s", shader->name.str, shader->last_error.str ? shader->last_error.str : "(no message)");
             continue;
         }
         //Success: clear last_error so the UI can tell.
         zest_FreeText(device->allocator, &shader->last_error);
-
-        //Re-key against the new source so the fields still describe what's in shader->binary. The cache file
-        //isn't rewritten here; the old key's file simply stops matching and the next run compiles fresh.
-        shader->cache_key = zest__shader_cache_key(shader->shader_code.str, shader->type, "main", NULL);
-        zest__build_shader_cache_path(device, &shader->cache_path, shader->name.str, shader->cache_key);
 
         //Drain in-flight work once per check pass — not once per shader — in case multiple shaders change together.
         if (!waited_for_idle) {
@@ -14706,11 +14771,12 @@ void zest_FreeFile(zest_device device, zest_file file) {
 	zest_vec_free(device->allocator, file);
 }
 
-zest_bool zest__get_file_mtime(const char *path, zest_u64 *out_mtime) {
+zest_bool zest_GetFileModifiedTime(const char *path, zest_u64 *out_mtime) {
 #if defined(_WIN32)
-    struct __stat64 st;
-    if (_stat64(path, &st) != 0) return ZEST_FALSE;
-    *out_mtime = (zest_u64)st.st_mtime;
+    //_stat64 only has whole second resolution, which misses a second save within the same second.
+    WIN32_FILE_ATTRIBUTE_DATA attributes;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &attributes)) return ZEST_FALSE;
+    *out_mtime = ((zest_u64)attributes.ftLastWriteTime.dwHighDateTime << 32) | (zest_u64)attributes.ftLastWriteTime.dwLowDateTime;
 #else
     struct stat st;
     if (stat(path, &st) != 0) return ZEST_FALSE;
@@ -21126,6 +21192,7 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 		case zest_struct_type_bitmap                  : return "bitmap"; break;
 		case zest_struct_type_render_target_group     : return "render_target_group"; break;
 		case zest_struct_type_slang_info              : return "slang_info"; break;
+		case zest_struct_type_slang_session           : return "slang_session"; break;
 		case zest_struct_type_render_pass             : return "render_pass"; break;
 		case zest_struct_type_mesh                    : return "mesh"; break;
 		case zest_struct_type_texture_asset           : return "texture_asset"; break;

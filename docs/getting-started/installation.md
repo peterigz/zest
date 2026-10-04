@@ -95,6 +95,18 @@ cmake -B build -DZEST_ENABLE_SLANG=ON
 
 This enables the `zest-compute-example` which demonstrates Slang integration with compute shaders.
 
+To compile Slang only in some configurations, so that release builds have no Slang dependency, list them in
+`ZEST_SLANG_CONFIGS`. `ZEST_ENABLE_SLANG` is then only defined in those configurations, so guard Slang code with
+`#ifdef ZEST_ENABLE_SLANG`:
+
+```bash
+cmake -B build -DZEST_ENABLE_SLANG=ON -DZEST_SLANG_CONFIGS=Debug
+```
+
+`zest_copy_slang_runtime(<target>)` copies the Slang runtime libraries (`slang.dll`, `slang-compiler.dll`,
+`slang-glslang.dll` and `slang-glsl-module.dll` on Windows) next to a target after it builds, so it runs without the
+Vulkan SDK on the `PATH`. Without `slang-glslang.dll` Slang can't run its SPIR-V optimiser and outputs unoptimised code.
+
 !!! warning "Slang Requirement"
     The `VULKAN_SDK` environment variable must be set when using Slang. On Linux, source the Vulkan SDK setup script before running CMake:
     ```bash

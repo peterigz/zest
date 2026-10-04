@@ -241,6 +241,56 @@ void UpdateParticlesCallback(zest_command_list command_list, void *user_data) {
 
 ---
 
+## Slang Sessions
+
+`implementations/impl_slang.hpp` compiles Slang modules to SPIR-V. A session wraps one Slang `ISession`, so compiling
+several entry points from one module parses it, and everything it imports, once. Use a session and the shaders made
+from it on one thread at a time.
+
+```cpp
+zest_slang_InitialiseSession(device);
+
+const char *search_paths[] = { "shaders/slang" };
+zest_slang_session_info_t session_info = zest_slang_DefaultSessionInfo();
+session_info.search_paths = search_paths;   // Resolves import statements
+session_info.search_path_count = 1;
+session_info.debug_info = ZEST_TRUE;         // Source level debugging
+session_info.optimization_level = zest_slang_optimization_none;   // 0 (zest_slang_optimization_default) is Slang's default
+zest_slang_session session = zest_slang_CreateSession(device, &session_info);  // NULL on failure, see zest_slang_GetCreateSessionError
+
+// A generic entry point specialised with a type, linked against the module that exports an extern type
+const char *link_modules[] = { "default_collider" };
+const char *type_arguments[] = { "MotionA" };
+zest_slang_entry_point_info_t entry = {};
+entry.module = "kernel";
+entry.entry_point = "simulate_generic";
+entry.type = zest_compute_shader;
+entry.type_arguments = type_arguments;
+entry.type_argument_count = 1;
+entry.link_modules = link_modules;
+entry.link_module_count = 1;
+
+zest_shader_handle shader = zest_slang_CreateShaderFromSession(session, &entry, "simulate_generic");
+if (!shader.value) {
+    printf("%s\n", zest_slang_GetLastError(session));   // zest_slang_GetLastResult says which stage failed
+}
+zest_SetShaderHotReload(shader, ZEST_TRUE);     // Reloads when kernel.slang, the link modules or any import changes
+```
+
+- Every entry point is emitted into SPIR-V as `main`, which is what zest pipelines expect.
+- `zest_slang_CompileToBinary` / `zest_slang_FreeBlob` compile without creating a shader, and
+  `zest_GetCompiledShader` returns the same bytes for a session shader, ready to write into a resource package.
+- Session shaders never use the shader cache, since their output depends on every imported file.
+- `zest_slang_GetTypeSize(session, "common", "TestParticle")` returns a struct's size as laid out in a
+  `StructuredBuffer` (std430, or scalar when `scalar_block_layout` is set), to check host structs against.
+  `scalar_block_layout` needs `zest_capability_scalar_block_layout`, which is enabled whenever the GPU supports it.
+- Free sessions with `zest_slang_FreeSession` before `zest_slang_Shutdown` and `zest_DestroyDevice`. Shaders from a
+  freed session keep their binary but stop hot reloading.
+- Hot reload works like it does for GLSL: an edit to any dependency recompiles the shader, a failure keeps the previous
+  binary and sets `zest_GetShaderLastError`.
+
+---
+
 ## See Also
 
 - [Compute Tutorial](../tutorials/05-compute.md)
