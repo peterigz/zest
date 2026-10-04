@@ -1868,20 +1868,25 @@ zest_bool zest__vk_check_validation_layer_support(zest_device device) {
 }
 
 zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysicalDevice physical_device) {
-    zest_uint extension_count;
-    vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, ZEST_NULL);
+    zest_uint extension_count = 0;
+    VkResult enumerate_result = vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, ZEST_NULL);
 
     ZEST__ARRAY(device->allocator, available_extensions, VkExtensionProperties, extension_count);
-    vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, available_extensions);
+    if (enumerate_result == VK_SUCCESS) {
+        enumerate_result = vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, available_extensions);
+    }
+    if (enumerate_result != VK_SUCCESS && enumerate_result != VK_INCOMPLETE) {
+        extension_count = 0;
+    }
 
-    zest_uint required_extensions_found = 0;
+    zest_bool required_found[zest__required_extension_names_count] = { 0 };
     zest_bool dynamic_rendering_found = ZEST_FALSE;
     zest_bool memory_budget_found = ZEST_FALSE;
     zest_bool sync2_found = ZEST_FALSE;
     for (int i = 0; i != extension_count; ++i) {
         for (int e = 0; e != zest__required_extension_names_count; ++e) {
             if (strcmp(available_extensions[i].extensionName, zest_required_extensions[e]) == 0) {
-                required_extensions_found++;
+                required_found[e] = ZEST_TRUE;
             }
         }
         if (strcmp(available_extensions[i].extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0) {
@@ -1903,8 +1908,25 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
     VkPhysicalDeviceProperties device_properties;
     vkGetPhysicalDeviceProperties(physical_device, &device_properties);
     zest_uint effective_api_version = ZEST__MIN(device->api_version, device_properties.apiVersion);
-    if (!sync2_found && effective_api_version >= VK_API_VERSION_1_3) {
-        required_extensions_found++;
+    zest_bool sync2_core = !sync2_found && effective_api_version >= VK_API_VERSION_1_3;
+    zest_bool all_required_found = ZEST_TRUE;
+    for (int e = 0; e != zest__required_extension_names_count; ++e) {
+        if (sync2_core && strcmp(zest_required_extensions[e], VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0) {
+            required_found[e] = ZEST_TRUE;
+        }
+        all_required_found &= required_found[e];
+    }
+
+    if (!all_required_found) {
+        ZEST_APPEND_LOG(device->log_path.str, "Device rejected: %s (Vulkan %u.%u.%u, driver %u). Extension enumeration result %i returned %u extensions.",
+            device_properties.deviceName,
+            VK_API_VERSION_MAJOR(device_properties.apiVersion), VK_API_VERSION_MINOR(device_properties.apiVersion), VK_API_VERSION_PATCH(device_properties.apiVersion),
+            device_properties.driverVersion, enumerate_result, extension_count);
+        for (int e = 0; e != zest__required_extension_names_count; ++e) {
+            if (!required_found[e]) {
+                ZEST_APPEND_LOG(device->log_path.str, "\tMissing required device extension: %s", zest_required_extensions[e]);
+            }
+        }
     }
 
     // Store dynamic rendering and memory budget availability for later use during logical device creation
@@ -1915,7 +1937,7 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
     }
 
     ZEST__FREE(device->allocator, available_extensions);
-    return required_extensions_found >= zest__required_extension_names_count;
+    return all_required_found;
 }
 
 zest_bool zest__vk_is_device_suitable(zest_device device, VkPhysicalDevice physical_device) {
@@ -1923,6 +1945,12 @@ zest_bool zest__vk_is_device_suitable(zest_device device, VkPhysicalDevice physi
 
     VkPhysicalDeviceFeatures supported_features;
     vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
+
+    if (!supported_features.samplerAnisotropy) {
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(physical_device, &properties);
+        ZEST_APPEND_LOG(device->log_path.str, "Device rejected: %s does not support sampler anisotropy.", properties.deviceName);
+    }
 
     return extensions_supported && supported_features.samplerAnisotropy;
 }
@@ -2011,10 +2039,17 @@ zest_bool zest__vk_pick_physical_device(zest_device device) {
             ZEST_APPEND_LOG(device->log_path.str, "The one device found is suitable");
         }
         device->backend->physical_device = devices[0];
-    } else {
+    } else if (device_count > 1) {
         VkPhysicalDevice discrete_device = VK_NULL_HANDLE;
+        VkPhysicalDevice first_suitable_device = VK_NULL_HANDLE;
         for (int i = 0; i != device_count; ++i) {
-            if (zest__vk_is_device_suitable(device, devices[i]) && zest__vk_device_is_discrete_gpu(devices[i])) {
+            if (!zest__vk_is_device_suitable(device, devices[i])) {
+                continue;
+            }
+            if (first_suitable_device == VK_NULL_HANDLE) {
+                first_suitable_device = devices[i];
+            }
+            if (zest__vk_device_is_discrete_gpu(devices[i])) {
                 discrete_device = devices[i];
                 break;
             }
@@ -2023,15 +2058,10 @@ zest_bool zest__vk_pick_physical_device(zest_device device) {
             ZEST_APPEND_LOG(device->log_path.str, "Found suitable device that is a discrete GPU: ");
             zest__vk_log_device_name(device, discrete_device);
             device->backend->physical_device = discrete_device;
-        } else {
-            for (int i = 0; i != device_count; ++i) {
-                if (zest__vk_is_device_suitable(device, devices[i])) {
-                    ZEST_APPEND_LOG(device->log_path.str, "Found suitable device:");
-                    zest__vk_log_device_name(device, devices[i]);
-                    device->backend->physical_device = devices[i];
-                    break;
-                }
-            }
+        } else if (first_suitable_device != VK_NULL_HANDLE) {
+            ZEST_APPEND_LOG(device->log_path.str, "Found suitable device:");
+            zest__vk_log_device_name(device, first_suitable_device);
+            device->backend->physical_device = first_suitable_device;
         }
     }
 
@@ -2998,8 +3028,10 @@ void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_gra
 }
 
 void zest__vk_cleanup_device_backend(zest_device device) {
-    zest__vk_cleanup_legacy_render_pass_cache(device);
-    vkDestroyPipelineCache(device->backend->logical_device, device->backend->pipeline_cache, &device->backend->allocation_callbacks);
+    if (device->backend->logical_device != VK_NULL_HANDLE) {
+        zest__vk_cleanup_legacy_render_pass_cache(device);
+        vkDestroyPipelineCache(device->backend->logical_device, device->backend->pipeline_cache, &device->backend->allocation_callbacks);
+    }
 	if (device->backend->shaderc_compiler) {
 		shaderc_compiler_release(device->backend->shaderc_compiler);
 	}

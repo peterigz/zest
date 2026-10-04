@@ -9431,7 +9431,8 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 		return ZEST_TRUE;
 	}
 
-	zest__cleanup_device(device);
+	//Only the backend exists at this point (no stores, layouts or bindless set), and the caller frees the memory pool.
+	device->platform->cleanup_device_backend(device);
 	return ZEST_FALSE;
 }
 
