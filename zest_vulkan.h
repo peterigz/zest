@@ -1867,6 +1867,20 @@ zest_bool zest__vk_check_validation_layer_support(zest_device device) {
     return 1;
 }
 
+//driverVersion packing is vendor specific; decode it into the version the vendor publishes.
+void zest__vk_format_driver_version(const VkPhysicalDeviceProperties *properties, char *buffer, int buffer_size) {
+    zest_uint version = properties->driverVersion;
+    if (properties->vendorID == 0x10DE) {
+        zest_snprintf(buffer, buffer_size, "NVIDIA %u.%02u", version >> 22, (version >> 14) & 0xFF);
+#if defined(_WIN32)
+    } else if (properties->vendorID == 0x8086) {
+        zest_snprintf(buffer, buffer_size, "Intel %u.%u", version >> 14, version & 0x3FFF);
+#endif
+    } else {
+        zest_snprintf(buffer, buffer_size, "%u.%u.%u", VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
+    }
+}
+
 zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysicalDevice physical_device) {
     zest_uint extension_count = 0;
     VkResult enumerate_result = vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, ZEST_NULL);
@@ -1918,10 +1932,12 @@ zest_bool zest__vk_check_device_extension_support(zest_device device, VkPhysical
     }
 
     if (!all_required_found) {
-        ZEST_APPEND_LOG(device->log_path.str, "Device rejected: %s (Vulkan %u.%u.%u, driver %u). Extension enumeration result %i returned %u extensions.",
+        char driver_version[64];
+        zest__vk_format_driver_version(&device_properties, driver_version, sizeof(driver_version));
+        ZEST_APPEND_LOG(device->log_path.str, "Device rejected: %s (Vulkan %u.%u.%u, driver %s, raw %u). Extension enumeration result %i returned %u extensions.",
             device_properties.deviceName,
             VK_API_VERSION_MAJOR(device_properties.apiVersion), VK_API_VERSION_MINOR(device_properties.apiVersion), VK_API_VERSION_PATCH(device_properties.apiVersion),
-            device_properties.driverVersion, enumerate_result, extension_count);
+            driver_version, device_properties.driverVersion, enumerate_result, extension_count);
         for (int e = 0; e != zest__required_extension_names_count; ++e) {
             if (!required_found[e]) {
                 ZEST_APPEND_LOG(device->log_path.str, "\tMissing required device extension: %s", zest_required_extensions[e]);
@@ -1958,7 +1974,11 @@ zest_bool zest__vk_is_device_suitable(zest_device device, VkPhysicalDevice physi
 void zest__vk_log_device_name(zest_device device, VkPhysicalDevice physical_device) {
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(physical_device, &properties);
-    ZEST_APPEND_LOG(device->log_path.str, "\t%s", properties.deviceName);
+    char driver_version[64];
+    zest__vk_format_driver_version(&properties, driver_version, sizeof(driver_version));
+    ZEST_APPEND_LOG(device->log_path.str, "\t%s (Vulkan %u.%u.%u, driver %s)", properties.deviceName,
+        VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
+        driver_version);
 }
 
 zest_bool zest__vk_device_is_discrete_gpu(VkPhysicalDevice physical_device) {
