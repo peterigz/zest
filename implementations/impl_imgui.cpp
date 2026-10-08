@@ -333,6 +333,13 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 					continue;
 				}
 
+				//An out of range bindless index hangs the GPU, so skip the draw rather than send it
+				if (!zest_IsBindlessIndexValid(imgui_viewport->imgui->device, current_image->image_index, zest_texture_array_binding) ||
+					!zest_IsBindlessIndexValid(imgui_viewport->imgui->device, current_image->sampler_index, zest_sampler_binding)) {
+					ZEST_REPORT(imgui_viewport->imgui->device, zest_report_bindless_indexes, "ImGui::Image was given an atlas region with an invalid image index (%u) or sampler index (%u). The draw was skipped.", current_image->image_index, current_image->sampler_index);
+					continue;
+				}
+
 				if (is_imgui_texture) {
 					zest_pipeline pipeline = zest_GetPipeline(imgui_viewport->imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {

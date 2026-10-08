@@ -5200,6 +5200,8 @@ ZEST_API void zest_ReleaseImageIndex(zest_device device, zest_image image, zest_
 ZEST_API void zest_ReleaseImageMipIndexes(zest_device device, zest_image image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseAllImageIndexes(zest_device device, zest_image image);
 ZEST_API void zest_ReleaseBindlessIndex(zest_device device, zest_uint index, zest_binding_number_type binding_number);
+//True if the index is currently acquired in that binding of the global bindless set, so it is safe for a shader to read
+ZEST_API zest_bool zest_IsBindlessIndexValid(zest_device device, zest_uint index, zest_binding_number_type binding_number);
 ZEST_API zest_descriptor_set zest_GetBindlessSet(zest_device device);
 ZEST_API zest_set_layout zest_GetBindlessLayout(zest_device device);
 ZEST_API zest_pipeline_layout zest_GetDefaultPipelineLayout(zest_device device);
@@ -17966,6 +17968,21 @@ void zest_ReleaseAllImageIndexes(zest_device device, zest_image image) {
 void zest_ReleaseBindlessIndex(zest_device device, zest_uint index, zest_binding_number_type binding_number) {
     ZEST_ASSERT(index != ZEST_INVALID);
     zest__release_bindless_index(device->bindless_set_layout, binding_number, index);
+}
+
+zest_bool zest_IsBindlessIndexValid(zest_device device, zest_uint index, zest_binding_number_type binding_number) {
+    zest_set_layout layout = device->bindless_set_layout;
+    if ((zest_uint)binding_number >= zest_vec_size(layout->descriptor_indexes)) {
+        return ZEST_FALSE;
+    }
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
+    //Indexes at or past next_new_index were never handed out and their free bit is clear, so the bit alone can't rule them out
+    if (index >= manager->next_new_index) {
+        return ZEST_FALSE;
+    }
+    zest_size word_index = index / ZEST_BITS_PER_WORD;
+    zest_size mask = (zest_size)1 << (index % ZEST_BITS_PER_WORD);
+    return (manager->is_free[word_index] & mask) == 0;
 }
 
 zest_set_layout zest_GetBindlessLayout(zest_device device) {
