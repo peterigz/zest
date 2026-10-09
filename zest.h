@@ -5909,6 +5909,10 @@ ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, con
 ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
+//Grow the device buffer of the current frame in flight of a layer made with zest_CreateFIFInstanceLayer so it holds at least
+//instance_count instances. Only the instances drawn into the layer are uploaded, so this is for instances a compute shader
+//writes after them. Call it after zest_ResetInstanceLayer and before the frame graph runs.
+ZEST_API void zest_ReserveInstanceLayerDeviceCapacity(zest_layer layer, zest_uint instance_count);
 //Reset and clear all of the layer instructions for a layer. Note that this is done automatically for layers when
 //zest_StartInstanceDrawing is called and the current frame in flight has changed. But for cases where you 
 //have a closed loop outside of a zest_Begin/EndFrame you can use this to manuall reset the layer instructions.
@@ -20167,6 +20171,22 @@ void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest
 void zest_ResetLayer(zest_layer layer) {
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+}
+
+void zest_ReserveInstanceLayerDeviceCapacity(zest_layer layer, zest_uint instance_count) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+    ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //The device buffer only persists in a layer made with zest_CreateFIFInstanceLayer
+    if (!instance_count) {
+        return;
+    }
+    zest_buffer *device_buffer = &layer->memory_refs[layer->fif].device_vertex_data;
+    if (zest_GrowBuffer(device_buffer, layer->instance_struct_size, (zest_size)instance_count * layer->instance_struct_size)) {
+        zest_uint array_index = layer->memory_refs[layer->fif].descriptor_array_index;
+        if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
+            zest_context context = (zest_context)layer->handle.store->origin;
+            context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, layer->bindless_set);
+        }
+    }
 }
 
 void zest_ResetInstanceLayer(zest_layer layer) {

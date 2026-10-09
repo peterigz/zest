@@ -712,6 +712,24 @@ void zest_ResetInstanceLayer(zest_layer layer);
 
 ---
 
+### zest_ReserveInstanceLayerDeviceCapacity
+
+Grow the device buffer of the current frame in flight of a layer made with `zest_CreateFIFInstanceLayer` so it holds at least `instance_count` instances. Only the instances drawn into the layer are uploaded, so this is for instances that a compute shader writes into the same buffer after them. Call it after `zest_ResetInstanceLayer` and before the frame graph runs. If the buffer moves, its bindless descriptor is updated, so `zest_GetLayerVertexDescriptorIndex` stays valid.
+
+```cpp
+void zest_ReserveInstanceLayerDeviceCapacity(zest_layer layer, zest_uint instance_count);
+```
+**Example**
+```cpp
+zest_ResetInstanceLayer(layer);
+zest_StartInstanceDrawing(layer, pipeline);
+zest_DrawInstanceBuffer(layer, cpu_instances, cpu_count);
+//A compute pass writes gpu_count instances from cpu_count onwards
+zest_ReserveInstanceLayerDeviceCapacity(layer, cpu_count + gpu_count);
+```
+
+---
+
 ### zest_ResetInstanceLayerDrawing
 
 Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu.
