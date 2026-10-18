@@ -748,6 +748,10 @@ static void zest__imgui_draw_profile_time_and_bar(zest_gpu_profile_smoothed_t *s
 	} else {
 		ImGui::Text("%7.1f us", s->smoothed_us);
 	}
+	if (s->execution_interval > 1.01) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("%3.0f%%", 100.0 / s->execution_interval);
+	}
 
 	ImGui::TableNextColumn();
 	float bar_width = (float)(s->smoothed_us / max_time) * bar_max_width;
@@ -857,7 +861,7 @@ void zest_imgui_DrawGPUProfileWindow(zest_context context) {
 	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 	if (ImGui::BeginTable("gpu_profile", 3, table_flags)) {
 		ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 130.0f);
 		ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
 		ImGui::TableHeadersRow();
 
@@ -925,6 +929,10 @@ static void zest__imgui_draw_cpu_profile_time_and_bar(zest_cpu_profile_smoothed_
 		ImGui::Text("%7.2f ms", s->smoothed_us / 1000.0);
 	} else {
 		ImGui::Text("%7.1f us", s->smoothed_us);
+	}
+	if (s->execution_interval > 1.01) {
+		ImGui::SameLine();
+		ImGui::TextDisabled("%3.0f%%", 100.0 / s->execution_interval);
 	}
 
 	ImGui::TableNextColumn();
@@ -1031,7 +1039,7 @@ void zest_imgui_DrawCPUProfileWindow(zest_context context) {
 	ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 	if (ImGui::BeginTable("cpu_profile", 3, table_flags)) {
 		ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 130.0f);
 		ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
 		ImGui::TableHeadersRow();
 
@@ -1120,7 +1128,7 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 		if (ImGui::BeginTable("gpu_profile_combined", 3, table_flags)) {
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 130.0f);
 			ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
 			ImGui::TableHeadersRow();
 
@@ -1180,7 +1188,7 @@ void zest_imgui_DrawProfileWindow(zest_context context) {
 		ImGuiTableFlags table_flags = ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable;
 		if (ImGui::BeginTable("cpu_profile_combined", 3, table_flags)) {
 			ImGui::TableSetupColumn("Region", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 130.0f);
 			ImGui::TableSetupColumn("##bar", ImGuiTableColumnFlags_WidthFixed, bar_max_width + 4.0f);
 			ImGui::TableHeadersRow();
 

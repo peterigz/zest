@@ -4148,18 +4148,26 @@ typedef struct zest_gpu_profile_result_s {
 	double microseconds;
 	zest_uint queue_type;
 	zest_uint depth;
+	zest_bool idle;             // Marked with zest_MarkProfileIdle; excluded from smoothing
 } zest_gpu_profile_result_t;
 
 #ifndef ZEST_GPU_PROFILE_SMOOTHING_ALPHA
 #define ZEST_GPU_PROFILE_SMOOTHING_ALPHA 0.1f
 #endif
 
+#ifndef ZEST_GPU_PROFILE_RETAIN_FRAMES
+#define ZEST_GPU_PROFILE_RETAIN_FRAMES 120
+#endif
+
 typedef struct zest_gpu_profile_smoothed_s {
 	char name[ZEST_GPU_PROFILE_NAME_LENGTH];
-	double smoothed_us;         // IIR-smoothed microseconds
+	double smoothed_us;         // IIR-smoothed microseconds per execution
 	double variance;            // EMA of squared deviation from smoothed mean
+	double execution_interval;  // Smoothed frames between executions, 1 = every frame
+	zest_uint frames_since_executed;
 	zest_uint queue_type;
 	zest_uint depth;
+	zest_uint sort_key;         // Internal display ordering
 	zest_bool active;           // Was this entry matched this frame?
 } zest_gpu_profile_smoothed_t;
 
@@ -4188,6 +4196,7 @@ typedef struct zest_gpu_profiler_s {
 	// User sub-region stack per FIF
 	zest_uint profile_stack[ZEST_MAX_GPU_PROFILE_STACK_DEPTH];
 	zest_uint profile_stack_depth;
+	zest_uint pass_query_index;
 
 	void *backend;
 } zest_gpu_profiler_t;
@@ -4210,17 +4219,25 @@ typedef struct zest_gpu_profiler_s {
 #define ZEST_CPU_PROFILE_SMOOTHING_ALPHA 0.1f
 #endif
 
+#ifndef ZEST_CPU_PROFILE_RETAIN_FRAMES
+#define ZEST_CPU_PROFILE_RETAIN_FRAMES 120
+#endif
+
 typedef struct zest_cpu_profile_result_s {
 	char name[ZEST_CPU_PROFILE_NAME_LENGTH];
 	double microseconds;
 	zest_uint depth;
+	zest_bool idle;             // Marked with zest_MarkCPUProfileIdle; excluded from smoothing
 } zest_cpu_profile_result_t;
 
 typedef struct zest_cpu_profile_smoothed_s {
 	char name[ZEST_CPU_PROFILE_NAME_LENGTH];
-	double smoothed_us;
+	double smoothed_us;         // IIR-smoothed microseconds per execution
 	double variance;
+	double execution_interval;  // Smoothed frames between executions, 1 = every frame
+	zest_uint frames_since_executed;
 	zest_uint depth;
+	zest_uint sort_key;         // Internal display ordering
 	zest_bool active;
 } zest_cpu_profile_smoothed_t;
 
@@ -4245,6 +4262,7 @@ typedef struct zest_cpu_profiler_s {
 	zest_uint smoothed_count;
 	double smoothed_total_us;
 	float smoothing_alpha;
+	zest_uint pass_entry_index;
 
 	// Frame timing
 	zest_microsecs frame_start_us;
@@ -6276,6 +6294,8 @@ ZEST_API void zest_CreateTestRenderPass(zest_device device, const zest_command_l
 //--GPU Profiling
 ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ...);
 ZEST_API void zest_EndGPUProfile(zest_command_list command_list);
+// Excludes the innermost open GPU and CPU profile regions (or the current pass) from the averages this frame
+ZEST_API void zest_MarkProfileIdle(zest_command_list command_list);
 ZEST_API zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count);
 ZEST_API zest_gpu_profile_smoothed_t* zest_GetGPUProfileSmoothedResults(zest_context context, zest_uint *count);
 ZEST_API double zest_GetGPUProfileTotalTime(zest_context context);
@@ -6287,6 +6307,8 @@ ZEST_API void zest_EnableDebugOverlay(zest_context context, zest_bool enabled);
 //--CPU Profiling
 ZEST_API void zest_BeginCPUProfile(zest_context context, const char *format, ...);
 ZEST_API void zest_EndCPUProfile(zest_context context);
+// Excludes the innermost open profile region from the averages this frame
+ZEST_API void zest_MarkCPUProfileIdle(zest_context context);
 ZEST_API zest_cpu_profile_result_t* zest_GetCPUProfileResults(zest_context context, zest_uint *count);
 ZEST_API zest_cpu_profile_smoothed_t* zest_GetCPUProfileSmoothedResults(zest_context context, zest_uint *count);
 ZEST_API double zest_GetCPUProfileTotalTime(zest_context context);
@@ -6297,9 +6319,11 @@ ZEST_API void zest_EnableCPUProfiling(zest_context context, zest_bool enabled);
 #ifdef ZEST_DISABLE_CPU_PROFILING
 	#define ZEST_CPU_PROFILE_BEGIN(context, name, ...)  ((void)0)
 	#define ZEST_CPU_PROFILE_END(context)               ((void)0)
+	#define ZEST_CPU_PROFILE_IDLE(context)              ((void)0)
 #else
 	#define ZEST_CPU_PROFILE_BEGIN(context, name, ...)  zest_BeginCPUProfile(context, name, ##__VA_ARGS__)
 	#define ZEST_CPU_PROFILE_END(context)               zest_EndCPUProfile(context)
+	#define ZEST_CPU_PROFILE_IDLE(context)              zest_MarkCPUProfileIdle(context)
 #endif
 //--End Debug Helpers
 
@@ -16941,7 +16965,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 						snprintf(gpu_profiler->query_map[fif][pair_index].name, ZEST_GPU_PROFILE_NAME_LENGTH, "%s", pass_name);
 						gpu_profiler->query_map[fif][pair_index].queue_type = batch->queue_type;
 						gpu_profiler->query_map[fif][pair_index].depth = 0;
+						gpu_profiler->query_map[fif][pair_index].idle = ZEST_FALSE;
 						gpu_profiler->query_count[fif] += 2;
+						gpu_profiler->pass_query_index = gpu_profile_query_index;
 						gpu_profile_active = ZEST_TRUE;
 					}
 				}
@@ -16969,7 +16995,11 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 zest_bool cpu_profile_active = ZEST_FALSE;
                 if (ZEST__FLAGGED(context->flags, zest_context_flag_cpu_profiling_enabled) && context->cpu_profiler.enabled) {
                     const char *cpu_pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
+                    zest_uint cpu_pass_entry_index = context->cpu_profiler.entry_count;
                     ZEST_CPU_PROFILE_BEGIN(context, "%s", cpu_pass_name);
+                    if (context->cpu_profiler.entry_count > cpu_pass_entry_index) {
+                        context->cpu_profiler.pass_entry_index = cpu_pass_entry_index;
+                    }
                     cpu_profile_active = ZEST_TRUE;
                 }
 
@@ -16990,6 +17020,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 // CPU profiling: end timing for this grouped pass
                 if (cpu_profile_active) {
                     ZEST_CPU_PROFILE_END(context);
+                    context->cpu_profiler.pass_entry_index = ZEST_INVALID;
                 }
 
 				// GPU profiling: draw built-in overlay if both profiling and debug overlay are enabled
@@ -17009,6 +17040,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 				// GPU profiling: write end timestamp for this grouped pass
 				if (gpu_profile_active) {
 					device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, context->current_fif, gpu_profile_query_index + 1, ZEST_TRUE);
+					gpu_profiler->pass_query_index = ZEST_INVALID;
 				}
 
                 zest_map_foreach(pass_input_index, grouped_pass->inputs) {
@@ -21488,6 +21520,7 @@ void zest__init_gpu_profiler(zest_context context) {
 	memset(profiler->smoothed, 0, sizeof(zest_gpu_profile_smoothed_t) * (profiler->max_queries / 2));
 	profiler->smoothed_count = 0;
 	profiler->smoothing_alpha = ZEST_GPU_PROFILE_SMOOTHING_ALPHA;
+	profiler->pass_query_index = ZEST_INVALID;
 }
 
 void zest__cleanup_gpu_profiler(zest_context context) {
@@ -21559,6 +21592,7 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 		// Match each raw result to a smoothed entry by name+depth
 		for (zest_uint i = 0; i < profiler->result_count; ++i) {
 			zest_gpu_profile_result_t *raw = &profiler->results[i];
+			if (raw->idle) continue;
 			zest_gpu_profile_smoothed_t *match = 0;
 
 			// Find existing smoothed entry with same name and depth
@@ -21577,7 +21611,10 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 				match->smoothed_us = prev * (1.0 - alpha) + raw->microseconds * alpha;
 				double deviation = raw->microseconds - match->smoothed_us;
 				match->variance = match->variance * (1.0 - alpha) + (deviation * deviation) * alpha;
+				double interval = (double)(match->frames_since_executed + 1);
+				match->execution_interval = match->execution_interval == 0.0 ? interval : match->execution_interval * (1.0 - alpha) + interval * alpha;
 				match->queue_type = raw->queue_type;
+				match->sort_key = i * 2 + 1;
 				match->active = ZEST_TRUE;
 			} else {
 				// New entry — seed with raw value, zero variance
@@ -21593,40 +21630,43 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 				match->variance = 0.0;
 				match->queue_type = raw->queue_type;
 				match->depth = raw->depth;
+				match->sort_key = i * 2 + 1;
 				match->active = ZEST_TRUE;
 			}
 
 		}
 
-		// Remove inactive entries (passes that disappeared) by compacting
+		// Entries that didn't execute this frame are kept (so intermittent passes keep their per-execution
+		// averages) until they've been absent for ZEST_GPU_PROFILE_RETAIN_FRAMES. Each retained entry is
+		// anchored behind the executed entry that preceded it so it holds its place in the display order.
 		zest_uint write = 0;
+		zest_uint anchor_key = 0;
 		for (zest_uint read = 0; read < profiler->smoothed_count; ++read) {
-			if (profiler->smoothed[read].active) {
-				if (write != read) {
-					profiler->smoothed[write] = profiler->smoothed[read];
-				}
-				write++;
+			zest_gpu_profile_smoothed_t *entry = &profiler->smoothed[read];
+			if (entry->active) {
+				entry->frames_since_executed = 0;
+				anchor_key = entry->sort_key + 1;
+			} else {
+				if (++entry->frames_since_executed > ZEST_GPU_PROFILE_RETAIN_FRAMES) continue;
+				entry->sort_key = anchor_key;
 			}
+			if (write != read) {
+				profiler->smoothed[write] = *entry;
+			}
+			write++;
 		}
 		profiler->smoothed_count = write;
 
-		// Reorder smoothed entries to match raw results order.
-		// When the frame graph changes, matched entries keep their old positions
-		// and new entries are appended, causing the display order to diverge from
-		// the actual execution order (e.g. sub-passes appearing after "Release Queues").
-		for (zest_uint i = 0; i < profiler->result_count && i < profiler->smoothed_count; ++i) {
-			zest_gpu_profile_result_t *r = &profiler->results[i];
-			for (zest_uint j = i; j < profiler->smoothed_count; ++j) {
-				if (profiler->smoothed[j].depth == r->depth &&
-					strcmp(profiler->smoothed[j].name, r->name) == 0) {
-					if (j != i) {
-						zest_gpu_profile_smoothed_t tmp = profiler->smoothed[i];
-						profiler->smoothed[i] = profiler->smoothed[j];
-						profiler->smoothed[j] = tmp;
-					}
-					break;
-				}
+		// Stable insertion sort into execution order; nearly sorted after the first frame so close to linear
+		for (zest_uint i = 1; i < profiler->smoothed_count; ++i) {
+			if (profiler->smoothed[i].sort_key >= profiler->smoothed[i - 1].sort_key) continue;
+			zest_gpu_profile_smoothed_t entry = profiler->smoothed[i];
+			zest_uint j = i;
+			while (j > 0 && profiler->smoothed[j - 1].sort_key > entry.sort_key) {
+				profiler->smoothed[j] = profiler->smoothed[j - 1];
+				j--;
 			}
+			profiler->smoothed[j] = entry;
 		}
 
 		// Smooth the total time
@@ -21668,6 +21708,7 @@ void zest_BeginGPUProfile(zest_command_list command_list, const char *format, ..
 	va_end(args);
 	profiler->query_map[fif][pair_index].queue_type = 0;
 	profiler->query_map[fif][pair_index].depth = profiler->profile_stack_depth;
+	profiler->query_map[fif][pair_index].idle = ZEST_FALSE;
 
 	profiler->query_count[fif] += 2;
 }
@@ -21685,6 +21726,21 @@ void zest_EndGPUProfile(zest_command_list command_list) {
 
 	// Write end timestamp (query_index + 1)
 	command_list->context->device->platform->write_timestamp(command_list, profiler, fif, query_index + 1, ZEST_TRUE);
+}
+
+void zest_MarkProfileIdle(zest_command_list command_list) {
+	zest_gpu_profiler_t *gpu_profiler = command_list->gpu_profiler;
+	if (gpu_profiler && gpu_profiler->enabled) {
+		zest_uint query_index = gpu_profiler->profile_stack_depth > 0 ? gpu_profiler->profile_stack[gpu_profiler->profile_stack_depth - 1] : gpu_profiler->pass_query_index;
+		if (query_index != ZEST_INVALID) {
+			gpu_profiler->query_map[command_list->context->current_fif][query_index / 2].idle = ZEST_TRUE;
+		}
+	}
+	// Only mark CPU regions inside the pass so outer frame graph regions are never excluded
+	zest_cpu_profiler_t *cpu_profiler = &command_list->context->cpu_profiler;
+	if (cpu_profiler->enabled && cpu_profiler->pass_entry_index != ZEST_INVALID) {
+		zest_MarkCPUProfileIdle(command_list->context);
+	}
 }
 
 zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count) {
@@ -21737,7 +21793,7 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 	if (!profiler->enabled || profiler->smoothed_count == 0) return;
 	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_debug_overlay_enabled)) return;
 
-	// Table layout: [Name column] [Time column] [Bar column]
+	// Table layout: [Name column] [Time column] [Rate column] [Bar column]
 	float char_w = 8.0f;
 	float x_start = 10.0f;
 	float y_start = 30.0f;
@@ -21746,11 +21802,13 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 	float indent_width = 12.0f;
 	float name_col_width = 20.0f * char_w;		// 20 chars for pass names
 	float time_col_width = 10.0f * char_w;		// 10 chars for timing value
+	float rate_col_width = 4.0f * char_w;		// 4 chars for execution rate
 	float max_bar_width = 120.0f;
 	float padding = 4.0f;
 
 	float time_col_x = x_start + name_col_width + padding;
-	float bar_col_x = time_col_x + time_col_width + padding;
+	float rate_col_x = time_col_x + time_col_width + padding;
+	float bar_col_x = rate_col_x + rate_col_width + padding;
 	float total_width = bar_col_x + max_bar_width + padding - x_start;
 
 	// Find max smoothed time for scaling bars
@@ -21822,6 +21880,11 @@ void zest__draw_gpu_profile_overlay(zest_context context) {
 		}
 		zest_DrawDebugText(context, time_col_x, y + 1.0f, 0xFFDDDDDD, "%s", time_str);
 
+		// Rate column: percentage of frames this region executes, only shown when it skips frames
+		if (s->execution_interval > 1.01) {
+			zest_DrawDebugText(context, rate_col_x, y + 1.0f, 0xFF999999, "%3.0f%%", 100.0 / s->execution_interval);
+		}
+
 		// Column 3: proportional bar with variance-based coloring
 		// Coefficient of variation: stddev / mean. 0 = perfectly steady, >1 = very erratic
 		double stddev = sqrt(s->variance);
@@ -21861,6 +21924,7 @@ void zest__init_cpu_profiler(zest_context context) {
 	profiler->max_entries = ZEST_MAX_CPU_PROFILE_ENTRIES;
 	profiler->enabled = ZEST_TRUE;
 	profiler->smoothing_alpha = ZEST_CPU_PROFILE_SMOOTHING_ALPHA;
+	profiler->pass_entry_index = ZEST_INVALID;
 
 	profiler->entries = (zest_cpu_profile_result_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
 	memset(profiler->entries, 0, sizeof(zest_cpu_profile_result_t) * profiler->max_entries);
@@ -21934,6 +21998,7 @@ void zest__cpu_profiler_begin_frame(zest_context context) {
 		// Match each raw result to a smoothed entry by name+depth
 		for (zest_uint i = 0; i < profiler->result_count; ++i) {
 			zest_cpu_profile_result_t *raw = &profiler->results[i];
+			if (raw->idle) continue;
 			zest_cpu_profile_smoothed_t *match = 0;
 
 			for (zest_uint j = 0; j < profiler->smoothed_count; ++j) {
@@ -21950,6 +22015,9 @@ void zest__cpu_profiler_begin_frame(zest_context context) {
 				match->smoothed_us = prev * (1.0 - alpha) + raw->microseconds * alpha;
 				double deviation = raw->microseconds - match->smoothed_us;
 				match->variance = match->variance * (1.0 - alpha) + (deviation * deviation) * alpha;
+				double interval = (double)(match->frames_since_executed + 1);
+				match->execution_interval = match->execution_interval == 0.0 ? interval : match->execution_interval * (1.0 - alpha) + interval * alpha;
+				match->sort_key = i * 2 + 1;
 				match->active = ZEST_TRUE;
 			} else {
 				if (profiler->smoothed_count < profiler->max_entries) {
@@ -21962,39 +22030,39 @@ void zest__cpu_profiler_begin_frame(zest_context context) {
 				match->smoothed_us = raw->microseconds;
 				match->variance = 0.0;
 				match->depth = raw->depth;
+				match->sort_key = i * 2 + 1;
 				match->active = ZEST_TRUE;
 			}
 		}
 
-		// Remove inactive entries by compacting
+		// Retain entries that didn't execute this frame, anchored behind the preceding executed entry (see GPU profiler)
 		zest_uint write = 0;
+		zest_uint anchor_key = 0;
 		for (zest_uint read = 0; read < profiler->smoothed_count; ++read) {
-			if (profiler->smoothed[read].active) {
-				if (write != read) {
-					profiler->smoothed[write] = profiler->smoothed[read];
-				}
-				write++;
+			zest_cpu_profile_smoothed_t *entry = &profiler->smoothed[read];
+			if (entry->active) {
+				entry->frames_since_executed = 0;
+				anchor_key = entry->sort_key + 1;
+			} else {
+				if (++entry->frames_since_executed > ZEST_CPU_PROFILE_RETAIN_FRAMES) continue;
+				entry->sort_key = anchor_key;
 			}
+			if (write != read) {
+				profiler->smoothed[write] = *entry;
+			}
+			write++;
 		}
 		profiler->smoothed_count = write;
 
-		// Reorder smoothed entries to match raw results order.
-		// When the frame graph changes, matched entries keep their old positions
-		// and new entries are appended, causing the display order to diverge from
-		// the actual execution order (e.g. sub-passes appearing after "Release Queues").
-		for (zest_uint i = 0; i < profiler->result_count && i < profiler->smoothed_count; ++i) {
-			zest_cpu_profile_result_t *r = &profiler->results[i];
-			for (zest_uint j = i; j < profiler->smoothed_count; ++j) {
-				if (profiler->smoothed[j].depth == r->depth &&
-					strcmp(profiler->smoothed[j].name, r->name) == 0) {
-					if (j != i) {
-						zest_cpu_profile_smoothed_t tmp = profiler->smoothed[i];
-						profiler->smoothed[i] = profiler->smoothed[j];
-						profiler->smoothed[j] = tmp;
-					}
-					break;
-				}
+		for (zest_uint i = 1; i < profiler->smoothed_count; ++i) {
+			if (profiler->smoothed[i].sort_key >= profiler->smoothed[i - 1].sort_key) continue;
+			zest_cpu_profile_smoothed_t entry = profiler->smoothed[i];
+			zest_uint j = i;
+			while (j > 0 && profiler->smoothed[j - 1].sort_key > entry.sort_key) {
+				profiler->smoothed[j] = profiler->smoothed[j - 1];
+				j--;
 			}
+			profiler->smoothed[j] = entry;
 		}
 
 		// Smooth the total time
@@ -22026,6 +22094,7 @@ void zest_BeginCPUProfile(zest_context context, const char *format, ...) {
 
 	entry->depth = profiler->stack_depth + 1;
 	entry->microseconds = 0.0;
+	entry->idle = ZEST_FALSE;
 
 	profiler->start_times[profiler->stack_depth] = zest_Microsecs();
 	profiler->stack_entry_indices[profiler->stack_depth] = entry_index;
@@ -22040,6 +22109,12 @@ void zest_EndCPUProfile(zest_context context) {
 	profiler->stack_depth--;
 	zest_microsecs elapsed = zest_Microsecs() - profiler->start_times[profiler->stack_depth];
 	profiler->entries[profiler->stack_entry_indices[profiler->stack_depth]].microseconds = (double)elapsed;
+}
+
+void zest_MarkCPUProfileIdle(zest_context context) {
+	zest_cpu_profiler_t *profiler = &context->cpu_profiler;
+	if (!profiler->enabled || profiler->stack_depth == 0) return;
+	profiler->entries[profiler->stack_entry_indices[profiler->stack_depth - 1]].idle = ZEST_TRUE;
 }
 
 zest_cpu_profile_result_t* zest_GetCPUProfileResults(zest_context context, zest_uint *count) {
@@ -22094,11 +22169,13 @@ void zest__draw_cpu_profile_overlay(zest_context context) {
 	float indent_width = 12.0f;
 	float name_col_width = 30.0f * char_w;
 	float time_col_width = 10.0f * char_w;
+	float rate_col_width = 4.0f * char_w;
 	float max_bar_width = 120.0f;
 	float padding = 4.0f;
 
 	float time_col_x = x_start + name_col_width + padding;
-	float bar_col_x = time_col_x + time_col_width + padding;
+	float rate_col_x = time_col_x + time_col_width + padding;
+	float bar_col_x = rate_col_x + rate_col_width + padding;
 	float total_width = bar_col_x + max_bar_width + padding - x_start;
 
 	// Position below GPU overlay if it exists
@@ -22154,6 +22231,10 @@ void zest__draw_cpu_profile_overlay(zest_context context) {
 			snprintf(time_str, sizeof(time_str), "%7.1fus", s->smoothed_us);
 		}
 		zest_DrawDebugText(context, time_col_x, y + 1.0f, 0xFFDDDDDD, "%s", time_str);
+
+		if (s->execution_interval > 1.01) {
+			zest_DrawDebugText(context, rate_col_x, y + 1.0f, 0xFF999999, "%3.0f%%", 100.0 / s->execution_interval);
+		}
 
 		// Column 3: proportional bar with variance-based coloring
 		double stddev = sqrt(s->variance);
