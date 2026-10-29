@@ -2566,6 +2566,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 	device_features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
 	device_features_11.pNext = NULL;
 	device_features_11.multiview = supported_11->multiview;    // core 1.1, enable if present
+	device_features_11.shaderDrawParameters = supported_11->shaderDrawParameters;    // DrawParameters capability, Slang emits it for SV_VertexID
 
 	VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features = ZEST__ZERO_INIT(VkPhysicalDeviceSynchronization2FeaturesKHR);
 	sync2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;

@@ -423,6 +423,7 @@ inline int zest_slang_Compile(zest_device device, const char *shader_path, const
 
     sessionDesc.targets = &targetDesc;
     sessionDesc.targetCount = 1;
+    sessionDesc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
     global_session->createSession(sessionDesc, session.writeRef());
 
     Slang::ComPtr<slang::IBlob> diagnosticBlob;
@@ -728,6 +729,7 @@ inline zest_bool zest__slang_create_isession(zest_slang_session session) {
     session_description.fileSystem = session->file_system;
     session_description.compilerOptionEntries = options;
     session_description.compilerOptionEntryCount = option_count;
+    session_description.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
 
     session->session = nullptr;
     SlangResult result = slang_info->global_session->createSession(session_description, session->session.writeRef());
