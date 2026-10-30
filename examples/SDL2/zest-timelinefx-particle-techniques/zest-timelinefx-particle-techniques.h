@@ -44,9 +44,19 @@ struct mouse_t {
 struct RenderCacheInfo {
 	bool draw_imgui;
 	bool draw_timeline_fx;
+	bool use_stage;
 };
 
-struct tfxPrerecordedExample {
+#define EFFECT_COUNT 4
+
+enum EffectMode {
+	EffectMode_baked,
+	EffectMode_stage_cpu,
+	EffectMode_stage_gpu,
+	EffectMode_count
+};
+
+struct tfxParticleTechniquesExample {
 	zest_context context;
 	zest_device device;
 	zest_compute_handle compute;
@@ -90,15 +100,29 @@ struct tfxPrerecordedExample {
 	bool effect_is_3d;
 
 	zest_microsecs trigger_effect;
+
+	//The same effects simulated live by a stage, where the Run on GPU emitters are simulated by a compute shader.
+	//The stage has its own render resources so its color ramps, shapes and pipeline don't clash with the baked data.
+	int effect_mode;
+	int requested_effect_mode;
+	tfx_library library;
+	tfx_stage stage;
+	tfx_effect_template effect_templates[EFFECT_COUNT];
+	tfxEffectID effect_ids[EFFECT_COUNT];
+	tfx_library_render_resources_t stage_rendering;
+	tfx_global_library_buffers_t global_buffers;
+	tfx_gpu_particle_renderer_t gpu_particles;
 };
 
 void SpriteComputeFunction(zest_command_list command_list, void *user_data);
 void RecordComputeSprites(zest_command_list command_list, void *user_data);
-void InitExample(tfxPrerecordedExample *example);
-void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example);
-void UpdateUniform3d(tfxPrerecordedExample *game);
+void InitExample(tfxParticleTechniquesExample *example);
+void InitStage(tfxParticleTechniquesExample *example, zest_shader_handle particles_frag_shader, zest_shader_handle ribbon_vert_shader, zest_shader_handle ribbon_frag_shader, zest_shader_handle ribbon_comp_shader);
+void UpdateStage(tfxParticleTechniquesExample *example);
+void PrepareComputeForEffectPlayback(tfxParticleTechniquesExample *example);
+void UpdateUniform3d(tfxParticleTechniquesExample *game);
 void Update(zest_microsecs elapsed, void *data);
-void BuildUI(tfxPrerecordedExample *example, zest_uint fps);
+void BuildUI(tfxParticleTechniquesExample *example, zest_uint fps);
 bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_float32x3_t position, float radius, void *user_data);
-zest_vec3 ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position);
+zest_vec3 ScreenRay(tfxParticleTechniquesExample *example, float x, float y, float depth_offset, zest_vec3 &camera_position);
 
