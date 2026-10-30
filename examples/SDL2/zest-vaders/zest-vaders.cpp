@@ -10,6 +10,7 @@
 #include <imgui/backends/imgui_impl_sdl2.h>
 #include "impl_timelinefx.h"
 #include "timelinefx.h"
+#include "examples/Common/timelinefx_shaders.h"
 #include "examples/Common/sdl_events.cpp"
 
 /*
@@ -212,6 +213,7 @@ struct VadersGame {
 	zest_layer_handle billboard_layer_handle;
 	zest_uint particle_ds_index;
 	zest_pipeline_template billboard_pipeline;
+	zest_slang_session shader_session;
 	tfx_library_render_resources_t tfx_rendering;
 	tfx_global_library_buffers_t global_buffers;
 	tfx_ribbon_renderer_t ribbon_renderer;
@@ -329,11 +331,13 @@ void CreateSDLViewport(ImGuiViewport *viewport) {
 
 //Initialise the game and set up the renderer
 void VadersGame::Init() {
-	zest_shader_handle particles_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle particles_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	//Compile the shaders from timelinefx.slang in the timelinefxlib submodule
+	shader_session = CreateTimelineFXShaderSession(device);
+	zest_shader_handle particles_frag_shader = CreateTimelineFXShader(shader_session, "tfx_billboard_fragment", zest_fragment_shader);
+	zest_shader_handle particles_vert_shader = CreateTimelineFXShader(shader_session, "tfx_billboard_vertex", zest_vertex_shader);
+	zest_shader_handle ribbon_rendering_frag_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_fragment", zest_fragment_shader);
+	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
+	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
 
 	//Load game sprites into their own texture atlas
@@ -1455,6 +1459,8 @@ void MainLoop(VadersGame *game) {
 }
 
 int main(int argc, char *argv[]) {
+	if (!TimelineFXShadersAvailable("zest-vaders")) return 0;
+
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 	//ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
@@ -1487,6 +1493,7 @@ int main(int argc, char *argv[]) {
 
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&game.imgui);
+	FreeTimelineFXShaderSession(game.device, game.shader_session);
 	zest_DestroyDevice(game.device);
 	tfx_EndTimelineFX();
 

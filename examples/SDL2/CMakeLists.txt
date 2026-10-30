@@ -84,7 +84,10 @@ function(buildExample EXAMPLE_NAME)
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
 			${IMPLEMENTATIONS}impl_timelinefx.c
+			${IMPLEMENTATIONS}impl_slang.hpp
 		)
+		# Compiled at run time by examples/Common/timelinefx_shaders.h
+		list(APPEND SHADERS ${TIMELINEFX}Shaders/timelinefx.slang)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
 	elseif(${EXAMPLE_NAME} STREQUAL "zest-fonts" OR
 		${EXAMPLE_NAME} STREQUAL "zest-imgui-template" OR
@@ -195,9 +198,6 @@ set(EXAMPLES
 	zest-image-swizzle
 	zest-imgui-template
 	zest-tests
-	zest-vaders
-	zest-timelinefx
-	zest-timelinefx-prerecorded-effects
 	zest-ribbons
 	zest-implot
 	zest-pbr-deferred
@@ -212,14 +212,22 @@ set(EXAMPLES
 	zest-sdl2-imgui-template
 )
 
-# zest-compute-example requires Slang. In configurations left out by ZEST_SLANG_CONFIGS it builds as a stub.
+# These compile their shaders with Slang. In configurations left out by ZEST_SLANG_CONFIGS they build as stubs.
+set(SLANG_EXAMPLES
+	zest-compute-example
+	zest-vaders
+	zest-timelinefx
+	zest-timelinefx-prerecorded-effects
+)
 if(ZEST_ENABLE_SLANG)
-	list(APPEND EXAMPLES zest-compute-example)
+	list(APPEND EXAMPLES ${SLANG_EXAMPLES})
 endif()
 
 buildExamples()
 
-zest_copy_slang_runtime(zest-compute-example)
+foreach(SLANG_EXAMPLE ${SLANG_EXAMPLES})
+	zest_copy_slang_runtime(${SLANG_EXAMPLE})
+endforeach()
 zest_copy_slang_runtime(zest-tests)
 
 

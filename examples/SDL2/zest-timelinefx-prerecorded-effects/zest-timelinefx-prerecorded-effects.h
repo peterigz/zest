@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include "impl_timelinefx.h"
+#include "examples/Common/timelinefx_shaders.h"
 #include <imgui/backends/imgui_impl_glfw.h>
 
 struct AnimationComputeConstants {
@@ -14,8 +15,8 @@ struct AnimationComputeConstants {
 	tfxU32 flags;
 };
 
+//Mirrors tfx_baked_billboard_push in timelinefx.slang
 struct tfx_sprite_sheet_push_t {
-    zest_vec4 offset;
 	tfxU32 color_ramp_texture_index;
 	tfxU32 image_data_index;
 	tfxU32 emitter_properties_index;
@@ -58,6 +59,8 @@ struct tfxPrerecordedExample {
 	//the instances of each animation and the offsets array which are very small so not much overhead at all.
 	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
+	//Compiles the TimelineFX shaders from timelinefx.slang
+	zest_slang_session shader_session;
 	//The compute shader that interpolates all the sprite data
 	zest_shader_handle playback_shader;
 

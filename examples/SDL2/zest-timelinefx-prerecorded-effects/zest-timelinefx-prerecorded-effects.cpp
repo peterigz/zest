@@ -49,7 +49,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 //Prepare the compute shader that will be used to playback the effects in the animation manager
 void PrepareComputeForEffectPlayback(tfxPrerecordedExample *example) {
 	//Register a new compute shader
-	example->playback_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/sprite_data_playback.comp", "sprite_data_playback.comp.spv", zest_compute_shader, NULL, true);
+	example->playback_shader = CreateTimelineFXShader(example->shader_session, "tfx_sprite_playback", zest_compute_shader);
 
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
@@ -106,11 +106,14 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 //Initialise the example and create all the necessary buffers and objects for the compute shaders and load in the effects library
 //and prepare the effect we'll use as an example.
 void InitExample(tfxPrerecordedExample *example) {
-	zest_shader_handle particles_frag_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/timelinefxstatic.frag", "tfx_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle particles_vert_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/timelinefx3dstatic.vert", "tfx_vertex.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_frag_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbon.frag", "tfx_ribbon_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_vert_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbon_3d.vert", "tfx_ribbon_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle ribbon_rendering_comp_shader = zest_CreateShaderFromFile(example->device, "examples/assets/shaders/ribbons.comp", "tfx_ribbon_comp.spv", zest_compute_shader, NULL, true);
+	//Compile the shaders from timelinefx.slang in the timelinefxlib submodule. The baked vertex shader draws the billboards
+	//that tfx_sprite_playback has already interpolated, so it doesn't need the previous frame's instances
+	example->shader_session = CreateTimelineFXShaderSession(example->device);
+	zest_shader_handle particles_frag_shader = CreateTimelineFXShader(example->shader_session, "tfx_billboard_fragment", zest_fragment_shader);
+	zest_shader_handle particles_vert_shader = CreateTimelineFXShader(example->shader_session, "tfx_billboard_baked_vertex", zest_vertex_shader);
+	zest_shader_handle ribbon_rendering_frag_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_fragment", zest_fragment_shader);
+	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
+	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
@@ -398,6 +401,8 @@ void MainLoop(tfxPrerecordedExample *example) {
 }
 
 int main(int argc, char *argv[]) {
+	if (!TimelineFXShadersAvailable("zest-timelinefx-prerecorded-effects")) return 0;
+
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
@@ -423,6 +428,7 @@ int main(int argc, char *argv[]) {
 
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&example.imgui);
+	FreeTimelineFXShaderSession(example.device, example.shader_session);
 	zest_DestroyDevice(example.device);
 	tfx_EndTimelineFX();
 
