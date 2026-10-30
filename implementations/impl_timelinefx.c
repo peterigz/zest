@@ -1165,7 +1165,7 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 			push->indexes_index = indexes_index;
 			zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
 
-			zest_cmd_DispatchCompute(command_list, (ribbon_dispatch.total_segments / 1024) + 1, 1, 1);
+			zest_cmd_DispatchCompute(command_list, (ribbon_dispatch.total_segments + 255) / 256, 1, 1);
 		}
 	}
 }
