@@ -809,6 +809,38 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 
 }
 
+static void zest__tfx_free_storage_buffer(zest_context context, zest_buffer buffer, zest_uint descriptor_index) {
+	if (!buffer) return;
+	zest_ReleaseStorageBufferIndexDeferred(context, descriptor_index);
+	zest_FreeBuffer(buffer);
+}
+
+void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *resources) {
+	zest_tfx_FreeLibraryImages(resources);
+	zest__tfx_free_storage_buffer(context, resources->image_data, resources->image_data_index);
+	zest__tfx_free_storage_buffer(context, resources->particle_properties, resources->particle_properties_index);
+	zest__tfx_free_storage_buffer(context, resources->sprite_data_buffer, resources->sprite_data_index);
+	zest__tfx_free_storage_buffer(context, resources->emitter_properties_buffer, resources->emitter_properties_index);
+	if (resources->layer.value) {
+		zest_FreeLayer(resources->layer);
+	}
+	zest_FreeUniformBuffer(resources->uniform_buffer);
+	zest_FreeSampler(resources->sampler);
+	if (resources->ribbon_rendering.ribbon_compute.value) {
+		zest_FreeCompute(resources->ribbon_rendering.ribbon_compute);
+	}
+	if (resources->timeline) {
+		zest_FreeExecutionTimeline(resources->timeline);
+	}
+	if (resources->particles.pipeline) {
+		zest_FreePipelineTemplate(resources->particles.pipeline);
+	}
+	if (resources->ribbon_rendering.pipeline) {
+		zest_FreePipelineTemplate(resources->ribbon_rendering.pipeline);
+	}
+	memset(resources, 0, sizeof(tfx_library_render_resources_t));
+}
+
 void zest_tfx_CreateRibbonRenderer(zest_context context, tfx_ribbon_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
 	memset(renderer, 0, sizeof(tfx_ribbon_renderer_t));
 	renderer->context = context;
@@ -902,6 +934,14 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
     }
 }
 
+void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers) {
+	zest_ForEachFrameInFlight(fif) {
+		zest__tfx_free_storage_buffer(context, buffers->lookup_buffer[fif], buffers->lookup_index[fif]);
+	}
+	zest_FreeBuffer(buffers->lookup_tables_staging);
+	memset(buffers, 0, sizeof(tfx_global_library_buffers_t));
+}
+
 zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library, tfx_global_library_buffers_t *global_buffers, tfx_library_refresh_t *refresh) {
 	zest_device device = zest_GetContextDevice(context);
 	memset(refresh, 0, sizeof(tfx_library_refresh_t));
@@ -966,6 +1006,9 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources) {
 		resources->shape_image_capacity = 0;
 	}
 	resources->pending_count = 0;
+	zest_FreeImage(resources->color_ramps_texture);
+	resources->color_ramps_texture = ZEST__ZERO_INIT(zest_image_handle);
+	resources->color_ramps_index = 0;
 	zest_FreeImageCollection(&resources->color_ramps_collection);
 }
 

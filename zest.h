@@ -3218,7 +3218,7 @@ extern "C" {
 #define zest_vec_linear_push(allocator, T, value) (zest_vec_linear_grow(allocator, T), (T) ? (void)((T)[zest__vec_header(T)->current_size++] = value) : (void)0)
 #define zest_vec_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
 #define zest_vec_linear_insert(allocator, T, location, value) do { ptrdiff_t offset = location - T; zest_vec_linear_grow(allocator, T); if (offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); } while (0)
-#define zest_vec_erase(T, location) do { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); } while (0)
+#define zest_vec_erase(T, location) do { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset - 1) * sizeof(*T)); zest_vec_clip(T); } while (0)
 #define zest_vec_erase_range(T, it, it_last) do { ZEST_ASSERT(T && it >= T && it < zest_vec_end(T)); const ptrdiff_t count = it_last - it; const ptrdiff_t off = it - T; memmove(T + off, T + off + count, ((size_t)zest_vec_size(T) - (size_t)off - count) * sizeof(*T)); zest_vec_trim(T, (zest_uint)count); } while (0)
 // --end of pocket dynamic array
 
@@ -3434,8 +3434,8 @@ ZEST_PRIVATE zest_uint zest__map_get_index(zest_hash_pair *map, zest_key key) { 
 #define zest_map_at_index(hash_map, index) &hash_map.data[index]
 #define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
-#define zest_map_remove(allocator, hash_map, name) { zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator, hash_map.free_slots, index); }
-#define zest_map_remove_key(allocator, hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_uint index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(allocator, hash_map.free_slots, index); }
+#define zest_map_remove_key(allocator, hash_map, hash_key) { zest_key zest__remove_key = (hash_key); zest_hash_pair *zest__remove_it = zest__lower_bound(hash_map.map, zest__remove_key); if (hash_map.map && zest__remove_it != zest_vec_end(hash_map.map) && zest__remove_it->key == zest__remove_key) { zest_uint zest__remove_index = zest__remove_it->index; zest_vec_erase(hash_map.map, zest__remove_it); zest_vec_push(allocator, hash_map.free_slots, zest__remove_index); } }
+#define zest_map_remove(allocator, hash_map, name) zest_map_remove_key(allocator, hash_map, zest_map_hash(hash_map, name))
 #define zest_map_last_index(hash_map) (hash_map.last_index)
 #define zest_map_size(hash_map) (hash_map.map ? zest__vec_header(hash_map.data)->current_size : 0)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data); zest_vec_clear(hash_map.free_slots)
@@ -7999,7 +7999,10 @@ zest_microsecs zest_Microsecs(void) {
     LARGE_INTEGER frequency, counter;
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&counter);
-    zest_ull us = (zest_ull)(counter.QuadPart * 1000000LL / frequency.QuadPart);
+    //Split into whole seconds and remainder so counter * 1000000 can't overflow after ~10 days of uptime
+    zest_ull seconds = (zest_ull)(counter.QuadPart / frequency.QuadPart);
+    zest_ull remainder = (zest_ull)(counter.QuadPart % frequency.QuadPart);
+    zest_ull us = seconds * 1000000ULL + remainder * 1000000ULL / (zest_ull)frequency.QuadPart;
     return (zest_microsecs)us;
 }
 #elif defined(__APPLE__)
@@ -11466,7 +11469,7 @@ void zest__cleanup_pipeline_layout(zest_pipeline_layout layout) {
 
 void zest__cleanup_pipelines(zest_context context) {
     zest_map_foreach(i, context->cached_pipelines) {
-        zest_pipeline pipeline = *zest_map_at_index(context->cached_pipelines, i);
+        zest_pipeline pipeline = *zest_map_at_index(context->cached_pipelines, zest_map_index(context->cached_pipelines, i));
         context->device->platform->cleanup_pipeline_backend(pipeline);
         ZEST__FREE(context->allocator, pipeline);
     }
@@ -11648,6 +11651,10 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 		case zest_struct_type_sampler: {
 			zest_sampler sampler = (zest_sampler)handle;
 			zest__cleanup_sampler(sampler);
+			break;
+		}
+		case zest_struct_type_compute: {
+			zest__cleanup_compute((zest_compute)handle);
 			break;
 		}
 		case zest_struct_type_layer: {
@@ -12776,6 +12783,22 @@ zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline
 
 void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
     ZEST_ASSERT_HANDLE(pipeline_template);   //Not a valid pipeline template handle
+    zest_device device = pipeline_template->device;
+    //Cached pipelines are keyed on the template's address, so they must go before a new template can reuse it
+    zest_bool idle = ZEST_FALSE;
+    zest_vec_foreach(context_index, device->contexts) {
+        zest_context context = device->contexts[context_index];
+        for (int map_index = (int)zest_vec_size(context->cached_pipelines.map) - 1; map_index >= 0; --map_index) {
+            zest_pipeline pipeline = context->cached_pipelines.data[context->cached_pipelines.map[map_index].index];
+            if (!pipeline || pipeline->pipeline_template != pipeline_template) continue;
+            if (!idle) {
+                zest_WaitForIdleDevice(device);
+                idle = ZEST_TRUE;
+            }
+            zest_map_remove_key(context->allocator, context->cached_pipelines, context->cached_pipelines.map[map_index].key);
+            zest__cleanup_pipeline(pipeline);
+        }
+    }
     zest__unregister_pipeline_template_from_shader_handle(pipeline_template->vertex_shader, pipeline_template);
     zest__unregister_pipeline_template_from_shader_handle(pipeline_template->fragment_shader, pipeline_template);
     zest__cleanup_pipeline_template(pipeline_template);
@@ -14176,6 +14199,7 @@ zest_sampler_handle zest_CreateSampler(zest_device device, zest_sampler_info_t *
     sampler->create_info = *info;
     sampler->backend = (zest_sampler_backend)device->platform->new_sampler_backend(device);
     sampler->handle = sampler_handle;
+	sampler->descriptor_index = ZEST_INVALID;
 
     if (device->platform->create_sampler(sampler)) {
 		zest__activate_resource(sampler_handle.store, sampler_handle.value);
@@ -19475,6 +19499,7 @@ void zest__cleanup_image(zest_image image) {
 
 void zest__cleanup_sampler(zest_sampler sampler) {
 	zest_device device = (zest_device)sampler->handle.store->origin;
+	zest__release_bindless_index(device->bindless_set_layout, zest_sampler_binding, sampler->descriptor_index);
     device->platform->cleanup_sampler_backend(sampler);
     zest__remove_store_resource(sampler->handle.store, sampler->handle.value);
     sampler->magic = 0;
@@ -20168,7 +20193,12 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 
 void zest__cleanup_layer(zest_layer layer) {
 	zest_context context = (zest_context)layer->handle.store->origin;
+	zest_bool owns_bindless_indexes = ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout);
 	zest_ForEachFrameInFlight(fif) {
+		if (owns_bindless_indexes) {
+			zest__release_bindless_index(context->device->bindless_set_layout, zest_storage_buffer_binding, layer->memory_refs[fif].descriptor_array_index);
+			layer->memory_refs[fif].descriptor_array_index = ZEST_INVALID;
+		}
 		zest_FreeBuffer(layer->memory_refs[fif].device_vertex_data);
 		zest_FreeBuffer(layer->memory_refs[fif].staging_vertex_data);
 		zest_FreeBuffer(layer->memory_refs[fif].staging_index_data);

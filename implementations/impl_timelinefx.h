@@ -158,6 +158,10 @@ extern "C" {
 
 //Initialise the render resources needed for TimelineFX rendering including pipelines, shaders, layer and uniform buffer.
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp);
+//Free everything zest_tfx_InitTimelineFXRenderResources and the library loading functions created, including the library images.
+//The shaders are left alone since they were passed in. Free the ribbon and GPU particle renderers using these resources first,
+//and call it between frames. Waits for the device to go idle if the pipelines were used.
+void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *render_resources);
 
 //Load a TimelineFX library, giving every particle shape its own image. Returns the library handle so you
 //can create effect templates. Call zest_tfx_FinaliseLibrary after creating all effect templates.
@@ -174,6 +178,8 @@ tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_r
 void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resources_t *resources, tfx_animation_manager animation_manager, tfx_gpu_shapes gpu_image_data);
 
 void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
+//Free the buffers and descriptor indexes zest_tfx_CreateGlobalBuffers created. Free the ribbon and GPU particle renderers using them first.
+void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
 
 //-- Ribbons --
 
