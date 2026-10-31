@@ -117,7 +117,7 @@ zest_uint SetGPUParticleCapacities(tfxParticleTechniquesExample *example) {
 	for (int effect_index = 0; effect_index != EFFECT_COUNT; ++effect_index) {
 		tfx_effect_template effect_template = example->effect_templates[effect_index];
 		zest_uint overlapping_locations = (zest_uint)(tfx_GetEffectLifetime(effect_template) * 2.f / (EFFECT_SPAWN_INTERVAL * EFFECT_COUNT)) + 1;
-		pool_capacity += zest_tfx_SetTemplateGPUCapacityForLocations(effect_template, effect_names[effect_index], overlapping_locations);
+		pool_capacity += tfx_SetTemplateGPUCapacityForLocations(effect_template, overlapping_locations);
 	}
 	return pool_capacity;
 }
@@ -297,7 +297,7 @@ void BuildUI(tfxParticleTechniquesExample *example, zest_uint fps) {
 			if (example->gpu_particles.pool) {
 				tfx_gpu_particle_stats_t stats = tfx_GetGPUParticleStats(example->stage);
 				//Dead particles keep their slot until the longest lived particle spawned on the same tick dies
-				ImGui::Text("GPU Particle Slots: %u", stats.live_particles);
+				ImGui::Text("GPU Particle Slots: %u", stats.estimated_live_particles);
 				ImGui::Text("GPU Pool Allocated: %u / %u", stats.allocated, stats.capacity);
 				ImGui::Text("GPU Rings: %u", stats.ring_count);
 				ImGui::Text("Blocked Emitters: %u", stats.blocked_emitters);
@@ -448,6 +448,7 @@ void MainLoop(tfxParticleTechniquesExample *example) {
 			frame_count = 0;
 		}
 		zest_UpdateDevice(example->device);
+		zest_tfx_UpdateLibraryGPUData(example->context, &example->stage_rendering, &example->global_buffers);
 
 		if (zest_BeginFrame(example->context)) {
 			UpdateMouse(example->context, &example->mouse, &example->tfx_rendering.camera);
