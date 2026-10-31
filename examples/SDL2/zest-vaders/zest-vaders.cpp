@@ -1179,6 +1179,7 @@ void RenderGameSprites(zest_command_list command_list, void *user_data) {
 
 void VadersGame::Update(float ellapsed) {
 	zest_UpdateDevice(device);
+	zest_tfx_UpdateLibraryGPUData(context, &tfx_rendering, &global_buffers);
 
 	UpdatePlayerPosition(this, &player);
 

@@ -3,6 +3,10 @@
 #include <zest.h>
 #include <timelinefx.h>
 
+//impl_timelinefx.c uses zest_utilities.h image loading, so define ZEST_IMAGES_IMPLEMENTATION where ZEST_IMPLEMENTATION is defined.
+//The shaders are entry points in submodules/timelinefxlib/Shaders/timelinefx.slang. examples/Common/timelinefx_shaders.h compiles them.
+//The shaders interpolate with tfx_library_render_resources_t::timer, so update your stages inside zest_StartTimerLoop/zest_EndTimerLoop on it.
+
 typedef struct tfx_push_constants_s {
 	tfxU32 color_ramp_texture_index;
 	tfxU32 image_data_index;
@@ -37,10 +41,9 @@ typedef struct tfx_particle_rendering_t {
 } tfx_particle_rendering_t;
 
 typedef struct tfx_global_library_buffers_t {
-    zest_buffer lookup_tables_staging;
 	zest_buffer lookup_buffer[ZEST_MAX_FIF];
 	zest_uint lookup_index[ZEST_MAX_FIF];
-    bool lookup_table_dirty[ZEST_MAX_FIF];
+	tfxU32 uploaded_lookups_version;		//tfx_GetGPUGraphLookupsVersion when the lookups were last uploaded
 } tfx_global_library_buffers_t;
 
 //One per particle shape. tfx holds a pointer to this for as long as the shape is in the library, so each
@@ -93,6 +96,10 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint pending_count;
 	zest_uint images_removed;	//Counted by the shape remover across one refresh
 	zest_uint unreadable_shapes;	//Shapes the loader could not decode, which render as the default image
+	tfx_library library;		//Set by zest_tfx_LoadLibrary
+	tfxU32 uploaded_color_ramps_version;
+	tfxU32 uploaded_particle_properties_version;
+	zest_bool stale_data_reported;
 } tfx_library_render_resources_t;
 
 #define TFX_RIBBON_SEGMENT_BUFFER_NAME "Ribbon Segment Buffer"
@@ -125,12 +132,10 @@ typedef struct tfx_ribbon_renderer_t {
 #define TFX_GPU_PARTICLE_LAYER_NAME "GPU Particle Stage Instances"
 #define TFX_GPU_PARTICLE_PREVIOUS_LAYER_NAME "GPU Particle Stage Previous Instances"
 
-//The stage rounds every ring of GPU particles up to a multiple of this, the same as tfxGPU_BUFFER_GRANULARITY in timelinefx.cpp
-#define ZEST_TFX_GPU_RING_GRANULARITY 64
-
 //Draws a stage whose Run on GPU emitters are simulated by the simulate_particles compute shader. The compute shader writes the
-//GPU instances into the render resources' layer after the CPU instances, and each layer is drawn as its CPU range then its GPU
-//range. A stage without a gpu_particle_capacity still works, it just draws the CPU instances.
+//GPU instances into the render resources' layer after the CPU instances. Each layer is drawn one sort key at a time
+//(tfx_SetEffectSortKey), the key's CPU range then its GPU range. A stage without a gpu_particle_capacity still works, it just
+//draws the CPU instances.
 typedef struct tfx_gpu_particle_renderer_t {
 	zest_context context;
 	tfx_library_render_resources_t *render_resources;	//Needs the tfx_billboard_vertex pipeline, which reads the previous instances
@@ -144,10 +149,9 @@ typedef struct tfx_gpu_particle_renderer_t {
 	tfx_gpu_particle_push_t push;
 	zest_uint pending_dispatch_count;
 	zest_bool layer_upload_pending;
-	zest_uint layer_start[tfxLAYERS];
-	zest_uint layer_count[tfxLAYERS];
-	zest_uint gpu_layer_start[tfxLAYERS];
-	zest_uint gpu_layer_count[tfxLAYERS];
+	tfx_instance_key_range_t *key_ranges;				//Every layer's ranges in draw order
+	zest_uint key_range_count;
+	zest_uint key_range_capacity;
 } tfx_gpu_particle_renderer_t;
 
 #ifdef __cplusplus
@@ -164,11 +168,18 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *render_resources);
 
 //Load a TimelineFX library, giving every particle shape its own image. Returns the library handle so you
-//can create effect templates. Call zest_tfx_FinaliseLibrary after creating all effect templates.
+//can create effect templates. Call zest_tfx_FinaliseLibrary next.
 tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path);
 
-//Finalise the library after creating all effect templates. This uploads color ramps and GPU image data.
+//Upload the library's color ramps, shape data and particle properties. Call once after zest_tfx_LoadLibrary. Templates can be
+//created before or after it.
 void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library);
+
+//Call once a frame before zest_BeginFrame. It compares the library's GPU data versions with the ones last uploaded, and when
+//something changed (another library loaded, a template customised with tfx_ScaleTemplateEmitterGraph) it waits for the device
+//to go idle and uploads it again. global_buffers may be null when the host has none. Returns true when it uploaded anything.
+//The draw functions print a message once if they find the data changed and this wasn't called.
+zest_bool zest_tfx_UpdateLibraryGPUData(zest_context context, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 
 //Load prerecorded sprite data, giving every particle shape its own image.
 //Returns the error flags from tfx_LoadSpriteData.
@@ -197,18 +208,17 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resou
 
 //-- GPU particles --
 
-//Raise the ring of every Run on GPU emitter in the template so it holds location_count spawn locations playing at once, since
-//by default a ring only holds one. effect_path is the path the template was created with. Call before adding the template to
-//a stage. Returns the pool slots the rings need, to add up into tfx_stage_info_t gpu_particle_capacity.
-zest_uint zest_tfx_SetTemplateGPUCapacityForLocations(tfx_effect_template effect_template, const char *effect_path, zest_uint location_count);
-//Creates the particle pool and the compute from the simulate_particles shader when the stage has a gpu_particle_capacity.
-//Returns true if the stage's Run on GPU emitters will be simulated on the GPU.
-zest_bool zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers, tfx_stage stage, zest_shader_handle simulate_shader);
+//Size GPU rings for user spawn locations with tfx_SetTemplateGPUCapacityForLocations from the library.
+//Use the renderer for every stage you draw, with or without GPU emitters. It creates the particle pool and the compute from the
+//simulate_particles shader when the stage has a gpu_particle_capacity, see zest_tfx_SimulatesOnGPU.
+void zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers, tfx_stage stage, zest_shader_handle simulate_shader);
+//True when the stage had a gpu_particle_capacity, so its Run on GPU emitters are simulated by the compute shader
+zest_bool zest_tfx_SimulatesOnGPU(const tfx_gpu_particle_renderer_t *renderer);
 void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer);
 //Call after zest_BeginFrame on every frame that the stage was updated. It resets the layer, draws the CPU instances into it and
 //stages the GPU particles simulated since the last call, which then have to be dispatched by the frame graph this frame.
 void zest_tfx_RenderGPUParticleStage(tfx_gpu_particle_renderer_t *renderer);
-//Stop drawing the instances of the last update, after tfx_ClearStage for example
+//Call after every tfx_ClearStage. Until the next zest_tfx_RenderGPUParticleStage the renderer keeps drawing the last update's instances.
 void zest_tfx_ResetGPUParticleDraws(tfx_gpu_particle_renderer_t *renderer);
 //Add the upload, simulate and draw passes. Draws to the swapchain when output_resource is null. A cached frame graph picks up
 //whatever was staged each frame, so it doesn't need to be part of the cache key.
@@ -241,7 +251,6 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data);
-void zest_tfx_UploadGraphData(const zest_command_list command_list, void *user_data);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
 void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadGPUParticleData(const zest_command_list command_list, void *user_data);

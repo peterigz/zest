@@ -638,6 +638,7 @@ void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path) {
 	resources->device = zest_GetContextDevice(context);
 	tfx_library library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources);
+	resources->library = library;
 	zest__tfx_upload_pending_shapes(context, resources);
 	return library;
 }
@@ -646,6 +647,11 @@ tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resour
 //list from scratch, so the texture has to be built again from the current bitmaps whenever it changes.
 static void zest__tfx_build_color_ramps_texture(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
 	zest_device device = zest_GetContextDevice(context);
+	resources->uploaded_color_ramps_version = tfx_GetColorRampsVersion(library);
+	if (resources->color_ramps_texture.value) {
+		zest_FreeImage(resources->color_ramps_texture);
+		zest_FreeImageCollection(&resources->color_ramps_collection);
+	}
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
 	resources->color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r16g16b16a16_sfloat, bitmap_count);
 	for (tfxU32 i = 0; i != bitmap_count; ++i) {
@@ -658,11 +664,52 @@ static void zest__tfx_build_color_ramps_texture(zest_context context, tfx_librar
 }
 
 void zest_tfx_FinaliseLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library) {
+	resources->library = library;
 	zest__tfx_build_color_ramps_texture(context, resources, library);
 
 	tfx_UpdateLibraryGPUImageData(library);
 	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
 	zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
+}
+
+static zest_bool zest__tfx_gpu_data_changed(tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+	tfx_library library = resources->library;
+	if (library && (tfx_GetColorRampsVersion(library) != resources->uploaded_color_ramps_version
+		|| tfx_GetParticlePropertiesVersion(library) != resources->uploaded_particle_properties_version)) {
+		return ZEST_TRUE;
+	}
+	return global_buffers && tfx_GetGPUGraphLookupsVersion() != global_buffers->uploaded_lookups_version;
+}
+
+//Frames in flight read everything uploaded here, so the device has to be idle
+static void zest__tfx_upload_changed_gpu_data(zest_context context, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+	tfx_library library = resources->library;
+	if (library && tfx_GetColorRampsVersion(library) != resources->uploaded_color_ramps_version) {
+		zest__tfx_build_color_ramps_texture(context, resources, library);
+	}
+	if (library && tfx_GetParticlePropertiesVersion(library) != resources->uploaded_particle_properties_version) {
+		zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
+	}
+	if (global_buffers && tfx_GetGPUGraphLookupsVersion() != global_buffers->uploaded_lookups_version) {
+		zest_tfx_InitialiseGlobalData(context, global_buffers);
+	}
+}
+
+zest_bool zest_tfx_UpdateLibraryGPUData(zest_context context, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+	if (!zest__tfx_gpu_data_changed(resources, global_buffers)) {
+		return ZEST_FALSE;
+	}
+	zest_WaitForIdleDevice(zest_GetContextDevice(context));
+	zest__tfx_upload_changed_gpu_data(context, resources, global_buffers);
+	return ZEST_TRUE;
+}
+
+static void zest__tfx_report_stale_gpu_data(tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+	if (resources->stale_data_reported || !zest__tfx_gpu_data_changed(resources, global_buffers)) {
+		return;
+	}
+	resources->stale_data_reported = ZEST_TRUE;
+	ZEST_PRINT("TimelineFX GPU data changed since it was uploaded, so particles can draw with the wrong properties or colors. Call zest_tfx_UpdateLibraryGPUData before zest_BeginFrame each frame.");
 }
 
 tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager) {
@@ -865,6 +912,7 @@ static void zest__tfx_ensure_staging_size(zest_device device, zest_buffer *buffe
 }
 
 void zest_tfx_BeginRibbons(tfx_ribbon_renderer_t *renderer) {
+	zest__tfx_report_stale_gpu_data(renderer->render_resources, renderer->global_buffers);
 	zest_device device = zest_GetContextDevice(renderer->context);
 	zest_uint fif = zest_CurrentFIF(renderer->context);
 	zest__tfx_ensure_staging_size(device, &renderer->segment_staging_buffer[fif], ZEST__MAX(tfx_GetTotalSegmentBufferMaxSizeInBytes(), 1));
@@ -930,7 +978,6 @@ void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffe
     zest_ForEachFrameInFlight(i) {
 		buffers->lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);
 		buffers->lookup_index[i] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[i]);
-		buffers->lookup_table_dirty[i] = true;
     }
 }
 
@@ -938,7 +985,6 @@ void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers
 	zest_ForEachFrameInFlight(fif) {
 		zest__tfx_free_storage_buffer(context, buffers->lookup_buffer[fif], buffers->lookup_index[fif]);
 	}
-	zest_FreeBuffer(buffers->lookup_tables_staging);
 	memset(buffers, 0, sizeof(tfx_global_library_buffers_t));
 }
 
@@ -974,24 +1020,13 @@ zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resou
 
 	//The refresh built the gpu shape list while the new shapes still had no image, so it gets rebuilt now
 	//that the uv lookup can answer for all of them. That also rebuilds each emitter's start_frame_index,
-	//which is why the properties buffer goes up with it.
+	//which changes the particle properties version.
 	tfx_UpdateLibraryGPUImageData(library);
-
-	//The refresh rebuilds the library's colour ramp bitmaps from scratch, which reassigns every ramp index
-	//even for effects it did not touch, so the texture those indexes address has to be rebuilt with them.
-	zest_FreeImage(resources->color_ramps_texture);
-	zest_FreeImageCollection(&resources->color_ramps_collection);
-	zest__tfx_build_color_ramps_texture(context, resources, library);
-
 	zest_tfx_UpdateTimelineFXImageData(context, resources, tfx_GetLibraryGPUShapes(library));
-	zest_tfx_UpdateTimelineFXParticleProperties(context, resources, library);
 
-	//The refresh also rebuilds the global graph lookup table, moving every emitter's lookup offset, and the
-	//ribbon compute shader indexes that table by offset. Nothing marks the buffer dirty on its own, so the
-	//table is uploaded again here or the ribbons read curves belonging to some other emitter.
-	if (global_buffers) {
-		zest_tfx_InitialiseGlobalData(context, global_buffers);
-	}
+	//The refresh reassigns ramp indexes and moves every emitter's graph lookup offset, which the versions pick up
+	resources->library = library;
+	zest__tfx_upload_changed_gpu_data(context, resources, global_buffers);
 
 	return ZEST_TRUE;
 }
@@ -1046,6 +1081,7 @@ void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render
 }
 
 void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library) {
+	tfx_rendering->uploaded_particle_properties_version = tfx_GetParticlePropertiesVersion(library);
 	zest_size upload_size = tfx_GetParticlePropertiesBufferSizeInBytes(library);
 	if (!upload_size) {
 		return;
@@ -1104,6 +1140,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *resources) {
+	zest__tfx_report_stale_gpu_data(resources, NULL);
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_StartInstanceDrawing(layer, resources->particles.pipeline);
@@ -1114,6 +1151,7 @@ void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *reso
 }
 
 void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources_t *resources) {
+	zest__tfx_report_stale_gpu_data(resources, NULL);
 	zest_layer layer = zest_GetLayer(resources->layer);
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_StartInstanceDrawing(layer, resources->particles.pipeline);
@@ -1149,20 +1187,8 @@ void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_
 	}
 }
 
-void zest_tfx_UploadGraphData(const zest_command_list command_list, void *user_data) {
-	tfx_global_library_buffers_t *buffers = (tfx_global_library_buffers_t*)(user_data);
-
-	zest_context context = zest_GetContext(command_list);
-	zest_uint fif = zest_CurrentFIF(context);
-	
-	if (buffers->lookup_table_dirty[fif]) {
-		zest_cmd_CopyBuffer(command_list, buffers->lookup_tables_staging, buffers->lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes());
-		buffers->lookup_table_dirty[fif] = false;
-	}
-}
-
 void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers) {
-	zest_uint fif = zest_CurrentFIF(context);
+	buffers->uploaded_lookups_version = tfx_GetGPUGraphLookupsVersion();
 	zest_ForEachFrameInFlight(fif) {
 		zest_device device = zest_GetContextDevice(context);
 		zest_buffer staging = zest_CreateDedicatedStagingBuffer(device, tfx_GetGPUGraphLookupsBufferSizeInBytes(), tfx_GetGPUGraphLookupsBuffer());
@@ -1174,7 +1200,6 @@ void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buff
 		zest_imm_CopyBuffer(queue, staging, buffers->lookup_buffer[fif], zest_BufferSize(staging));
 		zest_imm_EndCommandBuffer(queue);
 		zest_FreeBufferNow(staging);
-		buffers->lookup_table_dirty[fif] = false;
 	}
 }
 
@@ -1295,24 +1320,7 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resou
 	}
 }
 
-zest_uint zest_tfx_SetTemplateGPUCapacityForLocations(tfx_effect_template effect_template, const char *effect_path, zest_uint location_count) {
-	zest_uint pool_capacity = 0;
-	tfx_effect_descriptor effect = tfx_GetEffectFromTemplate(effect_template);
-	zest_uint emitter_count = tfx_GetDescriptorChildCount(effect);
-	for (zest_uint emitter_index = 0; emitter_index != emitter_count; ++emitter_index) {
-		tfx_effect_descriptor emitter = tfx_GetDescriptorChild(effect, emitter_index);
-		zest_uint capacity = tfx_GetEmitterGPUCapacity(emitter) * location_count;
-		if (!capacity) continue;
-		//Template paths are made from the names, so the descriptor's own path doesn't match them
-		char emitter_path[512];
-		snprintf(emitter_path, sizeof(emitter_path), "%s/%s", effect_path, tfx_GetDescriptorName(emitter));
-		tfx_SetTemplateEmitterGPUCapacity(effect_template, emitter_path, capacity);
-		pool_capacity += (capacity + ZEST_TFX_GPU_RING_GRANULARITY - 1) / ZEST_TFX_GPU_RING_GRANULARITY * ZEST_TFX_GPU_RING_GRANULARITY;
-	}
-	return pool_capacity;
-}
-
-zest_bool zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers, tfx_stage stage, zest_shader_handle simulate_shader) {
+void zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers, tfx_stage stage, zest_shader_handle simulate_shader) {
 	memset(renderer, 0, sizeof(tfx_gpu_particle_renderer_t));
 	renderer->context = context;
 	renderer->render_resources = resources;
@@ -1321,7 +1329,7 @@ zest_bool zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_parti
 
 	tfx_gpu_particle_buffer_sizes_t pool_sizes = tfx_GetGPUParticleBufferSizes(stage);
 	if (!pool_sizes.pool_bytes) {
-		return ZEST_FALSE;
+		return;
 	}
 	zest_device device = zest_GetContextDevice(context);
 	renderer->compute = zest_CreateCompute(device, "TFX Simulate Particles", simulate_shader);
@@ -1344,7 +1352,10 @@ zest_bool zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_parti
 	renderer->push.noise_buffer_index = renderer->pool_index;
 	renderer->push.cold_base = pool_sizes.cold_base;
 	renderer->push.noise_base = pool_sizes.noise_base;
-	return ZEST_TRUE;
+}
+
+zest_bool zest_tfx_SimulatesOnGPU(const tfx_gpu_particle_renderer_t *renderer) {
+	return renderer->pool != NULL;
 }
 
 void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer) {
@@ -1356,34 +1367,59 @@ void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer) {
 		zest_FreeBuffer(renderer->pool);
 		zest_FreeCompute(renderer->compute);
 	}
+	ZEST_UTILITIES_FREE(renderer->key_ranges);
 	memset(renderer, 0, sizeof(tfx_gpu_particle_renderer_t));
+}
+
+//Without a fetched frame the kernel doesn't write the GPU instances, so only the CPU ranges are kept
+static void zest__tfx_record_key_ranges(tfx_gpu_particle_renderer_t *renderer, zest_bool has_gpu_frame) {
+	renderer->key_range_count = 0;
+	tfx_instance_key_range_t range;
+	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+		tfx_ResetInstanceBufferLoopIndex(renderer->stage);
+		while (tfx_GetNextInstanceKeyRange(renderer->stage, layer_index, &range)) {
+			if (!has_gpu_frame) {
+				range.gpu_instance_count = 0;
+			}
+			if (!range.instance_count && !range.gpu_instance_count) {
+				continue;
+			}
+			if (renderer->key_range_count == renderer->key_range_capacity) {
+				zest_uint capacity = renderer->key_range_capacity ? renderer->key_range_capacity * 2 : 32;
+				tfx_instance_key_range_t *key_ranges = (tfx_instance_key_range_t *)ZEST_UTILITIES_REALLOC(renderer->key_ranges, sizeof(tfx_instance_key_range_t) * capacity);
+				if (!key_ranges) {
+					break;
+				}
+				renderer->key_ranges = key_ranges;
+				renderer->key_range_capacity = capacity;
+			}
+			renderer->key_ranges[renderer->key_range_count++] = range;
+		}
+	}
+	tfx_ResetInstanceBufferLoopIndex(renderer->stage);
 }
 
 void zest_tfx_RenderGPUParticleStage(tfx_gpu_particle_renderer_t *renderer) {
 	tfx_stage stage = renderer->stage;
+	zest__tfx_report_stale_gpu_data(renderer->render_resources, renderer->global_buffers);
 	zest_layer layer = zest_GetLayer(renderer->render_resources->layer);
 	zest_ResetInstanceLayer(layer);
 	zest_StartInstanceDrawing(layer, renderer->render_resources->particles.pipeline);
 	tfx_instance_t *instances = tfx_GetInstanceBuffer(stage);
 	zest_DrawInstanceBuffer(layer, instances, (zest_uint)tfx_GetInstanceCount(stage));
 	renderer->layer_upload_pending = ZEST_TRUE;
-	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
-		renderer->layer_count[layer_index] = (zest_uint)tfx_GetInstanceCountByLayer(stage, layer_index);
-		renderer->layer_start[layer_index] = renderer->layer_count[layer_index] ? (zest_uint)(tfx_GetInstanceBufferByLayer(stage, layer_index) - instances) : 0;
-	}
-	memset(renderer->gpu_layer_count, 0, sizeof(renderer->gpu_layer_count));
 
 	//Every frame that's fetched has to be dispatched because the next one carries on from the particles this one leaves in the pool
 	renderer->pending_dispatch_count = 0;
-	if (!renderer->pool || !tfx_GetGPUParticleFrame(stage, &renderer->frame)) {
+	zest_bool has_gpu_frame = renderer->pool && tfx_GetGPUParticleFrame(stage, &renderer->frame);
+	zest__tfx_record_key_ranges(renderer, has_gpu_frame);
+	if (!has_gpu_frame) {
 		return;
 	}
 	const tfx_gpu_particle_frame_t *frame = &renderer->frame;
 
 	//Only the CPU instances are uploaded, the compute shader writes the GPU instances after them in the same buffer
 	zest_ReserveInstanceLayerDeviceCapacity(layer, frame->gpu_instance_start + frame->gpu_instance_count);
-	memcpy(renderer->gpu_layer_start, frame->gpu_layer_start, sizeof(renderer->gpu_layer_start));
-	memcpy(renderer->gpu_layer_count, frame->gpu_layer_count, sizeof(renderer->gpu_layer_count));
 
 	zest_uint fif = zest_CurrentFIF(renderer->context);
 	zest_buffer *staging_buffer = &renderer->upload_staging_buffer[fif];
@@ -1400,8 +1436,7 @@ void zest_tfx_RenderGPUParticleStage(tfx_gpu_particle_renderer_t *renderer) {
 }
 
 void zest_tfx_ResetGPUParticleDraws(tfx_gpu_particle_renderer_t *renderer) {
-	memset(renderer->layer_count, 0, sizeof(renderer->layer_count));
-	memset(renderer->gpu_layer_count, 0, sizeof(renderer->gpu_layer_count));
+	renderer->key_range_count = 0;
 }
 
 static zest_buffer zest__tfx_gpu_particle_upload_size(zest_context context, zest_resource_node node) {
@@ -1476,12 +1511,13 @@ void zest_tfx_DrawGPUParticleStage(const zest_command_list command_list, void *u
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(resources->uniform_buffer));
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_push_constants_t));
 
-	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
-		if (renderer->layer_count[layer_index]) {
-			zest_cmd_Draw(command_list, 6, renderer->layer_count[layer_index], 0, renderer->layer_start[layer_index]);
+	for (zest_uint range_index = 0; range_index != renderer->key_range_count; ++range_index) {
+		const tfx_instance_key_range_t *range = &renderer->key_ranges[range_index];
+		if (range->instance_count) {
+			zest_cmd_Draw(command_list, 6, range->instance_count, 0, range->instance_start);
 		}
-		if (renderer->gpu_layer_count[layer_index]) {
-			zest_cmd_Draw(command_list, 6, renderer->gpu_layer_count[layer_index], 0, renderer->gpu_layer_start[layer_index]);
+		if (range->gpu_instance_count) {
+			zest_cmd_Draw(command_list, 6, range->gpu_instance_count, 0, range->gpu_instance_start);
 		}
 	}
 }

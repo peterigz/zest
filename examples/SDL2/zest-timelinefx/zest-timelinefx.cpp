@@ -292,6 +292,7 @@ void MainLoop(TimelineFXExample *game) {
 			game->needs_reload = (refresh.result.flags & tfxRefreshFlags_needs_reload) != 0;
 		}
 		zest_UpdateDevice(game->device);
+		zest_tfx_UpdateLibraryGPUData(game->context, &game->tfx_rendering, &game->global_buffers);
 
 		if (zest_Microsecs() - last_effect_trigger_check >= effect_trigger_interval) {
 			last_effect_trigger_check = zest_Microsecs();
