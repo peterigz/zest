@@ -1,4 +1,4 @@
-library_version=89
+library_version=90
 file_version=7
 16776966
 Flare2.png,0,1,128,128,4,16851209279328878835
@@ -5502,12 +5502,12 @@ draw_order_by_age=0
 draw_order_by_depth=2
 guaranteed_draw_order=0
 include_in_sprite_data_export=0
-user_spawn_locations=1024
+user_spawn_locations=0
 sort_passes=1
 noise_base_offset_range=0.000000
 loop_length=10000.000000
 warmup_time=0.000000
-version=35
+version=36
 emitter_handle_x=-0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
