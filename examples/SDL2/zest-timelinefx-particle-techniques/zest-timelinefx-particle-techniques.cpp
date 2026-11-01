@@ -185,16 +185,18 @@ void UpdateStage(tfxParticleTechniquesExample *example) {
 	tfx_library_render_resources_t *resources = &example->stage_rendering;
 	tfx_SetStageCamera(example->stage, &resources->camera.front.x, &resources->camera.position.x);
 
+	bool stage_updated = false;
 	zest_StartTimerLoop(resources->timer) {
 		//One update for all the pending ticks so that the previous instance buffer is always the one that was drawn last
 		if (pending_ticks > 0) {
 			tfx_UpdateStage(example->stage, zest_TimerFrameLengthMillisecs(&resources->timer) * pending_ticks);
 			pending_ticks = 0;
+			stage_updated = true;
 		}
 	} zest_EndTimerLoop(resources->timer);
 
-	//Without an update the instances from the last one are drawn again, interpolated with the new timer lerp
-	if (zest_TimerUpdateWasRun(&resources->timer)) {
+	//Only render after tfx_UpdateStage ran. Otherwise the last update's instances are drawn again with the new timer lerp
+	if (stage_updated) {
 		zest_tfx_RenderGPUParticleStage(&example->gpu_particles);
 	}
 }
@@ -212,6 +214,10 @@ void InitExample(tfxParticleTechniquesExample *example) {
 	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
 	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
+	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
+	example->tfx_rendering.camera = zest_CreateCamera();
+	zest_CameraSetFoV(&example->tfx_rendering.camera, 60.f);
+	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering);
 	//The baked vertex shader has no captured_index input to declare
 	zest_ClearVertexAttributeDescriptions(example->tfx_rendering.particles.pipeline);
 	zest_tfx_AddBillboardVertexAttributes(example->tfx_rendering.particles.pipeline, ZEST_FALSE);

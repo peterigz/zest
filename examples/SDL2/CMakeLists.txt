@@ -77,7 +77,7 @@ function(buildExample EXAMPLE_NAME)
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-particle-techniques" OR
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
-		file(GLOB TIMELINEFX_SOURCE 
+		file(GLOB TIMELINEFX_SOURCE
 			${TIMELINEFX}timelinefx.h
 			${TIMELINEFX}timelinefx.cpp
 		)

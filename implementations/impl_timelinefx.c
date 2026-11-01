@@ -777,10 +777,13 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 
 	resources->timer = zest_CreateTimer(60);
 
+	//The TimelineFX editor's default preview camera, so effects at the origin show at their authored size
 	resources->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&resources->camera, 60.f);
-	//float cam_pos[3] = {0.f, 3.f, 7.5};
-	//zest_CameraPosition(&resources->camera, cam_pos);
+	float camera_position[3] = { 0.f, 3.5f, 7.5f };
+	zest_CameraPosition(&resources->camera, camera_position);
+	zest_CameraSetYaw(&resources->camera, -90.f);
+	zest_CameraSetPitch(&resources->camera, -30.f);
 	zest_CameraUpdateFront(&resources->camera);
 
 	zest_tfx_UpdateUniformBuffer(context, resources);
@@ -863,6 +866,8 @@ static void zest__tfx_free_storage_buffer(zest_context context, zest_buffer buff
 }
 
 void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *resources) {
+	//Cached graphs hold resource nodes for the layer freed here
+	zest_FlushCachedFrameGraphs(context);
 	zest_tfx_FreeLibraryImages(resources);
 	zest__tfx_free_storage_buffer(context, resources->image_data, resources->image_data_index);
 	zest__tfx_free_storage_buffer(context, resources->particle_properties, resources->particle_properties_index);
@@ -896,6 +901,10 @@ void zest_tfx_CreateRibbonRenderer(zest_context context, tfx_ribbon_renderer_t *
 }
 
 void zest_tfx_FreeRibbonRenderer(tfx_ribbon_renderer_t *renderer) {
+	//Cached graphs hold the renderer as their pass and buffer provider user data
+	if (renderer->context) {
+		zest_FlushCachedFrameGraphs(renderer->context);
+	}
 	zest_ForEachFrameInFlight(fif) {
 		zest_FreeBuffer(renderer->segment_staging_buffer[fif]);
 		zest_FreeBuffer(renderer->ribbon_staging_buffer[fif]);
@@ -1359,6 +1368,10 @@ zest_bool zest_tfx_SimulatesOnGPU(const tfx_gpu_particle_renderer_t *renderer) {
 }
 
 void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer) {
+	//Cached graphs hold resource nodes for the pool freed here and the renderer as user data
+	if (renderer->context) {
+		zest_FlushCachedFrameGraphs(renderer->context);
+	}
 	zest_ForEachFrameInFlight(fif) {
 		zest_FreeBuffer(renderer->upload_staging_buffer[fif]);
 	}

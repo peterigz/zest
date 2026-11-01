@@ -63,6 +63,9 @@ typedef struct zest_tfx_shape_image_t {
 	zest_bool unreadable;		//No image is made and the shape renders as the default image
 } zest_tfx_shape_image_t;
 
+//Holds one library's GPU data and one layer. Every stage drawn through these resources must only play effects from that
+//library, because the draw passes send one set of color ramp, image data and property indexes for the whole stage. Each
+//GPU particle renderer needs its own render resources, since zest_tfx_RenderGPUParticleStage resets the layer.
 typedef struct tfx_library_render_resources_s {
 	zest_layer_handle layer;
 	tfx_particle_rendering_t particles;
@@ -114,7 +117,9 @@ typedef struct tfx_library_render_resources_s {
 
 //Draws the ribbons of any number of stages with one upload, one compute pass and one draw pass. Pick the
 //stages to draw each frame with zest_tfx_BeginRibbons / zest_tfx_AddRibbonStage. A cached frame graph reads
-//the stage list every execution, so which stages are drawn doesn't need to be part of the cache key.
+//the stage list every execution, so which stages are drawn doesn't need to be part of the cache key. That only holds
+//while the renderer lives: freeing it flushes the context's cached frame graphs. The stages' ribbons must all come from
+//the render resources' library.
 typedef struct tfx_ribbon_renderer_t {
 	zest_context context;
 	tfx_library_render_resources_t *render_resources;
@@ -135,7 +140,8 @@ typedef struct tfx_ribbon_renderer_t {
 //Draws a stage whose Run on GPU emitters are simulated by the simulate_particles compute shader. The compute shader writes the
 //GPU instances into the render resources' layer after the CPU instances. Each layer is drawn one sort key at a time
 //(tfx_SetEffectSortKey), the key's CPU range then its GPU range. A stage without a gpu_particle_capacity still works, it just
-//draws the CPU instances.
+//draws the CPU instances. Every range is drawn with the render resources' library, so a stage playing effects from two
+//libraries isn't drawn correctly, even with one sort key per library. One renderer per render resources.
 typedef struct tfx_gpu_particle_renderer_t {
 	zest_context context;
 	tfx_library_render_resources_t *render_resources;	//Needs the tfx_billboard_vertex pipeline, which reads the previous instances
@@ -164,7 +170,8 @@ extern "C" {
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp);
 //Free everything zest_tfx_InitTimelineFXRenderResources and the library loading functions created, including the library images.
 //The shaders are left alone since they were passed in. Free the ribbon and GPU particle renderers using these resources first,
-//and call it between frames. Waits for the device to go idle if the pipelines were used.
+//and call it between frames, before the context is destroyed. Waits for the device to go idle if the pipelines were used.
+//Flushes the context's cached frame graphs, since they hold resource nodes for the layer.
 void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *render_resources);
 
 //Load a TimelineFX library, giving every particle shape its own image. Returns the library handle so you
@@ -195,6 +202,7 @@ void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers
 //-- Ribbons --
 
 void zest_tfx_CreateRibbonRenderer(zest_context context, tfx_ribbon_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
+//Call between frames, before the context is destroyed. Flushes the context's cached frame graphs, since they point at the renderer.
 void zest_tfx_FreeRibbonRenderer(tfx_ribbon_renderer_t *renderer);
 //Start this frame's list of stages to draw. Call after zest_BeginFrame and after the stages have been updated.
 void zest_tfx_BeginRibbons(tfx_ribbon_renderer_t *renderer);
@@ -214,14 +222,18 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resou
 void zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_renderer_t *renderer, tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers, tfx_stage stage, zest_shader_handle simulate_shader);
 //True when the stage had a gpu_particle_capacity, so its Run on GPU emitters are simulated by the compute shader
 zest_bool zest_tfx_SimulatesOnGPU(const tfx_gpu_particle_renderer_t *renderer);
+//Call between frames, before the context is destroyed. Flushes the context's cached frame graphs, since they hold resource nodes
+//for the pool and point at the renderer.
 void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer);
-//Call after zest_BeginFrame on every frame that the stage was updated. It resets the layer, draws the CPU instances into it and
-//stages the GPU particles simulated since the last call, which then have to be dispatched by the frame graph this frame.
+//Call after zest_BeginFrame on every frame that tfx_UpdateStage ran, and only then. A frame where the timer ticked but the stage
+//wasn't updated, such as while paused, would draw no GPU particles. It resets the render resources' layer, draws the CPU instances
+//into it and stages the GPU particles simulated since the last call, which then have to be dispatched by the frame graph this frame.
 void zest_tfx_RenderGPUParticleStage(tfx_gpu_particle_renderer_t *renderer);
 //Call after every tfx_ClearStage. Until the next zest_tfx_RenderGPUParticleStage the renderer keeps drawing the last update's instances.
 void zest_tfx_ResetGPUParticleDraws(tfx_gpu_particle_renderer_t *renderer);
 //Add the upload, simulate and draw passes. Draws to the swapchain when output_resource is null. A cached frame graph picks up
-//whatever was staged each frame, so it doesn't need to be part of the cache key.
+//whatever was staged each frame, so it doesn't need to be part of the cache key. That only holds while the renderer and its render
+//resources live: freeing either flushes the context's cached frame graphs.
 void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer, zest_resource_node output_resource);
 
 //What a call to zest_tfx_RefreshLibrary did. The tfx result's lists point into the library and stay valid
