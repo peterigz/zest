@@ -44,6 +44,19 @@ typedef struct tfx_global_library_buffers_t {
 	zest_buffer lookup_buffer[ZEST_MAX_FIF];
 	zest_uint lookup_index[ZEST_MAX_FIF];
 	tfxU32 uploaded_lookups_version;		//tfx_GetGPUGraphLookupsVersion when the lookups were last uploaded
+	//Every loaded library's data for stages with global_library_indexes, uploaded by zest_tfx_UpdateGlobalGPUData
+	zest_buffer particle_properties;
+	zest_buffer image_data;
+	zest_image_handle color_ramps_texture;
+	zest_uint particle_properties_index;
+	zest_uint image_data_index;
+	zest_uint color_ramps_index;
+	zest_uint color_ramp_layer_capacity;
+	tfxU32 *uploaded_color_ramp_layer_versions;	//One per layer of color_ramps_texture
+	tfxU32 uploaded_particle_properties_version;
+	tfxU32 uploaded_shapes_version;
+	tfxU32 uploaded_color_ramps_version;
+	zest_bool library_data_uploaded;
 } tfx_global_library_buffers_t;
 
 //One per particle shape. tfx holds a pointer to this for as long as the shape is in the library, so each
@@ -64,8 +77,9 @@ typedef struct zest_tfx_shape_image_t {
 } zest_tfx_shape_image_t;
 
 //Holds one library's GPU data and one layer. Every stage drawn through these resources must only play effects from that
-//library, because the draw passes send one set of color ramp, image data and property indexes for the whole stage. Each
-//GPU particle renderer needs its own render resources, since zest_tfx_RenderGPUParticleStage resets the layer.
+//library, because the draw passes send one set of color ramp, image data and property indexes for the whole stage, unless
+//zest_tfx_UseGlobalLibraryData switched them to every library's data. Each GPU particle renderer needs its own render
+//resources, since zest_tfx_RenderGPUParticleStage resets the layer.
 typedef struct tfx_library_render_resources_s {
 	zest_layer_handle layer;
 	tfx_particle_rendering_t particles;
@@ -100,6 +114,7 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint images_removed;	//Counted by the shape remover across one refresh
 	zest_uint unreadable_shapes;	//Shapes the loader could not decode, which render as the default image
 	tfx_library library;		//Set by zest_tfx_LoadLibrary
+	tfx_global_library_buffers_t *global_library_data;	//Set by zest_tfx_UseGlobalLibraryData, then the draws send its indexes
 	tfxU32 uploaded_color_ramps_version;
 	tfxU32 uploaded_particle_properties_version;
 	zest_bool stale_data_reported;
@@ -119,7 +134,7 @@ typedef struct tfx_library_render_resources_s {
 //stages to draw each frame with zest_tfx_BeginRibbons / zest_tfx_AddRibbonStage. A cached frame graph reads
 //the stage list every execution, so which stages are drawn doesn't need to be part of the cache key. That only holds
 //while the renderer lives: freeing it flushes the context's cached frame graphs. The stages' ribbons must all come from
-//the render resources' library.
+//the render resources' library, or from any library with zest_tfx_UseGlobalLibraryData.
 typedef struct tfx_ribbon_renderer_t {
 	zest_context context;
 	tfx_library_render_resources_t *render_resources;
@@ -141,7 +156,7 @@ typedef struct tfx_ribbon_renderer_t {
 //GPU instances into the render resources' layer after the CPU instances. Each layer is drawn one sort key at a time
 //(tfx_SetEffectSortKey), the key's CPU range then its GPU range. A stage without a gpu_particle_capacity still works, it just
 //draws the CPU instances. Every range is drawn with the render resources' library, so a stage playing effects from two
-//libraries isn't drawn correctly, even with one sort key per library. One renderer per render resources.
+//libraries needs zest_tfx_UseGlobalLibraryData on its render resources. One renderer per render resources.
 typedef struct tfx_gpu_particle_renderer_t {
 	zest_context context;
 	tfx_library_render_resources_t *render_resources;	//Needs the tfx_billboard_vertex pipeline, which reads the previous instances
@@ -175,7 +190,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resources_t *render_resources);
 
 //Load a TimelineFX library, giving every particle shape its own image. Returns the library handle so you
-//can create effect templates. Call zest_tfx_FinaliseLibrary next.
+//can create effect templates. Call zest_tfx_FinaliseLibrary next, or zest_tfx_UpdateGlobalGPUData for the global library data.
 tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resources_t *resources, const char *library_path);
 
 //Upload the library's color ramps, shape data and particle properties. Call once after zest_tfx_LoadLibrary. Templates can be
@@ -196,8 +211,25 @@ tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_r
 void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resources_t *resources, tfx_animation_manager animation_manager, tfx_gpu_shapes gpu_image_data);
 
 void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
-//Free the buffers and descriptor indexes zest_tfx_CreateGlobalBuffers created. Free the ribbon and GPU particle renderers using them first.
+//Free the buffers, image and descriptor indexes zest_tfx_CreateGlobalBuffers and zest_tfx_UpdateGlobalGPUData created. Free
+//the ribbon and GPU particle renderers using them first.
 void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers);
+
+//-- Effects from more than one library --
+//Load each library into its own zeroed tfx_library_render_resources_t with zest_tfx_LoadLibrary, which keeps that library's
+//shape images (free them with zest_tfx_FreeLibraryImages after tfx_FreeLibrary). zest_tfx_FinaliseLibrary isn't needed.
+//Draw the stages, which need global_library_indexes in their tfx_stage_info_t, through render resources set up with
+//zest_tfx_UseGlobalLibraryData.
+
+//Call once a frame before zest_BeginFrame in place of zest_tfx_UpdateLibraryGPUData, and straight after loading or freeing
+//a library, before adding its effects. It runs tfx_UpdateGlobalGPUData, and when anything moved it waits for the device to
+//go idle and uploads every library's properties and shapes, the color ramp layers that changed and the graph lookups.
+//Freeing a library can move the other libraries' data, so a frame drawn before the stages next update draws the previous
+//update's instances with the moved data. Returns false if a library didn't fit, see tfx_UpdateGlobalGPUData.
+zest_bool zest_tfx_UpdateGlobalGPUData(zest_context context, tfx_global_library_buffers_t *global_buffers);
+//Draw through these render resources with the data zest_tfx_UpdateGlobalGPUData uploads instead of their own library's, so
+//their stages can play effects from any loaded library.
+void zest_tfx_UseGlobalLibraryData(tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers);
 
 //-- Ribbons --
 

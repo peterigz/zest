@@ -15,6 +15,8 @@
 //Force the array view so that single frame shapes still sample as a texture2DArray in the shader
 #define ZEST__TFX_PIXEL_IMAGE_FLAGS (zest_image_preset_texture_mipmaps | zest_image_flag_force_image_array)
 #define ZEST__TFX_BLOCK_IMAGE_FLAGS (zest_image_preset_texture | zest_image_flag_force_image_array)
+//The most global color ramp layers TimelineFX hands out
+#define ZEST__TFX_MAX_COLOR_RAMP_LAYERS 256
 
 static const unsigned char zest__tfx_ktx2_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
 
@@ -640,6 +642,8 @@ tfx_library zest_tfx_LoadLibrary(zest_context context, tfx_library_render_resour
 	tfx_library library = tfx_LoadEffectLibrary(library_path, zest_tfx_ShapeLoader, zest_tfx_GetUV, resources);
 	resources->library = library;
 	zest__tfx_upload_pending_shapes(context, resources);
+	//The uv lookup reads the bindless indexes the upload just acquired
+	tfx_UpdateLibraryGPUImageData(library);
 	return library;
 }
 
@@ -704,12 +708,51 @@ zest_bool zest_tfx_UpdateLibraryGPUData(zest_context context, tfx_library_render
 	return ZEST_TRUE;
 }
 
+static zest_bool zest__tfx_global_data_changed(const tfx_global_library_buffers_t *buffers) {
+	return !buffers->library_data_uploaded
+		|| tfx_GetGlobalParticlePropertiesVersion() != buffers->uploaded_particle_properties_version
+		|| tfx_GetGlobalGPUShapesVersion() != buffers->uploaded_shapes_version
+		|| tfx_GetGlobalColorRampsVersion() != buffers->uploaded_color_ramps_version
+		|| tfx_GetGPUGraphLookupsVersion() != buffers->uploaded_lookups_version;
+}
+
 static void zest__tfx_report_stale_gpu_data(tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
-	if (resources->stale_data_reported || !zest__tfx_gpu_data_changed(resources, global_buffers)) {
+	if (resources->stale_data_reported) {
+		return;
+	}
+	if (resources->global_library_data) {
+		if (zest__tfx_global_data_changed(resources->global_library_data)) {
+			resources->stale_data_reported = ZEST_TRUE;
+			ZEST_PRINT("TimelineFX global library data changed since it was uploaded, so particles can draw with the wrong properties or colors. Call zest_tfx_UpdateGlobalGPUData before zest_BeginFrame each frame.");
+		}
+		return;
+	}
+	if (!zest__tfx_gpu_data_changed(resources, global_buffers)) {
 		return;
 	}
 	resources->stale_data_reported = ZEST_TRUE;
 	ZEST_PRINT("TimelineFX GPU data changed since it was uploaded, so particles can draw with the wrong properties or colors. Call zest_tfx_UpdateLibraryGPUData before zest_BeginFrame each frame.");
+}
+
+typedef struct zest__tfx_draw_indexes_t {
+	zest_uint color_ramps;
+	zest_uint image_data;
+	zest_uint particle_properties;
+} zest__tfx_draw_indexes_t;
+
+static zest__tfx_draw_indexes_t zest__tfx_get_draw_indexes(const tfx_library_render_resources_t *resources) {
+	zest__tfx_draw_indexes_t indexes;
+	const tfx_global_library_buffers_t *global_data = resources->global_library_data;
+	if (global_data) {
+		indexes.color_ramps = global_data->color_ramps_index;
+		indexes.image_data = global_data->image_data_index;
+		indexes.particle_properties = global_data->particle_properties_index;
+	} else {
+		indexes.color_ramps = resources->color_ramps_index;
+		indexes.image_data = resources->image_data_index;
+		indexes.particle_properties = resources->particle_properties_index;
+	}
+	return indexes;
 }
 
 tfxErrorFlags zest_tfx_LoadSpriteData(zest_context context, tfx_library_render_resources_t *resources, const char *path, tfx_animation_manager animation_manager) {
@@ -994,6 +1037,10 @@ void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers
 	zest_ForEachFrameInFlight(fif) {
 		zest__tfx_free_storage_buffer(context, buffers->lookup_buffer[fif], buffers->lookup_index[fif]);
 	}
+	zest__tfx_free_storage_buffer(context, buffers->particle_properties, buffers->particle_properties_index);
+	zest__tfx_free_storage_buffer(context, buffers->image_data, buffers->image_data_index);
+	zest_FreeImage(buffers->color_ramps_texture);
+	ZEST_UTILITIES_FREE(buffers->uploaded_color_ramp_layer_versions);
 	memset(buffers, 0, sizeof(tfx_global_library_buffers_t));
 }
 
@@ -1072,39 +1119,177 @@ static zest_bool zest__tfx_grow_storage_buffer(zest_context context, zest_buffer
 	return ZEST_TRUE;
 }
 
-void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes) {
-	zest_size upload_size = tfx_GetGPUShapesSizeInBytes(shapes);
-	if (!upload_size) {
-		return;
-	}
-	if (!zest__tfx_grow_storage_buffer(context, &tfx_rendering->image_data, &tfx_rendering->image_data_index, sizeof(tfx_gpu_image_data_t), upload_size)) {
-		ZEST_PRINT("Unable to grow the TimelineFX image data buffer to %zu bytes, the image data was not uploaded.", (size_t)upload_size);
-		return;
-	}
+//Creates the buffer when there's none yet. The device has to be idle, frames in flight read the buffer
+static zest_bool zest__tfx_upload_storage_buffer(zest_context context, zest_buffer *buffer, zest_uint *descriptor_index, zest_size unit_size, const void *data, zest_size upload_size, const char *name) {
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, upload_size, tfx_GetGPUShapesArray(shapes));
+	if (!*buffer) {
+		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+		*buffer = zest_CreateBuffer(device, upload_size, &storage_buffer_info);
+		if (*buffer) {
+			*descriptor_index = zest_AcquireStorageBufferIndex(device, *buffer);
+		}
+	}
+	if (!*buffer || !zest__tfx_grow_storage_buffer(context, buffer, descriptor_index, unit_size, upload_size)) {
+		ZEST_PRINT("Unable to grow the TimelineFX %s buffer to %zu bytes, it was not uploaded.", name, (size_t)upload_size);
+		return ZEST_FALSE;
+	}
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, upload_size, (void *)data);
+	if (!staging_buffer) {
+		ZEST_PRINT("Unable to create a %zu byte staging buffer, the TimelineFX %s buffer was not uploaded.", (size_t)upload_size, name);
+		return ZEST_FALSE;
+	}
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_imm_CopyBuffer(queue, staging_buffer, tfx_rendering->image_data, upload_size);
+	zest_imm_CopyBuffer(queue, staging_buffer, *buffer, upload_size);
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBufferNow(staging_buffer);
+	return ZEST_TRUE;
+}
+
+void zest_tfx_UpdateTimelineFXImageData(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_gpu_shapes shapes) {
+	zest_size upload_size = tfx_GetGPUShapesSizeInBytes(shapes);
+	if (upload_size) {
+		zest__tfx_upload_storage_buffer(context, &tfx_rendering->image_data, &tfx_rendering->image_data_index, sizeof(tfx_gpu_image_data_t), tfx_GetGPUShapesArray(shapes), upload_size, "image data");
+	}
 }
 
 void zest_tfx_UpdateTimelineFXParticleProperties(zest_context context, tfx_library_render_resources_t *tfx_rendering, tfx_library library) {
 	tfx_rendering->uploaded_particle_properties_version = tfx_GetParticlePropertiesVersion(library);
 	zest_size upload_size = tfx_GetParticlePropertiesBufferSizeInBytes(library);
-	if (!upload_size) {
-		return;
+	if (upload_size) {
+		zest__tfx_upload_storage_buffer(context, &tfx_rendering->particle_properties, &tfx_rendering->particle_properties_index, sizeof(tfx_gpu_particle_properties_t), tfx_GetParticlePropertiesBuffer(library), upload_size, "particle properties");
 	}
-	if (!zest__tfx_grow_storage_buffer(context, &tfx_rendering->particle_properties, &tfx_rendering->particle_properties_index, sizeof(tfx_gpu_particle_properties_t), upload_size)) {
-		ZEST_PRINT("Unable to grow the TimelineFX particle properties buffer to %zu bytes, the properties were not uploaded.", (size_t)upload_size);
-		return;
+}
+
+//Global layers never move while their library is loaded, so only the layers whose version changed go up unless the texture
+//array has to grow. A free layer is never sampled, so whatever it holds can stay.
+static zest_bool zest__tfx_upload_global_color_ramps(zest_context context, tfx_global_library_buffers_t *buffers) {
+	zest_uint layer_count = tfx_GetGlobalColorRampLayerCount();
+	tfx_bitmap_t *first_bitmap = NULL;
+	for (zest_uint layer = 0; layer != layer_count && !first_bitmap; ++layer) {
+		first_bitmap = tfx_GetGlobalColorRampLayer(layer);
+	}
+	if (!first_bitmap) {
+		return ZEST_TRUE;
 	}
 	zest_device device = zest_GetContextDevice(context);
-	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, upload_size, tfx_GetParticlePropertiesBuffer(library));
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-	zest_imm_CopyBuffer(queue, staging_buffer, tfx_rendering->particle_properties, upload_size);
-	zest_imm_EndCommandBuffer(queue);
-	zest_FreeBufferNow(staging_buffer);
+	zest_size layer_size = tfx_GetBitmapSize(first_bitmap);
+	zest_bool recreate = layer_count > buffers->color_ramp_layer_capacity;
+	if (recreate) {
+		//Headroom so that loading another library doesn't always recreate it
+		zest_uint capacity = ZEST__MIN(layer_count + layer_count / 2 + 1, ZEST__TFX_MAX_COLOR_RAMP_LAYERS);
+		tfxU32 *layer_versions = (tfxU32 *)ZEST_UTILITIES_REALLOC(buffers->uploaded_color_ramp_layer_versions, sizeof(tfxU32) * capacity);
+		if (!layer_versions) {
+			return ZEST_FALSE;
+		}
+		buffers->uploaded_color_ramp_layer_versions = layer_versions;
+		//Releases the old bindless index once the frames that sampled it are done
+		zest_FreeImage(buffers->color_ramps_texture);
+		buffers->color_ramp_layer_capacity = 0;
+		zest_image_info_t image_info = zest_CreateImageInfo((zest_uint)tfx_GetBitmapWidth(first_bitmap), (zest_uint)tfx_GetBitmapHeight(first_bitmap));
+		image_info.format = zest_format_r16g16b16a16_sfloat;
+		image_info.layer_count = capacity;
+		image_info.flags = zest_image_preset_texture | zest_image_flag_force_image_array;
+		buffers->color_ramps_texture = zest_CreateImage(device, &image_info);
+		if (!buffers->color_ramps_texture.value) {
+			ZEST_PRINT("Unable to create a TimelineFX color ramp texture of %u layers.", capacity);
+			return ZEST_FALSE;
+		}
+		buffers->color_ramp_layer_capacity = capacity;
+	}
+
+	zest_buffer_image_copy_t copy_regions[ZEST__TFX_MAX_COLOR_RAMP_LAYERS];
+	zest_uint region_count = 0;
+	for (zest_uint layer = 0; layer != layer_count; ++layer) {
+		if ((recreate || tfx_GetGlobalColorRampLayerVersion(layer) != buffers->uploaded_color_ramp_layer_versions[layer]) && tfx_GetGlobalColorRampLayer(layer)) {
+			zest_buffer_image_copy_t copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+			copy_region.buffer_offset = layer_size * region_count;
+			copy_region.image_aspect = zest_image_aspect_color_bit;
+			copy_region.base_array_layer = layer;
+			copy_region.layer_count = 1;
+			copy_region.image_extent.width = (zest_uint)tfx_GetBitmapWidth(first_bitmap);
+			copy_region.image_extent.height = (zest_uint)tfx_GetBitmapHeight(first_bitmap);
+			copy_region.image_extent.depth = 1;
+			copy_regions[region_count++] = copy_region;
+		}
+	}
+	if (region_count) {
+		zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, layer_size * region_count, 0);
+		if (!staging_buffer) {
+			ZEST_PRINT("Unable to create a staging buffer for %u TimelineFX color ramp layers.", region_count);
+			return ZEST_FALSE;
+		}
+		zest_byte *staging_data = (zest_byte *)zest_BufferData(staging_buffer);
+		for (zest_uint region_index = 0; region_index != region_count; ++region_index) {
+			tfx_bitmap_t *bitmap = tfx_GetGlobalColorRampLayer(copy_regions[region_index].base_array_layer);
+			memcpy(staging_data + layer_size * region_index, tfx_GetBitmapData(bitmap), layer_size);
+		}
+		zest_image image = zest_GetImage(buffers->color_ramps_texture);
+		zest_uint mip_levels = zest_ImageInfo(image)->mip_levels;
+		zest_uint capacity = buffers->color_ramp_layer_capacity;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, mip_levels, 0, capacity);
+		zest_imm_CopyBufferRegionsToImage(queue, copy_regions, region_count, staging_buffer, image);
+		zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, mip_levels, 0, capacity);
+		zest_imm_EndCommandBuffer(queue);
+		zest_FreeBufferNow(staging_buffer);
+	}
+	for (zest_uint layer = 0; layer != layer_count; ++layer) {
+		buffers->uploaded_color_ramp_layer_versions[layer] = tfx_GetGlobalColorRampLayerVersion(layer);
+	}
+	//The index can only be acquired once the image is in a layout valid for sampling
+	if (recreate) {
+		buffers->color_ramps_index = zest_AcquireSampledImageIndex(device, zest_GetImage(buffers->color_ramps_texture), zest_texture_array_binding);
+	}
+	return ZEST_TRUE;
+}
+
+zest_bool zest_tfx_UpdateGlobalGPUData(zest_context context, tfx_global_library_buffers_t *global_buffers) {
+	ZEST_ASSERT(global_buffers->lookup_buffer[0]);	//Call zest_tfx_CreateGlobalBuffers first
+	zest_bool all_libraries_placed = tfx_UpdateGlobalGPUData();
+	if (!zest__tfx_global_data_changed(global_buffers)) {
+		return all_libraries_placed;
+	}
+	//Frames in flight read everything uploaded here
+	zest_WaitForIdleDevice(zest_GetContextDevice(context));
+	zest_bool uploaded = ZEST_TRUE;
+	tfxU32 properties_version = tfx_GetGlobalParticlePropertiesVersion();
+	if (!global_buffers->library_data_uploaded || properties_version != global_buffers->uploaded_particle_properties_version) {
+		zest_size upload_size = tfx_GetGlobalParticlePropertiesBufferSizeInBytes();
+		if (!upload_size || zest__tfx_upload_storage_buffer(context, &global_buffers->particle_properties, &global_buffers->particle_properties_index, sizeof(tfx_gpu_particle_properties_t), tfx_GetGlobalParticlePropertiesBuffer(), upload_size, "global particle properties")) {
+			global_buffers->uploaded_particle_properties_version = properties_version;
+		} else {
+			uploaded = ZEST_FALSE;
+		}
+	}
+	tfxU32 shapes_version = tfx_GetGlobalGPUShapesVersion();
+	if (!global_buffers->library_data_uploaded || shapes_version != global_buffers->uploaded_shapes_version) {
+		tfx_gpu_shapes shapes = tfx_GetGlobalGPUShapes();
+		zest_size upload_size = tfx_GetGPUShapesSizeInBytes(shapes);
+		if (!upload_size || zest__tfx_upload_storage_buffer(context, &global_buffers->image_data, &global_buffers->image_data_index, sizeof(tfx_gpu_image_data_t), tfx_GetGPUShapesArray(shapes), upload_size, "global image data")) {
+			global_buffers->uploaded_shapes_version = shapes_version;
+		} else {
+			uploaded = ZEST_FALSE;
+		}
+	}
+	tfxU32 color_ramps_version = tfx_GetGlobalColorRampsVersion();
+	if (!global_buffers->library_data_uploaded || color_ramps_version != global_buffers->uploaded_color_ramps_version) {
+		if (zest__tfx_upload_global_color_ramps(context, global_buffers)) {
+			global_buffers->uploaded_color_ramps_version = color_ramps_version;
+		} else {
+			uploaded = ZEST_FALSE;
+		}
+	}
+	if (tfx_GetGPUGraphLookupsVersion() != global_buffers->uploaded_lookups_version) {
+		zest_tfx_InitialiseGlobalData(context, global_buffers);
+	}
+	if (uploaded) {
+		global_buffers->library_data_uploaded = ZEST_TRUE;
+	}
+	return all_libraries_placed;
+}
+
+void zest_tfx_UseGlobalLibraryData(tfx_library_render_resources_t *resources, tfx_global_library_buffers_t *global_buffers) {
+	resources->global_library_data = global_buffers;
 }
 
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
@@ -1131,11 +1316,12 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 			continue;
 		}
 
+		zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(tfx_resources);
 		tfx_push_constants_t *push_constants = (tfx_push_constants_t *)current->push_constant;
-		push_constants->color_ramp_texture_index = tfx_resources->color_ramps_index;
+		push_constants->color_ramp_texture_index = draw_indexes.color_ramps;
 		push_constants->sampler_index = tfx_resources->sampler_index;
-		push_constants->image_data_index = tfx_resources->image_data_index;
-		push_constants->particle_properties_index = tfx_resources->particle_properties_index;
+		push_constants->image_data_index = draw_indexes.image_data;
+		push_constants->particle_properties_index = draw_indexes.particle_properties;
 		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
 		push_constants->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
 
@@ -1268,14 +1454,15 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 
 	zest_layer layer = zest_GetLayer(render_resources->layer);
 	zest_cmd_LayerViewport(command_list, layer);
+	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(render_resources);
 
 	for (zest_uint stage_index = 0; stage_index != renderer->batch.stage_count; ++stage_index) {
 		tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonBatchDispatch(&renderer->stage_offsets[stage_index]);
 		while (tfx_NextRibbonDispatch(renderer->stages[stage_index], &ribbon_dispatch)) {
 			tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
 			push->sampler_index = render_resources->sampler_index;
-			push->color_ramp_texture_index = render_resources->color_ramps_index;
-			push->image_data_index = render_resources->image_data_index;
+			push->color_ramp_texture_index = draw_indexes.color_ramps;
+			push->image_data_index = draw_indexes.image_data;
 			zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
 			zest_cmd_DrawIndexed(command_list, ribbon_dispatch.index_count, 1, ribbon_dispatch.index_offset, 0, 0);
 		}
@@ -1515,10 +1702,11 @@ void zest_tfx_DrawGPUParticleStage(const zest_command_list command_list, void *u
 	zest_cmd_LayerViewport(command_list, layer);
 	zest_cmd_BindPipeline(command_list, zest_GetPipeline(resources->particles.pipeline, command_list));
 
+	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(resources);
 	tfx_push_constants_t push = { 0 };
-	push.color_ramp_texture_index = resources->color_ramps_index;
-	push.image_data_index = resources->image_data_index;
-	push.particle_properties_index = resources->particle_properties_index;
+	push.color_ramp_texture_index = draw_indexes.color_ramps;
+	push.image_data_index = draw_indexes.image_data;
+	push.particle_properties_index = draw_indexes.particle_properties;
 	push.sampler_index = resources->sampler_index;
 	push.prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, ZEST_TRUE);
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(resources->uniform_buffer));
