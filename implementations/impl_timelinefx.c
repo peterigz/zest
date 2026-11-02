@@ -605,7 +605,7 @@ void zest_tfx_ShapeRemover(tfx_image_data_t *image_data, void *custom_data) {
 }
 
 //Basic function for updating the uniform buffer
-void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources) {
+void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources, tfx_stage stage) {
 	zest_uniform_buffer buffer = zest_GetUniformBuffer(resources->uniform_buffer);
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	tfx_uniform_buffer_data_t data;
@@ -615,7 +615,7 @@ void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resou
 	data.screen_size.x = zest_ScreenWidthf(context);
 	data.screen_size.y = zest_ScreenHeightf(context);
 	data.millisecs = 0;
-	data.timer_lerp = (float)zest_TimerLerp(&resources->timer);
+	data.timer_lerp = stage ? tfx_GetStageInterpolation(stage, (float)resources->timer.lerp, (float)zest_TimerFrameLengthMillisecs(&resources->timer)) : 1.f;
 	data.update_time = (float)zest_TimerUpdateTime(&resources->timer);
 	zest_CalculateFrustumPlanes(&data.view, &data.proj, resources->planes);
 	*uniform_buffer = data;
@@ -829,7 +829,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 	zest_CameraSetPitch(&resources->camera, -30.f);
 	zest_CameraUpdateFront(&resources->camera);
 
-	zest_tfx_UpdateUniformBuffer(context, resources);
+	zest_tfx_UpdateUniformBuffer(context, resources, NULL);
 
 	//Compile the shaders we will use to render the particles and ribbons
 	resources->particles.frag_shader = frag_shader;
@@ -987,6 +987,8 @@ zest_bool zest_tfx_AddRibbonStage(tfx_ribbon_renderer_t *renderer, tfx_stage sta
 		return ZEST_FALSE;
 	}
 	renderer->stages[stage_count] = stage;
+	zest_timer_t *timer = &renderer->render_resources->timer;
+	renderer->stage_lerps[stage_count] = tfx_GetStageInterpolation(stage, (float)timer->lerp, (float)zest_TimerFrameLengthMillisecs(timer));
 	return ZEST_TRUE;
 }
 
@@ -1416,10 +1418,10 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 	zest_uint indexes_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
 
 	zest_uint uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(render_resources->uniform_buffer));
-	float lerp = (float)zest_TimerLerp(&render_resources->timer);
 	float time = (float)render_resources->timer.seconds_passed;
 
 	for (zest_uint stage_index = 0; stage_index != renderer->batch.stage_count; ++stage_index) {
+		float lerp = renderer->stage_lerps[stage_index];
 		tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonBatchDispatch(&renderer->stage_offsets[stage_index]);
 		while (tfx_NextRibbonDispatch(renderer->stages[stage_index], &ribbon_dispatch)) {
 			tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);

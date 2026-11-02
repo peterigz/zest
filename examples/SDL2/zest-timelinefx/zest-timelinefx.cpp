@@ -113,7 +113,7 @@ void TimelineFXExample::Init() {
 	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
 	tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&tfx_rendering.camera, 60.f);
-	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering, NULL);
 
 	//Load the effects library. Every particle shape is given its own image and bindless index.
 	library = zest_tfx_LoadLibrary(context, &tfx_rendering, TFX_LIBRARY_PATH);
@@ -321,13 +321,11 @@ void MainLoop(TimelineFXExample *game) {
 			tfx_PointEffectAt(game->pm, game->laser_id, position.x, position.y, position.z, tfxEffectFace_up);
 
 			zest_StartTimerLoop(game->tfx_rendering.timer) {
-				//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
-				//then rather then run the update particle manager multiple times, simply run it once but multiply the frame length
-				//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
-				//with the previous frame. It's also just more efficient to do this.
+				//Update the stage only once when catching up, with a sub-step per pending tick. Only the last step writes the instances,
+				//which keeps the previous instance buffer on the gpu the one that was drawn last, so the particles interpolate smoothly.
 				if (pending_ticks > 0) {
 					double frame_length = zest_TimerFrameLengthMillisecs(&game->tfx_rendering.timer);
-					tfx_UpdateStage(game->pm, frame_length * pending_ticks);
+					tfx_UpdateStageSubSteps(game->pm, frame_length, (tfxU32)pending_ticks);
 					pending_ticks = 0;
 				}
 
@@ -352,7 +350,7 @@ void MainLoop(TimelineFXExample *game) {
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
 
-			zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering);
+			zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering, game->pm);
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, 0);
 			if (!frame_graph) {

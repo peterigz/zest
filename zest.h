@@ -1373,6 +1373,9 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #endif
 
 #if defined (_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <direct.h>	//For creating a directory when caching shaders
 #include <sys/types.h>

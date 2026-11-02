@@ -105,6 +105,7 @@ void MainLoop(minimal_app_t *app) {
 int main(int argc, char *argv[]) {
 	//Make a config struct where you can configure zest with some options
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	//vsync is off by default, so frames run uncapped. Add zest_context_init_flag_enable_vsync to create_info.flags or call zest_EnableVSync to sync to the display
 
 	minimal_app_t app = {};
 

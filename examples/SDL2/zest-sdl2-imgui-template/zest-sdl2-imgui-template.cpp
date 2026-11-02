@@ -260,6 +260,7 @@ int main(int argc, char *argv[]) {
 
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
+	//vsync is off by default, so frames run uncapped. Add zest_context_init_flag_enable_vsync to create_info.flags or call zest_EnableVSync to sync to the display
 
 	//Initialise a Zest context
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);

@@ -1819,7 +1819,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
 			ZEST_DEBUG_STOP();
 		}
 	}
-    if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_memory)) {
+    //Info and verbose messages, like the loader's, aren't errors so they're kept out of zest_GetValidationErrorCount
+    if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_log_validation_errors_to_memory) && messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
         if (!zest_map_valid_key(device->validation_errors, (zest_key)pCallbackData->messageIdNumber)) {
             zest_text_t error_message = ZEST__ZERO_INIT(zest_text_t);
             zest_SetText(device->allocator, &error_message, pCallbackData->pMessage);

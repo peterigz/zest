@@ -5,7 +5,9 @@
 
 //impl_timelinefx.c uses zest_utilities.h image loading, so define ZEST_IMAGES_IMPLEMENTATION where ZEST_IMPLEMENTATION is defined.
 //The shaders are entry points in submodules/timelinefxlib/Shaders/timelinefx.slang. examples/Common/timelinefx_shaders.h compiles them.
-//The shaders interpolate with tfx_library_render_resources_t::timer, so update your stages inside zest_StartTimerLoop/zest_EndTimerLoop on it.
+//The shaders interpolate with tfx_library_render_resources_t::timer: run zest_StartTimerLoop/zest_EndTimerLoop on it and, once the loop
+//has run, update each stage with tfx_UpdateStageSubSteps(stage, zest_TimerFrameLengthMillisecs(&timer), pending_ticks). The factor the
+//shaders use is tfx_GetStageInterpolation with that timer's alpha, not zest_TimerLerp, so a catch-up frame doesn't jump.
 
 typedef struct tfx_push_constants_s {
 	tfxU32 color_ramp_texture_index;
@@ -145,6 +147,7 @@ typedef struct tfx_ribbon_renderer_t {
 	tfx_ribbon_batch_t batch;
 	tfx_stage stages[ZEST_TFX_MAX_RIBBON_STAGES];
 	tfx_ribbon_batch_offsets_t stage_offsets[ZEST_TFX_MAX_RIBBON_STAGES];
+	float stage_lerps[ZEST_TFX_MAX_RIBBON_STAGES];	//Each stage's tfx_GetStageInterpolation when it was added
 } tfx_ribbon_renderer_t;
 
 #define TFX_GPU_PARTICLE_UPLOAD_BUFFER_NAME "GPU Particle Upload"
@@ -224,8 +227,13 @@ void zest_tfx_FreeGlobalBuffers(zest_context context, tfx_global_library_buffers
 //Call once a frame before zest_BeginFrame in place of zest_tfx_UpdateLibraryGPUData, and straight after loading or freeing
 //a library, before adding its effects. It runs tfx_UpdateGlobalGPUData, and when anything moved it waits for the device to
 //go idle and uploads every library's properties and shapes, the color ramp layers that changed and the graph lookups.
-//Freeing a library can move the other libraries' data, so a frame drawn before the stages next update draws the previous
-//update's instances with the moved data. Returns false if a library didn't fit, see tfx_UpdateGlobalGPUData.
+//Returns false if a library didn't fit, see tfx_UpdateGlobalGPUData.
+//Unloading a library while stages draw: between frames call tfx_FreeLibrary (it removes the library's effects from every stage),
+//this, then zest_tfx_FreeLibraryImages. Until each stage updates again its instances still hold the freed library's particles
+//and indexes into the old layout, so on that frame update every stage you draw before drawing it, with tfx_UpdateStage(stage, 0)
+//if the timer didn't tick or the game is paused, and render it as on an update frame: zest_tfx_RenderGPUParticleStage, which
+//also dispatches the GPU particles, or reset your layer and draw the instances again. zest_tfx_ResetGPUParticleDraws isn't
+//needed, zest_tfx_RenderGPUParticleStage rebuilds the draw ranges. The image free is deferred, so it's safe before that update.
 zest_bool zest_tfx_UpdateGlobalGPUData(zest_context context, tfx_global_library_buffers_t *global_buffers);
 //Draw through these render resources with the data zest_tfx_UpdateGlobalGPUData uploads instead of their own library's, so
 //their stages can play effects from any loaded library.
@@ -239,7 +247,8 @@ void zest_tfx_FreeRibbonRenderer(tfx_ribbon_renderer_t *renderer);
 //Start this frame's list of stages to draw. Call after zest_BeginFrame and after the stages have been updated.
 void zest_tfx_BeginRibbons(tfx_ribbon_renderer_t *renderer);
 //Copy a stage's ribbons for drawing this frame. A stage that wasn't updated this frame still has to be added
-//to be drawn. Returns false if the stage couldn't be added.
+//to be drawn. Call it after zest_EndTimerLoop on the render resources' timer, since it takes the stage's interpolation
+//factor from that timer's alpha. Returns false if the stage couldn't be added.
 zest_bool zest_tfx_AddRibbonStage(tfx_ribbon_renderer_t *renderer, tfx_stage stage);
 zest_bool zest_tfx_HasRibbonsToDraw(tfx_ribbon_renderer_t *renderer);
 //Add the upload, compute and draw passes for everything added this frame. Only needed when
@@ -257,11 +266,13 @@ zest_bool zest_tfx_SimulatesOnGPU(const tfx_gpu_particle_renderer_t *renderer);
 //Call between frames, before the context is destroyed. Flushes the context's cached frame graphs, since they hold resource nodes
 //for the pool and point at the renderer.
 void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer);
-//Call after zest_BeginFrame on every frame that tfx_UpdateStage ran, and only then. A frame where the timer ticked but the stage
-//wasn't updated, such as while paused, would draw no GPU particles. It resets the render resources' layer, draws the CPU instances
-//into it and stages the GPU particles simulated since the last call, which then have to be dispatched by the frame graph this frame.
+//Call after zest_BeginFrame on every frame that tfx_UpdateStage ran, an update of 0 included, and only then. A frame where the timer
+//ticked but the stage wasn't updated, such as while paused, would draw no GPU particles. It resets the render resources' layer, draws
+//the CPU instances into it and stages the GPU particles simulated since the last call, which then have to be dispatched by the frame
+//graph this frame.
 void zest_tfx_RenderGPUParticleStage(tfx_gpu_particle_renderer_t *renderer);
 //Call after every tfx_ClearStage. Until the next zest_tfx_RenderGPUParticleStage the renderer keeps drawing the last update's instances.
+//Not needed after tfx_FreeLibrary if you follow the unload steps on zest_tfx_UpdateGlobalGPUData.
 void zest_tfx_ResetGPUParticleDraws(tfx_gpu_particle_renderer_t *renderer);
 //Add the upload, simulate and draw passes. Draws to the swapchain when output_resource is null. A cached frame graph picks up
 //whatever was staged each frame, so it doesn't need to be part of the cache key. That only holds while the renderer and its render
@@ -286,7 +297,10 @@ typedef struct tfx_library_refresh_t {
 zest_bool zest_tfx_RefreshLibrary(zest_context context, tfx_library_render_resources_t *resources, tfx_library library, tfx_global_library_buffers_t *global_buffers, tfx_library_refresh_t *refresh);
 //-- Uniform buffer and rendering --
 
-void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources);
+//Call every frame after zest_BeginFrame and zest_EndTimerLoop. timer_lerp is tfx_GetStageInterpolation(stage) with the resources'
+//timer. Every stage drawn through these resources shares it, so pass one that's updated with the same elapsed time as the others
+//(stages on different update spans need their own render resources). Pass NULL for 1, when nothing interpolates.
+void zest_tfx_UpdateUniformBuffer(zest_context context, tfx_library_render_resources_t *resources, tfx_stage stage);
 void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *resources);
 void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources_t *resources);
 void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);

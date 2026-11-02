@@ -187,15 +187,15 @@ void UpdateStage(tfxParticleTechniquesExample *example) {
 
 	bool stage_updated = false;
 	zest_StartTimerLoop(resources->timer) {
-		//One update for all the pending ticks so that the previous instance buffer is always the one that was drawn last
+		//One update with a sub-step per pending tick so that the previous instance buffer is always the one that was drawn last
 		if (pending_ticks > 0) {
-			tfx_UpdateStage(example->stage, zest_TimerFrameLengthMillisecs(&resources->timer) * pending_ticks);
+			tfx_UpdateStageSubSteps(example->stage, zest_TimerFrameLengthMillisecs(&resources->timer), (tfxU32)pending_ticks);
 			pending_ticks = 0;
 			stage_updated = true;
 		}
 	} zest_EndTimerLoop(resources->timer);
 
-	//Only render after tfx_UpdateStage ran. Otherwise the last update's instances are drawn again with the new timer lerp
+	//Only render after tfx_UpdateStage ran. Otherwise the last update's instances are drawn again with a new interpolation factor
 	if (stage_updated) {
 		zest_tfx_RenderGPUParticleStage(&example->gpu_particles);
 	}
@@ -217,7 +217,7 @@ void InitExample(tfxParticleTechniquesExample *example) {
 	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
 	example->tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->tfx_rendering.camera, 60.f);
-	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
 	//The baked vertex shader has no captured_index input to declare
 	zest_ClearVertexAttributeDescriptions(example->tfx_rendering.particles.pipeline);
 	zest_tfx_AddBillboardVertexAttributes(example->tfx_rendering.particles.pipeline, ZEST_FALSE);
@@ -269,7 +269,7 @@ void InitExample(tfxParticleTechniquesExample *example) {
     ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(example->context));
 
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
-	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
 
 	//Set up a timer
 	example->timer = zest_CreateTimer(60);
@@ -459,7 +459,7 @@ void MainLoop(tfxParticleTechniquesExample *example) {
 		if (zest_BeginFrame(example->context)) {
 			UpdateMouse(example->context, &example->mouse, &example->tfx_rendering.camera);
 
-			zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering);
+			zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
 
 			zest_uint fif = zest_CurrentFIF(example->context);
 
@@ -500,10 +500,10 @@ void MainLoop(tfxParticleTechniquesExample *example) {
 			example->tfx_rendering.camera.position = zest_LerpVec3(&example->old_camera_position, &example->new_camera_position, (float)zest_TimerLerp(&example->timer));
 
 			if (UsingStage(example)) {
-				//The stage has its own uniform buffer because the timer lerp it interpolates the particles with is its own
+				//The stage has its own uniform buffer because it interpolates the particles with its own timer and stage
 				example->stage_rendering.camera = example->tfx_rendering.camera;
 				UpdateStage(example);
-				zest_tfx_UpdateUniformBuffer(example->context, &example->stage_rendering);
+				zest_tfx_UpdateUniformBuffer(example->context, &example->stage_rendering, example->stage);
 			} else {
 				tfx_UpdateAnimationManager(example->animation_manager_3d, (float)current_frame_time / 1000.f);
 

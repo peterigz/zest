@@ -342,7 +342,7 @@ void VadersGame::Init() {
 	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
 	tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&tfx_rendering.camera, 60.f);
-	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering, NULL);
 
 	//Load game sprites into their own texture atlas
 	game_sprites = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, 100);
@@ -434,7 +434,7 @@ void VadersGame::Init() {
 
 
 	//Update the uniform buffer so that the projection and view matrices are set for the screen ray functions below
-	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
+	zest_tfx_UpdateUniformBuffer(context, &tfx_rendering, NULL);
 
 	//Get the top left and bottom right screen positions in 3d space so we know when things leave the screen
 	top_left_bound = ScreenRay(context, 0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
@@ -1279,13 +1279,13 @@ void VadersGame::Update(float ellapsed) {
 		tfx_SetStageCamera(title_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
 		tfx_SetStageCamera(game_pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
 
-		//Updated once every tick has run, because tfx_UpdateStage returns while the work is still running and a later tick would change the stage underneath it
+		//Updated once every tick has run, a sub-step per tick, because tfx_UpdateStageSubSteps returns while the work is still running and a later tick would change the stage underneath it
 		if (pending_ticks > 0) {
-			tfx_UpdateStage(background_pm, FrameLength * pending_ticks);
+			tfx_UpdateStageSubSteps(background_pm, FrameLength, (tfxU32)pending_ticks);
 			if (state == GameState_title) {
-				tfx_UpdateStage(title_pm, FrameLength * pending_ticks);
+				tfx_UpdateStageSubSteps(title_pm, FrameLength, (tfxU32)pending_ticks);
 			} else if (state == GameState_game_over || !paused) {
-				tfx_UpdateStage(game_pm, FrameLength * pending_ticks);
+				tfx_UpdateStageSubSteps(game_pm, FrameLength, (tfxU32)pending_ticks);
 			}
 		}
 		//Stages are added whether or not they were updated this frame, so a paused game keeps its ribbons
@@ -1357,7 +1357,8 @@ void VadersGame::Update(float ellapsed) {
 
 		//To ensure that the imgui buffers are updated with the latest vertex data make sure you call it
 		//after zest_BeginFrame every frame.
-		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering);
+		//The background updates with the same elapsed time as the other stages, so its interpolation factor serves all three
+		zest_tfx_UpdateUniformBuffer(context, &tfx_rendering, background_pm);
 		zest_SetSwapchainClearColor(context, 0.f, 0.f, .2f, 1.f);
 
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
