@@ -170,10 +170,10 @@ static int render_init_resources(render_app_t *app) {
 	zest_AddVertexInputBindingDescription(app->pipeline, 0, sizeof(tfx_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(tfx_instance_t, position));
 	zest_AddVertexAttribute(app->pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(tfx_instance_t, quaternion));
-	zest_AddVertexAttribute(app->pipeline, 0, 2, zest_format_r16g16_sscaled, offsetof(tfx_instance_t, size));
-	zest_AddVertexAttribute(app->pipeline, 0, 3, zest_format_r8g8b8_snorm, offsetof(tfx_instance_t, alignment));
-	zest_AddVertexAttribute(app->pipeline, 0, 4, zest_format_r16g16_sscaled, offsetof(tfx_instance_t, intensity_gradient_map));
-	zest_AddVertexAttribute(app->pipeline, 0, 5, zest_format_r8g8b8_unorm, offsetof(tfx_instance_t, curved_alpha_life));
+	zest_AddVertexAttribute(app->pipeline, 0, 2, zest_format_r16g16_sint, offsetof(tfx_instance_t, size));
+	zest_AddVertexAttribute(app->pipeline, 0, 3, zest_format_r8g8b8a8_snorm, offsetof(tfx_instance_t, alignment));
+	zest_AddVertexAttribute(app->pipeline, 0, 4, zest_format_r16g16_sint, offsetof(tfx_instance_t, intensity_gradient_map));
+	zest_AddVertexAttribute(app->pipeline, 0, 5, zest_format_r8g8b8a8_unorm, offsetof(tfx_instance_t, curved_alpha_life));
 	zest_AddVertexAttribute(app->pipeline, 0, 6, zest_format_r32_uint, offsetof(tfx_instance_t, indexes));
 	zest_AddVertexAttribute(app->pipeline, 0, 7, zest_format_r32_uint, offsetof(tfx_instance_t, captured_index));
 	zest_SetPipelineShaders(app->pipeline, vert, frag);

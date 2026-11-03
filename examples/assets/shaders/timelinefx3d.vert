@@ -87,9 +87,9 @@ layout (std430, set = 0, binding = 5) readonly buffer InProperties {
 //Instance
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec4 in_quaternion;
-layout(location = 2) in vec2 size_in;
+layout(location = 2) in ivec2 size_in;
 layout(location = 3) in vec3 alignment;
-layout(location = 4) in vec2 intensity_gradient_map;
+layout(location = 4) in ivec2 intensity_gradient_map;
 layout(location = 5) in vec3 curved_alpha_life;
 layout(location = 6) in uint texture_indexes;
 layout(location = 7) in uint captured_index;
@@ -115,7 +115,7 @@ void main() {
     uint emitter_index = (texture_indexes >> 16) & 0xFFFFu;
     Properties props = in_properties[pc.properties_index].data[emitter_index];
 
-    vec2 size = size_in * size_max_value;
+    vec2 size = vec2(size_in) * size_max_value;
     vec2 handle = props.image_handle;
     vec4 quaternion = normalize(in_quaternion);
 
@@ -285,5 +285,5 @@ void main() {
 	//Packed as [bindless image index << 16 | animation frame]
 	out_image_index = packed_texture_index >> 16;
 	out_tex_coord = vec3(uvs[index], float(packed_texture_index & 0xFFFFu));
-	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
+	out_intensity_curved_alpha_map = vec4(float(intensity_gradient_map.x) * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, float(intensity_gradient_map.y) * intensity_max_value);
 }
