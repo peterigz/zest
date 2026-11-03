@@ -1140,37 +1140,49 @@ ZEST_PRIVATE inline VkWriteDescriptorSet zest__vk_create_buffer_descriptor_write
 
 #if defined(__APPLE__)
 //MoltenVK aliases every buffer on a shared binding by reinterpret_casting from the first one, which Metal rejects when that
-//one is NonWritable (const) and an alias is writable. Turning NonWritable on storage buffer variables into OpNops avoids it.
-ZEST_PRIVATE inline void zest__strip_storage_buffer_non_writable(zest_device device, zest_uint *words, zest_uint word_count) {
-    const zest_uint op_nop = 1u << 16;
-    const zest_uint op_decorate = 71;
+//one is NonWritable (const) and an alias is writable. Removing NonWritable from a compute shader's storage buffers avoids it.
+//Returns the new word count.
+ZEST_PRIVATE inline zest_uint zest__strip_compute_storage_buffer_non_writable(zest_device device, zest_uint *words, zest_uint word_count) {
+    const zest_uint op_entry_point = 15;
     const zest_uint op_variable = 59;
+    const zest_uint op_decorate = 71;
+    const zest_uint execution_model_gl_compute = 5;
     const zest_uint decoration_non_writable = 24;
     const zest_uint storage_class_storage_buffer = 12;
     const zest_uint header_word_count = 5;
-    if (word_count <= header_word_count) return;
+    if (word_count <= header_word_count) return word_count;
     zest_uint id_bound = words[3];
     zest_byte *is_storage_buffer = (zest_byte*)zest_AllocateMemory(device, id_bound);
     memset(is_storage_buffer, 0, id_bound);
-    for (zest_uint index = header_word_count; index < word_count;) {
+    zest_bool is_compute = ZEST_FALSE;
+    zest_uint index = header_word_count;
+    while (index < word_count) {
         zest_uint instruction_word_count = words[index] >> 16;
-        if (instruction_word_count == 0) break;
-        if ((words[index] & 0xFFFF) == op_variable && instruction_word_count >= 4 && words[index + 3] == storage_class_storage_buffer && words[index + 2] < id_bound) {
+        zest_uint opcode = words[index] & 0xFFFF;
+        if (instruction_word_count == 0 || index + instruction_word_count > word_count) break;
+        if (opcode == op_entry_point && words[index + 1] == execution_model_gl_compute) {
+            is_compute = ZEST_TRUE;
+        } else if (opcode == op_variable && instruction_word_count >= 4 && words[index + 3] == storage_class_storage_buffer && words[index + 2] < id_bound) {
             is_storage_buffer[words[index + 2]] = 1;
         }
         index += instruction_word_count;
     }
-    for (zest_uint index = header_word_count; index < word_count;) {
-        zest_uint instruction_word_count = words[index] >> 16;
-        if (instruction_word_count == 0) break;
-        if ((words[index] & 0xFFFF) == op_decorate && instruction_word_count == 3 && words[index + 2] == decoration_non_writable && words[index + 1] < id_bound && is_storage_buffer[words[index + 1]]) {
-            words[index] = op_nop;
-            words[index + 1] = op_nop;
-            words[index + 2] = op_nop;
+    zest_uint write_index = word_count;
+    if (is_compute && index == word_count) {
+        write_index = header_word_count;
+        for (index = header_word_count; index < word_count;) {
+            zest_uint instruction_word_count = words[index] >> 16;
+            zest_bool strip = (words[index] & 0xFFFF) == op_decorate && instruction_word_count == 3 && words[index + 2] == decoration_non_writable
+                && words[index + 1] < id_bound && is_storage_buffer[words[index + 1]];
+            if (!strip) {
+                memmove(words + write_index, words + index, instruction_word_count * sizeof(zest_uint));
+                write_index += instruction_word_count;
+            }
+            index += instruction_word_count;
         }
-        index += instruction_word_count;
     }
     zest_FreeMemory(device, is_storage_buffer);
+    return write_index;
 }
 #endif
 
@@ -1185,7 +1197,8 @@ ZEST_PRIVATE inline VkResult zest__vk_create_shader_module(zest_device device, c
     //Patch a copy, the shader's binary can be saved out and used on other platforms
     zest_uint *patched_code = (zest_uint*)zest_AllocateMemory(device, create_info.codeSize);
     memcpy(patched_code, code, create_info.codeSize);
-    zest__strip_storage_buffer_non_writable(device, patched_code, (zest_uint)(create_info.codeSize / sizeof(zest_uint)));
+    zest_uint patched_word_count = zest__strip_compute_storage_buffer_non_writable(device, patched_code, (zest_uint)(create_info.codeSize / sizeof(zest_uint)));
+    create_info.codeSize = patched_word_count * sizeof(zest_uint);
     create_info.pCode = patched_code;
     VkResult result = vkCreateShaderModule(device->backend->logical_device, &create_info, &device->backend->allocation_callbacks, shader_module);
     zest_FreeMemory(device, patched_code);
