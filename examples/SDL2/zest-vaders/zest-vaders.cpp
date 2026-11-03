@@ -1090,7 +1090,7 @@ void DrawVaderBullets(VadersGame *game, zest_layer layer, float lerp) {
 }
 
 void ResetGame(VadersGame *game) {
-	tfx_ClearStage(game->game_pm, false, false);
+	tfx_ClearStage(game->game_pm, false);
 	game->vaders[game->current_buffer].clear();
 	game->big_vaders[game->current_buffer].clear();
 	game->player_bullets[game->current_buffer].clear();
@@ -1259,7 +1259,7 @@ void VadersGame::Update(float ellapsed) {
 						//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
 						//by restarting the effect instead.
 						tfx_HardExpireEffect(title_pm, title_index);
-						tfx_ClearStage(title_pm, false, false);
+						tfx_ClearStage(title_pm, false);
 						title_index = tfx_AddEffectTemplateToStage(title_pm, title);
 						if (tfx_EffectIDIsValid(title_index)) {
 							zest_vec3 title_position = ScreenRay(context, zest_ScreenWidthf(context) * .5f, zest_ScreenHeightf(context) * .25f, 4.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);

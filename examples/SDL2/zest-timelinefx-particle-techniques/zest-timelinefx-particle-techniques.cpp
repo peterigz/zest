@@ -156,7 +156,7 @@ void InitStage(tfxParticleTechniquesExample *example, zest_shader_handle particl
 }
 
 void ClearStage(tfxParticleTechniquesExample *example) {
-	tfx_ClearStage(example->stage, false, false);
+	tfx_ClearStage(example->stage, false);
 	AddStageEffects(example);
 	zest_tfx_ResetGPUParticleDraws(&example->gpu_particles);
 }
