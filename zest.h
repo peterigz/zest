@@ -18132,6 +18132,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
     zest_image_info_t description = ZEST__ZERO_INIT(zest_image_info_t);
     description.extent.width = info->width ? info->width : zest_ScreenWidth(context);
     description.extent.height = info->height ? info->height : zest_ScreenHeight(context);
+    description.extent.depth = 1;
     description.sample_count = (info->usage_hints & zest_resource_usage_hint_msaa) ? context->device->platform->get_msaa_sample_count(context) : zest_sample_count_1_bit;
     description.mip_levels = info->mip_levels ? info->mip_levels : 1;
     description.layer_count = info->layer_count ? info->layer_count : 1;
