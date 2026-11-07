@@ -1,5 +1,5 @@
 library_version=94
-file_version=8
+file_version=9
 16776966
 Flare2.png,0,1,128,128,4,16851209279328878835
 Glow1.png,0,1,256,256,4,6814428025858547285
@@ -12,8 +12,10 @@ specks.png,0,4,128,128,4,16443432557840395882
 vaders_cloud_1.png,0,64,256,256,2,12046302402400125509
 16776967
 16777007
-2,0,Layer 2
-3,0,Layer 3
+0,0,0,Default
+1,1,0,Depth
+2,0,0,Layer 2
+3,0,0,Layer 3
 16777008
 16776960
 name=Player Bullet
