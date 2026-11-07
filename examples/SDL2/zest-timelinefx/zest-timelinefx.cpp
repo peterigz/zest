@@ -110,6 +110,9 @@ void TimelineFXExample::Init() {
 	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
 	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
+	//Optional: draws the library's layers that write depth and lit layers as the editor does
+	zest_tfx_layer_shaders_t layer_shaders = CreateTimelineFXLayerShaders(shader_session);
+	zest_tfx_InitLayerPipelines(&tfx_rendering, &layer_shaders);
 	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
 	tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&tfx_rendering.camera, 60.f);

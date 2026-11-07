@@ -3,6 +3,8 @@
 //Every TimelineFX shader is an entry point in the one Slang module that ships with the library, compiled here at start up.
 //Include after zest.h in the file that defines ZEST_IMPLEMENTATION.
 
+#include "impl_timelinefx.h"
+
 #define TIMELINEFX_SHADER_SEARCH_PATH "submodules/timelinefxlib/Shaders"
 #define TIMELINEFX_SHADER_MODULE "timelinefx"
 
@@ -48,6 +50,20 @@ inline zest_slang_session CreateTimelineFXShaderSession(zest_device device) { re
 inline zest_shader_handle CreateTimelineFXShader(zest_slang_session session, const char *entry_point, zest_shader_type type) { return zest_shader_handle{}; }
 inline void FreeTimelineFXShaderSession(zest_device device, zest_slang_session session) {}
 #endif
+
+//The entry points zest_tfx_InitLayerPipelines draws layers that write depth and lit layers with
+inline zest_tfx_layer_shaders_t CreateTimelineFXLayerShaders(zest_slang_session session) {
+	zest_tfx_layer_shaders_t shaders = {};
+	shaders.billboard_cutout_fragment = CreateTimelineFXShader(session, "tfx_billboard_cutout_fragment", zest_fragment_shader);
+	shaders.billboard_lit_vertex = CreateTimelineFXShader(session, "tfx_billboard_lit_vertex", zest_vertex_shader);
+	shaders.billboard_lit_fragment = CreateTimelineFXShader(session, "tfx_billboard_lit_fragment", zest_fragment_shader);
+	shaders.billboard_lit_cutout_fragment = CreateTimelineFXShader(session, "tfx_billboard_lit_cutout_fragment", zest_fragment_shader);
+	shaders.ribbon_cutout_fragment = CreateTimelineFXShader(session, "tfx_ribbon_cutout_fragment", zest_fragment_shader);
+	shaders.ribbon_lit_vertex = CreateTimelineFXShader(session, "tfx_ribbon_lit_vertex", zest_vertex_shader);
+	shaders.ribbon_lit_fragment = CreateTimelineFXShader(session, "tfx_ribbon_lit_fragment", zest_fragment_shader);
+	shaders.ribbon_lit_cutout_fragment = CreateTimelineFXShader(session, "tfx_ribbon_lit_cutout_fragment", zest_fragment_shader);
+	return shaders;
+}
 
 inline bool TimelineFXShadersAvailable(const char *example_name) {
 #ifdef ZEST_ENABLE_SLANG

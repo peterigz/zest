@@ -19,6 +19,14 @@ typedef struct tfx_push_constants_s {
 	tfxU32 uniform_index;
 } tfx_push_constants_t;
 
+//The light lit layers are drawn with, laid out as TimelineFX's tfx_view_light_t
+typedef struct zest_tfx_light_s {
+	zest_vec4 direction;				//Unit length, towards the light
+	zest_vec4 color;					//Times its intensity
+	zest_vec4 sky_color;
+	zest_vec4 ground_color;
+} zest_tfx_light_t;
+
 typedef struct tfx_uniform_buffer_data_t {
     zest_matrix4 view;
     zest_matrix4 proj;
@@ -26,10 +34,13 @@ typedef struct tfx_uniform_buffer_data_t {
 	zest_uint millisecs;
     float timer_lerp;
     float update_time;
+	float light_padding[3];
+	zest_tfx_light_t light;				//At tfxVIEW_LIGHT_OFFSET, where the lit fragments read it
 } tfx_uniform_buffer_data_t;
 
 typedef struct tfx_ribbon_rendering_t {
 	zest_pipeline_template pipeline;
+	zest_pipeline_template layer_pipelines[2][2];	//By [writes depth][lit], every one pipeline until zest_tfx_InitLayerPipelines
 	zest_shader_handle vert_shader;
 	zest_shader_handle frag_shader;
 	zest_shader_handle comp_shader;
@@ -40,7 +51,20 @@ typedef struct tfx_particle_rendering_t {
 	zest_shader_handle frag_shader;
 	zest_shader_handle vert_shader;
 	zest_pipeline_template pipeline;
+	zest_pipeline_template layer_pipelines[2][2];	//By [writes depth][lit], every one pipeline until zest_tfx_InitLayerPipelines
 } tfx_particle_rendering_t;
+
+//The timelinefx.slang entry points zest_tfx_InitLayerPipelines draws layers that write depth and lit layers with
+typedef struct zest_tfx_layer_shaders_s {
+	zest_shader_handle billboard_cutout_fragment;		//tfx_billboard_cutout_fragment
+	zest_shader_handle billboard_lit_vertex;			//tfx_billboard_lit_vertex
+	zest_shader_handle billboard_lit_fragment;			//tfx_billboard_lit_fragment
+	zest_shader_handle billboard_lit_cutout_fragment;	//tfx_billboard_lit_cutout_fragment
+	zest_shader_handle ribbon_cutout_fragment;			//tfx_ribbon_cutout_fragment
+	zest_shader_handle ribbon_lit_vertex;				//tfx_ribbon_lit_vertex
+	zest_shader_handle ribbon_lit_fragment;				//tfx_ribbon_lit_fragment
+	zest_shader_handle ribbon_lit_cutout_fragment;		//tfx_ribbon_lit_cutout_fragment
+} zest_tfx_layer_shaders_t;
 
 typedef struct tfx_global_library_buffers_t {
 	zest_buffer lookup_buffer[ZEST_MAX_FIF];
@@ -95,6 +119,7 @@ typedef struct tfx_library_render_resources_s {
 	zest_uint sampler_index;
 	zest_uint particle_properties_index;
 	zest_uniform_buffer_handle uniform_buffer;
+	zest_tfx_light_t light;				//Copied into the uniform buffer by zest_tfx_UpdateUniformBuffer
 	zest_buffer particle_properties;
 	zest_buffer image_data;
 	zest_camera_t camera;
@@ -173,9 +198,10 @@ typedef struct tfx_gpu_particle_renderer_t {
 	tfx_gpu_particle_push_t push;
 	zest_uint pending_dispatch_count;
 	zest_bool layer_upload_pending;
-	tfx_instance_key_range_t *key_ranges;				//Every layer's ranges in draw order
+	tfx_instance_key_range_t *key_ranges;				//Every layer's ranges, layer by layer
 	zest_uint key_range_count;
 	zest_uint key_range_capacity;
+	zest_uint layer_key_range_end[tfxLAYERS];			//Where each layer's ranges end in key_ranges
 } tfx_gpu_particle_renderer_t;
 
 #ifdef __cplusplus
@@ -186,6 +212,11 @@ extern "C" {
 
 //Initialise the render resources needed for TimelineFX rendering including pipelines, shaders, layer and uniform buffer.
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp);
+//Optional, once after zest_tfx_InitTimelineFXRenderResources: draw each layer by its tfx_GetLayerFlags, those that write depth first as
+//opaque cutouts, and lit layers under the resources' light. Without it every layer draws blended and unlit, in index order. The flags
+//come from the resources' library, so on resources switched to zest_tfx_UseGlobalLibraryData set library to one whose layers every library shares.
+//For resources that draw live billboards, not tfx_billboard_baked_vertex.
+void zest_tfx_InitLayerPipelines(tfx_library_render_resources_t *render_resources, const zest_tfx_layer_shaders_t *shaders);
 //Free everything zest_tfx_InitTimelineFXRenderResources and the library loading functions created, including the library images.
 //The shaders are left alone since they were passed in. Free the ribbon and GPU particle renderers using these resources first,
 //and call it between frames, before the context is destroyed. Waits for the device to go idle if the pipelines were used.
@@ -307,6 +338,8 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
 
 //-- Frame graph pass callbacks --
 
+//The draws put layers that write depth first within their own pass, so a ribbon on one still draws after every billboard and hides a
+//blended billboard in front of it
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
