@@ -43,8 +43,6 @@ struct billboard_instance_t {         //56 bytes
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	bool draw_timeline_fx;
-	bool draw_sprites;
 	bool draw_ribbons;
 };
 
@@ -339,6 +337,9 @@ void VadersGame::Init() {
 	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
 	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(context, &tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
+	//Draws the library's layers that write depth and lit layers as the editor does
+	zest_tfx_layer_shaders_t layer_shaders = CreateTimelineFXLayerShaders(shader_session);
+	zest_tfx_InitLayerPipelines(&tfx_rendering, &layer_shaders);
 	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
 	tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&tfx_rendering.camera, 60.f);
@@ -1105,29 +1106,35 @@ void ResetGame(VadersGame *game) {
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_stage pm, VadersGame *game, zest_layer layer) {
-	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_StartInstanceDrawing(layer, game->tfx_rendering.particles.pipeline);
-	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
-	zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, tfx_GetInstanceCount(pm));
+	zest_tfx_RenderParticles(pm, &game->tfx_rendering);
 	int fif = zest_GetLayerFrameInFlight(layer);
 	game->index_offset[fif ^ 1] = zest_GetInstanceLayerCount(layer);
 }
 
+//The pipeline zest_tfx_InitLayerPipelines made for the layer's flags
+zest_pipeline_template LayerPipeline(VadersGame *game, tfxU32 layer_index) {
+	tfxLayerFlags flags = tfx_GetLayerFlags(game->library, layer_index);
+	return game->tfx_rendering.particles.layer_pipelines[(flags & tfxLayerFlags_writes_depth) != 0][(flags & tfxLayerFlags_lit) != 0];
+}
+
 //Render the particles by effect
 void RenderEffectParticles(tfx_stage pm, VadersGame *game, zest_layer layer) {
-	//Let our renderer know that we want to draw to the timelinefx layer.
-	zest_StartInstanceDrawing(layer, game->tfx_rendering.particles.pipeline);
-
-	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
-	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
-	tfx_push_constants_t *push = (tfx_push_constants_t *)zest_GetLayerPushConstants(layer);
 	int fif = zest_GetLayerFrameInFlight(layer);
-	push->index_offset += game->index_offset[fif];
-
+	zest_pipeline_template current_pipeline = NULL;
 	tfx_instance_t *billboards = nullptr;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
-	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	const tfxU32 layer_count = tfx_GetLayerCount(game->library);
+	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
+		zest_pipeline_template pipeline = LayerPipeline(game, layer_index);
+		if (pipeline != current_pipeline) {
+			zest_StartInstanceDrawing(layer, pipeline);
+			//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
+			//instances in the layer so that the previous sprite lookup in the shader is aligned properly. Every new instruction needs it.
+			tfx_push_constants_t *push = (tfx_push_constants_t *)zest_GetLayerPushConstants(layer);
+			push->index_offset = game->index_offset[fif];
+			current_pipeline = pipeline;
+		}
 		while (tfx_GetNextInstanceBuffer(pm, layer_index, &billboards, &instance_data, &instance_count)) {
 			zest_draw_buffer_result result = zest_DrawInstanceBuffer(layer, billboards, instance_count);
 		}
@@ -1140,17 +1147,13 @@ void UploadGameLayerData(const zest_command_list command_list, void *user_data) 
 
 	zest_layer font_layer = zest_GetLayer(game->font_layer_handle);
 	zest_layer billboard_layer = zest_GetLayer(game->billboard_layer_handle);
-	zest_layer tfx_layer = zest_GetLayer(game->tfx_rendering.layer);
 	zest_buffer billboard_staging = zest_GetLayerStagingVertexBuffer(billboard_layer);
-	zest_buffer tfx_staging = zest_GetLayerStagingVertexBuffer(tfx_layer);
 	zest_buffer font_staging = zest_GetLayerStagingVertexBuffer(font_layer);
 	zest_buffer billboard_device = zest_GetLayerResourceBuffer(billboard_layer);
-	zest_buffer tfx_device = zest_GetLayerResourceBuffer(tfx_layer);
 	zest_buffer font_device = zest_GetLayerResourceBuffer(font_layer);
 
 	zest_buffer_uploader_t billboard_upload = { 0, billboard_staging, billboard_device, 0 };
 	zest_buffer_uploader_t font_upload = { 0, font_staging, font_device, 0 };
-	zest_buffer_uploader_t tfx_upload = { 0, tfx_staging, tfx_device, 0 };
 
 	zest_size memory_in_use = zest_GetLayerVertexMemoryInUse(billboard_layer);
 	if (memory_in_use && billboard_device) {
@@ -1162,21 +1165,14 @@ void UploadGameLayerData(const zest_command_list command_list, void *user_data) 
 		zest_AddCopyCommand(command_list->context, &font_upload, font_staging, font_device, memory_in_use);
 	}
 
-	memory_in_use = zest_GetLayerVertexMemoryInUse(tfx_layer);
-	if (memory_in_use && tfx_device) {
-		zest_AddCopyCommand(command_list->context, &tfx_upload, tfx_staging, tfx_device, memory_in_use);
-	}
-
 	zest_cmd_UploadBuffer(command_list, &billboard_upload);
 	zest_cmd_UploadBuffer(command_list, &font_upload);
-	zest_cmd_UploadBuffer(command_list, &tfx_upload);
 }
 
 void RenderGameSprites(zest_command_list command_list, void *user_data) {
 	VadersGame *game = (VadersGame*)user_data;
 	zest_layer billboard_layer = zest_GetLayer(game->billboard_layer_handle);
 	zest_layer font_layer = zest_GetLayer(game->font_layer_handle);
-	zest_tfx_DrawParticleLayer(command_list, &game->tfx_rendering);
 	zest_DrawInstanceLayer(command_list, billboard_layer);
 	zest_DrawInstanceLayer(command_list, font_layer);
 }
@@ -1349,8 +1345,6 @@ void VadersGame::Update(float ellapsed) {
 		}
 
 		cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&imgui);
-		cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
-		cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
 		cache_info.draw_ribbons = zest_tfx_HasRibbonsToDraw(&ribbon_renderer);
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(context, &cache_info, sizeof(RenderCacheInfo));
@@ -1366,17 +1360,18 @@ void VadersGame::Update(float ellapsed) {
 			if (zest_BeginFrameGraph(context, "TimelineFX Render Graph", &cache_key)) {
 				//zest_WaitForSignal(tfx_rendering.timeline, 100000);
 				//---------------------------------Resources-------------------------------------------------------
-				zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_layer, false);
-				zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_layer, true);
 				zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboards", billboard_layer, false);
 				zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Fonts", font_layer, false);
 				zest_ImportSwapchainResource();
 				//--------------------------------------------------------------------------------------------------
 
+				//------------------------ Particles Pass ----------------------------------------------------------
+				//Uploads the particle layer and draws it with the ribbons in one pass, under the game sprites
+				zest_tfx_AddParticlesAndRibbonsToFrameGraph(&ribbon_renderer, NULL, 0);
+				//--------------------------------------------------------------------------------------------------
+
 				//-------------------------Game Transfer Pass-------------------------------------------------
 				zest_BeginTransferPass("Upload layers"); {
-					zest_ConnectOutput(tfx_write_layer);
-					zest_ConnectOutput(tfx_read_layer);
 					zest_ConnectOutput(billboard_layer_resource);
 					zest_ConnectOutput(font_layer_resources);
 					zest_SetPassTask(UploadGameLayerData, this);
@@ -1385,18 +1380,12 @@ void VadersGame::Update(float ellapsed) {
 				//--------------------------------------------------------------------------------------------------
 
 				//------------------------ Sprites Pass -----------------------------------------------------------
-				zest_BeginRenderPass("Particles Pass"); {
-					zest_ConnectInput(tfx_write_layer);
-					zest_ConnectInput(tfx_read_layer);
+				zest_BeginRenderPass("Sprites Pass"); {
 					zest_ConnectInput(billboard_layer_resource);
 					zest_ConnectInput(font_layer_resources);
 					zest_SetPassTask(RenderGameSprites, this);
 					zest_ConnectSwapChainOutput();
 					zest_EndPass();
-				}
-
-				if (cache_info.draw_ribbons) {
-					zest_tfx_AddRibbonsToFrameGraph(&ribbon_renderer, 0);
 				}
 				//----------------------------------------------------------------------------------------------------
 

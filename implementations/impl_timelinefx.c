@@ -953,6 +953,11 @@ static tfxLayerFlags zest__tfx_layer_flags(const tfx_library_render_resources_t 
 	return tfx_GetLayerFlags(resources->library, layer);
 }
 
+//Without a library every layer is drawn as layer 0
+static tfxU32 zest__tfx_layer_count(const tfx_library_render_resources_t *resources) {
+	return resources->library ? tfx_GetLayerCount(resources->library) : tfxLAYERS;
+}
+
 static zest_bool zest__tfx_writes_depth(tfxLayerFlags flags) {
 	return (flags & tfxLayerFlags_writes_depth) != 0;
 }
@@ -1417,7 +1422,8 @@ void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *reso
 	zest__tfx_report_stale_gpu_data(resources, NULL);
 	zest_layer layer = zest_GetLayer(resources->layer);
 	zest_pipeline_template current_pipeline = NULL;
-	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	const tfxU32 layer_count = zest__tfx_layer_count(resources);
+	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
 		tfxU32 instance_count = tfx_GetInstanceCountByLayer(pm, layer_index);
 		if (!instance_count) continue;
 		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, zest__tfx_layer_flags(resources, layer_index));
@@ -1438,7 +1444,8 @@ void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
 	//The instance buffer is grouped by layer, so loop over the effects once per layer to get each instance buffer to render
-	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	const tfxU32 layer_count = zest__tfx_layer_count(resources);
+	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
 		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, zest__tfx_layer_flags(resources, layer_index));
 		if (pipeline != current_pipeline) {
 			zest_StartInstanceDrawing(layer, pipeline);
@@ -1531,8 +1538,10 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 static void zest__tfx_draw_ribbon_group(const zest_command_list command_list, tfx_ribbon_renderer_t *renderer, zest_bool depth_group, zest_pipeline_template *bound_pipeline) {
 	tfx_library_render_resources_t *render_resources = renderer->render_resources;
 	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(render_resources);
-	tfxLayerFlags layer_flags[tfxLAYERS];
-	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	//A dispatch can be on any layer when the stage holds effects from a library with more layers
+	tfxLayerFlags layer_flags[tfxLAYERS] = { 0 };
+	const tfxU32 layer_count = zest__tfx_layer_count(render_resources);
+	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
 		layer_flags[layer_index] = zest__tfx_layer_flags(render_resources, layer_index);
 	}
 	zest_bool buffers_bound = ZEST_FALSE;
@@ -1690,8 +1699,9 @@ void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer) {
 //Without a fetched frame the kernel doesn't write the GPU instances, so only the CPU ranges are kept
 static void zest__tfx_record_key_ranges(tfx_gpu_particle_renderer_t *renderer, zest_bool has_gpu_frame) {
 	renderer->key_range_count = 0;
+	renderer->layer_count = zest__tfx_layer_count(renderer->render_resources);
 	tfx_instance_key_range_t range;
-	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	for (zest_uint layer_index = 0; layer_index != renderer->layer_count; ++layer_index) {
 		tfx_ResetInstanceBufferLoopIndex(renderer->stage);
 		while (tfx_GetNextInstanceKeyRange(renderer->stage, layer_index, &range)) {
 			if (!has_gpu_frame) {
@@ -1825,7 +1835,7 @@ static void zest__tfx_draw_key_ranges(const zest_command_list command_list, tfx_
 
 	zest_bool buffers_bound = ZEST_FALSE;
 	zest_uint range_begin = 0;
-	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+	for (zest_uint layer_index = 0; layer_index != renderer->layer_count; ++layer_index) {
 		zest_uint range_end = renderer->layer_key_range_end[layer_index];
 		tfxLayerFlags flags = zest__tfx_layer_flags(resources, layer_index);
 		zest_uint first_range = range_begin;

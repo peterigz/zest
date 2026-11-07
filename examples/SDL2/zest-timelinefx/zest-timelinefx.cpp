@@ -23,7 +23,6 @@ typedef unsigned int u32;
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	bool draw_timeline_fx;
 	bool has_title_ribbons;
 };
 
@@ -348,16 +347,14 @@ void MainLoop(TimelineFXExample *game) {
 			}
 
 			game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw(&game->imgui);
-			game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_layer) > 0;
 			game->cache_info.has_title_ribbons = zest_tfx_HasRibbonsToDraw(&game->ribbon_renderer);
 			zest_frame_graph_cache_key_t cache_key = {};
 			cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
 
 			zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering, game->pm);
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
-			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, 0);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
 			if (!frame_graph) {
-				zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(game->tfx_rendering.uniform_buffer);
 				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					zest_ImportSwapchainResource();

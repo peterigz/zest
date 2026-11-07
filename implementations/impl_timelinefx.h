@@ -203,6 +203,7 @@ typedef struct tfx_gpu_particle_renderer_t {
 	zest_uint key_range_count;
 	zest_uint key_range_capacity;
 	zest_uint layer_key_range_end[tfxLAYERS];			//Where each layer's ranges end in key_ranges
+	zest_uint layer_count;								//The library's layer count when the ranges were recorded
 } tfx_gpu_particle_renderer_t;
 
 #ifdef __cplusplus
