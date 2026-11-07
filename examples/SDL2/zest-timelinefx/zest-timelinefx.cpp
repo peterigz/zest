@@ -360,40 +360,11 @@ void MainLoop(TimelineFXExample *game) {
 				zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(game->tfx_rendering.uniform_buffer);
 				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
 					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
-					//If there was no imgui data to render then zest_imgui_BeginPass will return false
-					//Import our test texture with the Bunny sprite
-					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", tfx_layer, false);
-					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", tfx_layer, true);
 					zest_ImportSwapchainResource();
 
-					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-					zest_BeginTransferPass("Upload TFX Pass"); {
-						//Outputs
-						//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
-						//propertly transitioned to the graphics queue (who releases it after each frame)
-						zest_ConnectOutput(tfx_write_layer);
-						zest_ConnectOutput(tfx_read_layer);
-						//Tasks
-						zest_SetPassTask(zest_UploadInstanceLayerData, tfx_layer);
-						zest_EndPass();
-					}
-					//--------------------------------------------------------------------------------------------------
-
-					//------------------------ Graphics Pass -----------------------------------------------------------
-					zest_BeginRenderPass("Graphics Pass"); {
-						//Inputs
-						zest_ConnectInput(tfx_write_layer);
-						zest_ConnectInput(tfx_read_layer);
-						//Outputs
-						zest_ConnectSwapChainOutput();
-						//Tasks
-						zest_SetPassTask(zest_tfx_DrawParticleLayer, &game->tfx_rendering);
-						zest_EndPass();
-					}
-
-					if (game->cache_info.has_title_ribbons) {
-						zest_tfx_AddRibbonsToFrameGraph(&game->ribbon_renderer, 0);
-					}
+					//Uploads the layer zest_tfx_RenderParticles filled and draws it with the ribbons in one pass, so whatever is on a layer
+					//that writes depth, billboard or ribbon, hides the blended particles behind it
+					zest_tfx_AddParticlesAndRibbonsToFrameGraph(&game->ribbon_renderer, NULL, 0);
 
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&game->imgui, game->imgui.main_viewport); {

@@ -173,6 +173,7 @@ typedef struct tfx_ribbon_renderer_t {
 	tfx_stage stages[ZEST_TFX_MAX_RIBBON_STAGES];
 	tfx_ribbon_batch_offsets_t stage_offsets[ZEST_TFX_MAX_RIBBON_STAGES];
 	float stage_lerps[ZEST_TFX_MAX_RIBBON_STAGES];	//Each stage's tfx_GetStageInterpolation when it was added
+	struct tfx_gpu_particle_renderer_t *particle_renderer;	//Set by zest_tfx_AddParticlesAndRibbonsToFrameGraph
 } tfx_ribbon_renderer_t;
 
 #define TFX_GPU_PARTICLE_UPLOAD_BUFFER_NAME "GPU Particle Upload"
@@ -310,6 +311,12 @@ void zest_tfx_ResetGPUParticleDraws(tfx_gpu_particle_renderer_t *renderer);
 //resources live: freeing either flushes the context's cached frame graphs.
 void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer, zest_resource_node output_resource);
 
+//In place of zest_tfx_AddGPUParticlesToFrameGraph and zest_tfx_AddRibbonsToFrameGraph: the billboards and ribbons of layers that write depth
+//first, then the blended ones, in one pass, so an opaque ribbon doesn't hide a blended billboard in front of it. With a NULL particle_renderer
+//it uploads and draws the ribbon renderer's render resources' layer as zest_tfx_RenderParticles filled it. The ribbon passes are only added
+//when zest_tfx_HasRibbonsToDraw, so keep that in the cache key.
+void zest_tfx_AddParticlesAndRibbonsToFrameGraph(tfx_ribbon_renderer_t *ribbon_renderer, tfx_gpu_particle_renderer_t *particle_renderer, zest_resource_node output_resource);
+
 //What a call to zest_tfx_RefreshLibrary did. The tfx result's lists point into the library and stay valid
 //until the next refresh of that library.
 typedef struct tfx_library_refresh_t {
@@ -338,9 +345,10 @@ void zest_tfx_FreeLibraryImages(tfx_library_render_resources_t *resources);
 
 //-- Frame graph pass callbacks --
 
-//The draws put layers that write depth first within their own pass, so a ribbon on one still draws after every billboard and hides a
-//blended billboard in front of it
+//Each draw puts layers that write depth first within its own pass, so a ribbon on one still draws after every billboard and hides a blended
+//billboard in front of it, unless both are drawn by zest_tfx_DrawParticlesAndRibbons (user_data is the ribbon renderer)
 void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data);
+void zest_tfx_DrawParticlesAndRibbons(const zest_command_list command_list, void *user_data);
 void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_data);
 void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *user_data);
 void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data);

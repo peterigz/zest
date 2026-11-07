@@ -1,4 +1,4 @@
-library_version=92
+library_version=93
 file_version=8
 16776966
 Flare2.png,0,1,128,128,4,16851209279328878835
@@ -11231,7 +11231,7 @@ sort_passes=1
 noise_base_offset_range=1000.000000
 loop_length=0.000000
 warmup_time=0.000000
-version=64
+version=65
 emitter_handle_x=0.000000
 emitter_handle_y=0.000000
 emitter_handle_z=0.000000
@@ -11380,7 +11380,7 @@ single_shot_limit=0
 single_decay_amount=0
 single_decay_time=1000.000000
 single_decay_shape=1.000000
-layer=1
+layer=0
 image_handle_x=0.500000
 image_handle_y=0.500000
 end_behaviour=0

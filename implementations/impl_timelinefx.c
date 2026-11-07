@@ -1363,48 +1363,52 @@ void zest_tfx_UseGlobalLibraryData(tfx_library_render_resources_t *resources, tf
 	resources->global_library_data = global_buffers;
 }
 
-void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
-	tfx_library_render_resources_t *tfx_resources = (tfx_library_render_resources_t *)user_data;
-	zest_layer layer = zest_GetLayer(tfx_resources->layer);
+//The draw helpers take one group, the layers that write depth or the blended ones, and share the bound pipeline so billboards and ribbons can
+//alternate in one pass. Each binds its buffers before its first draw, since the other kind binds its own in between.
 
-	zest_buffer device_buffer = zest_GetLayerVertexBuffer(layer);
-	zest_cmd_BindVertexBuffer(command_list, 0, 1, device_buffer);
-
-	zest_pipeline current_pipeline = 0;
-	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(tfx_resources->uniform_buffer);
-	const tfx_particle_rendering_t *particles = &tfx_resources->particles;
-
+static void zest__tfx_draw_layer_instructions(const zest_command_list command_list, tfx_library_render_resources_t *resources, zest_bool depth_group, zest_pipeline_template *bound_pipeline) {
+	zest_layer layer = zest_GetLayer(resources->layer);
+	const tfx_particle_rendering_t *particles = &resources->particles;
+	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(resources);
+	zest_uint uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(resources->uniform_buffer));
+	zest_bool buffers_bound = ZEST_FALSE;
 	zest_uint instruction_count = zest_GetLayerInstructionCount(layer);
-	//Instructions with a pipeline that writes depth first, so they hide the blended particles behind them
-	for (int group = 0; group != 2; ++group) {
-		for (zest_uint instruction_index = 0; instruction_index != instruction_count; ++instruction_index) {
-			zest_layer_instruction_t *current = zest_GetLayerInstruction(layer, instruction_index);
-			zest_pipeline_template pipeline_template = current->pipeline_template;
-			zest_bool writes_depth = pipeline_template != particles->pipeline && (pipeline_template == particles->layer_pipelines[1][0] || pipeline_template == particles->layer_pipelines[1][1]);
-			if (writes_depth != (group == 0)) continue;
-
-			zest_cmd_LayerViewport(command_list, layer);
-
+	for (zest_uint instruction_index = 0; instruction_index != instruction_count; ++instruction_index) {
+		zest_layer_instruction_t *current = zest_GetLayerInstruction(layer, instruction_index);
+		zest_pipeline_template pipeline_template = current->pipeline_template;
+		zest_bool writes_depth = pipeline_template != particles->pipeline && (pipeline_template == particles->layer_pipelines[1][0] || pipeline_template == particles->layer_pipelines[1][1]);
+		if (writes_depth != depth_group) continue;
+		if (pipeline_template != *bound_pipeline) {
 			zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
 			if (!pipeline) continue;
-			if (current_pipeline != pipeline) {
-				current_pipeline = pipeline;
-				zest_cmd_BindPipeline(command_list, pipeline);
-			}
-
-			zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(tfx_resources);
-			tfx_push_constants_t *push_constants = (tfx_push_constants_t *)current->push_constant;
-			push_constants->color_ramp_texture_index = draw_indexes.color_ramps;
-			push_constants->sampler_index = tfx_resources->sampler_index;
-			push_constants->image_data_index = draw_indexes.image_data;
-			push_constants->particle_properties_index = draw_indexes.particle_properties;
-			push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
-			push_constants->uniform_index = zest_GetUniformBufferDescriptorIndex(uniform_buffer);
-
-			zest_cmd_SendPushConstants(command_list, push_constants, sizeof(tfx_push_constants_t));
-
-			zest_cmd_DrawLayerInstruction(command_list, 6, current);
+			zest_cmd_BindPipeline(command_list, pipeline);
+			*bound_pipeline = pipeline_template;
 		}
+		if (!buffers_bound) {
+			zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetLayerVertexBuffer(layer));
+			zest_cmd_LayerViewport(command_list, layer);
+			buffers_bound = ZEST_TRUE;
+		}
+
+		tfx_push_constants_t *push_constants = (tfx_push_constants_t *)current->push_constant;
+		push_constants->color_ramp_texture_index = draw_indexes.color_ramps;
+		push_constants->sampler_index = resources->sampler_index;
+		push_constants->image_data_index = draw_indexes.image_data;
+		push_constants->particle_properties_index = draw_indexes.particle_properties;
+		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
+		push_constants->uniform_index = uniform_index;
+		zest_cmd_SendPushConstants(command_list, push_constants, sizeof(tfx_push_constants_t));
+
+		zest_cmd_DrawLayerInstruction(command_list, 6, current);
+	}
+}
+
+void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user_data) {
+	tfx_library_render_resources_t *resources = (tfx_library_render_resources_t *)user_data;
+	zest_pipeline_template bound_pipeline = NULL;
+	//Instructions with a pipeline that writes depth first, so they hide the blended particles behind them
+	for (int group = 0; group != 2; ++group) {
+		zest__tfx_draw_layer_instructions(command_list, resources, group == 0, &bound_pipeline);
 	}
 }
 
@@ -1523,47 +1527,51 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 	}
 }
 
-void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data) {
-	tfx_ribbon_renderer_t *renderer = (tfx_ribbon_renderer_t *)user_data;
-	if (!zest_tfx_HasRibbonsToDraw(renderer)) return;
+//Every bucket is walked, because each dispatch carries the offsets to the next
+static void zest__tfx_draw_ribbon_group(const zest_command_list command_list, tfx_ribbon_renderer_t *renderer, zest_bool depth_group, zest_pipeline_template *bound_pipeline) {
 	tfx_library_render_resources_t *render_resources = renderer->render_resources;
-
-	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
-	zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetPassInputBuffer(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME));
-	zest_cmd_BindIndexBuffer(command_list, zest_GetPassInputBuffer(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
-
-	zest_layer layer = zest_GetLayer(render_resources->layer);
-	zest_cmd_LayerViewport(command_list, layer);
 	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(render_resources);
-
 	tfxLayerFlags layer_flags[tfxLAYERS];
 	for (tfxU32 layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
 		layer_flags[layer_index] = zest__tfx_layer_flags(render_resources, layer_index);
 	}
-
-	zest_pipeline_template bound_pipeline = NULL;
-	//The buckets on layers that write depth first. Every bucket is walked in both, because each dispatch carries the offsets to the next
-	for (int group = 0; group != 2; ++group) {
-		for (zest_uint stage_index = 0; stage_index != renderer->batch.stage_count; ++stage_index) {
-			tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonBatchDispatch(&renderer->stage_offsets[stage_index]);
-			while (tfx_NextRibbonDispatch(renderer->stages[stage_index], &ribbon_dispatch)) {
-				tfxLayerFlags flags = layer_flags[ribbon_dispatch.layer];
-				if (zest__tfx_writes_depth(flags) != (group == 0)) continue;
-				zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(render_resources->ribbon_rendering.layer_pipelines, flags);
-				if (pipeline_template != bound_pipeline) {
-					zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
-					if (!pipeline) continue;
-					zest_cmd_BindPipeline(command_list, pipeline);
-					bound_pipeline = pipeline_template;
-				}
-				tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
-				push->sampler_index = render_resources->sampler_index;
-				push->color_ramp_texture_index = draw_indexes.color_ramps;
-				push->image_data_index = draw_indexes.image_data;
-				zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
-				zest_cmd_DrawIndexed(command_list, ribbon_dispatch.index_count, 1, ribbon_dispatch.index_offset, 0, 0);
+	zest_bool buffers_bound = ZEST_FALSE;
+	for (zest_uint stage_index = 0; stage_index != renderer->batch.stage_count; ++stage_index) {
+		tfx_ribbon_dispatch_t ribbon_dispatch = tfx_CreateRibbonBatchDispatch(&renderer->stage_offsets[stage_index]);
+		while (tfx_NextRibbonDispatch(renderer->stages[stage_index], &ribbon_dispatch)) {
+			tfxLayerFlags flags = layer_flags[ribbon_dispatch.layer];
+			if (zest__tfx_writes_depth(flags) != depth_group) continue;
+			zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(render_resources->ribbon_rendering.layer_pipelines, flags);
+			if (pipeline_template != *bound_pipeline) {
+				zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
+				if (!pipeline) continue;
+				zest_cmd_BindPipeline(command_list, pipeline);
+				*bound_pipeline = pipeline_template;
 			}
+			if (!buffers_bound) {
+				//Written by the ribbon compute pass
+				zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetPassInputBuffer(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME));
+				zest_cmd_BindIndexBuffer(command_list, zest_GetPassInputBuffer(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
+				zest_cmd_LayerViewport(command_list, zest_GetLayer(render_resources->layer));
+				buffers_bound = ZEST_TRUE;
+			}
+			tfx_ribbon_bucket_globals_t *push = tfx_GetRibbonDispatchGlobals(&ribbon_dispatch);
+			push->sampler_index = render_resources->sampler_index;
+			push->color_ramp_texture_index = draw_indexes.color_ramps;
+			push->image_data_index = draw_indexes.image_data;
+			zest_cmd_SendPushConstants(command_list, push, sizeof(tfx_ribbon_bucket_globals_t));
+			zest_cmd_DrawIndexed(command_list, ribbon_dispatch.index_count, 1, ribbon_dispatch.index_offset, 0, 0);
 		}
+	}
+}
+
+void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_data) {
+	tfx_ribbon_renderer_t *renderer = (tfx_ribbon_renderer_t *)user_data;
+	if (!zest_tfx_HasRibbonsToDraw(renderer)) return;
+	zest_pipeline_template bound_pipeline = NULL;
+	//The buckets on layers that write depth first
+	for (int group = 0; group != 2; ++group) {
+		zest__tfx_draw_ribbon_group(command_list, renderer, group == 0, &bound_pipeline);
 	}
 }
 
@@ -1575,13 +1583,22 @@ static zest_resource_node zest__tfx_add_ribbon_buffer(tfx_ribbon_renderer_t *ren
 	return node;
 }
 
-void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resource_node output_resource) {
+static void zest__tfx_connect_draw_output(zest_resource_node output_resource) {
+	if (output_resource) {
+		zest_ConnectOutput(output_resource);
+	} else {
+		zest_ConnectSwapChainOutput();
+	}
+}
+
+//The upload and compute passes, giving back the vertex and index buffers the draw reads
+static void zest__tfx_add_ribbon_passes(tfx_ribbon_renderer_t *renderer, zest_resource_node *vertex_buffer, zest_resource_node *index_buffer) {
 	tfx_ribbon_batch_sizes_t sizes = tfx_GetRibbonBatchSizes(&renderer->batch, 0);
 	zest_resource_node segment_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_SEGMENT_BUFFER_NAME, 0, sizes.segment_buffer_size_in_bytes, zest__tfx_ribbon_segment_size);
 	zest_resource_node ribbon_instance_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INSTANCE_BUFFER_NAME, 0, sizes.ribbon_buffer_size_in_bytes, zest__tfx_ribbon_instance_size);
 	zest_resource_node emitter_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_EMITTER_BUFFER_NAME, 0, sizes.emitter_buffer_size_in_bytes, zest__tfx_ribbon_emitter_size);
-	zest_resource_node vertex_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_VERTEX_BUFFER_NAME, zest_resource_usage_hint_vertex_buffer, sizes.vertex_buffer_size_in_bytes, zest__tfx_ribbon_vertex_size);
-	zest_resource_node index_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INDEX_BUFFER_NAME, zest_resource_usage_hint_index_buffer, sizes.index_buffer_size_in_bytes, zest__tfx_ribbon_index_size);
+	*vertex_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_VERTEX_BUFFER_NAME, zest_resource_usage_hint_vertex_buffer, sizes.vertex_buffer_size_in_bytes, zest__tfx_ribbon_vertex_size);
+	*index_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INDEX_BUFFER_NAME, zest_resource_usage_hint_index_buffer, sizes.index_buffer_size_in_bytes, zest__tfx_ribbon_index_size);
 
 	zest_BeginTransferPass("Transfer Ribbon Data"); {
 		zest_ConnectOutput(segment_buffer);
@@ -1595,20 +1612,21 @@ void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resou
 		zest_ConnectInput(segment_buffer);
 		zest_ConnectInput(ribbon_instance_buffer);
 		zest_ConnectInput(emitter_buffer);
-		zest_ConnectOutput(vertex_buffer);
-		zest_ConnectOutput(index_buffer);
+		zest_ConnectOutput(*vertex_buffer);
+		zest_ConnectOutput(*index_buffer);
 		zest_SetPassTask(zest_tfx_RibbonComputeFunction, renderer);
 		zest_EndPass();
 	}
+}
 
+void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resource_node output_resource) {
+	zest_resource_node vertex_buffer;
+	zest_resource_node index_buffer;
+	zest__tfx_add_ribbon_passes(renderer, &vertex_buffer, &index_buffer);
 	zest_BeginRenderPass("Draw Ribbons Pass"); {
 		zest_ConnectInput(vertex_buffer);
 		zest_ConnectInput(index_buffer);
-		if (output_resource) {
-			zest_ConnectOutput(output_resource);
-		} else {
-			zest_ConnectSwapChainOutput();
-		}
+		zest__tfx_connect_draw_output(output_resource);
 		zest_SetPassTask(zest_tfx_RenderRibbons, renderer);
 		zest_EndPass();
 	}
@@ -1793,14 +1811,9 @@ void zest_tfx_SimulateGPUParticles(const zest_command_list command_list, void *u
 	}
 }
 
-void zest_tfx_DrawGPUParticleStage(const zest_command_list command_list, void *user_data) {
-	tfx_gpu_particle_renderer_t *renderer = (tfx_gpu_particle_renderer_t *)user_data;
+static void zest__tfx_draw_key_ranges(const zest_command_list command_list, tfx_gpu_particle_renderer_t *renderer, zest_bool depth_group, zest_pipeline_template *bound_pipeline) {
 	tfx_library_render_resources_t *resources = renderer->render_resources;
 	zest_layer layer = zest_GetLayer(resources->layer);
-
-	zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetLayerVertexBuffer(layer));
-	zest_cmd_LayerViewport(command_list, layer);
-
 	zest__tfx_draw_indexes_t draw_indexes = zest__tfx_get_draw_indexes(resources);
 	tfx_push_constants_t push = { 0 };
 	push.color_ramp_texture_index = draw_indexes.color_ramps;
@@ -1810,41 +1823,72 @@ void zest_tfx_DrawGPUParticleStage(const zest_command_list command_list, void *u
 	push.prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, ZEST_TRUE);
 	push.uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(resources->uniform_buffer));
 
-	zest_pipeline_template bound_pipeline = NULL;
-	//Layers that write depth first, so they hide the blended particles behind them
-	for (int group = 0; group != 2; ++group) {
-		zest_uint range_begin = 0;
-		for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
-			zest_uint range_end = renderer->layer_key_range_end[layer_index];
-			tfxLayerFlags flags = zest__tfx_layer_flags(resources, layer_index);
-			zest_uint first_range = range_begin;
-			range_begin = range_end;
-			if (first_range == range_end || zest__tfx_writes_depth(flags) != (group == 0)) continue;
-			zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, flags);
-			if (pipeline_template != bound_pipeline) {
-				zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
-				if (!pipeline) continue;
-				zest_cmd_BindPipeline(command_list, pipeline);
-				zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_push_constants_t));
-				bound_pipeline = pipeline_template;
+	zest_bool buffers_bound = ZEST_FALSE;
+	zest_uint range_begin = 0;
+	for (zest_uint layer_index = 0; layer_index != tfxLAYERS; ++layer_index) {
+		zest_uint range_end = renderer->layer_key_range_end[layer_index];
+		tfxLayerFlags flags = zest__tfx_layer_flags(resources, layer_index);
+		zest_uint first_range = range_begin;
+		range_begin = range_end;
+		if (first_range == range_end || zest__tfx_writes_depth(flags) != depth_group) continue;
+		zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, flags);
+		if (pipeline_template != *bound_pipeline) {
+			zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
+			if (!pipeline) continue;
+			zest_cmd_BindPipeline(command_list, pipeline);
+			zest_cmd_SendPushConstants(command_list, &push, sizeof(tfx_push_constants_t));
+			*bound_pipeline = pipeline_template;
+		}
+		if (!buffers_bound) {
+			zest_cmd_BindVertexBuffer(command_list, 0, 1, zest_GetLayerVertexBuffer(layer));
+			zest_cmd_LayerViewport(command_list, layer);
+			buffers_bound = ZEST_TRUE;
+		}
+		for (zest_uint range_index = first_range; range_index != range_end; ++range_index) {
+			const tfx_instance_key_range_t *range = &renderer->key_ranges[range_index];
+			if (range->instance_count) {
+				zest_cmd_Draw(command_list, 6, range->instance_count, 0, range->instance_start);
 			}
-			for (zest_uint range_index = first_range; range_index != range_end; ++range_index) {
-				const tfx_instance_key_range_t *range = &renderer->key_ranges[range_index];
-				if (range->instance_count) {
-					zest_cmd_Draw(command_list, 6, range->instance_count, 0, range->instance_start);
-				}
-				if (range->gpu_instance_count) {
-					zest_cmd_Draw(command_list, 6, range->gpu_instance_count, 0, range->gpu_instance_start);
-				}
+			if (range->gpu_instance_count) {
+				zest_cmd_Draw(command_list, 6, range->gpu_instance_count, 0, range->gpu_instance_start);
 			}
 		}
 	}
 }
 
-void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer, zest_resource_node output_resource) {
+void zest_tfx_DrawGPUParticleStage(const zest_command_list command_list, void *user_data) {
+	tfx_gpu_particle_renderer_t *renderer = (tfx_gpu_particle_renderer_t *)user_data;
+	zest_pipeline_template bound_pipeline = NULL;
+	//Layers that write depth first, so they hide the blended particles behind them
+	for (int group = 0; group != 2; ++group) {
+		zest__tfx_draw_key_ranges(command_list, renderer, group == 0, &bound_pipeline);
+	}
+}
+
+void zest_tfx_DrawParticlesAndRibbons(const zest_command_list command_list, void *user_data) {
+	tfx_ribbon_renderer_t *ribbon_renderer = (tfx_ribbon_renderer_t *)user_data;
+	tfx_gpu_particle_renderer_t *particle_renderer = ribbon_renderer->particle_renderer;
+	//A graph built while there were no ribbons has no ribbon buffers
+	zest_bool draw_ribbons = zest_tfx_HasRibbonsToDraw(ribbon_renderer) && zest_GetPassInputBuffer(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME);
+	zest_pipeline_template bound_pipeline = NULL;
+	//Everything on layers that write depth first, so it hides the blended billboards and ribbons behind it
+	for (int group = 0; group != 2; ++group) {
+		if (particle_renderer) {
+			zest__tfx_draw_key_ranges(command_list, particle_renderer, group == 0, &bound_pipeline);
+		} else {
+			zest__tfx_draw_layer_instructions(command_list, ribbon_renderer->render_resources, group == 0, &bound_pipeline);
+		}
+		if (draw_ribbons) {
+			zest__tfx_draw_ribbon_group(command_list, ribbon_renderer, group == 0, &bound_pipeline);
+		}
+	}
+}
+
+//The upload and simulate passes, giving back the layer's instances and previous instances for the draw to read
+static void zest__tfx_add_gpu_particle_passes(tfx_gpu_particle_renderer_t *renderer, zest_resource_node *write_layer, zest_resource_node *read_layer) {
 	zest_layer layer = zest_GetLayer(renderer->render_resources->layer);
-	zest_resource_node write_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_LAYER_NAME, layer, ZEST_FALSE);
-	zest_resource_node read_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_PREVIOUS_LAYER_NAME, layer, ZEST_TRUE);
+	*write_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_LAYER_NAME, layer, ZEST_FALSE);
+	*read_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_PREVIOUS_LAYER_NAME, layer, ZEST_TRUE);
 	zest_resource_node pool = 0;
 	zest_resource_node upload = 0;
 	if (renderer->pool) {
@@ -1857,8 +1901,8 @@ void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer,
 
 	zest_BeginTransferPass("Upload TFX Stage Data"); {
 		//The previous instances are only an output so that they're transitioned for the graphics queue
-		zest_ConnectOutput(write_layer);
-		zest_ConnectOutput(read_layer);
+		zest_ConnectOutput(*write_layer);
+		zest_ConnectOutput(*read_layer);
 		if (upload) {
 			zest_ConnectOutput(upload);
 		}
@@ -1871,21 +1915,58 @@ void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer,
 		zest_BeginComputePass("Simulate TFX GPU Particles"); {
 			zest_ConnectInput(upload);
 			zest_ConnectOutput(pool);
-			zest_ConnectOutput(write_layer);
+			zest_ConnectOutput(*write_layer);
 			zest_SetPassTask(zest_tfx_SimulateGPUParticles, renderer);
 			zest_EndPass();
 		}
 	}
+}
 
+void zest_tfx_AddGPUParticlesToFrameGraph(tfx_gpu_particle_renderer_t *renderer, zest_resource_node output_resource) {
+	zest_resource_node write_layer;
+	zest_resource_node read_layer;
+	zest__tfx_add_gpu_particle_passes(renderer, &write_layer, &read_layer);
 	zest_BeginRenderPass("Draw TFX Stage Particles"); {
 		zest_ConnectInput(write_layer);
 		zest_ConnectInput(read_layer);
-		if (output_resource) {
-			zest_ConnectOutput(output_resource);
-		} else {
-			zest_ConnectSwapChainOutput();
-		}
+		zest__tfx_connect_draw_output(output_resource);
 		zest_SetPassTask(zest_tfx_DrawGPUParticleStage, renderer);
+		zest_EndPass();
+	}
+}
+
+void zest_tfx_AddParticlesAndRibbonsToFrameGraph(tfx_ribbon_renderer_t *ribbon_renderer, tfx_gpu_particle_renderer_t *particle_renderer, zest_resource_node output_resource) {
+	ribbon_renderer->particle_renderer = particle_renderer;
+	zest_resource_node write_layer;
+	zest_resource_node read_layer;
+	if (particle_renderer) {
+		zest__tfx_add_gpu_particle_passes(particle_renderer, &write_layer, &read_layer);
+	} else {
+		zest_layer layer = zest_GetLayer(ribbon_renderer->render_resources->layer);
+		write_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_LAYER_NAME, layer, ZEST_FALSE);
+		read_layer = zest_AddTransientLayerResource(TFX_GPU_PARTICLE_PREVIOUS_LAYER_NAME, layer, ZEST_TRUE);
+		zest_BeginTransferPass("Upload TFX Layer"); {
+			//The previous instances are only an output so that they're transitioned for the graphics queue
+			zest_ConnectOutput(write_layer);
+			zest_ConnectOutput(read_layer);
+			zest_SetPassTask(zest_UploadInstanceLayerData, layer);
+			zest_EndPass();
+		}
+	}
+	zest_resource_node vertex_buffer = NULL;
+	zest_resource_node index_buffer = NULL;
+	if (zest_tfx_HasRibbonsToDraw(ribbon_renderer)) {
+		zest__tfx_add_ribbon_passes(ribbon_renderer, &vertex_buffer, &index_buffer);
+	}
+	zest_BeginRenderPass("Draw TFX Particles and Ribbons"); {
+		zest_ConnectInput(write_layer);
+		zest_ConnectInput(read_layer);
+		if (vertex_buffer) {
+			zest_ConnectInput(vertex_buffer);
+			zest_ConnectInput(index_buffer);
+		}
+		zest__tfx_connect_draw_output(output_resource);
+		zest_SetPassTask(zest_tfx_DrawParticlesAndRibbons, ribbon_renderer);
 		zest_EndPass();
 	}
 }
