@@ -6344,31 +6344,36 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
     zest_uint mip_width = ZEST__MAX(1u, src->image.info.extent.width >> mip_to_copy);
     zest_uint mip_height = ZEST__MAX(1u, src->image.info.extent.height >> mip_to_copy);
 
-    VkImageLayout src_current_layout = (VkImageLayout)(src->journey[src->current_state_index].usage.image_layout);
-    VkImageLayout dst_current_layout = (VkImageLayout)(dst->journey[dst->current_state_index].usage.image_layout);
+    zest_resource_usage_t *src_usage = &src->journey[src->current_state_index].usage;
+    zest_resource_usage_t *dst_usage = &dst->journey[dst->current_state_index].usage;
+    VkImageLayout src_current_layout = zest__to_vk_image_layout(src_usage->image_layout);
+    VkImageLayout dst_current_layout = zest__to_vk_image_layout(dst_usage->image_layout);
+    //The frame graph synchronised each image to this pass's stages, so the copy chains from those or it isn't ordered after earlier writes
+    VkPipelineStageFlags2 src_current_stages = zest__to_vk_pipeline_stage(src_usage->stage_mask);
+    VkPipelineStageFlags2 dst_current_stages = zest__to_vk_pipeline_stage(dst_usage->stage_mask);
+    VkAccessFlags2 src_current_access = zest__to_vk_access_flags(src_usage->access_mask);
+    VkAccessFlags2 dst_current_access = zest__to_vk_access_flags(dst_usage->access_mask);
 
-    //Blit the smallest mip level from the downsampled render target first
-    VkImageMemoryBarrier2 blit_src_barrier = zest__vk_create_image_memory_barrier(src_image,
-        0,
-		VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+    VkImageMemoryBarrier2 copy_barriers[2];
+    copy_barriers[0] = zest__vk_create_image_memory_barrier(src_image,
+        src_current_access,
+		src_current_stages,
         VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         src_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src->image.info.aspect_flags,
         mip_to_copy, 1, 1);
-	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
-
-    VkImageMemoryBarrier2 blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
-        0,
-		VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+    copy_barriers[1] = zest__vk_create_image_memory_barrier(dst_image,
+        dst_current_access,
+		dst_current_stages,
         VK_ACCESS_2_TRANSFER_WRITE_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         dst_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst->image.info.aspect_flags,
         mip_to_copy, 1, 1);
-	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
+	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 2, copy_barriers);
 
     VkOffset3D base_offset = ZEST__ZERO_INIT(VkOffset3D);
     VkImageCopy image_copy = ZEST__ZERO_INIT(VkImageCopy);
@@ -6393,27 +6398,26 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
 
 	VkPipelineStageFlags2 vk_pipeline_stage_flags = zest__vk_stages_from_shader_stages(read_by_stages);
 
-    blit_src_barrier = zest__vk_create_image_memory_barrier(src_image,
+    //Back to this pass's stages as well, so the frame graph's release barrier at the end of the pass chains after the copy
+    copy_barriers[0] = zest__vk_create_image_memory_barrier(src_image,
         VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT,
-		vk_pipeline_stage_flags,
+        VK_ACCESS_2_SHADER_READ_BIT | src_current_access,
+		vk_pipeline_stage_flags | src_current_stages,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
         src->image.info.aspect_flags,
         mip_to_copy, 1, 1);
-	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
-
-    blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
+    copy_barriers[1] = zest__vk_create_image_memory_barrier(dst_image,
         VK_ACCESS_2_TRANSFER_WRITE_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT,
-		vk_pipeline_stage_flags,
+        VK_ACCESS_2_SHADER_READ_BIT | dst_current_access,
+		vk_pipeline_stage_flags | dst_current_stages,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
         dst->image.info.aspect_flags,
         mip_to_copy, 1, 1);
-	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
+	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 2, copy_barriers);
 }
 
 void zest__vk_clip(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth) {
