@@ -2548,6 +2548,30 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
         }
     }
 
+	//Families share lists above, so drop any family from a pool entry whose queue types it can't serve
+	for (zest_uint queue_type = 1; queue_type != 8; ++queue_type) {
+		zest_queue_manager_list_t *manager_list = device->queue_pool[queue_type];
+		if (!manager_list) continue;
+		zest_bool all_compatible = ZEST_TRUE;
+		zest_vec_foreach(manager_index, manager_list->managers) {
+			if ((manager_list->managers[manager_index]->type & queue_type) != queue_type) {
+				all_compatible = ZEST_FALSE;
+				break;
+			}
+		}
+		if (all_compatible) continue;
+		zest_queue_manager_list_t *compatible_list = (zest_queue_manager_list_t*)ZEST__ALLOCATE(device->allocator, sizeof(zest_queue_manager_list_t));
+		compatible_list->managers = 0;
+		zest_vec_foreach(manager_index, manager_list->managers) {
+			zest_queue_manager manager = manager_list->managers[manager_index];
+			if ((manager->type & queue_type) == queue_type) {
+				zest_vec_push(device->allocator, compatible_list->managers, manager);
+			}
+		}
+		zest_vec_push(device->allocator, device->queue_managers, compatible_list);
+		device->queue_pool[queue_type] = compatible_list;
+	}
+
 	if (!graphics_found) {
 		ZEST_APPEND_LOG(device->log_path.str, "Fatal Error: Unable to find graphics queue/present support!");
 		return 0;
