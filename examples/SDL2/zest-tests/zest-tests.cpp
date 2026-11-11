@@ -108,6 +108,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Unbacked Transient Barrier", test__unbacked_transient_barrier, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Transient Placement Failure", test__transient_placement_failure, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Transient Placement Failure Retry", test__transient_placement_failure_retry, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
 	//Arena sharing tests: cached graphs no longer pin their transient arenas, so the pool must stay
 	//at the live working set while persistence and cross-graph isolation still hold.
 	RegisterTest(tests, { "Arena Memory Bound", test__arena_memory_bound, 0, ARENA_BOUND_KEY_COUNT * 4, 0, 0, tests->simple_create_info });

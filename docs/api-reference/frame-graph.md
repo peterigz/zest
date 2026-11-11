@@ -1174,6 +1174,8 @@ Get the compilation result status of a frame graph. Use to check for errors afte
 zest_frame_graph_result zest_GetFrameGraphResult(zest_frame_graph frame_graph);
 ```
 
+After `zest_EndFrame` or `zest_FlushFrameGraph` the result also includes execution failures. `zest_fgs_transient_resource_failure` (transient memory could not be placed, for example when device memory runs out) is cleared each time the graph is executed again, so a cached graph retries on its next frame. Other errors stay until the graph is rebuilt.
+
 **Typical usage:** Validate that frame graph compilation succeeded.
 
 ```cpp

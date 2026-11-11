@@ -2715,6 +2715,9 @@ typedef enum zest_frame_graph_result_bits {
 	zest_fgs_unable_to_acquire_command_buffer | zest_fgs_out_of_memory | \
 	zest_fgs_submission_failure)
 
+//Execution failures raised before anything is recorded or submitted, so each execution request clears them and retries
+#define ZEST_FGS_RETRYABLE (zest_fgs_transient_resource_failure)
+
 typedef enum zest_pass_node_visit_state {
 	zest_pass_node_unvisited = 0,
 	zest_pass_node_visiting,
@@ -9563,6 +9566,7 @@ void zest_EndFrame(zest_context context, zest_frame_graph frame_graph) {
 	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
 	ZEST__UNFLAG(context->flags, zest_context_flag_frame_started);
     if (ZEST_VALID_HANDLE(frame_graph, zest_struct_type_frame_graph)) {
+		ZEST__UNFLAG(frame_graph->error_status, ZEST_FGS_RETRYABLE);
 		if (frame_graph->error_status != zest_fgs_success) {
 			ZEST_REPORT(context->device, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
 		} else {
@@ -16603,6 +16607,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
 	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph), "zest_FlushCommandGraph should only be called for a command graph created with zest_BeginCommandGraph.");
 	zest_semaphore_status status = zest_semaphore_status_success;
+	ZEST__UNFLAG(frame_graph->error_status, ZEST_FGS_RETRYABLE);
 	//A graph carrying no work, or any fatal compile/placement error, must not be executed. Critically
 	//we must also skip the timeline wait below: a graph that never submits never signals, so waiting on
 	//its signal timeline would block forever (deadlock). Only wait when execution actually ran and

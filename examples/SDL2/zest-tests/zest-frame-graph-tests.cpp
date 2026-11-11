@@ -1313,6 +1313,62 @@ int test__transient_placement_failure(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+//A cached graph whose placement failed once must execute again on later frames instead of staying failed
+int test__transient_placement_failure_retry(ZestTests *tests, Test *test) {
+	zest_platform platform = tests->device->platform;
+	zest_bool fail_placement = test->frame_count == 0;
+	zest_device_memory_pool (*create_arena_backing)(zest_device, zest_context, zest_uint, zest_size) = platform->create_arena_backing;
+	if (fail_placement) {
+		platform->create_arena_backing = tst__failing_arena_backing;
+	}
+
+	zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_copyable, 256, 256, 1 };
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+		if (!frame_graph) {
+			if (zest_BeginFrameGraph(tests->context, "Transient Placement Failure Retry", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_resource_node image_a = zest_AddTransientImageResource("Image A", &image_info);
+
+				zest_BeginRenderPass("Write A");
+				zest_ConnectOutput(image_a);
+				zest_SetPassTask(zest_EmptyRenderPass, 0);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Present");
+				zest_ConnectInput(image_a);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, 0);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+		} else {
+			test->cache_count++;
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		zest_frame_graph_result graph_result = zest_GetFrameGraphResult(frame_graph);
+		if (fail_placement) {
+			if (ZEST__NOT_FLAGGED(graph_result, zest_fgs_transient_resource_failure)) {
+				test->result |= 1;
+			}
+		} else if (graph_result != zest_fgs_success) {
+			ZEST_PRINT("\tCached graph still reports %u on frame %i after the placement failure", graph_result, test->frame_count);
+			test->result |= 2;
+		}
+	}
+
+	platform->create_arena_backing = create_arena_backing;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count && test->cache_count == 0) {
+		test->result |= 4;   //The graph never came from the cache so the retry was not exercised
+	}
+	return test->result;
+}
+
 /*
 Essential-but-unused transient: flag a transient image essential yet never connect it to any pass.
 The transient-planning guard must still cull it (a flag alone is not "used") rather than indexing
