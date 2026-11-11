@@ -16476,10 +16476,12 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					color.usage.format = resource->image.info.format;
 					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
 					if (color_attachment_index == 0) {
+						//A later version copies the extent when the graph is built, so the area comes from the original, which image providers resize
+						zest_resource_node extent_resource = resource->aliased_resource ? resource->aliased_resource : resource;
 						exe_details->render_area_offset_x = 0;
 						exe_details->render_area_offset_y = 0;
-						exe_details->render_area_width = &resource->image.info.extent.width;
-						exe_details->render_area_height = &resource->image.info.extent.height;
+						exe_details->render_area_width = &extent_resource->image.info.extent.width;
+						exe_details->render_area_height = &extent_resource->image.info.extent.height;
 					}
 					color_attachment_index++;
 					exe_details->rendering_info.color_attachment_count++;
@@ -16529,10 +16531,11 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					depth->usage.format = resource->image.info.format;
 					depth->clear_value = output_usage->clear_value;
 					if (color_attachment_index == 0) {
+						zest_resource_node extent_resource = resource->aliased_resource ? resource->aliased_resource : resource;
 						exe_details->render_area_offset_x = 0;
 						exe_details->render_area_offset_y = 0;
-						exe_details->render_area_width = &resource->image.info.extent.width;
-						exe_details->render_area_height = &resource->image.info.extent.height;
+						exe_details->render_area_width = &extent_resource->image.info.extent.width;
+						exe_details->render_area_height = &extent_resource->image.info.extent.height;
 					}
 					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
 					if (resource->image.info.layer_count > 1) {
