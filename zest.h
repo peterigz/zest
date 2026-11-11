@@ -4953,6 +4953,7 @@ ZEST_PRIVATE zest_bool zest__ensure_arena_backing(zest_context context, zest_tra
 ZEST_PRIVATE void zest__retire_transient_image_slot(zest_context context, zest_resource_node resource, zest_transient_image_slot_t *slot);
 ZEST_PRIVATE zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__retire_frame_graph_images(zest_context context, zest_frame_graph frame_graph);
+ZEST_PRIVATE void zest__destroy_pending_transient_images(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE void zest__return_frame_graph_arenas(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE void zest__release_frame_graph_transients(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_uint zest__next_fif(zest_context context);
@@ -14508,6 +14509,9 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 				image->backend = (zest_image_backend)device->platform->new_frame_graph_image_backend(device, NULL, image, NULL);
 				zest_transient_memory_info_t info;
 				if (!device->platform->create_transient_image_unbound(device, context, image, image->info.layer_count, zest_sample_count_1_bit, image->info.flags, &info)) {
+					//A failed create leaves no API image behind, only the heap backend
+					ZEST__FREE(device->allocator, image->backend);
+					image->backend = 0;
 					return ZEST_FALSE;
 				}
 				entry->size = info.size;
@@ -14663,6 +14667,8 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 				image->backend = (zest_image_backend)device->platform->new_frame_graph_image_backend(device, NULL, image, NULL);
 				zest_transient_memory_info_t info;
 				if (!device->platform->create_transient_image_unbound(device, context, image, image->info.layer_count, zest_sample_count_1_bit, image->info.flags, &info)) {
+					ZEST__FREE(device->allocator, image->backend);
+					image->backend = 0;
 					return ZEST_FALSE;
 				}
 				entry->pending_backend = image->backend;
@@ -14683,6 +14689,7 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 				}
 				view->handle.store = &device->resource_stores[zest_handle_type_views];
 				slot->backend = image->backend;
+				entry->pending_backend = 0;
 				slot->view = view;
 				slot->extent = image->info.extent;
 				slot->format = image->info.format;
@@ -14732,6 +14739,24 @@ void zest__retire_frame_graph_images(zest_context context, zest_frame_graph fram
 		zest_ForEachFrameInFlight(fif) {
 			zest__retire_transient_image_slot(context, entry->resource, &entry->images[fif]);
 		}
+	}
+}
+
+//Failed placement can leave images created but not yet owned by a slot; the GPU never saw them so destroy them now
+void zest__destroy_pending_transient_images(zest_context context, zest_frame_graph frame_graph) {
+	zest_device device = context->device;
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_transient_placement_t *entry = &frame_graph->transient_schedule[schedule_index];
+		if (!entry->pending_backend) continue;
+		zest_image_t pending_image = entry->resource->image;
+		pending_image.backend = entry->pending_backend;
+		pending_image.handle.store = &device->resource_stores[zest_handle_type_images];
+		device->platform->cleanup_image_backend(&pending_image);
+		ZEST__FREE(device->allocator, entry->pending_backend);
+		if (entry->resource->image.backend == entry->pending_backend) {
+			entry->resource->image.backend = 0;
+		}
+		entry->pending_backend = 0;
 	}
 }
 
@@ -16894,6 +16919,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 		//Placement may have checked out arenas and bound some images before failing; return the
 		//checkouts (deferred) so they don't stay pinned, and retire any bound images if this
 		//graph will never run again.
+		zest__destroy_pending_transient_images(context, frame_graph);
 		if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
 			zest__retire_frame_graph_images(context, frame_graph);
 		}

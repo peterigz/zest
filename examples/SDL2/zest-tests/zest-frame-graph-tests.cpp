@@ -1225,6 +1225,94 @@ int test__unbacked_transient_barrier(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+//Placement that fails after creating unbound images must destroy them rather than leak them
+struct PlacementFailureState {
+	zest_device_memory_pool (*create_arena_backing)(zest_device device, zest_context context, zest_uint category, zest_size size);
+	zest_bool (*create_transient_image_unbound)(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags sample_count, zest_image_flags flags, zest_transient_memory_info_t *info);
+	void (*cleanup_image_backend)(zest_image image);
+	int images_created;
+	int images_destroyed;
+};
+
+static PlacementFailureState tst__placement_failure_state;
+
+zest_device_memory_pool tst__failing_arena_backing(zest_device device, zest_context context, zest_uint category, zest_size size) {
+	return NULL;
+}
+
+zest_bool tst__counting_create_transient_image_unbound(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags sample_count, zest_image_flags flags, zest_transient_memory_info_t *info) {
+	zest_bool created = tst__placement_failure_state.create_transient_image_unbound(device, context, image, layer_count, sample_count, flags, info);
+	if (created) {
+		tst__placement_failure_state.images_created++;
+	}
+	return created;
+}
+
+void tst__counting_cleanup_image_backend(zest_image image) {
+	if (image->backend && ZEST__FLAGGED(image->info.flags, zest_image_flag_transient)) {
+		tst__placement_failure_state.images_destroyed++;
+	}
+	tst__placement_failure_state.cleanup_image_backend(image);
+}
+
+int test__transient_placement_failure(ZestTests *tests, Test *test) {
+	PlacementFailureState *state = &tst__placement_failure_state;
+	zest_platform platform = tests->device->platform;
+	state->create_arena_backing = platform->create_arena_backing;
+	state->create_transient_image_unbound = platform->create_transient_image_unbound;
+	state->cleanup_image_backend = platform->cleanup_image_backend;
+	state->images_created = 0;
+	state->images_destroyed = 0;
+	platform->create_arena_backing = tst__failing_arena_backing;
+	platform->create_transient_image_unbound = tst__counting_create_transient_image_unbound;
+	platform->cleanup_image_backend = tst__counting_cleanup_image_backend;
+
+	zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_copyable, 256, 256, 1 };
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Transient Placement Failure", 0)) {
+			zest_ImportSwapchainResource();
+			zest_resource_node image_a = zest_AddTransientImageResource("Image A", &image_info);
+			zest_resource_node image_b = zest_AddTransientImageResource("Image B", &image_info);
+
+			zest_BeginRenderPass("Write A");
+			zest_ConnectOutput(image_a);
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Write B");
+			zest_ConnectInput(image_a);
+			zest_ConnectOutput(image_b);
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Present");
+			zest_ConnectInput(image_b);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		if (ZEST__NOT_FLAGGED(zest_GetFrameGraphResult(frame_graph), zest_fgs_transient_resource_failure)) {
+			test->result |= 1;
+		}
+	}
+
+	platform->create_arena_backing = state->create_arena_backing;
+	platform->create_transient_image_unbound = state->create_transient_image_unbound;
+	platform->cleanup_image_backend = state->cleanup_image_backend;
+	if (state->images_created == 0 || state->images_destroyed != state->images_created) {
+		ZEST_PRINT("\tPlacement failure created %i transient images but destroyed %i", state->images_created, state->images_destroyed);
+		test->result |= 2;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
 /*
 Essential-but-unused transient: flag a transient image essential yet never connect it to any pass.
 The transient-planning guard must still cull it (a flag alone is not "used") rather than indexing
