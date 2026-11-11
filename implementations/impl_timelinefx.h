@@ -41,6 +41,7 @@ typedef struct tfx_uniform_buffer_data_t {
 typedef struct tfx_ribbon_rendering_t {
 	zest_pipeline_template pipeline;
 	zest_pipeline_template layer_pipelines[2][2];	//By [writes depth][lit], every one pipeline until zest_tfx_InitLayerPipelines
+	zest_pipeline_template blend_pipelines[3][2];	//By [blend mode - 1][lit] for tfxLayerFlags_blend_mask, every one pipeline until zest_tfx_InitLayerPipelines
 	zest_shader_handle vert_shader;
 	zest_shader_handle frag_shader;
 	zest_shader_handle comp_shader;
@@ -52,6 +53,7 @@ typedef struct tfx_particle_rendering_t {
 	zest_shader_handle vert_shader;
 	zest_pipeline_template pipeline;
 	zest_pipeline_template layer_pipelines[2][2];	//By [writes depth][lit], every one pipeline until zest_tfx_InitLayerPipelines
+	zest_pipeline_template blend_pipelines[3][2];	//By [blend mode - 1][lit] for tfxLayerFlags_blend_mask, every one pipeline until zest_tfx_InitLayerPipelines
 } tfx_particle_rendering_t;
 
 //The timelinefx.slang entry points zest_tfx_InitLayerPipelines draws layers that write depth and lit layers with
@@ -215,7 +217,8 @@ extern "C" {
 //Initialise the render resources needed for TimelineFX rendering including pipelines, shaders, layer and uniform buffer.
 void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_render_resources_t *render_resources, zest_shader_handle vert_shader, zest_shader_handle frag_shader, zest_shader_handle ribbon_vert, zest_shader_handle ribbon_frag, zest_shader_handle ribbon_comp);
 //Optional, once after zest_tfx_InitTimelineFXRenderResources: draw each layer by its tfx_GetLayerFlags, those that write depth first as
-//opaque cutouts, and lit layers under the resources' light. Without it every layer draws blended and unlit, in index order. The flags
+//opaque cutouts, lit layers under the resources' light, and layers with a blend mode with its color blend (multiply, subtract or absorb,
+//which only darken what's already in the target). Without it every layer draws blended and unlit, in index order. The flags
 //come from the resources' library, so on resources switched to zest_tfx_UseGlobalLibraryData set library to one whose layers every library shares.
 //For resources that draw live billboards, not tfx_billboard_baked_vertex.
 void zest_tfx_InitLayerPipelines(tfx_library_render_resources_t *render_resources, const zest_tfx_layer_shaders_t *shaders);

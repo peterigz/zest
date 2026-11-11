@@ -911,6 +911,12 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 			resources->ribbon_rendering.layer_pipelines[writes_depth][lit] = ribbon_pipeline;
 		}
 	}
+	for (int blend_index = 0; blend_index != 3; ++blend_index) {
+		for (int lit = 0; lit != 2; ++lit) {
+			resources->particles.blend_pipelines[blend_index][lit] = resources->particles.pipeline;
+			resources->ribbon_rendering.blend_pipelines[blend_index][lit] = ribbon_pipeline;
+		}
+	}
 }
 
 void zest_tfx_InitLayerPipelines(tfx_library_render_resources_t *resources, const zest_tfx_layer_shaders_t *shaders) {
@@ -943,6 +949,27 @@ void zest_tfx_InitLayerPipelines(tfx_library_render_resources_t *resources, cons
 			ribbons->layer_pipelines[writes_depth][lit] = ribbon_pipeline;
 		}
 	}
+	//Copies of the blended pipelines with only the color blend changed. The alpha blends ZERO, ONE so the target keeps its alpha
+	const char *billboard_blend_names[3][2] = { { "Timelinefx multiply pipeline", "Timelinefx multiply lit pipeline" }, { "Timelinefx subtract pipeline", "Timelinefx subtract lit pipeline" }, { "Timelinefx absorb pipeline", "Timelinefx absorb lit pipeline" } };
+	const char *ribbon_blend_names[3][2] = { { "multiply ribbon render pipeline", "multiply lit ribbon render pipeline" }, { "subtract ribbon render pipeline", "subtract lit ribbon render pipeline" }, { "absorb ribbon render pipeline", "absorb lit ribbon render pipeline" } };
+	const zest_blend_factor source_factors[3] = { zest_blend_factor_dst_color, zest_blend_factor_one, zest_blend_factor_zero };
+	const zest_blend_factor destination_factors[3] = { zest_blend_factor_one_minus_src_alpha, zest_blend_factor_one, zest_blend_factor_one_minus_src_color };
+	for (int blend_index = 0; blend_index != 3; ++blend_index) {
+		zest_color_blend_attachment_t blend_state = zest_PreMultiplyBlendState();
+		blend_state.src_color_blend_factor = source_factors[blend_index];
+		blend_state.dst_color_blend_factor = destination_factors[blend_index];
+		blend_state.color_blend_op = blend_index == 1 ? zest_blend_op_reverse_subtract : zest_blend_op_add;
+		blend_state.src_alpha_blend_factor = zest_blend_factor_zero;
+		blend_state.dst_alpha_blend_factor = zest_blend_factor_one;
+		for (int lit = 0; lit != 2; ++lit) {
+			zest_pipeline_template billboard_pipeline = zest_CopyPipelineTemplate(billboard_blend_names[blend_index][lit], particles->layer_pipelines[0][lit]);
+			zest_SetPipelineBlend(billboard_pipeline, blend_state);
+			particles->blend_pipelines[blend_index][lit] = billboard_pipeline;
+			zest_pipeline_template ribbon_pipeline = zest_CopyPipelineTemplate(ribbon_blend_names[blend_index][lit], ribbons->layer_pipelines[0][lit]);
+			zest_SetPipelineBlend(ribbon_pipeline, blend_state);
+			ribbons->blend_pipelines[blend_index][lit] = ribbon_pipeline;
+		}
+	}
 }
 
 //The layer's flags once zest_tfx_InitLayerPipelines has made pipelines for them, and none before, so every layer draws as layer 0
@@ -962,8 +989,12 @@ static zest_bool zest__tfx_writes_depth(tfxLayerFlags flags) {
 	return (flags & tfxLayerFlags_writes_depth) != 0;
 }
 
-static zest_pipeline_template zest__tfx_layer_pipeline(zest_pipeline_template layer_pipelines[2][2], tfxLayerFlags flags) {
-	return layer_pipelines[(flags & tfxLayerFlags_writes_depth) != 0][(flags & tfxLayerFlags_lit) != 0];
+//A blend mode only counts on a layer that doesn't write depth
+static zest_pipeline_template zest__tfx_layer_pipeline(zest_pipeline_template layer_pipelines[2][2], zest_pipeline_template blend_pipelines[3][2], tfxLayerFlags flags) {
+	const int writes_depth = (flags & tfxLayerFlags_writes_depth) != 0;
+	const int lit = (flags & tfxLayerFlags_lit) != 0;
+	const tfxU32 blend_mode = (flags & tfxLayerFlags_blend_mask) / tfxLayerFlags_blend_multiply;
+	return blend_mode && !writes_depth ? blend_pipelines[blend_mode - 1][lit] : layer_pipelines[writes_depth][lit];
 }
 
 static void zest__tfx_free_storage_buffer(zest_context context, zest_buffer buffer, zest_uint descriptor_index) {
@@ -998,6 +1029,16 @@ void zest_tfx_FreeRenderResources(zest_context context, tfx_library_render_resou
 			}
 			if (resources->ribbon_rendering.layer_pipelines[writes_depth][lit] != resources->ribbon_rendering.pipeline) {
 				zest_FreePipelineTemplate(resources->ribbon_rendering.layer_pipelines[writes_depth][lit]);
+			}
+		}
+	}
+	for (int blend_index = 0; blend_index != 3; ++blend_index) {
+		for (int lit = 0; lit != 2; ++lit) {
+			if (resources->particles.blend_pipelines[blend_index][lit] != resources->particles.pipeline) {
+				zest_FreePipelineTemplate(resources->particles.blend_pipelines[blend_index][lit]);
+			}
+			if (resources->ribbon_rendering.blend_pipelines[blend_index][lit] != resources->ribbon_rendering.pipeline) {
+				zest_FreePipelineTemplate(resources->ribbon_rendering.blend_pipelines[blend_index][lit]);
 			}
 		}
 	}
@@ -1426,7 +1467,7 @@ void zest_tfx_RenderParticles(tfx_stage pm, tfx_library_render_resources_t *reso
 	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
 		tfxU32 instance_count = tfx_GetInstanceCountByLayer(pm, layer_index);
 		if (!instance_count) continue;
-		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, zest__tfx_layer_flags(resources, layer_index));
+		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, resources->particles.blend_pipelines,zest__tfx_layer_flags(resources, layer_index));
 		if (pipeline != current_pipeline) {
 			zest_StartInstanceDrawing(layer, pipeline);
 			current_pipeline = pipeline;
@@ -1446,7 +1487,7 @@ void zest_tfx_RenderParticlesByEffect(tfx_stage pm, tfx_library_render_resources
 	//The instance buffer is grouped by layer, so loop over the effects once per layer to get each instance buffer to render
 	const tfxU32 layer_count = zest__tfx_layer_count(resources);
 	for (tfxU32 layer_index = 0; layer_index != layer_count; ++layer_index) {
-		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, zest__tfx_layer_flags(resources, layer_index));
+		zest_pipeline_template pipeline = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, resources->particles.blend_pipelines,zest__tfx_layer_flags(resources, layer_index));
 		if (pipeline != current_pipeline) {
 			zest_StartInstanceDrawing(layer, pipeline);
 			current_pipeline = pipeline;
@@ -1550,7 +1591,7 @@ static void zest__tfx_draw_ribbon_group(const zest_command_list command_list, tf
 		while (tfx_NextRibbonDispatch(renderer->stages[stage_index], &ribbon_dispatch)) {
 			tfxLayerFlags flags = layer_flags[ribbon_dispatch.layer];
 			if (zest__tfx_writes_depth(flags) != depth_group) continue;
-			zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(render_resources->ribbon_rendering.layer_pipelines, flags);
+			zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(render_resources->ribbon_rendering.layer_pipelines, render_resources->ribbon_rendering.blend_pipelines, flags);
 			if (pipeline_template != *bound_pipeline) {
 				zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
 				if (!pipeline) continue;
@@ -1841,7 +1882,7 @@ static void zest__tfx_draw_key_ranges(const zest_command_list command_list, tfx_
 		zest_uint first_range = range_begin;
 		range_begin = range_end;
 		if (first_range == range_end || zest__tfx_writes_depth(flags) != depth_group) continue;
-		zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, flags);
+		zest_pipeline_template pipeline_template = zest__tfx_layer_pipeline(resources->particles.layer_pipelines, resources->particles.blend_pipelines,flags);
 		if (pipeline_template != *bound_pipeline) {
 			zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
 			if (!pipeline) continue;

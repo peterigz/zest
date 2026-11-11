@@ -1114,7 +1114,10 @@ void RenderParticles3d(tfx_stage pm, VadersGame *game, zest_layer layer) {
 //The pipeline zest_tfx_InitLayerPipelines made for the layer's flags
 zest_pipeline_template LayerPipeline(VadersGame *game, tfxU32 layer_index) {
 	tfxLayerFlags flags = tfx_GetLayerFlags(game->library, layer_index);
-	return game->tfx_rendering.particles.layer_pipelines[(flags & tfxLayerFlags_writes_depth) != 0][(flags & tfxLayerFlags_lit) != 0];
+	int writes_depth = (flags & tfxLayerFlags_writes_depth) != 0;
+	int lit = (flags & tfxLayerFlags_lit) != 0;
+	tfxU32 blend_mode = (flags & tfxLayerFlags_blend_mask) / tfxLayerFlags_blend_multiply;
+	return blend_mode && !writes_depth ? game->tfx_rendering.particles.blend_pipelines[blend_mode - 1][lit] : game->tfx_rendering.particles.layer_pipelines[writes_depth][lit];
 }
 
 //Render the particles by effect
