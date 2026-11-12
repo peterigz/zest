@@ -2143,6 +2143,7 @@ typedef enum zest_device_init_flag_bits {
 	zest_device_init_flag_force_legacy_render_pass = 1 << 8,	//Vulkan backend only, set with zest_DeviceBuilderForceLegacyRenderPass
 	zest_device_init_flag_using_legacy_render_pass = 1 << 9,
 	zest_device_init_flag_enable_memory_budget = 1 << 10,	//Opt in with zest_DeviceBuilderEnableMemoryBudget
+	zest_device_init_flag_use_warp = 1 << 11,	//D3D12 backend only, set with zest_DeviceBuilderUseWarp
 } zest_device_init_flag_bits;
 
 typedef zest_uint zest_device_init_flags;
@@ -4661,7 +4662,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
-	void					   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
+	zest_bool				   (*cmd_copy_buffer_one_time)(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset);
 	//Images
 	zest_bool 				   (*is_image_format_supported)(zest_device device, zest_format format, zest_image_flags flags);
 	zest_bool 				   (*create_image)(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
@@ -4800,6 +4801,21 @@ typedef struct zest_platform_t {
 	void                       (*draw_indirect)(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 	void                       (*set_depth_bias)(const zest_command_list command_list, float factor, float clamp, float slope);
 
+	//Immediate commands
+	zest_queue                 (*imm_begin_command_buffer)(zest_device device, zest_device_queue_type target_queue);
+	zest_bool                  (*imm_end_command_buffer)(zest_queue queue);
+	void                       (*imm_fill_buffer)(zest_queue queue, zest_buffer buffer, zest_uint value);
+	void                       (*imm_update_buffer)(zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size);
+	zest_bool                  (*imm_clear_color_image)(zest_queue queue, zest_image image, zest_clear_value_t clear_value);
+	zest_bool                  (*imm_clear_depth_stencil_image)(zest_queue queue, zest_image image, float depth, zest_uint stencil);
+	zest_bool                  (*imm_blit_image)(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter);
+	zest_bool                  (*imm_resolve_image)(zest_queue queue, zest_image src_image, zest_image dst_image);
+	void                       (*imm_send_push_constants)(zest_queue queue, void *data, zest_uint size);
+	void                       (*imm_bind_compute_pipeline)(zest_queue queue, zest_compute compute);
+	zest_bool                  (*imm_dispatch_compute)(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+	zest_bool                  (*copy_bitmap_to_image)(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height);
+	zest_bool                  (*copy_image_to_bitmap)(zest_device device, zest_image src_image, void *pixels);
+
 	// Legacy render pass fallback
 	void                       (*flush_legacy_framebuffers)(zest_context context, zest_uint fif);
 } zest_platform_t;
@@ -4881,6 +4897,8 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 
 //Queue_management
 ZEST_PRIVATE zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_type);
+//Waits for a free queue of the type, reporting a wait over 5 seconds. NULL when the device has no queue of the type
+ZEST_PRIVATE zest_queue zest__acquire_immediate_queue(zest_device device, zest_device_queue_type target_queue);
 ZEST_PRIVATE zest_queue zest__acquire_manager_queue(zest_queue_manager manager, zest_uint preferred_index, zest_bool search_downwards);
 //Returns true when the queue differs from the one the slot last submitted on
 ZEST_PRIVATE zest_bool zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot);
@@ -5018,8 +5036,9 @@ ZEST_PRIVATE void zest__clamp_bindless_counts(zest_device device, zest_device_bu
 //Declares the global bindless layout and the pipeline layout that references it. Reads the binding
 //counts from device->setup_info, which zest__clamp_bindless_counts leaves holding the clamped values,
 //so device creation and device reset build an identical layout.
-ZEST_PRIVATE void zest__create_global_bindless_layout(zest_device device);
-ZEST_PRIVATE zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info);
+ZEST_PRIVATE zest_bool zest__create_global_bindless_layout(zest_device device);
+ZEST_PRIVATE zest_bool zest__global_bindless_layout_failed(zest_device device, const char *object_name);
+ZEST_PRIVATE zest_bool zest__initialise_platform_device(zest_device device, zest_device_builder info);
 ZEST_PRIVATE zest_bool zest__is_vulkan_device(zest_device device); 
 ZEST_PRIVATE void zest__create_default_images(zest_device device, zest_device_builder builder);
 ZEST_PRIVATE void zest__initialise_debug_font(zest_device device);
@@ -5028,6 +5047,8 @@ ZEST_PRIVATE void zest__cleanup_debug_font(zest_device device);
 
 //App_initialise_and_run_functions
 ZEST_API zest_device_builder zest__begin_device_builder();
+//Creates the device from the builder, leaving the builder's pool for zest_EndDeviceBuilder to free
+ZEST_PRIVATE zest_device zest__end_device_builder(zest_device_builder builder);
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name);
 ZEST_PRIVATE void zest__destroy_device(zest_device device);
@@ -5052,6 +5073,9 @@ ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag_for_view(zest_f
 ZEST_PRIVATE zest_bool zest__is_depth_stencil_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__is_compressed_format(zest_format format);
 ZEST_PRIVATE zest_capability_flags zest__compressed_format_capability(zest_format format);
+//Required and auto capabilities when supported plus requested opt-ins when supported, stored in device->capabilities.enabled
+ZEST_PRIVATE zest_capability_flags zest__resolve_enabled_capabilities(zest_device device, zest_capability_flags supported);
+ZEST_PRIVATE void zest__log_supported_capabilities(zest_device device, zest_capability_flags supported);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
 ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
@@ -5099,6 +5123,7 @@ ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, 
 //-----------------------------------------------
 //Device creation builder. Each backend has its own begin function (defined by its platform header).
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags);
+ZEST_API zest_device_builder zest_BeginD3D12DeviceBuilder(zest_device_init_flags flags);
 //Add a required Vulkan instance extension, e.g. the surface extensions reported by
 //glfwGetRequiredInstanceExtensions or SDL_Vulkan_GetInstanceExtensions. Vulkan only: other
 //backends have no instance extensions and ignore this list, so calling this is a no-op there.
@@ -5113,6 +5138,8 @@ ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char 
 //Force legacy VkRenderPass/VkFramebuffer usage even when dynamic rendering is available (for testing).
 //Vulkan only: does nothing on other platforms.
 ZEST_API void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder);
+ZEST_API void zest_DeviceBuilderUseWarp(zest_device_builder builder);
+ZEST_API zest_platform_type zest_GetDevicePlatform(zest_device device);
 //Opt in to the backend memory budget query so zest_GetDeviceMemoryBudget can report per-heap budget
 //and usage (Vulkan: VK_EXT_memory_budget). Purely additive telemetry - the extension is requested
 //only when the hardware advertises it and nothing else changes behaviour if it is unavailable, so
@@ -5146,7 +5173,7 @@ ZEST_API zest_bool zest_DeviceSupports(zest_device device, zest_device_capabilit
 //Query whether a capability was actually enabled on the device. This is the flag to branch on before
 //using an optional feature - using a supported-but-not-enabled feature is undefined behaviour.
 ZEST_API zest_bool zest_DeviceFeatureEnabled(zest_device device, zest_device_capability_bits capability);
-//Finish and create the device
+//Finish and create the device. This frees the builder whether or not the device is created, so don't use it afterwards
 ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 //Create a new zest_create_context_info_t struct with default values for initialising Zest
 ZEST_API zest_create_context_info_t zest_CreateContextInfo(void);
@@ -9185,6 +9212,16 @@ void zest_DeviceBuilderForceLegacyRenderPass(zest_device_builder builder) {
 	ZEST__FLAG(builder->flags, zest_device_init_flag_force_legacy_render_pass);
 }
 
+void zest_DeviceBuilderUseWarp(zest_device_builder builder) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	ZEST__FLAG(builder->flags, zest_device_init_flag_use_warp);
+}
+
+zest_platform_type zest_GetDevicePlatform(zest_device device) {
+	ZEST_ASSERT_HANDLE(device);	//Not a valid device handle
+	return device->setup_info.platform;
+}
+
 void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST_ASSERT(size > zloc__MEGABYTE(2));	//Size for the memory pool must be greater than 2 megabytes
@@ -9208,7 +9245,14 @@ void zest_DeviceBuilderCacheShaders(zest_device_builder builder) {
 
 zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	//The builder lives in its own pool, which starts with its allocator
+	void *builder_pool = builder->allocator;
+	zest_device device = zest__end_device_builder(builder);
+	ZEST__FREE_POOL(builder_pool);
+	return device;
+}
 
+zest_device zest__end_device_builder(zest_device_builder builder) {
     void* memory_pool = ZEST__ALLOCATE_POOL(builder->memory_pool_size);
 	ZEST_ASSERT(memory_pool);    //unable to allocate initial memory pool
 
@@ -9240,6 +9284,15 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     }
     device->setup_info = *builder;
 	device->setup_info.allocator = NULL;
+	//The builder's pool is freed by zest_EndDeviceBuilder, so the extension names move into device memory
+	device->setup_info.required_instance_extensions = NULL;
+	zest_vec_foreach(extension_index, builder->required_instance_extensions) {
+		const char *extension_name = builder->required_instance_extensions[extension_index];
+		size_t name_size = strlen(extension_name) + 1;
+		char *name_copy = (char *)ZEST__ALLOCATE(device->allocator, name_size);
+		memcpy(name_copy, extension_name, name_size);
+		zest_vec_push(device->allocator, device->setup_info.required_instance_extensions, name_copy);
+	}
     void *scratch_memory = ZEST__ALLOCATE(device->allocator, zloc__MEGABYTE(1));
     int result = zloc_InitialiseLinearAllocator(&device->scratch_arena, scratch_memory, zloc__MEGABYTE(1));
 	ZEST_ASSERT(result, "Unable to allocate a scratch arena, out of memory.");
@@ -9250,8 +9303,9 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     zest_SetText(device->allocator, &device->cached_shaders_path, builder->cached_shader_path);
 
 	switch (builder->platform) {
-		case zest_platform_vulkan: {
-			if (!zest__initialise_vulkan_device(device, builder)) {
+		case zest_platform_vulkan:
+		case zest_platform_d3d12: {
+			if (!zest__initialise_platform_device(device, builder)) {
 				ZEST__FREE_POOL(memory_pool);
 				return NULL;
 			}
@@ -9276,7 +9330,10 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	//creation with nothing in the log to say which limit was exceeded.
 	zest__clamp_bindless_counts(device, builder);
 
-	zest__create_global_bindless_layout(device);
+	if (!zest__create_global_bindless_layout(device)) {
+		zest__destroy_device(device);
+		return NULL;
+	}
 
 	zest__create_default_images(device, &device->setup_info);
 
@@ -9289,7 +9346,13 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	return device;
 }
 
-void zest__create_global_bindless_layout(zest_device device) {
+zest_bool zest__global_bindless_layout_failed(zest_device device, const char *object_name) {
+	ZEST_APPEND_LOG(device->log_path.str, "Unable to create the %s.", object_name);
+	ZEST_ALERT("Unable to create the %s. Check the log and any validation errors.", object_name);
+	return ZEST_FALSE;
+}
+
+zest_bool zest__create_global_bindless_layout(zest_device device) {
 	//Counts come from setup_info rather than the caller's builder so that device creation and device
 	//reset declare the same layout. zest__clamp_bindless_counts writes the clamped values back into
 	//setup_info, and it runs before this on the creation path.
@@ -9307,12 +9370,24 @@ void zest__create_global_bindless_layout(zest_device device) {
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, info->bindless_uniform_buffer_count, zest_shader_all_stages ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_array_binding, zest_descriptor_type_sampled_image, info->bindless_texture_cube_array_count, zest_shader_all_stages ) );
 	device->global_layout_builder = layout_builder;
+	device->bindless_set = NULL;
+	device->pipeline_layout = NULL;
     device->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(device, &device->global_layout_builder, 1, "Zest Global Descriptor Layout");
+	if (!device->bindless_set_layout) {
+		return zest__global_bindless_layout_failed(device, "global bindless descriptor set layout");
+	}
     device->bindless_set = zest_CreateBindlessSet(device->bindless_set_layout);
+	if (!device->bindless_set) {
+		return zest__global_bindless_layout_failed(device, "global bindless descriptor set");
+	}
 
 	zest_pipeline_layout_info_t pipeline_layout_info = zest_NewPipelineLayoutInfo(device);
 	zest_AddPipelineLayoutDescriptorLayout(&pipeline_layout_info, device->bindless_set_layout);
 	device->pipeline_layout = zest_CreatePipelineLayout(&pipeline_layout_info);
+	if (!device->pipeline_layout) {
+		return zest__global_bindless_layout_failed(device, "global pipeline layout");
+	}
+	return ZEST_TRUE;
 }
 
 void zest__create_default_images(zest_device device, zest_device_builder builder) {
@@ -9449,21 +9524,21 @@ zest_bool zest__is_vulkan_device(zest_device device) {
 	return device->setup_info.platform == zest_platform_vulkan;
 }
 
-zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info) {
+zest_bool zest__initialise_platform_device(zest_device device, zest_device_builder info) {
 
-	if (zest__platform_setup_callbacks[zest_platform_vulkan]) {
-		zest__platform_setup_callbacks[zest_platform_vulkan](device->platform);
+	if (zest__platform_setup_callbacks[info->platform]) {
+		zest__platform_setup_callbacks[info->platform](device->platform);
 	} else {
 		zloc_Free(device->allocator, device->platform);
 		zloc_Free(device->allocator, device);
-		ZEST_ALERT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_BeginVulkanDevice()");
+		ZEST_ALERT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_Begin[Platform]DeviceBuilder()");
 		return ZEST_FALSE;
 	}
 
     device->backend = (zest_device_backend)device->platform->new_device_backend(device);
 
-	zest_vec_foreach(i, info->required_instance_extensions) {
-		char *extension = (char*)info->required_instance_extensions[i];
+	zest_vec_foreach(i, device->setup_info.required_instance_extensions) {
+		char *extension = (char*)device->setup_info.required_instance_extensions[i];
 		zest_vec_push(device->allocator, device->extensions, extension);
 	}
 
@@ -9662,7 +9737,10 @@ void zest_ResetDevice(zest_device device) {
 		zest_DestroyContext(device->contexts[zest_vec_size(device->contexts) - 1]);
 	}
 
-	zest__cleanup_pipeline_layout(device->pipeline_layout);
+	//The global layout objects are NULL when a previous reset failed to recreate them
+	if (device->pipeline_layout) {
+		zest__cleanup_pipeline_layout(device->pipeline_layout);
+	}
     zest__cleanup_buffers_in_allocators(device);
 
 	//Drain the deferred freeing lists BEFORE the memory scan below. The scan frees any scannable
@@ -9690,9 +9768,13 @@ void zest_ResetDevice(zest_device device) {
 	zest__free_all_device_resource_stores(device);
 	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
 
-	zest__cleanup_set_layout(device->bindless_set_layout);
-    ZEST__FREE(device->allocator, device->bindless_set->backend);
-    ZEST__FREE(device->allocator, device->bindless_set);
+	if (device->bindless_set_layout) {
+		zest__cleanup_set_layout(device->bindless_set_layout);
+	}
+	if (device->bindless_set) {
+		ZEST__FREE(device->allocator, device->bindless_set->backend);
+		ZEST__FREE(device->allocator, device->bindless_set);
+	}
 	zest__release_all_image_indexes(device);
 
 	zest_map_foreach(i, device->mip_indexes) {
@@ -9738,10 +9820,8 @@ void zest_ResetDevice(zest_device device) {
     zest_vec_free(device->allocator, device->contexts);
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
-    zest_vec_free(device->allocator, device->extensions);
     zest_map_free(device->allocator, device->pool_sizes);
-    zest_FreeText(device->allocator, &device->log_path);
-    zest_FreeText(device->allocator, &device->cached_shaders_path);
+	//The instance, its extension list, the log path and the shader cache path all outlive the logical device, so they're kept
 
 	//Everything that lived on the old logical device (contexts above, plus every device resource
 	//destroyed since) has now been torn down. Recreate the logical device itself, keeping the
@@ -9759,7 +9839,11 @@ void zest_ResetDevice(zest_device device) {
 	//small buffers.
 	zest__set_default_pool_sizes(device);
 
-	zest__create_global_bindless_layout(device);
+	if (!zest__create_global_bindless_layout(device)) {
+		ZEST_ALERT("zest_ResetDevice couldn't recreate the global bindless layout, so the device is unusable. Destroy it with zest_DestroyDevice.");
+		ZEST_ASSERT(0, "zest_ResetDevice couldn't recreate the global bindless layout.");
+		return;
+	}
 
 	zest__create_default_images(device, &device->setup_info);
 
@@ -10412,8 +10496,8 @@ void zest__destroy_memory(zest_device_memory_pool memory_allocation) {
     zest_context context = memory_allocation->allocator->context;
 	zloc_allocator *allocator = context ? context->allocator : device->allocator;
     device->platform->cleanup_memory_pool_backend(memory_allocation);
-    ZEST__FREE(allocator, memory_allocation);
     memory_allocation->mapped = ZEST_NULL;
+    ZEST__FREE(allocator, memory_allocation);
 }
 
 void zest__on_add_pool(void* user_data, void* block) {
@@ -10891,6 +10975,27 @@ zest_queue zest__acquire_queue(zest_device device, zest_device_queue_type queue_
 	return NULL;
 }
 
+zest_queue zest__acquire_immediate_queue(zest_device device, zest_device_queue_type target_queue) {
+	if (!device->queue_pool[target_queue]) {
+		ZEST_REPORT(device, zest_report_submission_failure, "The device has no queue of the requested type for an immediate command buffer.");
+		return NULL;
+	}
+	zest_queue queue = zest__acquire_queue(device, target_queue);
+	if (!queue) {
+		zest_microsecs wait_start = zest_Microsecs();
+		zest_bool reported_long_wait = ZEST_FALSE;
+		while (!queue) {
+			zest__thread_yield();
+			if (!reported_long_wait && zest_Microsecs() - wait_start > ZEST_SECONDS_IN_MICROSECONDS(5)) {
+				ZEST_REPORT(device, zest_report_submission_failure, "Still waiting for a free queue for an immediate command buffer after 5 seconds. Immediate commands can't be recorded on a thread that is already holding the only queue of the family, such as inside frame graph execution.");
+				reported_long_wait = ZEST_TRUE;
+			}
+			queue = zest__acquire_queue(device, target_queue);
+		}
+	}
+	return queue;
+}
+
 zest_bool zest__acquire_context_queue(zest_context context, zest_context_queue context_queue, zest_uint queue_slot) {
 	if (context_queue->queue) return ZEST_FALSE;
 	zest_queue queue = zest__acquire_manager_queue(context_queue->queue_manager, context->preferred_queue_index[queue_slot], ZEST_FALSE);
@@ -10952,6 +11057,71 @@ void zest__release_context_queues(zest_context context) {
 	}
 }
 
+zest_queue zest_imm_BeginCommandBuffer(zest_device device, zest_device_queue_type target_queue) {
+	return device->platform->imm_begin_command_buffer(device, target_queue);
+}
+
+zest_bool zest_imm_EndCommandBuffer(zest_queue queue) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_end_command_buffer(queue);
+}
+
+void zest_imm_FillBuffer(zest_queue queue, zest_buffer buffer, zest_uint value) {
+	if (!queue) return;
+	queue->device->platform->imm_fill_buffer(queue, buffer, value);
+}
+
+void zest_imm_UpdateBuffer(zest_queue queue, zest_buffer buffer, void *data, zest_size intended_size) {
+	if (!queue) return;
+	queue->device->platform->imm_update_buffer(queue, buffer, data, intended_size);
+}
+
+zest_bool zest_imm_ClearColorImage(zest_queue queue, zest_image image, zest_clear_value_t clear_value) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_clear_color_image(queue, image, clear_value);
+}
+
+zest_bool zest_imm_ClearDepthStencilImage(zest_queue queue, zest_image image, float depth, zest_uint stencil) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_clear_depth_stencil_image(queue, image, depth, stencil);
+}
+
+zest_bool zest_imm_BlitImage(zest_queue queue, zest_image src_image, zest_image dst_image, int src_x, int src_y, int src_width, int src_height, int dst_x, int dst_y, int dst_width, int dst_height, zest_filter_type filter) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_blit_image(queue, src_image, dst_image, src_x, src_y, src_width, src_height, dst_x, dst_y, dst_width, dst_height, filter);
+}
+
+zest_bool zest_imm_ResolveImage(zest_queue queue, zest_image src_image, zest_image dst_image) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_resolve_image(queue, src_image, dst_image);
+}
+
+void zest_imm_SendPushConstants(zest_queue queue, void *data, zest_uint size) {
+	if (!queue) return;
+	queue->device->platform->imm_send_push_constants(queue, data, size);
+}
+
+void zest_imm_BindComputePipeline(zest_queue queue, zest_compute compute) {
+	if (!queue) return;
+	queue->device->platform->imm_bind_compute_pipeline(queue, compute);
+}
+
+zest_bool zest_imm_DispatchCompute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	if (!queue) return ZEST_FALSE;
+	return queue->device->platform->imm_dispatch_compute(queue, group_count_x, group_count_y, group_count_z);
+}
+
+zest_bool zest_CopyBitmapToImage(zest_device device, void *bitmap, zest_size image_size, zest_image dst_image, zest_uint width, zest_uint height) {
+	return device->platform->copy_bitmap_to_image(device, bitmap, image_size, dst_image, width, height);
+}
+
+zest_bool zest_CopyImageToBitmap(zest_device device, zest_image src_image, void *pixels) {
+	ZEST_ASSERT_HANDLE(src_image);
+	ZEST_ASSERT(ZEST__FLAGGED(src_image->info.flags, zest_image_flag_transfer_src), "If you want to copy from an image then you must flag that image as transfer_src when creating the image.");
+	ZEST_ASSERT(pixels, "Pixel buffer must not be null");
+	return device->platform->copy_image_to_bitmap(device, src_image, pixels);
+}
+
 zest_bool zest_imm_TransitionImage(zest_queue queue, zest_image image, zest_resource_state new_state, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
 	if (!queue) return ZEST_FALSE;
 	ZEST_ASSERT_HANDLE(queue);			//Not a valid queue handle
@@ -10986,8 +11156,7 @@ zest_bool zest_imm_CopyBuffer(zest_queue queue, zest_buffer src_buffer, zest_buf
 	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
     ZEST_ASSERT(size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");      
     ZEST_ASSERT(size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size");
-	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, 0, 0);
-    return ZEST_TRUE;
+	return queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, 0, 0);
 }
 
 zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, zest_size src_offset, zest_buffer dst_buffer, zest_size dst_offset, zest_size size) {
@@ -10995,8 +11164,7 @@ zest_bool zest_imm_CopyBufferRegion(zest_queue queue, zest_buffer src_buffer, ze
 	ZEST_ASSERT_HANDLE(queue);					//Not a valid queue handle
     ZEST_ASSERT(src_offset + size <= src_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
     ZEST_ASSERT(dst_offset + size <= dst_buffer->size, "Size must be less than or equal to the staging buffer size and the device buffer size whilst also taking into account the offsets");
-	queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, src_offset, dst_offset);
-    return ZEST_TRUE;
+	return queue->device->platform->cmd_copy_buffer_one_time(queue, src_buffer, dst_buffer, size, src_offset, dst_offset);
 }
 
 zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, zest_image dst_image, zest_size size) {
@@ -11009,8 +11177,7 @@ zest_bool zest_imm_CopyBufferToImage(zest_queue queue, zest_buffer src_buffer, z
 		? ((zest_device_memory)dst_image->buffer)->size
 		: ((zest_buffer)dst_image->buffer)->size;
     ZEST_ASSERT(size <= memory_size);
-	queue->device->platform->copy_buffer_to_image(queue, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
-    return ZEST_TRUE;
+	return queue->device->platform->copy_buffer_to_image(queue, src_buffer, src_buffer->memory_offset, dst_image, dst_image->info.extent.width, dst_image->info.extent.height);
 }
 
 void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size) {
@@ -11548,7 +11715,10 @@ void zest__cleanup_device(zest_device device) {
 	device->default_cube_array_view = NULL;
 	device->frame_counter = 0;
 
-	zest__cleanup_pipeline_layout(device->pipeline_layout);
+	//The global layout objects are NULL when device creation failed part way through
+	if (device->pipeline_layout) {
+		zest__cleanup_pipeline_layout(device->pipeline_layout);
+	}
     zest__cleanup_buffers_in_allocators(device);
 
 	//Drain the deferred freeing lists BEFORE the memory scan (see the same note in zest_ResetDevice):
@@ -11574,9 +11744,13 @@ void zest__cleanup_device(zest_device device) {
 	zest__free_all_device_resource_stores(device);
 	zest__scan_memory_and_free_resources(device, ZEST_FALSE);
 
-	zest__cleanup_set_layout(device->bindless_set_layout);
-    ZEST__FREE(device->allocator, device->bindless_set->backend);
-    ZEST__FREE(device->allocator, device->bindless_set);
+	if (device->bindless_set_layout) {
+		zest__cleanup_set_layout(device->bindless_set_layout);
+	}
+	if (device->bindless_set) {
+		ZEST__FREE(device->allocator, device->bindless_set->backend);
+		ZEST__FREE(device->allocator, device->bindless_set);
+	}
 	zest__release_all_image_indexes(device);
 
 	zest_map_foreach(i, device->mip_indexes) {
@@ -11626,6 +11800,10 @@ void zest__cleanup_device(zest_device device) {
     zest_map_free(device->allocator, device->reports);
     zest_map_free(device->allocator, device->buffer_allocators);
     zest_vec_free(device->allocator, device->extensions);
+	zest_vec_foreach(extension_index, device->setup_info.required_instance_extensions) {
+		ZEST__FREE(device->allocator, (void *)device->setup_info.required_instance_extensions[extension_index]);
+	}
+	zest_vec_free(device->allocator, device->setup_info.required_instance_extensions);
     zest_vec_free(device->allocator, device->queue_families);
     zest_vec_free(device->allocator, device->queue_managers);
     zest_map_free(device->allocator, device->queue_names);
@@ -12179,7 +12357,10 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_device device, ze
 
     ZEST__FLAG(set_layout->flags, zest_set_layout_flag_bindless);
 
-    zest_CreateDescriptorPoolForLayout(set_layout, 1);
+    if (!zest_CreateDescriptorPoolForLayout(set_layout, 1)) {
+        zest__cleanup_set_layout(set_layout);
+        return NULL;
+    }
 
     zest_vec_resize(device->allocator, set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
     zest_vec_foreach(i, builder->bindings) {
@@ -12398,7 +12579,9 @@ zest_bool zest_CreateDescriptorPoolForLayout(zest_set_layout layout, zest_uint m
 	zloc_allocator *allocator = layout->context ? layout->context->allocator : layout->device->allocator;
 	zest_descriptor_pool pool = zest__create_descriptor_pool(layout->device, allocator, max_set_count);
 	if (!layout->device->platform->create_set_pool(layout->device, layout->context, pool, layout, max_set_count, bindless)) {
+		//The backend frees the pool's backend itself when it fails
 		ZEST__FREE(allocator, pool);
+		return ZEST_FALSE;
 	}
 	layout->pool = pool;
 	return ZEST_TRUE;
@@ -16790,6 +16973,44 @@ zest_capability_flags zest__compressed_format_capability(zest_format format) {
 	return zest_capability_none;
 }
 
+zest_capability_flags zest__resolve_enabled_capabilities(zest_device device, zest_capability_flags supported) {
+	zest_capability_flags requested = device->setup_info.requested_features;
+	zest_capability_flags enabled = (ZEST_CAPABILITY_AUTO_MASK & supported)
+	                              | (requested & ZEST_CAPABILITY_OPT_IN_MASK & supported);
+	zest_capability_flags dropped = requested & ZEST_CAPABILITY_OPT_IN_MASK & ~supported;
+	if (dropped) {
+		ZEST_APPEND_LOG(device->log_path.str, "Requested opt-in features not supported by this GPU (0x%X) - they will be disabled.", dropped);
+	}
+	device->capabilities.enabled = enabled;
+	return enabled;
+}
+
+void zest__log_supported_capabilities(zest_device device, zest_capability_flags supported) {
+	static const struct { zest_capability_flags flag; const char *name; } capability_names[] = {
+		{ zest_capability_multi_draw_indirect, "multi_draw_indirect" },
+		{ zest_capability_buffer_device_address, "buffer_device_address" },
+		{ zest_capability_nonuniform_storage_buffer_indexing, "nonuniform_storage_buffer_indexing" },
+		{ zest_capability_nonuniform_uniform_buffer_indexing, "nonuniform_uniform_buffer_indexing" },
+		{ zest_capability_nonuniform_storage_image_indexing, "nonuniform_storage_image_indexing" },
+		{ zest_capability_nonuniform_sampled_image_indexing, "nonuniform_sampled_image_indexing" },
+		{ zest_capability_anisotropic_filtering, "anisotropic_filtering" },
+		{ zest_capability_wireframe, "wireframe" },
+		{ zest_capability_texture_compression_bc, "texture_compression_bc" },
+		{ zest_capability_texture_compression_astc_ldr, "texture_compression_astc_ldr" },
+		{ zest_capability_texture_compression_etc2, "texture_compression_etc2" },
+		{ zest_capability_scalar_block_layout, "scalar_block_layout" },
+		{ zest_capability_tessellation, "tessellation (opt-in)" },
+		{ zest_capability_geometry_shader, "geometry_shader (opt-in)" },
+		{ zest_capability_shader_int64, "shader_int64 (opt-in)" },
+		{ zest_capability_fragment_stores_and_atomics, "fragment_stores_and_atomics (opt-in)" },
+	};
+	const char *log_path = device->log_path.str;
+	ZEST_APPEND_LOG(log_path, "Optional capabilities (supported by hardware):");
+	for (zest_uint capability_index = 0; capability_index != sizeof(capability_names) / sizeof(capability_names[0]); ++capability_index) {
+		ZEST_APPEND_LOG(log_path, "  %s: %s", capability_names[capability_index].name, (supported & capability_names[capability_index].flag) ? "yes" : "no");
+	}
+}
+
 void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints) {
     if (usage_hints & zest_resource_usage_hint_copy_dst) {
         resource->image.info.flags |= zest_image_flag_transfer_dst;
@@ -20962,7 +21183,7 @@ void* zest_NextMeshVertex(zest_mesh mesh, void* current) {
 	ZEST_ASSERT_HANDLE(mesh);	//Not a valid mesh handle
     char* next = (char*)current + mesh->vertex_struct_size;
     char* end = (char*)mesh->vertex_data + (mesh->vertex_count * mesh->vertex_struct_size);
-    return (next < end && next > mesh->vertex_data) ? next : NULL;
+    return (next < end && next > (char*)mesh->vertex_data) ? next : NULL;
 }
 
 void zest_ReserveMeshVertices(zest_mesh mesh, zest_uint count) {
@@ -21523,7 +21744,7 @@ void zest_DrawDebugText(zest_context context, float x, float y, zest_uint color,
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    return zest__draw_debug_text(context, buffer, x, y, color);
+    zest__draw_debug_text(context, buffer, x, y, color);
 }
 
 void zest_DrawDebugRect(zest_context context, float x, float y, float width, float height, zest_uint color) {
@@ -22855,6 +23076,7 @@ void zest_implsdl2_SetWindowMode(zest_context context, zest_window_mode mode) {
 #include "zest_vulkan.h"
 #endif
 #ifdef ZEST_D3D12_IMPLEMENTATION
+#include "zest_dx12.h"
 #endif
 #ifdef ZEST_METAL_IMPLEMENTATION
 #endif

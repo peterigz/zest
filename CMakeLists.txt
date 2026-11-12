@@ -37,6 +37,20 @@ if(ZEST_ENABLE_SLANG)
 endif()
 # --- End Slang Integration ---
 
+# --- Optional D3D12 Integration ---
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ZestD3D12.cmake)
+if(ZEST_D3D12_ENABLED)
+    # Use #ifdef ZEST_ENABLE_D3D12 in your code
+    target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_D3D12 ZEST_D3D12_SDK_VERSION=${ZEST_D3D12_SDK_VERSION})
+    target_compile_definitions(zest PRIVATE ZEST_ENABLE_D3D12 ZEST_D3D12_SDK_VERSION=${ZEST_D3D12_SDK_VERSION})
+    # BEFORE so the Agility headers win over the Windows SDK's
+    target_include_directories(zest-interface BEFORE INTERFACE ${ZEST_D3D12_INCLUDE_DIR})
+    target_include_directories(zest BEFORE PUBLIC ${ZEST_D3D12_INCLUDE_DIR})
+    target_link_libraries(zest-interface INTERFACE d3d12 dxgi)
+    target_link_libraries(zest PUBLIC d3d12 dxgi)
+endif()
+# --- End D3D12 Integration ---
+
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
     message(STATUS "Using module to find Vulkan")

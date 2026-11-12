@@ -1,3 +1,10 @@
+# The SDK's SDL2main.lib is built against the release CRT, which conflicts with the debug CRT (LNK4098)
+function(zest_ignore_sdl2main_crt TARGET_NAME)
+	if(MSVC AND "SDL2::SDL2main" IN_LIST SDL2_LIBRARIES)
+		target_link_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:/NODEFAULTLIB:MSVCRT>)
+	endif()
+endfunction()
+
 function(buildExample EXAMPLE_NAME)
 	SET(EXAMPLE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/${EXAMPLE_NAME})
 	
@@ -134,6 +141,7 @@ function(buildExample EXAMPLE_NAME)
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${TIMELINEFX_SOURCE} ${IMPLOT_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-interface ${SDL2_LIBRARIES} ${WINLIBS})
+		zest_ignore_sdl2main_crt(${EXAMPLE_NAME})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${IMPLOT_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-interface ${SDL2_LIBRARIES})
@@ -229,6 +237,12 @@ foreach(SLANG_EXAMPLE ${SLANG_EXAMPLES})
 	zest_copy_slang_runtime(${SLANG_EXAMPLE})
 endforeach()
 zest_copy_slang_runtime(zest-tests)
+zest_copy_d3d12_runtime(zest-tests)
+
+# Compiles zest.h as C11 so C regressions fail the build. Never linked.
+add_library(zest-c-compile-check OBJECT zest-tests/zest-c-compile-check.c)
+set_target_properties(zest-c-compile-check PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+target_link_libraries(zest-c-compile-check PRIVATE zest-interface)
 
 
 
@@ -236,3 +250,6 @@ zest_copy_slang_runtime(zest-tests)
 # rendered host exe, its own TimelineFX working copy, and no use of buildExample() or
 # the shared TIMELINEFX variable. Skips itself if that working copy is missing.
 add_subdirectory(zest-timelinefx-reload)
+if(TARGET zest-timelinefx-reload-render)
+	zest_ignore_sdl2main_crt(zest-timelinefx-reload-render)
+endif()

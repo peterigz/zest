@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_TEST_MODE
 #include "zest-tests.h"
 #include "zest.h"
@@ -13,6 +16,9 @@
 #include "zest-layer-tests.cpp"
 #include "zest-device-reset-tests.cpp"
 #include "zest-slang-tests.cpp"
+#ifdef ZEST_ENABLE_D3D12
+#include "zest-d3d12-tests.cpp"
+#endif
 
 void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
@@ -139,6 +145,11 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Device Reset Deferred Frees", test__device_reset_deferred_frees, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Device Reset Pool Sizing", test__device_reset_pool_sizing, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Device Reset Bindless Indexes", test__device_reset_bindless_indexes, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "User Test Device Platform Query", test__device_platform_query, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Descriptor Pool Failure", test__descriptor_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Device Creation Pool Failure", test__device_creation_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Sync Validation Flag", test__sync_validation_flag, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Device Builder Freed", test__device_builder_freed, 0, 1, 0, 0, tests->headless_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
@@ -281,31 +292,88 @@ int main(int argc, char *argv[]) {
 	//actually the test that crashed rather than whatever was last flushed
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Tests");
+	zest_bool run_vulkan = ZEST_TRUE;
+	zest_bool run_d3d12 = ZEST_FALSE;
+#ifdef ZEST_ENABLE_D3D12
+	run_d3d12 = ZEST_TRUE;
+#endif
 
-	unsigned int count = 0;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, NULL);
-	const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
+	for (int argument_index = 1; argument_index < argc; ++argument_index) {
+		const char *argument = argv[argument_index];
+		if (strcmp(argument, "--platform") == 0 && argument_index + 1 < argc) {
+			const char *platform_name = argv[++argument_index];
+			if (strcmp(platform_name, "vulkan") == 0) {
+				run_vulkan = ZEST_TRUE;
+				run_d3d12 = ZEST_FALSE;
+			} else if (strcmp(platform_name, "d3d12") == 0) {
+#ifdef ZEST_ENABLE_D3D12
+				run_vulkan = ZEST_FALSE;
+				run_d3d12 = ZEST_TRUE;
+#else
+				ZEST_PRINT("\033[31mThe D3D12 backend isn't compiled in, configure with -DZEST_ENABLE_D3D12=ON\033[0m");
+				return 1;
+#endif
+			} else if (strcmp(platform_name, "all") == 0) {
+				run_vulkan = ZEST_TRUE;
+#ifdef ZEST_ENABLE_D3D12
+				run_d3d12 = ZEST_TRUE;
+#endif
+			} else {
+				ZEST_PRINT("\033[31mUnknown platform %s, expected vulkan, d3d12 or all\033[0m", platform_name);
+				return 1;
+			}
+		}
+#ifdef ZEST_ENABLE_D3D12
+		else if (strcmp(argument, "--warp") == 0) {
+			d3d12_use_warp = ZEST_TRUE;
+		} else if (strcmp(argument, "--gbv") == 0) {
+			d3d12_use_gpu_validation = ZEST_TRUE;
+		}
+#endif
+	}
 
 	int legacy_total = 0;
 	int dynamic_total = 0;
 	int dynamic_completed = 0;
 	int legacy_completed = 0;
 
-	ZEST_PRINT("=== Test suite run: dynamic rendering ===");
-	dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
+	if (run_vulkan) {
+		zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Tests");
+
+		unsigned int count = 0;
+		SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, NULL);
+		const char** sdl_extensions = (const char**)malloc(sizeof(const char*) * count);
+		SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
+
+		ZEST_PRINT("=== Test suite run: dynamic rendering ===");
+		dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
+
+		ZEST_PRINT("");
+		ZEST_PRINT("=== Test suite run: legacy render pass ===");
+		legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
+
+		// Clean up the extensions array
+		free(sdl_extensions);
+	}
+
+	int d3d12_total = 0;
+	int d3d12_completed = 0;
+#ifdef ZEST_ENABLE_D3D12
+	if (run_d3d12) {
+		ZEST_PRINT("");
+		ZEST_PRINT("=== Test suite run: D3D12 ===");
+		d3d12_completed = RunD3D12Suite(&d3d12_total);
+	}
+#endif
 
 	ZEST_PRINT("");
-	ZEST_PRINT("=== Test suite run: legacy render pass ===");
-	legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
+	if (run_vulkan) {
+		ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
+		ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
+	}
+	if (run_d3d12) {
+		ZEST_PRINT("%sD3D12: %i / %i\033[0m", d3d12_completed < d3d12_total ? "\033[31m" : "\033[32m", d3d12_completed, d3d12_total);
+	}
 
-	// Clean up the extensions array
-	free(sdl_extensions);
-
-	ZEST_PRINT("");
-	ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
-	ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
-
-	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total) ? 0 : 1;
+	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_completed == d3d12_total) ? 0 : 1;
 }

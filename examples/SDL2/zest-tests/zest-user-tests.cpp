@@ -679,3 +679,106 @@ int test__acquire_release_resources(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+int test__device_platform_query(ZestTests *tests, Test *test) {
+	test->result = zest_GetDevicePlatform(tests->device) == zest_platform_vulkan ? 0 : 1;
+	test->frame_count++;
+	return 0;
+}
+
+//Fails the way a backend does when the API rejects the pool: it frees the pool's backend and leaves the pool to the caller
+static zest_bool failing_create_set_pool(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless) {
+	zloc_allocator *allocator = context ? context->allocator : device->allocator;
+	ZEST__FREE(allocator, pool->backend);
+	pool->backend = NULL;
+	return ZEST_FALSE;
+}
+
+int test__descriptor_pool_failure(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	zest_set_layout_builder_t builder = zest_BeginSetLayoutBuilder(device->allocator);
+	zest_AddLayoutBuilderBinding(&builder, ZEST_STRUCT_LITERAL(zest_descriptor_binding_desc_t, 0, zest_descriptor_type_sampler, 1, zest_shader_all_stages));
+	zest_bool (*create_set_pool)(zest_device, zest_context, zest_descriptor_pool, zest_set_layout, zest_uint, zest_bool) = device->platform->create_set_pool;
+	device->platform->create_set_pool = failing_create_set_pool;
+	zest_set_layout layout = zest_FinishDescriptorSetLayoutForBindless(device, &builder, 1, "Failing Pool Layout");
+	device->platform->create_set_pool = create_set_pool;
+	zest_vec_free(device->allocator, builder.bindings);
+	test->result = layout != NULL;
+	test->frame_count++;
+	return 0;
+}
+
+static zest__platform_setup original_platform_setup = NULL;
+
+static void failing_pool_platform_setup(zest_platform_t *platform) {
+	original_platform_setup(platform);
+	platform->create_set_pool = failing_create_set_pool;
+}
+
+//Installed after the builder exists because the Begin*DeviceBuilder functions register the platform's own setup
+static zest_device create_device_with_failing_pool(zest_device_builder builder) {
+	zest_platform_type platform = builder->platform;
+	original_platform_setup = zest__platform_setup_callbacks[platform];
+	zest__platform_setup_callbacks[platform] = failing_pool_platform_setup;
+	zest_device device = zest_EndDeviceBuilder(builder);
+	zest__platform_setup_callbacks[platform] = original_platform_setup;
+	return device;
+}
+
+int test__device_creation_pool_failure(ZestTests *tests, Test *test) {
+	zest_device_builder builder = zest_BeginVulkanDeviceBuilder(0);
+	//The Vulkan backend needs at least one instance extension
+	zest_AddDeviceBuilderExtension(builder, VK_KHR_SURFACE_EXTENSION_NAME);
+	zest_device device = create_device_with_failing_pool(builder);
+	test->result = device != NULL;
+	test->result |= tests->device->platform->create_set_pool == failing_create_set_pool;
+	test->result |= zest_GetValidationErrorCount(tests->device) != 0;
+	test->frame_count++;
+	return 0;
+}
+
+int test__sync_validation_flag(ZestTests *tests, Test *test) {
+	zest_device_t device = {};
+	device.setup_info.flags = zest_device_init_flag_enable_validation_layers;
+	test->result = zest__validation_layers_with_sync_are_enabled(&device) != ZEST_FALSE;
+	device.setup_info.flags = zest_device_init_flag_enable_validation_layers_with_sync;
+	test->result |= zest__validation_layers_with_sync_are_enabled(&device) != ZEST_TRUE;
+	test->frame_count++;
+	return 0;
+}
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
+//Bytes the debug CRT heap holds, which includes every Zest pool since they come from malloc
+static size_t live_crt_heap_bytes(void) {
+#if defined(_MSC_VER) && defined(_DEBUG)
+	_CrtMemState state;
+	_CrtMemCheckpoint(&state);
+	return state.lSizes[_NORMAL_BLOCK];
+#else
+	return 0;
+#endif
+}
+
+int test__device_builder_freed(ZestTests *tests, Test *test) {
+	size_t bytes_before = live_crt_heap_bytes();
+	zest_device_builder builder = zest_BeginVulkanDeviceBuilder(0);
+	zest_AddDeviceBuilderExtension(builder, VK_KHR_SURFACE_EXTENSION_NAME);
+	zest_device device = zest_EndDeviceBuilder(builder);
+	test->result = device == NULL;
+	if (device) {
+		//The device keeps its own copy of the extension names once the builder is gone
+		test->result |= zest_vec_size(device->setup_info.required_instance_extensions) != 1;
+		test->result |= strcmp(device->setup_info.required_instance_extensions[0], VK_KHR_SURFACE_EXTENSION_NAME) != 0;
+		zest_DestroyDevice(device);
+	}
+	builder = zest_BeginVulkanDeviceBuilder(0);
+	zest_AddDeviceBuilderExtension(builder, VK_KHR_SURFACE_EXTENSION_NAME);
+	test->result |= create_device_with_failing_pool(builder) != NULL;
+	//Each leaked builder would leave its 1 MB pool behind
+	test->result |= live_crt_heap_bytes() >= bytes_before + zloc__MEGABYTE(1);
+	test->frame_count++;
+	return 0;
+}

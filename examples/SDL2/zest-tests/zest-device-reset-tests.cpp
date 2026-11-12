@@ -684,9 +684,24 @@ minimum allocation.
 int test__device_reset_pool_sizing(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 	zest_device device = tests->device;
+	//The log path, shader cache path and instance extensions outlive the logical device, so a reset keeps them
+	char log_path[512] = { 0 };
+	char cached_shaders_path[512] = { 0 };
+	snprintf(log_path, sizeof(log_path), "%s", device->log_path.str ? device->log_path.str : "");
+	snprintf(cached_shaders_path, sizeof(cached_shaders_path), "%s", device->cached_shaders_path.str ? device->cached_shaders_path.str : "");
+	zest_uint extension_count = zest_vec_size(device->extensions);
+	if (!log_path[0] || !cached_shaders_path[0] || !extension_count) {
+		ZEST_PRINT("\tPool sizing: the device has no log path, shader cache path or instance extensions before the reset");
+		failed_count++;
+	}
 
 	for (int cycle = 0; cycle != 2; ++cycle) {
 		ResetDeviceCycle(tests);
+		if (!device->log_path.str || strcmp(device->log_path.str, log_path) != 0 || !device->cached_shaders_path.str ||
+			strcmp(device->cached_shaders_path.str, cached_shaders_path) != 0 || zest_vec_size(device->extensions) != extension_count) {
+			ZEST_PRINT("\tPool sizing: the log path, shader cache path or instance extensions changed in reset cycle %i", cycle);
+			failed_count++;
+		}
 
 		//Small device-local buffer: registered small pool, not the derived fallback
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
