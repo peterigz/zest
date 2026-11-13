@@ -1070,6 +1070,77 @@ void tst__transfer_to_arena_buffers(const zest_command_list command_list, void *
 	state->execution_count++;
 }
 
+static void tst__acquire_transient_mip_indexes(const zest_command_list command_list, void *user_data) {
+	zest_resource_node mipped_target = zest_GetPassInputResource(command_list, "Mipped Target");
+	if (mipped_target && zest_GetTransientSampledMipBindlessIndexes(command_list, mipped_target, zest_texture_2d_binding)) {
+		*(int *)user_data += 1;
+	}
+}
+
+//Per-mip views of a transient image are made from the frame graph's linear memory and released when their frame in
+//flight comes round again, so zest_BeginFrame must release them before it frees a frame graph allocator that grew.
+//The test's context starts with a tiny frame graph allocator so the first frame in each slot grows it.
+int test__transient_mip_views_allocator_growth(ZestTests *tests, Test *test) {
+	static zest_bool slot_grew_with_views[ZEST_MAX_FIF];
+	static int grown_slots_released;
+	if (test->frame_count == 0) {
+		memset(slot_grew_with_views, 0, sizeof(slot_grew_with_views));
+		grown_slots_released = 0;
+	}
+	zest_context context = tests->context;
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(context)) {
+		zest_uint fif = zest_CurrentFIF(context);
+		if (slot_grew_with_views[fif]) {
+			if (context->frame_graph_allocator[fif].next || zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[fif])) {
+				test->result = 1;
+			}
+			slot_grew_with_views[fif] = ZEST_FALSE;
+			grown_slots_released++;
+		}
+		int acquired_count = 0;
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(context, "Transient Mip Views", 0)) {
+			zest_ImportSwapchainResource();
+			zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+			info.width = 64;
+			info.height = 64;
+			info.mip_levels = 4;
+			zest_resource_node mipped_target = zest_AddTransientImageResource("Mipped Target", &info);
+
+			zest_BeginRenderPass("Write Mip 0");
+			zest_ConnectOutput(mipped_target);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Read Mips");
+			zest_ConnectInput(mipped_target);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(tst__acquire_transient_mip_indexes, &acquired_count);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(context, frame_graph);
+		if (frame_graph) {
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+		}
+		if (acquired_count != 1) {
+			test->result = 1;
+		}
+		if (context->frame_graph_allocator[fif].next && zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[fif])) {
+			slot_grew_with_views[fif] = ZEST_TRUE;
+		}
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	//The test proves nothing unless a slot that grew with views deferred came round again
+	if (test->frame_count == test->run_count && grown_slots_released == 0) {
+		test->result = 1;
+	}
+	return test->result;
+}
+
 int test__cached_transient_placement(ZestTests *tests, Test *test) {
 	static StalePlacementState state;
 	if (test->frame_count == 0) {

@@ -5057,6 +5057,7 @@ ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE zest_device zest__end_device_builder(zest_device_builder builder);
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name);
+ZEST_PRIVATE void zest__free_frame_graph_allocator_chain(zest_context context, zloc_linear_allocator_t *base_allocator);
 ZEST_PRIVATE void zest__destroy_device(zest_device device);
 ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 ZEST_PRIVATE void zest__free_device_buffer_allocators(zest_device device);
@@ -9593,19 +9594,16 @@ zest_bool zest_BeginFrame(zest_context context) {
 
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
+	//Deferred releases can point into this slot's frame graph memory, so they run before it is reset or freed
+	zest__do_context_scheduled_tasks(context);
+
 	if (context->frame_graph_allocator[context->current_fif].next) {
 		//If extra memory was allocated to create a frame graph then consolidate it in to a single memory block.
 		//Frame graphs can only be cached if the frame graph is all contained in a single block of memory so that
 		//it can easily be promoted to persistent memory.
 		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 		zest_size capacity = zloc_GetLinearAllocatorCapacity(allocator);
-		while (allocator) {
-			ZEST__FREE(context->allocator, allocator->data);
-			if (allocator != &context->frame_graph_allocator[context->current_fif]) {
-				ZEST__FREE(context->allocator, allocator);
-			}
-			allocator = allocator->next;
-		}
+		zest__free_frame_graph_allocator_chain(context, allocator);
 		//The new single block must be the full capacity of the chain it replaces: the allocator is
 		//initialised with that capacity, so a smaller allocation here means later frame graph
 		//builds write past the end of the block and corrupt the heap.
@@ -9617,7 +9615,6 @@ zest_bool zest_BeginFrame(zest_context context) {
 		zloc_ResetLinearAllocator(&context->frame_graph_allocator[context->current_fif]);
 	}
 
-	zest__do_context_scheduled_tasks(context);
 	ZEST_CPU_PROFILE_END(context);
 
 	if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
@@ -10502,6 +10499,26 @@ void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size) 
 		data = zloc_LinearAllocation(allocator, size);
 	}
 	return data;
+}
+
+//Frees every block in the chain and every chained allocator, but not the base allocator struct
+void zest__free_frame_graph_allocator_chain(zest_context context, zloc_linear_allocator_t *base_allocator) {
+	zloc_linear_allocator_t *allocator = base_allocator;
+	while (allocator) {
+		zloc_linear_allocator_t *next_allocator = allocator->next;
+#ifdef ZEST_TEST_MODE
+		//Test builds overwrite released frame graph memory so anything still pointing into it fails loudly
+		if (allocator->data) memset(allocator->data, 0xDD, allocator->buffer_size);
+#endif
+		ZEST__FREE(context->allocator, allocator->data);
+		if (allocator != base_allocator) {
+#ifdef ZEST_TEST_MODE
+			memset(allocator, 0xDD, sizeof(zloc_linear_allocator_t));
+#endif
+			ZEST__FREE(context->allocator, allocator);
+		}
+		allocator = next_allocator;
+	}
 }
 
 void zest__unmap_memory(zest_device_memory_pool memory_allocation) {
@@ -12283,14 +12300,7 @@ void zest__cleanup_context(zest_context context) {
 	zest_vec_free(context->allocator, context->transient_arenas);
 
     zest_ForEachFrameInFlight(fif) {
-		zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[fif];
-		while (allocator) {
-			ZEST__FREE(context->allocator, allocator->data);
-			if (allocator != &context->frame_graph_allocator[fif]) {
-				ZEST__FREE(context->allocator, allocator);
-			}
-			allocator = allocator->next;
-		}
+		zest__free_frame_graph_allocator_chain(context, &context->frame_graph_allocator[fif]);
     }
 
 	zest__free_context_buffer_allocators(context);

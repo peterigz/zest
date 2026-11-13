@@ -124,6 +124,9 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Arena Trim", test__arena_trim, 0, ARENA_TRIM_RUN_COUNT, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Transient Report", test__transient_report, 0, REPORT_RUN_COUNT, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Intraframe Two Graphs", test__intraframe_two_graphs, 0, ZEST_MAX_FIF * 2, 0, 0, tests->simple_create_info });
+	zest_create_context_info_t small_frame_graph_memory_info = tests->simple_create_info;
+	small_frame_graph_memory_info.frame_graph_allocator_size = zloc__KILOBYTE(1);
+	RegisterTest(tests, { "Transient Mip Views Across Allocator Growth", test__transient_mip_views_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, small_frame_graph_memory_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.
 	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
@@ -188,7 +191,7 @@ static const char *d3d12_suite_tests[] = {
 	"Transient Image", "Image Barriers", "Multi Reader Barrier", "Depth Attachment", "Compute Test WAW Barrier",
 	"Essential Unused Transient", "Versioned Transient", "Cached Transient Persistence",
 	"Transient Placement Failure", "Transient Placement Failure Retry",
-	"Arena Memory Bound", "Arena Alternation", "Arena Trim", "Transient Report",
+	"Arena Memory Bound", "Arena Alternation", "Arena Trim", "Transient Report", "Transient Mip Views Across Allocator Growth",
 	"Stress Test Simple",
 	"User Test Unused Swapchain", "User Test Buffer Output In Render Pass", "User Test Transient Dependency Ordering",
 	"User Test Acquire/Release Indexes",
