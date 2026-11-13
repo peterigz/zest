@@ -54,6 +54,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test State Vertex Input", test__pipeline_state_vertex_input, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test State MultiBlend", test__pipeline_state_multiblend, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test State Rasterization", test__pipeline_state_rasterization, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test Winding Coverage", test__pipeline_winding_coverage, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Format Support", test__image_format_support, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
@@ -110,6 +111,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Resource Test Large Readback Buffer", test__large_readback_buffer, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Dedicated Buffer", test__dedicated_buffer, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Buffer Grow Contract", test__buffer_grow_contract, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Resource Test Stride Aligned Buffers", test__stride_aligned_buffers, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Pooled Image Allocations", test__pooled_image_allocations, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Unbacked Transient Barrier", test__unbacked_transient_barrier, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
@@ -150,6 +152,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "User Test Device Creation Pool Failure", test__device_creation_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Sync Validation Flag", test__sync_validation_flag, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Device Builder Freed", test__device_builder_freed, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Swapchain Resize", test__swapchain_resize, 0, 1, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
 	tests->sampler_info = zest_CreateSamplerInfo();
@@ -164,7 +167,43 @@ void InitialiseSpecificTests(ZestTests *tests) {
     zest_ResetValidationErrors(tests->device);
 }
 
+//The shared tests the D3D12 suite run registers
+static const char *d3d12_suite_tests[] = {
+	"Empty Graph", "Single Pass", "Blank Screen", "Pass Culling", "Resource Culling", "Chained Pass Culling",
+	"Import Image", "Pass Grouping", "Cyclic Dependency", "Simple Graph Cache",
+	"Resource Test Image Format Support", "Resource Test Image Creation Destruction",
+	"Resource Test Buffer Creation Destruction", "Resource Test Buffer Edge Cases", "Resource Test Sampler Creation",
+	"User Test No Update Device", "User Test No End Frame", "User Test No Swapchain Import", "User Test Missing End Pass",
+	"User Test Bad Frame Graph Ordering", "User Test Frame Graph State Errors", "User Test Pass Without Task",
+	"User Test Unused Imported Resource", "User Test Multiple Swapchain Imports", "User Test Resources Named the Same",
+	"User Test Add the same resource twice",
+	"Compute Test Timeline Timeout",
+	"Resource Test Buffer Offset Alignment", "Resource Test Dedicated Buffer", "Resource Test Buffer Grow Contract",
+	"User Test Device Platform Query", "User Test Descriptor Pool Failure", "User Test Swapchain Resize",
+	"Resource Test Image Format Edge Cases", "Resource Test Image View Creation",
+	"Resource Test Uniform Buffer Descriptor Management", "Resource Test Uniform Buffer Edge Cases",
+	"Resource Test Staging Buffer Operations", "Resource Test Image With Pixels Creation",
+	"Resource Test Image Array Descriptor Indexes", "Resource Test Image Allocator Memory Type Keying",
+	"Resource Test Large Readback Buffer", "Resource Test Pooled Image Allocations",
+	"Transient Image", "Image Barriers", "Multi Reader Barrier", "Depth Attachment", "Compute Test WAW Barrier",
+	"Essential Unused Transient", "Versioned Transient", "Cached Transient Persistence",
+	"Transient Placement Failure", "Transient Placement Failure Retry",
+	"Arena Memory Bound", "Arena Alternation", "Arena Trim", "Transient Report",
+	"Stress Test Simple",
+	"User Test Unused Swapchain", "User Test Buffer Output In Render Pass", "User Test Transient Dependency Ordering",
+	"User Test Acquire/Release Indexes",
+	"Device Reset Deferred Frees", "Device Reset Bindless Indexes",
+};
+
+static zest_bool IsD3D12SuiteTest(const char *name) {
+	for (size_t index = 0; index != sizeof(d3d12_suite_tests) / sizeof(d3d12_suite_tests[0]); ++index) {
+		if (strcmp(d3d12_suite_tests[index], name) == 0) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
 void RegisterTest(ZestTests *tests, Test test) {
+	if (tests->platform == zest_platform_d3d12 && !IsD3D12SuiteTest(test.name)) return;
 	//Overflowing the fixed test array silently corrupts the fields after it in ZestTests
 	ZEST_ASSERT(tests->test_count < TEST_COUNT);
 	tests->tests[tests->test_count] = test;
@@ -242,17 +281,12 @@ int RunTests(ZestTests *tests) {
 	return completed_tests;
 }
 
-//Runs the full test suite on a fresh device. The render pass mode (dynamic rendering vs legacy
-//VkRenderPass) is a device creation decision, so covering both paths means building the device
-//twice; the same SDL window can back consecutive device lifetimes.
-int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-
-	ZestTests tests = {};
-	tests.simple_create_info = create_info;
-	tests.headless_create_info = create_info;
-	tests.headless_create_info.flags |= zest_context_init_flag_headless;
-
+static zest_device CreateSuiteDevice(zest_platform_type platform, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass) {
+#ifdef ZEST_ENABLE_D3D12
+	if (platform == zest_platform_d3d12) {
+		return zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	}
+#endif
 	// Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
 	zest_AddDeviceBuilderExtensions(device_builder, instance_extensions, extension_count);
@@ -266,7 +300,27 @@ int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, 
 	// those optional device features here (shipping examples do not request them).
 	zest_RequestDeviceFeature(device_builder, zest_capability_tessellation);
 	zest_RequestDeviceFeature(device_builder, zest_capability_geometry_shader);
-	tests.device = zest_EndDeviceBuilder(device_builder);
+	return zest_EndDeviceBuilder(device_builder);
+}
+
+//Runs the full test suite on a fresh device. The render pass mode (dynamic rendering vs legacy
+//VkRenderPass) is a device creation decision, so covering both paths means building the device
+//twice; the same SDL window can back consecutive device lifetimes.
+int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out) {
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
+
+	ZestTests tests = {};
+	tests.platform = platform;
+	tests.simple_create_info = create_info;
+	tests.headless_create_info = create_info;
+	tests.headless_create_info.flags |= zest_context_init_flag_headless;
+
+	tests.device = CreateSuiteDevice(platform, instance_extensions, extension_count, force_legacy_render_pass);
+	if (!tests.device) {
+		ZEST_PRINT("\033[31mThe suite's device couldn't be created, so none of its tests ran.\033[0m");
+		*total_out = 1;
+		return 0;
+	}
 
 	if (!force_legacy_render_pass && zest__using_legacy_render_pass(tests.device)) {
 		ZEST_PRINT("\033[33mWARNING: dynamic rendering is not supported on this device, this run will use the legacy render pass path instead.\033[0m");
@@ -346,34 +400,44 @@ int main(int argc, char *argv[]) {
 		SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data.window_handle, &count, sdl_extensions);
 
 		ZEST_PRINT("=== Test suite run: dynamic rendering ===");
-		dynamic_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
+		dynamic_completed = RunSuite(zest_platform_vulkan, &window_data, sdl_extensions, count, ZEST_FALSE, &dynamic_total);
 
 		ZEST_PRINT("");
 		ZEST_PRINT("=== Test suite run: legacy render pass ===");
-		legacy_completed = RunSuite(&window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
+		legacy_completed = RunSuite(zest_platform_vulkan, &window_data, sdl_extensions, count, ZEST_TRUE, &legacy_total);
 
 		// Clean up the extensions array
 		free(sdl_extensions);
 	}
 
-	int d3d12_total = 0;
-	int d3d12_completed = 0;
+	int d3d12_suite_total = 0;
+	int d3d12_suite_completed = 0;
+	int d3d12_backend_total = 0;
+	int d3d12_backend_completed = 0;
 #ifdef ZEST_ENABLE_D3D12
 	if (run_d3d12) {
+		//The suite's device must be destroyed before the backend list starts, as an adapter holds one Zest D3D12 device at a time
 		ZEST_PRINT("");
-		ZEST_PRINT("=== Test suite run: D3D12 ===");
-		d3d12_completed = RunD3D12Suite(&d3d12_total);
+		ZEST_PRINT("=== Test suite run: D3D12 suite ===");
+		zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "D3D12 Tests");
+		d3d12_suite_completed = RunSuite(zest_platform_d3d12, &window_data, NULL, 0, ZEST_FALSE, &d3d12_suite_total);
+		SDL_DestroyWindow((SDL_Window *)window_data.window_handle);
+
+		ZEST_PRINT("");
+		ZEST_PRINT("=== Test suite run: D3D12 backend ===");
+		d3d12_backend_completed = RunD3D12Suite(&d3d12_backend_total);
 	}
 #endif
 
 	ZEST_PRINT("");
 	if (run_vulkan) {
-		ZEST_PRINT("%sDynamic rendering:  %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
+		ZEST_PRINT("%sDynamic rendering: %i / %i\033[0m", dynamic_completed < dynamic_total ? "\033[31m" : "\033[32m", dynamic_completed, dynamic_total);
 		ZEST_PRINT("%sLegacy render pass: %i / %i\033[0m", legacy_completed < legacy_total ? "\033[31m" : "\033[32m", legacy_completed, legacy_total);
 	}
 	if (run_d3d12) {
-		ZEST_PRINT("%sD3D12: %i / %i\033[0m", d3d12_completed < d3d12_total ? "\033[31m" : "\033[32m", d3d12_completed, d3d12_total);
+		ZEST_PRINT("%sD3D12 suite: %i / %i\033[0m", d3d12_suite_completed < d3d12_suite_total ? "\033[31m" : "\033[32m", d3d12_suite_completed, d3d12_suite_total);
+		ZEST_PRINT("%sD3D12 backend: %i / %i\033[0m", d3d12_backend_completed < d3d12_backend_total ? "\033[31m" : "\033[32m", d3d12_backend_completed, d3d12_backend_total);
 	}
 
-	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_completed == d3d12_total) ? 0 : 1;
+	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_suite_completed == d3d12_suite_total && d3d12_backend_completed == d3d12_backend_total) ? 0 : 1;
 }

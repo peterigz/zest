@@ -1,3 +1,4 @@
+#include <dxcapi.h>
 typedef int (*d3d12_test_callback)(void);
 
 struct D3D12Test {
@@ -8,12 +9,16 @@ struct D3D12Test {
 static zest_bool d3d12_use_warp = ZEST_FALSE;
 static zest_bool d3d12_use_gpu_validation = ZEST_FALSE;
 
-zest_device_builder BeginD3D12TestBuilder(void) {
+static zest_device_init_flags D3D12TestFlags(void) {
 	zest_device_init_flags flags = zest_device_init_flag_enable_validation_layers | zest_device_init_flag_log_validation_errors_to_memory | zest_device_init_flag_log_validation_errors_to_console;
 	if (d3d12_use_gpu_validation) {
 		flags |= zest_device_init_flag_enable_validation_layers_with_sync;
 	}
-	zest_device_builder builder = zest_BeginD3D12DeviceBuilder(flags);
+	return flags;
+}
+
+zest_device_builder BeginD3D12TestBuilder(void) {
+	zest_device_builder builder = zest_BeginD3D12DeviceBuilder(D3D12TestFlags());
 	if (d3d12_use_warp) {
 		zest_DeviceBuilderUseWarp(builder);
 	}
@@ -33,6 +38,8 @@ int test_d3d12_builder(void) {
 	return failed | finish_device(device);
 }
 
+//DXGI_DEBUG_DXGI is only declared by the headers, and defined in dxguid.lib
+#pragma comment(lib, "dxguid.lib")
 #define CHECK_INTERFACE_ID(type) failed |= memcmp(&zest__dx_iid_##type, &__uuidof(type), sizeof(GUID)) != 0
 int test_d3d12_interface_ids(void) {
 	int failed = 0;
@@ -51,6 +58,16 @@ int test_d3d12_interface_ids(void) {
 	CHECK_INTERFACE_ID(ID3D12Resource);
 	CHECK_INTERFACE_ID(ID3D12Heap);
 	CHECK_INTERFACE_ID(ID3D12DescriptorHeap);
+	CHECK_INTERFACE_ID(IDXGISwapChain1);
+	CHECK_INTERFACE_ID(IDXGISwapChain3);
+	CHECK_INTERFACE_ID(IDXGIInfoQueue);
+	CHECK_INTERFACE_ID(ID3D12Device5);
+	CHECK_INTERFACE_ID(ID3D12RootSignature);
+	CHECK_INTERFACE_ID(ID3D12PipelineState);
+	failed |= memcmp(&zest__dx_iid_IDxcCompiler3, &__uuidof(IDxcCompiler3), sizeof(GUID)) != 0;
+	failed |= memcmp(&zest__dx_iid_IDxcResult, &__uuidof(IDxcResult), sizeof(GUID)) != 0;
+	failed |= memcmp(&zest__dx_clsid_DxcCompiler, &CLSID_DxcCompiler, sizeof(GUID)) != 0;
+	failed |= memcmp(&zest__dx_debug_dxgi, &DXGI_DEBUG_DXGI, sizeof(GUID)) != 0;
 	return failed;
 }
 
@@ -148,10 +165,10 @@ int test_d3d12_format_round_trip(void) {
 }
 
 int test_d3d12_image_heap_category(void) {
-	int failed = zest__dx_image_heap_category(zest_image_flag_color_attachment, 4, D3D12_RESOURCE_HEAP_TIER_2) != ZEST_DX_HEAP_CATEGORY_MSAA;
-	failed |= zest__dx_image_heap_category(zest_image_flag_color_attachment, 1, D3D12_RESOURCE_HEAP_TIER_1) != ZEST_DX_HEAP_CATEGORY_TARGETS;
-	failed |= zest__dx_image_heap_category(zest_image_flag_color_attachment, 1, D3D12_RESOURCE_HEAP_TIER_2) != ZEST_DX_HEAP_CATEGORY_TEXTURES;
-	failed |= zest__dx_image_heap_category(zest_image_flag_sampled, 1, D3D12_RESOURCE_HEAP_TIER_1) != ZEST_DX_HEAP_CATEGORY_TEXTURES;
+	int failed = zest__dx_image_heap_category(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, 4, D3D12_RESOURCE_HEAP_TIER_2) != ZEST_DX_HEAP_CATEGORY_MSAA;
+	failed |= zest__dx_image_heap_category(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, 1, D3D12_RESOURCE_HEAP_TIER_1) != ZEST_DX_HEAP_CATEGORY_TARGETS;
+	failed |= zest__dx_image_heap_category(D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, 1, D3D12_RESOURCE_HEAP_TIER_2) != ZEST_DX_HEAP_CATEGORY_TEXTURES;
+	failed |= zest__dx_image_heap_category(D3D12_RESOURCE_FLAG_NONE, 1, D3D12_RESOURCE_HEAP_TIER_1) != ZEST_DX_HEAP_CATEGORY_TEXTURES;
 	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
 	if (!device) return 1;
 	ID3D12Heap *heap = NULL;
@@ -224,7 +241,8 @@ int test_d3d12_bindless_regions(void) {
 	zest_uint expected[zest_max_global_binding_number] = { 0, 0, 1024, 2048, 3072, 3328, 5376, 6400, 6464 };
 	int failed = memcmp(regions.resource_offsets, expected, sizeof(expected)) != 0;
 	failed |= regions.storage_buffer_uav_offset != 4352;
-	failed |= regions.resource_descriptor_count != 6720;
+	failed |= regions.transient_offset != 6720 || regions.transient_count != ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT;
+	failed |= regions.resource_descriptor_count != 6720 + ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT;
 	failed |= regions.sampler_descriptor_count != 64;
 	return failed;
 }
@@ -319,6 +337,35 @@ int test_d3d12_allocation_baseline(void) {
 	failed |= ZEST__FLAGGED(zest_GetImage(images[0])->info.flags, zest_image_flag_dedicated_memory);
 	for (int index = 0; index != 17; ++index) zest_FreeImageNow(images[index]);
 	failed |= device->memory_allocation_count != baseline;
+	return failed | finish_device(device);
+}
+//Raw buffer views need a 16 byte aligned offset that is also a multiple of the structured stride
+int test_d3d12_stride_aligned_allocation(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	const zest_size strides[] = { 48, 76, 96, 112, 912 };
+	const int stride_count = (int)(sizeof(strides) / sizeof(strides[0]));
+	zest_buffer blockers[sizeof(strides) / sizeof(strides[0])] = {};
+	zest_buffer buffers[sizeof(strides) / sizeof(strides[0])] = {};
+	int failed = device->min_storage_buffer_offset_alignment != D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT;
+	zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	for (int index = 0; index != stride_count; ++index) {
+		blockers[index] = zest_CreateBuffer(device, 300, &info);
+		zest_buffer_info_t stride_info = info;
+		stride_info.element_alignment = strides[index];
+		buffers[index] = zest_CreateBuffer(device, strides[index] * 37, &stride_info);
+		if (!blockers[index] || !buffers[index]) {
+			failed = 1;
+			continue;
+		}
+		failed |= buffers[index]->memory_offset % strides[index] != 0;
+		failed |= buffers[index]->memory_offset % 16 != 0;
+		failed |= buffers[index]->size < strides[index] * 37;
+	}
+	for (int index = 0; index != stride_count; ++index) {
+		zest_FreeBufferNow(buffers[index]);
+		zest_FreeBufferNow(blockers[index]);
+	}
 	return failed | finish_device(device);
 }
 int test_d3d12_failed_creation(void) {
@@ -546,35 +593,85 @@ int test_d3d12_invalid_copy_regions(void) {
 	zest_DestroyDevice(device);
 	return failed | (zest__dx_last_device_release_count() != 0);
 }
+static const char *hlsl_vertex_source =
+	"float4 main(uint vertex_id : SV_VertexID) : SV_Position {\n"
+	"	float2 corner = float2((vertex_id << 1) & 2, vertex_id & 2);\n"
+	"	return float4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
+	"}\n";
+static const char *hlsl_pixel_source =
+	"float4 main() : SV_Target {\n"
+	"	return float4(1.0, 0.5, 0.25, 1.0);\n"
+	"}\n";
+
+static int check_dxil_container(ID3DBlob *dxil) {
+	if (!dxil) return 1;
+	const zest_uint *words = (const zest_uint *)ZEST_DX_CALL0(dxil, GetBufferPointer);
+	SIZE_T size = ZEST_DX_CALL0(dxil, GetBufferSize);
+	return size < 32 || memcmp(words, "DXBC", 4) != 0 || words[6] != (zest_uint)size;
+}
+
+int test_d3d12_hlsl_compile(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	ID3DBlob *vertex_dxil = NULL;
+	ID3DBlob *pixel_dxil = NULL;
+	failed |= !zest__dx_compile_hlsl(device, hlsl_vertex_source, (zest_size)strlen(hlsl_vertex_source), "test_vertex", "main", "vs_6_0", &vertex_dxil);
+	failed |= check_dxil_container(vertex_dxil);
+	zest_dxc_compiler3_t *compiler = ZEST_DX_BACKEND(device, device)->dxc_compiler;
+	failed |= compiler == NULL;
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &pixel_dxil);
+	failed |= check_dxil_container(pixel_dxil);
+	failed |= ZEST_DX_BACKEND(device, device)->dxc_compiler != compiler;
+	ZEST_DX_RELEASE(vertex_dxil);
+	ZEST_DX_RELEASE(pixel_dxil);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_hlsl_compile_error(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	const char *broken_source = "float4 main( : SV_Target { return float4(1.0; }\n";
+	ID3DBlob *dxil = (ID3DBlob *)(void *)&failed;
+	failed |= zest__dx_compile_hlsl(device, broken_source, (zest_size)strlen(broken_source), "broken", "main", "ps_6_0", &dxil) != ZEST_FALSE;
+	failed |= dxil != NULL;
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil);
+	failed |= check_dxil_container(dxil);
+	ZEST_DX_RELEASE(dxil);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_dxc_missing(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	ID3DBlob *dxil = NULL;
+	zest_uint error_count = zest_GetValidationErrorCount(device);
+	zest__dx_forced_dxc_library = "zest-missing-dxcompiler.dll";
+	failed |= zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil) != ZEST_FALSE;
+	zest__dx_forced_dxc_library = NULL;
+	failed |= dxil != NULL;
+	failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+	failed |= ZEST_DX_BACKEND(device, device)->dxc_compiler != NULL;
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil);
+	failed |= check_dxil_container(dxil);
+	ZEST_DX_RELEASE(dxil);
+	zest_ResetValidationErrors(device);
+	return failed | finish_device(device);
+}
 int test_d3d12_unavailable_immediate_commands(void) {
 	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
 	if (!device) return 1;
 	zest_buffer buffer = zest_CreateStagingBuffer(device, 256, NULL);
-	zest_image_info_t image_info = zest_CreateImageInfo(4, 4);
-	image_info.flags = zest_image_preset_texture;
-	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
-	zest_image image = zest_GetImage(image_handle);
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	int failed = queue == NULL || buffer == NULL;
-	zest_clear_value_t clear_value = {};
-	zest_imm_FillBuffer(queue, NULL, 0);
-	zest_imm_UpdateBuffer(queue, NULL, NULL, 0);
-	failed |= zest_imm_ClearColorImage(queue, NULL, clear_value) != ZEST_FALSE;
-	failed |= zest_imm_ClearDepthStencilImage(queue, NULL, 1.f, 0) != ZEST_FALSE;
-	failed |= zest_imm_BlitImage(queue, NULL, NULL, 0, 0, 1, 1, 0, 0, 1, 1, zest_filter_linear) != ZEST_FALSE;
-	failed |= zest_imm_ResolveImage(queue, NULL, NULL) != ZEST_FALSE;
 	zest_imm_SendPushConstants(queue, NULL, 0);
 	zest_imm_BindComputePipeline(queue, NULL);
 	failed |= zest_imm_DispatchCompute(queue, 1, 1, 1) != ZEST_FALSE;
-	failed |= zest_imm_CopyBuffer(queue, buffer, buffer, 64) != ZEST_FALSE;
-	failed |= zest_imm_CopyBufferRegion(queue, buffer, 0, buffer, 128, 64) != ZEST_FALSE;
-	failed |= zest_imm_CopyBufferToImage(queue, buffer, image, 64) != ZEST_FALSE;
-	failed |= zest_imm_GenerateMipMaps(queue, image) != ZEST_FALSE;
 	failed |= !zest_imm_EndCommandBuffer(queue);
-	//CopyBuffer and CopyBufferRegion share one backend entry, so they share one report
-	failed |= zest_GetValidationErrorCount(device) != 12;
+	failed |= zest_GetValidationErrorCount(device) != 3;
 	zest_FreeBufferNow(buffer);
-	zest_FreeImageNow(image_handle);
 	zest_DestroyDevice(device);
 	return failed | (zest__dx_last_device_release_count() != 0);
 }
@@ -618,6 +715,107 @@ int test_d3d12_srv_description(void) {
 	description = zest__dx_image_srv_description(&image, zest_image_view_type_2d, 1, 0, 0, 1);
 	failed |= description.Shader4ComponentMapping != D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	return failed;
+}
+int test_d3d12_image_barrier_builder(void) {
+	zest_image_t image = {};
+	zest_dx_image_backend_t backend = {};
+	image.backend = (zest_image_backend)&backend;
+	image.info.format = zest_format_r8g8b8a8_unorm;
+	image.info.sample_count = 1;
+	image.info.flags = zest_image_flag_color_attachment;
+	backend.sample_count = 1;
+	backend.layout = D3D12_BARRIER_LAYOUT_PRESENT;
+	D3D12_TEXTURE_BARRIER barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_RENDER_TARGET, 0, zest_access_color_attachment_write_bit, zest_pipeline_stage_color_attachment_output_bit, zest_pipeline_stage_color_attachment_output_bit, 0, 1, 0, 1);
+	int failed = barrier.LayoutBefore != D3D12_BARRIER_LAYOUT_PRESENT || barrier.LayoutAfter != D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+	failed |= barrier.AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || barrier.SyncBefore != D3D12_BARRIER_SYNC_NONE;
+	failed |= barrier.AccessAfter != D3D12_BARRIER_ACCESS_RENDER_TARGET || barrier.SyncAfter != D3D12_BARRIER_SYNC_RENDER_TARGET;
+	failed |= barrier.Flags != D3D12_TEXTURE_BARRIER_FLAG_NONE;
+	backend.layout = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_PRESENT, zest_access_color_attachment_write_bit, 0, zest_pipeline_stage_color_attachment_output_bit, zest_pipeline_stage_bottom_of_pipe_bit, 0, 1, 0, 1);
+	failed |= barrier.AccessAfter != D3D12_BARRIER_ACCESS_NO_ACCESS || barrier.SyncAfter != D3D12_BARRIER_SYNC_NONE;
+	failed |= barrier.AccessBefore != D3D12_BARRIER_ACCESS_RENDER_TARGET || barrier.SyncBefore != D3D12_BARRIER_SYNC_RENDER_TARGET;
+	backend.layout = D3D12_BARRIER_LAYOUT_UNDEFINED;
+	backend.resource_flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_RENDER_TARGET, 0, zest_access_color_attachment_write_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_color_attachment_output_bit, 0, 1, 0, 1);
+	failed |= !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
+	image.info.flags = zest_image_preset_texture;
+	backend.resource_flags = D3D12_RESOURCE_FLAG_NONE;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, 0, zest_access_shader_read_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_fragment_shader_bit, 0, 1, 0, 1);
+	failed |= barrier.Flags != D3D12_TEXTURE_BARRIER_FLAG_NONE;
+	D3D12_BARRIER_LAYOUT copy_layout = zest__dx_barrier_layout(zest_image_layout_shader_read_only_optimal, zest_access_shader_read_bit, zest_queue_transfer);
+	barrier = zest__dx_image_barrier(&image, copy_layout, 0, zest_access_shader_read_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_transfer_bit, 0, 1, 0, 1);
+	failed |= barrier.LayoutAfter != D3D12_BARRIER_LAYOUT_COMMON || barrier.AccessAfter != D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+	return failed;
+}
+int test_d3d12_image_resource_flags(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = zest__dx_image_resource_flags(device, zest_image_preset_texture, DXGI_FORMAT_R8G8B8A8_UNORM, 1) != D3D12_RESOURCE_FLAG_NONE;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_texture, DXGI_FORMAT_R8G8B8A8_UNORM, 4) != D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_texture_mipmaps, DXGI_FORMAT_R8G8B8A8_UNORM, 4) != D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_texture_mipmaps, DXGI_FORMAT_BC1_UNORM, 4) != D3D12_RESOURCE_FLAG_NONE;
+	failed |= zest__dx_image_resource_flags(device, zest_image_flag_transfer_dst | zest_image_flag_sampled, DXGI_FORMAT_D32_FLOAT, 4) != D3D12_RESOURCE_FLAG_NONE;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_depth_attachment, DXGI_FORMAT_D32_FLOAT, 1) != D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_storage, DXGI_FORMAT_R8G8B8A8_UNORM, 1) != D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	failed |= zest__dx_image_resource_flags(device, zest_image_preset_color_attachment, DXGI_FORMAT_R8G8B8A8_UNORM, 1) != D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	return failed | finish_device(device);
+}
+int test_d3d12_discard_follows_resource_flags(void) {
+	zest_image_t image = {};
+	zest_dx_image_backend_t backend = {};
+	image.backend = (zest_image_backend)&backend;
+	image.info.format = zest_format_r8g8b8a8_unorm;
+	image.info.sample_count = 1;
+	image.info.mip_levels = 4;
+	image.info.flags = zest_image_preset_texture_mipmaps;
+	backend.sample_count = 1;
+	backend.layout = D3D12_BARRIER_LAYOUT_UNDEFINED;
+	backend.resource_flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	D3D12_TEXTURE_BARRIER barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_COPY_DEST, 0, zest_access_transfer_write_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_transfer_bit, 0, 4, 0, 1);
+	int failed = !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
+	backend.resource_flags = D3D12_RESOURCE_FLAG_NONE;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_COPY_DEST, 0, zest_access_transfer_write_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_transfer_bit, 0, 4, 0, 1);
+	failed |= barrier.Flags != D3D12_TEXTURE_BARRIER_FLAG_NONE;
+	//Zest's attachment flag alone doesn't make the resource a target
+	image.info.flags = zest_image_preset_color_attachment;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_RENDER_TARGET, 0, zest_access_color_attachment_write_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_color_attachment_output_bit, 0, 1, 0, 1);
+	failed |= barrier.Flags != D3D12_TEXTURE_BARRIER_FLAG_NONE;
+	image.info.format = zest_format_d32_sfloat;
+	image.info.flags = zest_image_preset_texture;
+	backend.resource_flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+	barrier = zest__dx_image_barrier(&image, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, 0, zest_access_depth_stencil_attachment_write_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_early_fragment_tests_bit, 0, 1, 0, 1);
+	failed |= !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
+	return failed;
+}
+int test_d3d12_attachment_views(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_color_attachment;
+	zest_image_handle color_handle = zest_CreateImage(device, &image_info);
+	image_info.format = zest_format_d32_sfloat;
+	image_info.flags = zest_image_preset_depth_attachment;
+	zest_image_handle depth_handle = zest_CreateImage(device, &image_info);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture;
+	zest_image_handle texture_handle = zest_CreateImage(device, &image_info);
+	zest_image color = zest_GetImage(color_handle);
+	zest_image depth = zest_GetImage(depth_handle);
+	zest_image texture = zest_GetImage(texture_handle);
+	int failed = !color || !depth || !texture;
+	if (!failed) {
+		zest_dx_image_view_backend_t *color_view = ZEST_DX_BACKEND(image_view, color->default_view);
+		zest_dx_image_view_backend_t *depth_view = ZEST_DX_BACKEND(image_view, depth->default_view);
+		zest_dx_image_view_backend_t *texture_view = ZEST_DX_BACKEND(image_view, texture->default_view);
+		failed |= !color_view->rtv.ptr || color_view->dsv.ptr;
+		failed |= !depth_view->dsv.ptr || depth_view->rtv.ptr;
+		failed |= texture_view->rtv.ptr || texture_view->dsv.ptr;
+	}
+	zest_FreeImageNow(color_handle);
+	zest_FreeImageNow(depth_handle);
+	zest_FreeImageNow(texture_handle);
+	return failed | finish_device(device);
 }
 int test_d3d12_depth_deny_srv(void) {
 	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
@@ -888,6 +1086,2170 @@ int test_d3d12_feature_level_fallback(void) {
 	return failed | finish_device(device);
 }
 
+int test_d3d12_device_reset(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = image_round_trip(device);
+	zest_ResetDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= image_round_trip(device);
+	zest_ResetDevice(device);
+	failed |= image_round_trip(device);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_failed_reset_teardown(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	ID3D12Device *native_device = zest_GetD3D12Device(device);
+	native_device->AddRef();
+	int failed = zest__dx_reinit_logical_device(device) != ZEST_FALSE;
+	failed |= zest__dx_last_device_release_count() == 0;
+	failed |= zest_GetD3D12Device(device) != NULL;
+	zest_DestroyDevice(device);
+	//Zero means nothing Zest created still held the device
+	failed |= native_device->Release() != 0;
+	return failed;
+}
+
+int test_d3d12_sdl_helpers(void) {
+	zest_bool initialised_video = ZEST_FALSE;
+	if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+		if (SDL_Init(SDL_INIT_VIDEO) != 0) return 1;
+		initialised_video = ZEST_TRUE;
+	}
+	int failed = 0;
+	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 320, 200, 0, "D3D12 Helpers");
+	failed |= window_data.window_handle == NULL || window_data.native_handle == NULL;
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	window_data.window_sizes_callback(&window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	failed |= framebuffer_width < 320 || framebuffer_height < 200 || window_width != 320 || window_height != 200;
+	zest_device device = zest_implsdl2_CreateD3D12Device(&window_data, D3D12TestFlags() | (d3d12_use_warp ? zest_device_init_flag_use_warp : 0));
+	if (device) {
+		failed |= zest_GetDevicePlatform(device) != zest_platform_d3d12;
+		failed |= finish_device(device);
+	} else {
+		failed = 1;
+	}
+	if (window_data.window_handle) {
+		SDL_DestroyWindow((SDL_Window *)window_data.window_handle);
+	}
+	SDL_Window *plain_window = SDL_CreateWindow("D3D12 Plain", 50, 50, 320, 200, SDL_WINDOW_ALLOW_HIGHDPI);
+	if (plain_window) {
+		zest_window_data_t plain_data = { 0 };
+		plain_data.window_handle = plain_window;
+		zest_implsdl2_GetWindowSizeCallback(&plain_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+		failed |= framebuffer_width < 320 || framebuffer_height < 200 || window_width != 320 || window_height != 200;
+		SDL_DestroyWindow(plain_window);
+	} else {
+		failed = 1;
+	}
+	if (initialised_video) {
+		SDL_QuitSubSystem(SDL_INIT_VIDEO);
+	}
+	return failed;
+}
+
+int test_d3d12_render_pass_access(void) {
+	int failed = zest__dx_beginning_access(zest_load_op_clear) != D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR;
+	failed |= zest__dx_beginning_access(zest_load_op_load) != D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+	failed |= zest__dx_beginning_access(zest_load_op_dont_care) != D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_DISCARD;
+	failed |= zest__dx_ending_access(zest_store_op_store) != D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
+	failed |= zest__dx_ending_access(zest_store_op_dont_care) != D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_DISCARD;
+	return failed;
+}
+
+int test_d3d12_viewport_flip(void) {
+	D3D12_VIEWPORT viewport = zest__dx_viewport(0.f, 0.f, 640.f, 480.f, 0.f, 1.f);
+	int failed = viewport.TopLeftX != 0.f || viewport.TopLeftY != 480.f || viewport.Width != 640.f || viewport.Height != -480.f;
+	failed |= viewport.MinDepth != 0.f || viewport.MaxDepth != 1.f;
+	viewport = zest__dx_viewport(10.f, 20.f, 100.f, 50.f, 0.f, 1.f);
+	failed |= viewport.TopLeftX != 10.f || viewport.TopLeftY != 70.f || viewport.Width != 100.f || viewport.Height != -50.f;
+	//A viewport already flipped the Vulkan way comes out as a plain one
+	viewport = zest__dx_viewport(0.f, 480.f, 640.f, -480.f, 0.f, 1.f);
+	failed |= viewport.TopLeftY != 0.f || viewport.Height != 480.f || viewport.Width != 640.f;
+	return failed;
+}
+
+int test_d3d12_empty_command_graph(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	if (context) {
+		failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || ZEST__NOT_FLAGGED(zest_GetFrameGraphResult(frame_graph), zest_fgs_no_work_to_do);
+		if (frame_graph) {
+			failed |= zest_FlushFrameGraph(frame_graph) != zest_semaphore_status_success;
+		}
+		zest_DestroyContext(context);
+	}
+	return failed | finish_device(device);
+}
+
+static int pixels_match(const zest_uint *pixels, zest_uint pixel_count, const int expected[4]) {
+	for (zest_uint index = 0; index != pixel_count; ++index) {
+		const unsigned char *channels = (const unsigned char *)&pixels[index];
+		for (int channel = 0; channel != 4; ++channel) {
+			if (abs((int)channels[channel] - expected[channel]) > 1) return 0;
+		}
+	}
+	return 1;
+}
+
+static const int blue_expected[4] = { 51, 102, 153, 255 };
+static const int orange_expected[4] = { 153, 102, 51, 255 };
+
+static zest_image_handle create_clear_target(zest_device device) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+//Clears the image to blue, or orange, in a one pass command graph named "Clear", then reads it back and checks every pixel
+static int run_clear_graph(zest_context context, zest_image image, zest_bool orange, zest_semaphore_status expected_status) {
+	if (!zest_BeginCommandGraph(context, "Clear", 0)) return 1;
+	zest_resource_node node = zest_ImportImageResource("Target", image, 0);
+	if (orange) {
+		zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
+	} else {
+		zest_SetResourceClearColor(node, 0.2f, 0.4f, 0.6f, 1.0f);
+	}
+	zest_BeginRenderPass("Clear Pass");
+	zest_ConnectOutput(node);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = zest_FlushFrameGraphAndWait(frame_graph) != expected_status;
+	if (expected_status != zest_semaphore_status_success) return failed;
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0, sizeof(pixels));
+	failed |= !zest_CopyImageToBitmap(context->device, image, pixels);
+	failed |= !pixels_match(pixels, 16 * 16, orange ? orange_expected : blue_expected);
+	return failed;
+}
+
+int test_d3d12_render_pass_clear(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	zest_image_handle image_handle = create_clear_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	failed |= image == NULL;
+	ID3D12GraphicsCommandList7 *first_command_list = NULL;
+	//A headless context stays on one frame in flight, so every iteration resets and reuses the one command list
+	for (int iteration = 0; iteration != 3 && !failed; ++iteration) {
+		failed |= run_clear_graph(context, image, iteration == 1, zest_semaphore_status_success);
+		if (failed) break;
+		zest_context_queue context_queue = *zest_map_at(context->cached_frame_graph_queues[context->graphics_queue_index], "Clear");
+		ID3D12GraphicsCommandList7 *command_list = ZEST_DX_BACKEND(context_queue, context_queue)->command_list;
+		if (iteration == 0) {
+			first_command_list = command_list;
+		}
+		failed |= command_list == NULL || command_list != first_command_list;
+	}
+	zest_FreeImageNow(image_handle);
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	return failed | finish_device(device);
+}
+
+int test_d3d12_failed_batch_signal_drains(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	ID3D12Fence *gate = NULL;
+	int failed = context == NULL || FAILED(zest_GetD3D12Device(device)->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&gate));
+	zest_image_handle image_handle = create_clear_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	failed |= image == NULL;
+	HANDLE thread = NULL;
+	if (!failed) {
+		//Holds back the queue the context picks first, so the graph's list is still running when its signal fails
+		zest_queue first_queue = &device->queue_families[context->graphics_family_index]->queues[context->preferred_queue_index[context->graphics_queue_index]];
+		failed |= FAILED(ZEST_DX_BACKEND(queue, first_queue)->queue->Wait(gate, 1));
+		thread = open_gate_after_delay(gate);
+		failed |= thread == NULL;
+		zest__dx_forced_signal_failure = ZEST_TRUE;
+		failed |= run_clear_graph(context, image, ZEST_FALSE, zest_semaphore_status_error);
+		zest__dx_forced_signal_failure = ZEST_FALSE;
+		//The gate only opens after the delay, so it's open here only if the failed submission drained the device
+		failed |= gate->GetCompletedValue() != 1;
+		//The next flush of the same graph resets the list and allocator the failed submission used
+		failed |= run_clear_graph(context, image, ZEST_TRUE, zest_semaphore_status_success);
+	}
+	finish_gate(gate, thread);
+	zest_FreeImageNow(image_handle);
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	return failed | finish_device(device);
+}
+
+int test_d3d12_swapchain_formats(void) {
+	DXGI_FORMAT buffer_format = DXGI_FORMAT_UNKNOWN;
+	DXGI_FORMAT view_format = DXGI_FORMAT_UNKNOWN;
+	zest_format reported = zest_format_undefined;
+	int failed = zest__dx_swapchain_formats(zest_format_b8g8r8a8_unorm, &buffer_format, &view_format, &reported) != ZEST_TRUE;
+	failed |= buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM || view_format != DXGI_FORMAT_B8G8R8A8_UNORM || reported != zest_format_b8g8r8a8_unorm;
+	failed |= zest__dx_swapchain_formats(zest_format_b8g8r8a8_srgb, &buffer_format, &view_format, &reported) != ZEST_TRUE;
+	failed |= buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM || view_format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB || reported != zest_format_b8g8r8a8_srgb;
+	failed |= zest__dx_swapchain_formats(zest_format_r8g8b8a8_srgb, &buffer_format, &view_format, &reported) != ZEST_TRUE;
+	failed |= buffer_format != DXGI_FORMAT_R8G8B8A8_UNORM || view_format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || reported != zest_format_r8g8b8a8_srgb;
+	failed |= zest__dx_swapchain_formats(zest_format_r16g16b16a16_sfloat, &buffer_format, &view_format, &reported) != ZEST_TRUE;
+	failed |= buffer_format != DXGI_FORMAT_R16G16B16A16_FLOAT || view_format != DXGI_FORMAT_R16G16B16A16_FLOAT || reported != zest_format_r16g16b16a16_sfloat;
+	failed |= zest__dx_swapchain_formats(zest_format_r8_unorm, &buffer_format, &view_format, &reported) != ZEST_FALSE;
+	failed |= buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM || view_format != DXGI_FORMAT_B8G8R8A8_UNORM || reported != zest_format_b8g8r8a8_unorm;
+	return failed;
+}
+
+int test_d3d12_present_parameters(void) {
+	UINT sync_interval = 99;
+	UINT flags = 99;
+	zest__dx_present_parameters(ZEST_TRUE, ZEST_TRUE, &sync_interval, &flags);
+	int failed = sync_interval != 1 || flags != 0;
+	zest__dx_present_parameters(ZEST_TRUE, ZEST_FALSE, &sync_interval, &flags);
+	failed |= sync_interval != 1 || flags != 0;
+	zest__dx_present_parameters(ZEST_FALSE, ZEST_TRUE, &sync_interval, &flags);
+	failed |= sync_interval != 0 || flags != DXGI_PRESENT_ALLOW_TEARING;
+	zest__dx_present_parameters(ZEST_FALSE, ZEST_FALSE, &sync_interval, &flags);
+	failed |= sync_interval != 0 || flags != 0;
+	return failed;
+}
+
+//A window of its own, with SDL's video started first when nothing else has started it
+struct D3D12TestWindow {
+	zest_window_data_t window_data;
+	zest_bool initialised_video;
+};
+
+static zest_bool open_test_window(D3D12TestWindow *window, const char *title) {
+	window->window_data = ZEST__ZERO_INIT(zest_window_data_t);
+	window->initialised_video = ZEST_FALSE;
+	if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+		if (SDL_Init(SDL_INIT_VIDEO) != 0) return ZEST_FALSE;
+		window->initialised_video = ZEST_TRUE;
+	}
+	window->window_data = zest_implsdl2_CreateWindow(50, 50, 320, 200, 0, title);
+	return window->window_data.window_handle != NULL;
+}
+
+//zest_implsdl2_DestroyWindow needs a context, and the context is gone by now
+static void close_test_window(D3D12TestWindow *window) {
+	if (window->window_data.window_handle) {
+		SDL_DestroyWindow((SDL_Window *)window->window_data.window_handle);
+	}
+	if (window->initialised_video) {
+		SDL_QuitSubSystem(SDL_INIT_VIDEO);
+	}
+}
+
+static zest_device create_windowed_test_device(D3D12TestWindow *window) {
+	return zest_implsdl2_CreateD3D12Device(&window->window_data, D3D12TestFlags() | (d3d12_use_warp ? zest_device_init_flag_use_warp : 0));
+}
+
+static void set_test_clear_color(zest_context context) {
+	zest_SetSwapchainClearColor(context, 0.1f, 0.2f, 0.3f, 1.0f);
+}
+
+struct D3D12FrameTimes {
+	zest_microsecs begin;
+	zest_microsecs end;
+};
+
+//One frame whose cached graph imports the swapchain and clears it, returning whether zest_BeginFrame acquired an image
+static zest_bool run_windowed_clear_frame(zest_context context, D3D12FrameTimes *times) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {}
+	zest_UpdateDevice(context->device);
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
+	zest_microsecs start = zest_Microsecs();
+	zest_bool began = zest_BeginFrame(context);
+	times->begin = zest_Microsecs() - start;
+	times->end = 0;
+	if (!began) return ZEST_FALSE;
+	zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+	if (!frame_graph && zest_BeginFrameGraph(context, "Windowed Clear", &cache_key)) {
+		zest_ImportSwapchainResource();
+		zest_BeginRenderPass("Clear Swapchain");
+		zest_ConnectSwapChainOutput();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+	}
+	start = zest_Microsecs();
+	zest_EndFrame(context, frame_graph);
+	times->end = zest_Microsecs() - start;
+	return ZEST_TRUE;
+}
+
+struct D3D12FrameRun {
+	int began_count;
+	int submitted_count;
+	int recreate_count;
+	zest_microsecs slowest_frame;
+};
+
+//Puts back the clear colour each recreate loses
+static D3D12FrameRun run_windowed_clear_frames(zest_context context, int frame_count, zest_bool stop_at_recreate) {
+	D3D12FrameRun run = {};
+	for (int frame = 0; frame != frame_count; ++frame) {
+		D3D12FrameTimes times;
+		if (run_windowed_clear_frame(context, &times)) {
+			run.began_count++;
+			run.submitted_count += ZEST__FLAGGED(context->flags, zest_context_flag_work_was_submitted);
+		}
+		run.slowest_frame = ZEST__MAX(run.slowest_frame, times.begin + times.end);
+		if (zest_SwapchainWasRecreated(context)) {
+			run.recreate_count++;
+			set_test_clear_color(context);
+			if (stop_at_recreate) break;
+		}
+	}
+	return run;
+}
+
+static int resize_test_window(zest_context context, SDL_Window *window, int width, int height) {
+	SDL_SetWindowSize(window, width, height);
+	int failed = run_windowed_clear_frames(context, 10, ZEST_TRUE).recreate_count != 1;
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	context->window_data.window_sizes_callback(&context->window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	zest_extent2d_t extent = zest_GetSwapChainExtent(context);
+	failed |= extent.width != (zest_uint)framebuffer_width || extent.height != (zest_uint)framebuffer_height;
+	DXGI_SWAP_CHAIN_DESC1 description = {};
+	failed |= FAILED(ZEST_DX_BACKEND(context, context)->swapchain->GetDesc1(&description));
+	failed |= description.Width != extent.width || description.Height != extent.height;
+	failed |= run_windowed_clear_frames(context, 5, ZEST_FALSE).recreate_count != 0;
+	return failed;
+}
+
+//The recreated swapchain must keep the flags it was created with, as ResizeBuffers rejects a change of flags
+static int toggle_test_vsync(zest_context context, zest_bool enable) {
+	if (enable) {
+		zest_EnableVSync(context);
+	} else {
+		zest_DisableVSync(context);
+	}
+	int failed = run_windowed_clear_frames(context, 5, ZEST_FALSE).recreate_count != 1;
+	failed |= ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled) != enable;
+	zest_dx_context_backend_t *backend = ZEST_DX_BACKEND(context, context);
+	DXGI_SWAP_CHAIN_DESC1 description = {};
+	failed |= FAILED(backend->swapchain->GetDesc1(&description));
+	failed |= description.Flags != backend->swapchain_flags;
+	failed |= ZEST_DX_BACKEND(device, context->device)->support.tearing && !(backend->swapchain_flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING);
+	return failed;
+}
+
+//Clears an imported image in a command graph on the graphics slot, so it runs on whichever direct queue the slot holds
+static zest_semaphore_status flush_offscreen_clear(zest_context context, zest_image image) {
+	if (!zest_BeginCommandGraph(context, "Offscreen Clear", 0)) return zest_semaphore_status_error;
+	zest_resource_node node = zest_ImportImageResource("Offscreen Target", image, 0);
+	zest_SetResourceClearColor(node, 0.2f, 0.4f, 0.6f, 1.0f);
+	zest_BeginRenderPass("Offscreen Pass");
+	zest_ConnectOutput(node);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+	return zest_FlushFrameGraphAndWait(zest_EndFrameGraph());
+}
+
+//Offscreen graphs run on the slot's queue 1 and swapchain batches on queue 0, so each submission waits for the slot's previous one
+static int run_cross_queue_ordering(zest_context context) {
+	zest_device device = context->device;
+	zest_uint slot = context->graphics_queue_index;
+	zest_execution_timeline ordering_timeline = &context->queue_ordering_timelines[slot];
+	context->preferred_queue_index[slot] = 1;
+	context->has_preferred_queue[slot] = ZEST_TRUE;
+	zest_image_handle image_handle = create_clear_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	ID3D12Fence *gate = NULL;
+	int failed = image == NULL || FAILED(zest_GetD3D12Device(device)->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void **)&gate));
+	HANDLE thread = NULL;
+	if (!failed) {
+		D3D12FrameTimes times;
+		for (int frame = 0; frame != 3; ++frame) {
+			failed |= flush_offscreen_clear(context, image) != zest_semaphore_status_success;
+			failed |= !run_windowed_clear_frame(context, &times);
+			failed |= zest_WaitForSignal(ordering_timeline, ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+		}
+		//Holds back the swapchain's queue, so the frame's swapchain batch only runs once the gate opens
+		failed |= FAILED(zest_GetD3D12CommandQueue(context)->Wait(gate, 1));
+		thread = open_gate_after_delay(gate);
+		failed |= thread == NULL;
+		failed |= !run_windowed_clear_frame(context, &times);
+		failed |= flush_offscreen_clear(context, image) != zest_semaphore_status_success;
+		//The gate only opens after the delay, so it's open here only if the offscreen graph waited for the swapchain batch
+		failed |= gate->GetCompletedValue() != 1;
+		failed |= zest_WaitForSignal(ordering_timeline, ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+	}
+	finish_gate(gate, thread);
+	zest_FreeImageNow(image_handle);
+	return failed;
+}
+
+//Flip model buffers can't be sRGB, so an sRGB swapchain renders through sRGB views of UNORM buffers
+static int run_srgb_swapchain(zest_device device) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 sRGB Swapchain")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	info.color_format = zest_format_b8g8r8a8_srgb;
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		D3D12FrameRun run = run_windowed_clear_frames(context, 5, ZEST_FALSE);
+		failed |= run.began_count != 5 || run.submitted_count != 5 || run.recreate_count != 0;
+		failed |= resize_test_window(context, (SDL_Window *)window.window_data.window_handle, 400, 300);
+		failed |= zest_GetSwapchainFormat(zest_GetSwapchain(context)) != zest_format_b8g8r8a8_srgb;
+		zest_dx_swapchain_backend_t *swapchain_backend = ZEST_DX_BACKEND(swapchain, context->swapchain);
+		failed |= swapchain_backend->buffer_format != DXGI_FORMAT_B8G8R8A8_UNORM || swapchain_backend->view_format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+		DXGI_SWAP_CHAIN_DESC1 description = {};
+		failed |= FAILED(ZEST_DX_BACKEND(context, context)->swapchain->GetDesc1(&description));
+		failed |= description.Format != DXGI_FORMAT_B8G8R8A8_UNORM;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	close_test_window(&window);
+	return failed;
+}
+
+int test_d3d12_windowed_frames(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Windowed Frames")) {
+		close_test_window(&window);
+		return 1;
+	}
+	SDL_Window *sdl_window = (SDL_Window *)window.window_data.window_handle;
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		for (int frame = 0; frame != 10; ++frame) {
+			D3D12FrameTimes times;
+			failed |= !run_windowed_clear_frame(context, &times);
+		}
+		failed |= zest_GetD3D12CommandQueue(context) == NULL;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		failed |= resize_test_window(context, sdl_window, 400, 300);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		failed |= resize_test_window(context, sdl_window, 320, 200);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		failed |= toggle_test_vsync(context, ZEST_TRUE);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		failed |= toggle_test_vsync(context, ZEST_FALSE);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//The size helper reports the last non-zero size while minimised, and Present reports occlusion as success
+		SDL_MinimizeWindow(sdl_window);
+		D3D12FrameRun minimised = run_windowed_clear_frames(context, 5, ZEST_FALSE);
+		failed |= minimised.recreate_count != 0;
+		//A minimised window can stop signalling the frame latency waitable, so a frame may wait out the timeout but must not hang
+		failed |= minimised.slowest_frame > (zest_microsecs)(context->fence_wait_timeout_ns / 1000) + ZEST_SECONDS_IN_MICROSECONDS(1);
+		SDL_RestoreWindow(sdl_window);
+		D3D12FrameRun restored = run_windowed_clear_frames(context, 5, ZEST_FALSE);
+		failed |= restored.began_count != 5 || restored.submitted_count != 5 || restored.recreate_count != 0;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint slot = context->graphics_queue_index;
+		zest_queue second_queue = &device->queue_families[context->graphics_family_index]->queues[1];
+		failed |= ZEST_DX_BACKEND(queue, second_queue)->queue == zest_GetD3D12CommandQueue(context);
+		failed |= run_cross_queue_ordering(context);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//The slot acquires the queue asked for, and a batch that writes the back buffer still runs on the swapchain's queue, as D3D12 requires
+		for (int frame = 0; frame != 6; ++frame) {
+			zest_uint preferred_index = (zest_uint)(frame % 2);
+			context->preferred_queue_index[slot] = preferred_index;
+			context->has_preferred_queue[slot] = ZEST_TRUE;
+			D3D12FrameTimes times;
+			failed |= !run_windowed_clear_frame(context, &times);
+			failed |= context->preferred_queue_index[slot] != preferred_index;
+		}
+		context->has_preferred_queue[slot] = ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//No-work frames take the dummy submit and must still advance the frame timeline, the first on queue 1 straight after a frame on queue 0
+		for (int frame = 0; frame != 3; ++frame) {
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {}
+			zest_UpdateDevice(device);
+			zest_microsecs start = zest_Microsecs();
+			zest_bool began = zest_BeginFrame(context);
+			failed |= !began || zest_Microsecs() - start > ZEST_SECONDS_IN_MICROSECONDS(1);
+			if (began) {
+				zest_EndFrame(context, 0);
+			}
+		}
+		//Signals that landed out of order across the two queues would leave the fence short of the slot's last value
+		failed |= zest_WaitForSignal(&context->queue_ordering_timelines[slot], ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	failed |= run_srgb_swapchain(device);
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+int test_d3d12_dxgi_messages_counted(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 DXGI Messages")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	int failed = 0;
+	zest_dx_device_backend_t *device_backend = ZEST_DX_BACKEND(device, device);
+	if (!device_backend->support.tearing) {
+		ZEST_PRINT("D3D12 DXGI Messages Counted skipped: this system doesn't support tearing, so a tearing present isn't an invalid call to provoke");
+	} else if (!device_backend->dxgi_info_queue) {
+		ZEST_PRINT("D3D12 DXGI Messages Counted skipped: the DXGI debug layer isn't available");
+	} else {
+		zest_create_context_info_t info = zest_CreateContextInfo();
+		zest_context context = zest_CreateContext(device, &window.window_data, &info);
+		failed |= context == NULL;
+		if (context) {
+			//Tearing with a sync interval is invalid, and its message is expected, so it goes to memory only
+			ZEST__UNFLAG(device->init_flags, zest_device_init_flag_log_validation_errors_to_console);
+			HRESULT result = ZEST_DX_BACKEND(context, context)->swapchain->Present(1, DXGI_PRESENT_ALLOW_TEARING);
+			zest__dx_drain_dxgi_messages(device);
+			ZEST__FLAG(device->init_flags, zest_device_init_flag_log_validation_errors_to_console);
+			failed |= SUCCEEDED(result);
+			failed |= zest_GetValidationErrorCount(device) < 1;
+			zest_ResetValidationErrors(device);
+			zest_DestroyContext(context);
+		}
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+int test_d3d12_per_mip_views(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_image_info_t image_info = zest_CreateImageInfo(64, 64);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture_mipmaps | zest_image_flag_storage;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL;
+	if (image) {
+		zest_dx_cpu_descriptor_heap_t *resource_heap = &ZEST_DX_BACKEND(device, device)->cpu_resource_heap;
+		zest_image_view_array_handle view_array_handle = zest_CreateImageViewsPerMip(device, image);
+		zest_image_view_array view_array = view_array_handle.value ? zest_GetImageViewArray(view_array_handle) : NULL;
+		failed |= view_array == NULL;
+		if (view_array) {
+			failed |= view_array->count != 7;
+			for (zest_uint mip_index = 0; mip_index != view_array->count; ++mip_index) {
+				zest_dx_image_view_backend_t *view_backend = ZEST_DX_BACKEND(image_view, &view_array->views[mip_index]);
+				failed |= !view_backend->srv.ptr || !view_backend->uav.ptr;
+			}
+			zest_uint *storage_indexes = zest_AcquireImageMipIndexes(device, image, view_array, zest_storage_image_binding, zest_descriptor_type_storage_image);
+			zest_uint *texture_indexes = zest_AcquireImageMipIndexes(device, image, view_array, zest_texture_2d_binding, zest_descriptor_type_sampled_image);
+			failed |= zest_vec_size(storage_indexes) != 7 || zest_vec_size(texture_indexes) != 7;
+			zest_vec_foreach(index, storage_indexes) {
+				failed |= storage_indexes[index] == ZEST_INVALID;
+			}
+			zest_vec_foreach(index, texture_indexes) {
+				failed |= texture_indexes[index] == ZEST_INVALID;
+			}
+			failed |= zest_GetValidationErrorCount(device) != 0;
+			zest_uint free_handles_before = zest_vec_size(resource_heap->free_handles);
+			zest_FreeImageViewArrayNow(view_array_handle);
+			//Seven SRVs and seven UAVs
+			failed |= zest_vec_size(resource_heap->free_handles) != free_handles_before + 14;
+		}
+		failed |= zest_AcquireStorageImageIndex(device, image, zest_storage_image_binding) == ZEST_INVALID;
+	}
+	zest_FreeImageNow(image_handle);
+	return failed | finish_device(device);
+}
+
+static const char *orientation_vertex_source =
+	"float4 main(uint vertex_id : SV_VertexID) : SV_Position {\n"
+	"	float2 corner = float2((vertex_id << 1) & 2, vertex_id & 2);\n"
+	"	return float4(corner - 1.0, 0.0, 1.0);\n"
+	"}\n";
+static const char *orientation_pixel_source =
+	"float4 main() : SV_Target {\n"
+	"	return float4(1.0, 0.0, 0.0, 1.0);\n"
+	"}\n";
+
+//Draws the winding test's triangle on an immediate graphics list and reads the target back
+static int draw_orientation_triangle(zest_device device, zest_image image, ID3DBlob *vertex_dxil, ID3DBlob *pixel_dxil, D3D12_CULL_MODE cull_mode, BOOL front_counter_clockwise, const char *name, WindingCoverage *coverage) {
+	ID3D12PipelineState *pipeline = zest__dx_create_utility_pipeline(device, vertex_dxil, pixel_dxil, DXGI_FORMAT_R8G8B8A8_UNORM, cull_mode, front_counter_clockwise);
+	if (!pipeline) return 1;
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) {
+		ZEST_DX_RELEASE(pipeline);
+		return 1;
+	}
+	ID3D12GraphicsCommandList7 *command_list = ZEST_DX_BACKEND(queue, queue)->command_list;
+	int failed = !zest_imm_TransitionImage(queue, image, zest_resource_state_render_target, 0, 1, 0, 1);
+	D3D12_CPU_DESCRIPTOR_HANDLE render_target_view = ZEST_DX_BACKEND(image_view, image->default_view)->rtv;
+	const FLOAT clear_colour[4] = { 0.f, 0.f, 0.f, 1.f };
+	D3D12_VIEWPORT viewport = zest__dx_viewport(0.f, 0.f, 16.f, 16.f, 0.f, 1.f);
+	D3D12_RECT scissor = { 0, 0, 16, 16 };
+	ZEST_DX_CALL(command_list, ClearRenderTargetView, render_target_view, clear_colour, 0, NULL);
+	ZEST_DX_CALL(command_list, OMSetRenderTargets, 1, &render_target_view, FALSE, NULL);
+	ZEST_DX_CALL(command_list, RSSetViewports, 1, &viewport);
+	ZEST_DX_CALL(command_list, RSSetScissorRects, 1, &scissor);
+	ZEST_DX_CALL(command_list, SetGraphicsRootSignature, zest__dx_utility_root_signature(device));
+	ZEST_DX_CALL(command_list, SetPipelineState, pipeline);
+	ZEST_DX_CALL(command_list, IASetPrimitiveTopology, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ZEST_DX_CALL(command_list, DrawInstanced, 3, 1, 0, 0);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	ZEST_DX_RELEASE(pipeline);
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0, sizeof(pixels));
+	failed |= !zest_CopyImageToBitmap(device, image, pixels);
+	*coverage = winding_coverage(pixels);
+	ZEST_PRINT("\t%s: %u red pixels, %u of them inside x + y < 15, %u neither red nor black", name, coverage->red_count, coverage->red_inside_count, coverage->other_count);
+	return failed;
+}
+
+//The control has no culling, so it checks the pipeline and the viewport flip apart from facing
+int test_d3d12_viewport_orientation(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	ID3DBlob *vertex_dxil = NULL;
+	ID3DBlob *pixel_dxil = NULL;
+	int failed = !zest__dx_compile_hlsl(device, orientation_vertex_source, (zest_size)strlen(orientation_vertex_source), "orientation_vertex", "main", "vs_6_0", &vertex_dxil);
+	failed |= !zest__dx_compile_hlsl(device, orientation_pixel_source, (zest_size)strlen(orientation_pixel_source), "orientation_pixel", "main", "ps_6_0", &pixel_dxil);
+	zest_image_handle image_handle = create_clear_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	failed |= image == NULL;
+	if (!failed) {
+		WindingCoverage control = {};
+		WindingCoverage front_clockwise = {};
+		WindingCoverage front_counter_clockwise = {};
+		failed |= draw_orientation_triangle(device, image, vertex_dxil, pixel_dxil, D3D12_CULL_MODE_NONE, FALSE, "Orientation control, no culling", &control);
+		failed |= draw_orientation_triangle(device, image, vertex_dxil, pixel_dxil, D3D12_CULL_MODE_BACK, FALSE, "Orientation cull back, FrontCounterClockwise FALSE", &front_clockwise);
+		failed |= draw_orientation_triangle(device, image, vertex_dxil, pixel_dxil, D3D12_CULL_MODE_BACK, TRUE, "Orientation cull back, FrontCounterClockwise TRUE", &front_counter_clockwise);
+		BOOL clockwise_setting = zest__dx_front_counter_clockwise(zest_front_face_clockwise);
+		WindingCoverage matching = clockwise_setting ? front_counter_clockwise : front_clockwise;
+		WindingCoverage other = clockwise_setting ? front_clockwise : front_counter_clockwise;
+		failed |= !winding_covers_triangle(control);
+		failed |= !winding_covers_triangle(matching) || !winding_covers_nothing(other);
+	}
+	zest_FreeImageNow(image_handle);
+	ZEST_DX_RELEASE(vertex_dxil);
+	ZEST_DX_RELEASE(pixel_dxil);
+	//The root signature belongs to the old ID3D12Device, so a reset releases it first and the next use recreates it
+	zest_ResetDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= ZEST_DX_BACKEND(device, device)->utility_root_signature != NULL;
+	failed |= zest__dx_utility_root_signature(device) == NULL;
+	return failed | finish_device(device);
+}
+
+static void remove_test_device(zest_device device) {
+	ID3D12Device5 *device5 = NULL;
+	if (SUCCEEDED(ZEST_DX_CALL(zest_GetD3D12Device(device), QueryInterface, ZEST_DX_IID(ID3D12Device5), (void **)&device5))) {
+		device5->RemoveDevice();
+		device5->Release();
+	}
+}
+
+//Between frames the next frame's fence wait is the first to see the removal, and inside one it's the Present, whose recreate must keep the swapchain
+static int run_device_removal(D3D12TestWindow *window, zest_bool inside_frame) {
+	zest_device device = create_windowed_test_device(window);
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window->window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		for (int frame = 0; frame != 3; ++frame) {
+			D3D12FrameTimes times;
+			failed |= !run_windowed_clear_frame(context, &times);
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		//What the debug layer reports about the removal is expected, so it goes to memory only
+		ZEST__UNFLAG(device->init_flags, zest_device_init_flag_log_validation_errors_to_console);
+		zest_microsecs frame_limit = 2 * (zest_microsecs)(context->fence_wait_timeout_ns / 1000);
+		if (inside_frame) {
+			zest_UpdateDevice(device);
+			zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
+			failed |= !zest_BeginFrame(context);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+			failed |= frame_graph == NULL;
+			remove_test_device(device);
+			zest_microsecs start = zest_Microsecs();
+			zest_EndFrame(context, frame_graph);
+			failed |= zest_Microsecs() - start > frame_limit;
+			failed |= context->swapchain == NULL;
+		} else {
+			remove_test_device(device);
+		}
+		for (int frame = 0; frame != 3; ++frame) {
+			D3D12FrameTimes times;
+			run_windowed_clear_frame(context, &times);
+			failed |= times.begin > frame_limit || times.end > frame_limit;
+		}
+		failed |= ZEST__NOT_FLAGGED(context->flags, zest_context_flag_device_lost);
+		zest_ResetValidationErrors(device);
+		zest_DestroyContext(context);
+	}
+	zest_ResetValidationErrors(device);
+	zest_DestroyDevice(device);
+	return failed | (zest__dx_last_device_release_count() != 0);
+}
+
+//Must stay the last D3D12 test, as a reference leaked from a removed device would hand that device to every test after it
+int test_d3d12_device_removed_mid_frame(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Device Removed")) {
+		close_test_window(&window);
+		return 1;
+	}
+	int failed = run_device_removal(&window, ZEST_FALSE);
+	failed |= run_device_removal(&window, ZEST_TRUE);
+	close_test_window(&window);
+	return failed;
+}
+
+static void fill_words(zest_buffer buffer, zest_uint seed) {
+	zest_uint *words = (zest_uint *)zest_BufferData(buffer);
+	for (zest_uint index = 0; index != buffer->size / 4; ++index) words[index] = seed + index * 2654435761u;
+}
+
+static int words_equal(zest_buffer buffer, zest_uint value) {
+	const zest_uint *words = (const zest_uint *)zest_BufferData(buffer);
+	for (zest_uint index = 0; index != buffer->size / 4; ++index) {
+		if (words[index] != value) return 0;
+	}
+	return 1;
+}
+
+static int run_buffer_copy_on_queue(zest_device device, zest_device_queue_type queue_type, zest_buffer source, zest_buffer middle, zest_buffer destination) {
+	memset(zest_BufferData(destination), 0, destination->size);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return 1;
+	int failed = !zest_imm_CopyBuffer(queue, source, middle, 4096);
+	failed |= !zest_imm_CopyBufferRegion(queue, middle, 256, destination, 512, 1024);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	failed |= memcmp((const char *)zest_BufferData(destination) + 512, (const char *)zest_BufferData(source) + 256, 1024) != 0;
+	return failed;
+}
+
+//The update writes its 10 bytes padded with zeros to 12, over a fill of 0xA5
+static int holds_fill_then_update(zest_buffer destination, const unsigned char update_data[10]) {
+	const unsigned char *bytes = (const unsigned char *)zest_BufferData(destination);
+	int failed = memcmp(bytes, update_data, 10) != 0 || bytes[10] != 0 || bytes[11] != 0;
+	for (zest_uint index = 12; index != destination->size; ++index) failed |= bytes[index] != 0xA5;
+	return !failed;
+}
+
+//Both are copy writes to the same bytes, so the update only lands on top when the barrier between them orders writes
+static int run_fill_then_update_on_queue(zest_device device, zest_device_queue_type queue_type, zest_buffer destination, const unsigned char update_data[10]) {
+	memset(zest_BufferData(destination), 0xCD, destination->size);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return 1;
+	zest_imm_FillBuffer(queue, destination, 0xA5A5A5A5u);
+	zest_imm_UpdateBuffer(queue, destination, (void *)update_data, 10);
+	int failed = !zest_imm_EndCommandBuffer(queue);
+	return failed | !holds_fill_then_update(destination, update_data);
+}
+
+int test_d3d12_buffer_copies(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_only);
+	zest_buffer source = zest_CreateBuffer(device, 4096, &upload_info);
+	zest_buffer middle = zest_CreateBuffer(device, 4096, &device_info);
+	zest_buffer destination = zest_CreateBuffer(device, 4096, &readback_info);
+	zest_buffer large = zest_CreateBuffer(device, 200 * 1024, &readback_info);
+	int failed = !source || !middle || !destination || !large;
+	if (!failed) {
+		fill_words(source, 0x1234u);
+		failed |= run_buffer_copy_on_queue(device, zest_queue_graphics, source, middle, destination);
+		failed |= run_buffer_copy_on_queue(device, zest_queue_compute, source, middle, destination);
+		failed |= run_buffer_copy_on_queue(device, zest_queue_transfer, source, middle, destination);
+
+		memset(zest_BufferData(large), 0, large->size);
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+		failed |= queue == NULL;
+		zest_imm_FillBuffer(queue, destination, 0xA5A5A5A5u);
+		zest_imm_FillBuffer(queue, large, 0xA5A5A5A5u);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= !words_equal(destination, 0xA5A5A5A5u) || !words_equal(large, 0xA5A5A5A5u);
+
+		const unsigned char update_data[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+		failed |= queue == NULL;
+		zest_imm_UpdateBuffer(queue, destination, (void *)update_data, 10);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= !holds_fill_then_update(destination, update_data);
+
+		failed |= run_fill_then_update_on_queue(device, zest_queue_graphics, destination, update_data);
+		failed |= run_fill_then_update_on_queue(device, zest_queue_compute, destination, update_data);
+		failed |= run_fill_then_update_on_queue(device, zest_queue_transfer, destination, update_data);
+	}
+	zest_FreeBufferNow(source);
+	zest_FreeBufferNow(middle);
+	zest_FreeBufferNow(destination);
+	zest_FreeBufferNow(large);
+
+	zest_image_info_t image_info = zest_CreateImageInfo(1, 1);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	const zest_uint pixel = 0x80402010u;
+	zest_buffer pixel_buffer = zest_CreateStagingBuffer(device, 4, (void *)&pixel);
+	failed |= image == NULL || pixel_buffer == NULL;
+	if (!failed) {
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= !zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, 1, 0, 1);
+		failed |= !zest_imm_CopyBufferToImage(queue, pixel_buffer, image, 4);
+		failed |= !zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 1, 0, 1);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		zest_uint read_back = 0;
+		failed |= read_image_layers(device, image, 1, 4, &read_back);
+		failed |= read_back != pixel;
+	}
+	zest_FreeBufferNow(pixel_buffer);
+	zest_FreeImageNow(image_handle);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_buffer_descriptors(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_buffer_info_t storage_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer_info_t uniform_info = zest_CreateBufferInfo(zest_buffer_type_uniform, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t stride_info = storage_info;
+	stride_info.element_alignment = 48;
+	zest_buffer storage_buffer = zest_CreateBuffer(device, 4096, &storage_info);
+	zest_buffer uniform_buffer = zest_CreateBuffer(device, 256, &uniform_info);
+	zest_buffer stride_buffer = zest_CreateBuffer(device, 48 * 37, &stride_info);
+	int failed = !storage_buffer || !uniform_buffer || !stride_buffer;
+	if (!failed) {
+		zest_uint storage_index = zest_AcquireStorageBufferIndex(device, storage_buffer);
+		zest_uint uniform_index = zest_AcquireUniformBufferIndex(device, uniform_buffer);
+		zest_uint stride_index = zest_AcquireStorageBufferIndex(device, stride_buffer);
+		failed |= storage_index == ZEST_INVALID || uniform_index == ZEST_INVALID || stride_index == ZEST_INVALID;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_ReleaseStorageBufferIndex(device, storage_index);
+		zest_ReleaseBindlessIndex(device, uniform_index, zest_uniform_buffer_binding);
+		zest_ReleaseStorageBufferIndex(device, stride_index);
+	}
+	zest_FreeBufferNow(storage_buffer);
+	zest_FreeBufferNow(uniform_buffer);
+	zest_FreeBufferNow(stride_buffer);
+
+	//A uniform usage buffer can't be created this large, so a storage buffer stands in for one
+	zest_buffer_info_t oversized_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_cpu_to_gpu);
+	zest_buffer oversized_buffer = zest_CreateBuffer(device, 65537, &oversized_info);
+	failed |= oversized_buffer == NULL;
+	if (oversized_buffer) {
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		zest_uint oversized_index = zest_AcquireUniformBufferIndex(device, oversized_buffer);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+		zest_ReleaseBindlessIndex(device, oversized_index, zest_uniform_buffer_binding);
+		zest_FreeBufferNow(oversized_buffer);
+		zest_ResetValidationErrors(device);
+	}
+	return failed | finish_device(device);
+}
+
+typedef struct d3d12_buffer_copy_task_t {
+	zest_buffer_uploader_t uploader;
+	zest_buffer upload_source;
+	zest_buffer upload_target;
+	zest_buffer copy_source;
+	zest_buffer copy_target;
+} d3d12_buffer_copy_task_t;
+
+static void d3d12_buffer_copy_pass(const zest_command_list command_list, void *user_data) {
+	d3d12_buffer_copy_task_t *task = (d3d12_buffer_copy_task_t *)user_data;
+	zest_cmd_CopyBuffer(command_list, task->copy_source, task->copy_target, 512);
+	zest_cmd_UploadBuffer(command_list, &task->uploader);
+}
+
+int test_d3d12_frame_graph_buffer_copies(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	d3d12_buffer_copy_task_t task = {};
+	task.upload_source = zest_CreateBuffer(device, 1024, &upload_info);
+	task.copy_source = zest_CreateBuffer(device, 1024, &upload_info);
+	task.upload_target = zest_CreateBuffer(device, 1024, &readback_info);
+	task.copy_target = zest_CreateBuffer(device, 1024, &readback_info);
+	failed |= !task.upload_source || !task.copy_source || !task.upload_target || !task.copy_target;
+	if (!failed) {
+		fill_words(task.upload_source, 0x1111u);
+		fill_words(task.copy_source, 0x2222u);
+		memset(zest_BufferData(task.upload_target), 0, task.upload_target->size);
+		memset(zest_BufferData(task.copy_target), 0, task.copy_target->size);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Copies", 0);
+		//The pass declares no resources, so nothing is a graph resource and no buffer barrier is emitted
+		zest_BeginTransferPass("Copy Pass");
+		zest_DoNotCull();
+		zest_SetPassTask(d3d12_buffer_copy_pass, &task);
+		zest_EndPass();
+		zest_AddCopyCommand(context, &task.uploader, task.upload_source, task.upload_target, 256);
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= memcmp(zest_BufferData(task.upload_target), zest_BufferData(task.upload_source), 256) != 0;
+		failed |= memcmp(zest_BufferData(task.copy_target), zest_BufferData(task.copy_source), 512) != 0;
+		failed |= zest_vec_size(task.uploader.buffer_copies) != 0 || task.uploader.flags != 0 || task.uploader.source_buffer != NULL || task.uploader.target_buffer != NULL;
+	}
+	zest_FreeBufferNow(task.upload_source);
+	zest_FreeBufferNow(task.copy_source);
+	zest_FreeBufferNow(task.upload_target);
+	zest_FreeBufferNow(task.copy_target);
+	if (context) zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_transient_descriptor_chunks(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_dx_descriptor_pool_backend_t *pool = ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool;
+	zest_uint free_chunks_before = zest_vec_size(pool->free_transient_chunks);
+	SIZE_T region_start = pool->resource_cpu_start.ptr + (SIZE_T)pool->regions.transient_offset * pool->resource_increment;
+	SIZE_T region_end = region_start + (SIZE_T)pool->regions.transient_count * pool->resource_increment;
+	zest_dx_transient_descriptors_t descriptors = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE first_cpu = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE first_gpu = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE previous_cpu = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE previous_gpu = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE gpu = {};
+	int failed = pool->regions.transient_count != ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT;
+	for (zest_uint index = 0; index != 193; ++index) {
+		failed |= !zest__dx_allocate_transient_descriptor(device, &descriptors, &cpu, &gpu);
+		failed |= cpu.ptr < region_start || cpu.ptr >= region_end;
+		if (index == 0) {
+			first_cpu = cpu;
+			first_gpu = gpu;
+		} else if (index % ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK != 0) {
+			failed |= cpu.ptr != previous_cpu.ptr + pool->resource_increment || gpu.ptr != previous_gpu.ptr + pool->resource_increment;
+		}
+		previous_cpu = cpu;
+		previous_gpu = gpu;
+	}
+	failed |= zest_vec_size(descriptors.chunks) != 4;
+	failed |= zest_vec_size(pool->free_transient_chunks) != free_chunks_before - 4;
+
+	zest__dx_reset_transient_descriptors(&descriptors);
+	failed |= !zest__dx_allocate_transient_descriptor(device, &descriptors, &cpu, &gpu);
+	failed |= cpu.ptr != first_cpu.ptr || gpu.ptr != first_gpu.ptr;
+	failed |= zest_vec_size(descriptors.chunks) != 4;
+
+	zest__dx_release_transient_descriptors(device, &descriptors);
+	failed |= zest_vec_size(pool->free_transient_chunks) != free_chunks_before;
+	failed |= zest_vec_size(descriptors.chunks) != 0;
+
+	zest_uint errors_before = zest_GetValidationErrorCount(device);
+	zest_uint allocated = 0;
+	while (allocated <= ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT && zest__dx_allocate_transient_descriptor(device, &descriptors, &cpu, &gpu)) {
+		allocated++;
+	}
+	failed |= allocated != free_chunks_before * ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK;
+	failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+	zest_ResetValidationErrors(device);
+	//Later tests on this pool need its free list whole
+	zest__dx_release_transient_descriptors(device, &descriptors);
+	failed |= zest_vec_size(pool->free_transient_chunks) != free_chunks_before;
+	return failed | finish_device(device);
+}
+
+static const int mip_red[4] = { 255, 0, 0, 255 };
+static const int mip_blue[4] = { 0, 0, 255, 255 };
+static const int mip_purple[4] = { 128, 0, 128, 255 };
+
+static int pixels_within(const zest_uint *pixels, zest_uint pixel_count, const int expected[4], int tolerance) {
+	for (zest_uint index = 0; index != pixel_count; ++index) {
+		const unsigned char *channels = (const unsigned char *)&pixels[index];
+		for (int channel = 0; channel != 4; ++channel) {
+			if (abs((int)channels[channel] - expected[channel]) > tolerance) return 0;
+		}
+	}
+	return 1;
+}
+
+//Mip 1 keeps the red and blue halves exactly, and the last mip is their average
+static int check_split_mips(zest_device device, zest_image image) {
+	zest_uint mip_one[8 * 8];
+	zest_uint last_mip = 0;
+	memset(mip_one, 0, sizeof(mip_one));
+	int failed = !zest__dx_read_subresource(device, image, 1, 0, mip_one);
+	failed |= !zest__dx_read_subresource(device, image, 4, 0, &last_mip);
+	for (zest_uint row = 0; row != 8; ++row) {
+		failed |= !pixels_within(mip_one + row * 8, 4, mip_red, 0);
+		failed |= !pixels_within(mip_one + row * 8 + 4, 4, mip_blue, 0);
+	}
+	failed |= !pixels_within(&last_mip, 1, mip_purple, 1);
+	failed |= zest_ImageRawLayout(image) != zest_image_layout_shader_read_only_optimal;
+	failed |= ZEST_DX_BACKEND(image, image)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+	return failed;
+}
+
+//A 16x16 image with a red left half and a blue right half, uploaded with its mips generated
+static zest_image_handle upload_split_mip_image(zest_device device, int *failed) {
+	zest_uint pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) pixels[index] = (index % 16) < 8 ? 0xFF0000FFu : 0xFFFF0000u;
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture_mipmaps;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	if (!image_handle.value) {
+		*failed = 1;
+		return image_handle;
+	}
+	zest_image image = zest_GetImage(image_handle);
+	*failed |= image->info.mip_levels != 5;
+	*failed |= !zest_CopyBitmapToImage(device, pixels, sizeof(pixels), image, 16, 16);
+	*failed |= check_split_mips(device, image);
+	return image_handle;
+}
+
+//Linear 0.5, which is the average of black and white, encodes to 188 in sRGB
+static int check_srgb_mips(zest_device device) {
+	zest_uint pixels[2 * 2] = { 0xFF000000u, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFF000000u };
+	zest_image_info_t image_info = zest_CreateImageInfo(2, 2);
+	image_info.format = zest_format_r8g8b8a8_srgb;
+	image_info.flags = zest_image_preset_texture_mipmaps;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	if (!image_handle.value) return 1;
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image->info.mip_levels != 2;
+	failed |= !zest_CopyBitmapToImage(device, pixels, sizeof(pixels), image, 2, 2);
+	zest_uint last_mip = 0;
+	failed |= !zest__dx_read_subresource(device, image, 1, 0, &last_mip);
+	const int expected[4] = { 188, 188, 188, 255 };
+	failed |= !pixels_within(&last_mip, 1, expected, 2);
+	zest_FreeImageNow(image_handle);
+	return failed;
+}
+
+static int check_cube_mips(zest_device device) {
+	static const zest_uint face_colours[6] = { 0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFF00FFFFu, 0xFFFFFF00u, 0xFFFF00FFu };
+	zest_uint pixels[6 * 8 * 8];
+	for (zest_uint index = 0; index != 6 * 8 * 8; ++index) pixels[index] = face_colours[index / 64];
+	zest_image_info_t image_info = zest_CreateImageInfo(8, 8);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.layer_count = 6;
+	image_info.flags = zest_image_preset_texture_mipmaps | zest_image_flag_cubemap;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	if (!image_handle.value) return 1;
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image->info.mip_levels != 4;
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(device, sizeof(pixels), pixels);
+	zest_buffer_image_copy_t region = {};
+	region.image_aspect = zest_image_aspect_color_bit;
+	region.layer_count = 6;
+	region.image_extent.width = 8;
+	region.image_extent.height = 8;
+	region.image_extent.depth = 1;
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	failed |= !zest_imm_TransitionImage(queue, image, zest_resource_state_copy_dst, 0, image->info.mip_levels, 0, 6);
+	failed |= !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, staging_buffer, image);
+	failed |= !zest_imm_GenerateMipMaps(queue, image);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	zest_FreeBufferNow(staging_buffer);
+	for (zest_uint face = 0; face != 6; ++face) {
+		zest_uint last_mip = 0;
+		failed |= !zest__dx_read_subresource(device, image, 3, face, &last_mip);
+		failed |= last_mip != face_colours[face];
+	}
+	failed |= zest_ImageRawLayout(image) != zest_image_layout_shader_read_only_optimal;
+	zest_FreeImageNow(image_handle);
+	return failed;
+}
+
+int test_d3d12_generate_mipmaps(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_image_handle image_handle = upload_split_mip_image(device, &failed);
+	failed |= check_srgb_mips(device);
+	failed |= check_cube_mips(device);
+	if (image_handle.value) {
+		zest_image image = zest_GetImage(image_handle);
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= !zest_imm_GenerateMipMaps(queue, image);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= check_split_mips(device, image);
+		zest_FreeImageNow(image_handle);
+	}
+	return failed | finish_device(device);
+}
+
+int test_d3d12_reset_after_blit(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_image_handle image_handle = upload_split_mip_image(device, &failed);
+	if (image_handle.value) zest_FreeImageNow(image_handle);
+	zest_ResetDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	zest_dx_descriptor_pool_backend_t *pool = ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool;
+	failed |= zest_vec_size(pool->free_transient_chunks) != ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT / ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK;
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	failed |= queue == NULL || zest_vec_size(ZEST_DX_BACKEND(queue, queue)->transient_descriptors.chunks) != 0;
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	image_handle = upload_split_mip_image(device, &failed);
+	if (image_handle.value) zest_FreeImageNow(image_handle);
+	return failed | finish_device(device);
+}
+
+//Top left, top right, bottom left and bottom right
+static const zest_uint blit_quadrant_colours[4] = { 0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFFFFFFFFu };
+
+static int quadrants_equal(const zest_uint *pixels, zest_uint size, const zest_uint colours[4]) {
+	zest_uint half = size / 2;
+	for (zest_uint index = 0; index != size * size; ++index) {
+		zest_uint quadrant = ((index / size) >= half ? 2 : 0) + ((index % size) >= half ? 1 : 0);
+		if (pixels[index] != colours[quadrant]) return 0;
+	}
+	return 1;
+}
+
+static int blit_and_check(zest_device device, zest_image source, zest_image destination, const int source_rect[4], const int destination_rect[4], zest_filter_type filter, const zest_uint expected[4]) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) return 1;
+	int failed = !zest_imm_BlitImage(queue, source, destination, source_rect[0], source_rect[1], source_rect[2], source_rect[3], destination_rect[0], destination_rect[1], destination_rect[2], destination_rect[3], filter);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	zest_uint pixels[8 * 8];
+	memset(pixels, 0, sizeof(pixels));
+	failed |= !zest_CopyImageToBitmap(device, destination, pixels);
+	failed |= !quadrants_equal(pixels, 8, expected);
+	//Both images go back to the layouts they're tracked in
+	failed |= ZEST_DX_BACKEND(image, source)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE || zest_ImageRawLayout(source) != zest_image_layout_shader_read_only_optimal;
+	failed |= ZEST_DX_BACKEND(image, destination)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE || zest_ImageRawLayout(destination) != zest_image_layout_shader_read_only_optimal;
+	return failed;
+}
+
+int test_d3d12_blit_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_uint source_pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) {
+		source_pixels[index] = blit_quadrant_colours[((index / 16) >= 8 ? 2 : 0) + ((index % 16) >= 8 ? 1 : 0)];
+	}
+	zest_uint grey_pixels[8 * 8];
+	for (zest_uint index = 0; index != 8 * 8; ++index) grey_pixels[index] = 0xFF808080u;
+	zest_image_info_t source_info = zest_CreateImageInfo(16, 16);
+	source_info.format = zest_format_r8g8b8a8_unorm;
+	source_info.flags = zest_image_preset_texture;
+	zest_image_handle source_handle = zest_CreateImageWithPixels(device, source_pixels, sizeof(source_pixels), &source_info);
+	//A single mip texture can't be a blit destination, so the destination is an attachment that can also be uploaded and read back
+	zest_image_info_t destination_info = zest_CreateImageInfo(8, 8);
+	destination_info.format = zest_format_r8g8b8a8_unorm;
+	destination_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_dst | zest_image_flag_transfer_src;
+	zest_image_handle destination_handle = zest_CreateImageWithPixels(device, grey_pixels, sizeof(grey_pixels), &destination_info);
+	zest_image_info_t texture_info = zest_CreateImageInfo(8, 8);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle texture_handle = zest_CreateImageWithPixels(device, grey_pixels, sizeof(grey_pixels), &texture_info);
+	zest_image_handle undefined_handle = zest_CreateImage(device, &destination_info);
+	int failed = !source_handle.value || !destination_handle.value || !texture_handle.value || !undefined_handle.value;
+	if (!failed) {
+		zest_image source = zest_GetImage(source_handle);
+		zest_image destination = zest_GetImage(destination_handle);
+		zest_image texture = zest_GetImage(texture_handle);
+		zest_image undefined_destination = zest_GetImage(undefined_handle);
+		const int full_source[4] = { 0, 0, 16, 16 };
+		const int full_destination[4] = { 0, 0, 8, 8 };
+		failed |= blit_and_check(device, source, destination, full_source, full_destination, zest_filter_nearest, blit_quadrant_colours);
+
+		const int top_left_source[4] = { 0, 0, 8, 8 };
+		const int bottom_right_destination[4] = { 4, 4, 4, 4 };
+		const zest_uint sub_rect_expected[4] = { blit_quadrant_colours[0], blit_quadrant_colours[1], blit_quadrant_colours[2], blit_quadrant_colours[0] };
+		failed |= blit_and_check(device, source, destination, top_left_source, bottom_right_destination, zest_filter_linear, sub_rect_expected);
+
+		//Vulkan takes the far edge as x plus width, so this region runs from 8 back to 0
+		const int flipped_destination[4] = { 8, 0, -8, 8 };
+		const zest_uint flipped_expected[4] = { blit_quadrant_colours[1], blit_quadrant_colours[0], blit_quadrant_colours[3], blit_quadrant_colours[2] };
+		failed |= blit_and_check(device, source, destination, full_source, flipped_destination, zest_filter_nearest, flipped_expected);
+
+		//A never written destination stays a render target, so the transition after it keeps the blit instead of discarding it
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_BlitImage(queue, source, undefined_destination, 0, 0, 16, 16, 0, 0, 8, 8, zest_filter_nearest);
+		failed |= ZEST_DX_BACKEND(image, undefined_destination)->layout != D3D12_BARRIER_LAYOUT_RENDER_TARGET || zest_ImageRawLayout(undefined_destination) != zest_image_layout_color_attachment_optimal;
+		failed |= !zest_imm_TransitionImage(queue, undefined_destination, zest_resource_state_shader_read, 0, 1, 0, 1);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= ZEST_DX_BACKEND(image, undefined_destination)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+		zest_uint blitted_pixels[8 * 8];
+		memset(blitted_pixels, 0, sizeof(blitted_pixels));
+		failed |= !zest_CopyImageToBitmap(device, undefined_destination, blitted_pixels);
+		failed |= !quadrants_equal(blitted_pixels, 8, blit_quadrant_colours);
+
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || zest_imm_BlitImage(queue, source, texture, 0, 0, 16, 16, 0, 0, 8, 8, zest_filter_nearest) != ZEST_FALSE;
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+		failed |= queue == NULL || zest_imm_BlitImage(queue, source, destination, 0, 0, 16, 16, 0, 0, 8, 8, zest_filter_nearest) != ZEST_FALSE;
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 2;
+		zest_ResetValidationErrors(device);
+
+		//Neither rejected blit recorded anything
+		zest_uint pixels[8 * 8];
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest_CopyImageToBitmap(device, destination, pixels);
+		failed |= !quadrants_equal(pixels, 8, flipped_expected);
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest_CopyImageToBitmap(device, texture, pixels);
+		for (zest_uint index = 0; index != 8 * 8; ++index) failed |= pixels[index] != 0xFF808080u;
+	}
+	if (source_handle.value) zest_FreeImageNow(source_handle);
+	if (destination_handle.value) zest_FreeImageNow(destination_handle);
+	if (texture_handle.value) zest_FreeImageNow(texture_handle);
+	if (undefined_handle.value) zest_FreeImageNow(undefined_handle);
+	return failed | finish_device(device);
+}
+
+typedef struct d3d12_mip_command_task_t {
+	zest_bool copy_mip;
+	zest_uint blit_mip_count;
+	zest_device_queue_type queue_type;
+	int run_count;
+} d3d12_mip_command_task_t;
+
+static void d3d12_image_mip_pass(const zest_command_list command_list, void *user_data) {
+	d3d12_mip_command_task_t *task = (d3d12_mip_command_task_t *)user_data;
+	task->run_count++;
+	task->queue_type = ZEST_DX_BACKEND(command_list, command_list)->queue_type;
+	//A transfer pass takes both images as transfer inputs
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Mip Source");
+	zest_resource_node destination = zest_GetPassInputResource(command_list, "Mip Destination");
+	if (task->copy_mip) {
+		zest_cmd_CopyImageMip(command_list, source, destination, 1, zest_shader_fragment_stage);
+	}
+	for (zest_uint mip = 0; mip != task->blit_mip_count; ++mip) {
+		zest_cmd_BlitImageMip(command_list, source, destination, mip, zest_shader_fragment_stage);
+	}
+}
+
+//A wave that uses one queue type runs on the graphics queue, so a compute pass beside the transfer pass keeps it on the copy queue
+static int run_mip_command_graph(zest_context context, const char *name, zest_image source, zest_image destination, zest_bool copy_mip, zest_uint blit_mip_count, zest_device_queue_type queue_type) {
+	if (!zest_BeginCommandGraph(context, name, 0)) return 1;
+	d3d12_mip_command_task_t task = {};
+	task.copy_mip = copy_mip;
+	task.blit_mip_count = blit_mip_count;
+	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
+	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
+	zest_BeginTransferPass("Mip Pass");
+	//A transfer pass declares the destination as a transfer input too, so with no output the pass would be culled
+	zest_DoNotCull();
+	zest_ConnectInput(source_node);
+	zest_ConnectOutput(destination_node);
+	zest_SetPassTask(d3d12_image_mip_pass, &task);
+	zest_EndPass();
+	if (queue_type == zest_queue_transfer) {
+		zest_BeginComputePass("Wave Partner");
+		zest_DoNotCull();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+	}
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	return failed | (task.run_count != 1) | (task.queue_type != queue_type);
+}
+
+static zest_image_handle create_two_mip_image(zest_device device, zest_format format, zest_image_flags flags) {
+	zest_image_info_t image_info = zest_CreateImageInfo(8, 8);
+	image_info.format = format;
+	image_info.flags = flags;
+	image_info.mip_levels = 2;
+	return zest_CreateImage(device, &image_info);
+}
+
+static int mips_equal(zest_device device, zest_image source, zest_image destination) {
+	zest_uint source_pixels[8 * 8];
+	zest_uint destination_pixels[8 * 8];
+	int failed = 0;
+	for (zest_uint mip = 0; mip != 2; ++mip) {
+		memset(source_pixels, 0, sizeof(source_pixels));
+		memset(destination_pixels, 0xCD, sizeof(destination_pixels));
+		failed |= !zest__dx_read_subresource(device, source, mip, 0, source_pixels);
+		failed |= !zest__dx_read_subresource(device, destination, mip, 0, destination_pixels);
+		zest_uint mip_size = 8 >> mip;
+		failed |= memcmp(source_pixels, destination_pixels, mip_size * mip_size * sizeof(zest_uint)) != 0;
+	}
+	return failed;
+}
+
+static float half_to_float(unsigned short half) {
+	int exponent = (half >> 10) & 0x1F;
+	float mantissa = (float)(half & 0x3FF);
+	float magnitude = exponent ? ldexpf(1.f + mantissa / 1024.f, exponent - 15) : ldexpf(mantissa / 1024.f, -14);
+	return (half & 0x8000) ? -magnitude : magnitude;
+}
+
+//Each mip of the half float destination holds the unorm source's channels converted to floats
+static int converted_mips_equal(zest_device device, zest_image source, zest_image destination) {
+	zest_uint source_pixels[8 * 8];
+	unsigned short destination_channels[8 * 8 * 4];
+	int failed = 0;
+	for (zest_uint mip = 0; mip != 2; ++mip) {
+		memset(source_pixels, 0, sizeof(source_pixels));
+		memset(destination_channels, 0, sizeof(destination_channels));
+		failed |= !zest__dx_read_subresource(device, source, mip, 0, source_pixels);
+		failed |= !zest__dx_read_subresource(device, destination, mip, 0, destination_channels);
+		zest_uint mip_size = 8 >> mip;
+		for (zest_uint channel_index = 0; channel_index != mip_size * mip_size * 4; ++channel_index) {
+			float expected = (float)((const unsigned char *)source_pixels)[channel_index];
+			failed |= fabsf(half_to_float(destination_channels[channel_index]) * 255.f - expected) > 0.5f;
+		}
+	}
+	return failed;
+}
+
+int test_d3d12_image_mip_commands(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	zest_uint pixels[8 * 8];
+	for (zest_uint index = 0; index != 8 * 8; ++index) pixels[index] = (index * 2654435761u) | 0xFF000000u;
+	zest_image_handle source_handle = create_two_mip_image(device, zest_format_r8g8b8a8_unorm, zest_image_preset_texture_mipmaps);
+	zest_image_handle destination_handle = create_two_mip_image(device, zest_format_r8g8b8a8_unorm, zest_image_preset_texture | zest_image_flag_transfer_src);
+	zest_image_handle float_handle = create_two_mip_image(device, zest_format_r16g16b16a16_sfloat, zest_image_preset_texture | zest_image_flag_transfer_src);
+	zest_image_handle converted_handle = create_two_mip_image(device, zest_format_r16g16b16a16_sfloat, zest_image_preset_texture | zest_image_flag_transfer_src);
+	failed |= !source_handle.value || !destination_handle.value || !float_handle.value || !converted_handle.value;
+	if (!failed) {
+		zest_image source = zest_GetImage(source_handle);
+		zest_image destination = zest_GetImage(destination_handle);
+		zest_image float_destination = zest_GetImage(float_handle);
+		zest_image converted_destination = zest_GetImage(converted_handle);
+		failed |= source->info.mip_levels != 2 || destination->info.mip_levels != 2;
+		//So the destination's first barrier, on a copy list, goes from UNDEFINED to COMMON with the discard flag
+		failed |= !(ZEST_DX_BACKEND(image, destination)->resource_flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) || ZEST_DX_BACKEND(image, destination)->layout != D3D12_BARRIER_LAYOUT_UNDEFINED;
+		failed |= !zest_CopyBitmapToImage(device, pixels, sizeof(pixels), source, 8, 8);
+		//A copy queue barrier can't start from SHADER_RESOURCE (1334), and the frame graph doesn't release to COMMON yet, so the source waits there
+		const D3D12_BARRIER_LAYOUT common_layout = D3D12_BARRIER_LAYOUT_COMMON;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest__dx_transition_image_layout(queue, source, zest_image_layout_shader_read_only_optimal, &common_layout, 0, 2, 0, 1);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= run_mip_command_graph(context, "Image Mip Commands", source, destination, ZEST_TRUE, 1, zest_queue_transfer);
+		failed |= mips_equal(device, source, destination);
+
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		failed |= run_mip_command_graph(context, "Image Mip Format Blit", source, float_destination, ZEST_FALSE, 1, zest_queue_transfer);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+		zest_ResetValidationErrors(device);
+
+		//Alone in its wave the transfer pass runs on the graphics queue, where a blit between formats draws
+		failed |= run_mip_command_graph(context, "Image Mip Format Draw", source, converted_destination, ZEST_FALSE, 2, zest_queue_graphics);
+		failed |= converted_mips_equal(device, source, converted_destination);
+	}
+	if (source_handle.value) zest_FreeImageNow(source_handle);
+	if (destination_handle.value) zest_FreeImageNow(destination_handle);
+	if (float_handle.value) zest_FreeImageNow(float_handle);
+	if (converted_handle.value) zest_FreeImageNow(converted_handle);
+	if (context) zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+static zest_clear_value_t colour_clear_value(float red, float green, float blue) {
+	zest_clear_value_t clear_value = {};
+	clear_value.color.x = red;
+	clear_value.color.y = green;
+	clear_value.color.z = blue;
+	clear_value.color.w = 1.f;
+	return clear_value;
+}
+
+//Every mip of a 16x16 image reads back as the expected colour
+static int mips_match(zest_device device, zest_image image, const int expected[4]) {
+	zest_uint pixels[16 * 16];
+	int failed = 0;
+	for (zest_uint mip = 0; mip != image->info.mip_levels; ++mip) {
+		zest_uint mip_size = 16 >> mip;
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest__dx_read_subresource(device, image, mip, 0, pixels);
+		failed |= !pixels_match(pixels, mip_size * mip_size, expected);
+	}
+	return failed;
+}
+
+//Clears on an immediate queue of the given type, and checks the image is still tracked in the layouts it started in
+static int clear_colour_image(zest_device device, zest_image image, zest_device_queue_type queue_type, zest_clear_value_t clear_value, zest_bool expected) {
+	int layout = zest_ImageRawLayout(image);
+	D3D12_BARRIER_LAYOUT backend_layout = ZEST_DX_BACKEND(image, image)->layout;
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return 1;
+	int failed = zest__dx_queue_type(queue) != queue_type;
+	failed |= zest_imm_ClearColorImage(queue, image, clear_value) != expected;
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	failed |= zest_ImageRawLayout(image) != layout || ZEST_DX_BACKEND(image, image)->layout != backend_layout;
+	return failed;
+}
+
+static zest_image_handle create_integer_target(zest_device device, zest_format format) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = format;
+	image_info.flags = zest_image_flag_color_attachment | zest_image_flag_storage | zest_image_flag_transfer_src | zest_image_flag_device_local;
+	return zest_CreateImage(device, &image_info);
+}
+
+//As on Vulkan, an integer image clears to the colour's bits read as integers, on either path
+static int integer_clear_matches(zest_device device, zest_image image, zest_uint value, zest_bool forced_uav) {
+	zest_clear_value_t clear_value = {};
+	zest_uint bits[4] = { value, value, value, value };
+	memcpy(&clear_value.color, bits, sizeof(bits));
+	zest__dx_forced_uav_clear = forced_uav;
+	int failed = clear_colour_image(device, image, zest_queue_graphics, clear_value, ZEST_TRUE);
+	zest__dx_forced_uav_clear = ZEST_FALSE;
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0xCD, sizeof(pixels));
+	failed |= !zest__dx_read_subresource(device, image, 0, 0, pixels);
+	for (zest_uint index = 0; index != 16 * 16; ++index) failed |= pixels[index] != value;
+	return failed;
+}
+
+//Clears through the render target view, then resets and clears through the UAV, and both must give the same value
+static int integer_paths_match(zest_device device, zest_format format, zest_uint value) {
+	zest_image_handle image_handle = create_integer_target(device, format);
+	if (!image_handle.value) return 1;
+	zest_image image = zest_GetImage(image_handle);
+	D3D12_RESOURCE_FLAGS resource_flags = ZEST_DX_BACKEND(image, image)->resource_flags;
+	int failed = !(resource_flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) || !(resource_flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+	failed |= integer_clear_matches(device, image, value, ZEST_FALSE);
+	failed |= integer_clear_matches(device, image, 0, ZEST_TRUE);
+	failed |= integer_clear_matches(device, image, value, ZEST_TRUE);
+	zest_FreeImageNow(image_handle);
+	return failed;
+}
+
+int test_d3d12_clear_colour_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_uint black_pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) black_pixels[index] = 0xFF000000u;
+	//Mip generation draws into the mips, so the mipmaps preset makes the image a render target
+	zest_image_info_t mipped_info = zest_CreateImageInfo(16, 16);
+	mipped_info.format = zest_format_r8g8b8a8_unorm;
+	mipped_info.flags = zest_image_preset_texture_mipmaps;
+	mipped_info.mip_levels = 3;
+	zest_image_handle mipped_handle = zest_CreateImageWithPixels(device, black_pixels, sizeof(black_pixels), &mipped_info);
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.flags = zest_image_flag_storage | zest_image_flag_transfer_dst | zest_image_flag_transfer_src | zest_image_flag_device_local;
+	storage_info.mip_levels = 3;
+	zest_image_handle storage_handle = zest_CreateImage(device, &storage_info);
+	zest_image_info_t texture_info = zest_CreateImageInfo(16, 16);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture;
+	zest_image_handle texture_handle = zest_CreateImageWithPixels(device, black_pixels, sizeof(black_pixels), &texture_info);
+	int failed = !mipped_handle.value || !storage_handle.value || !texture_handle.value;
+	if (!failed) {
+		zest_image mipped = zest_GetImage(mipped_handle);
+		zest_image storage = zest_GetImage(storage_handle);
+		zest_image texture = zest_GetImage(texture_handle);
+		D3D12_RESOURCE_FLAGS mipped_flags = ZEST_DX_BACKEND(image, mipped)->resource_flags;
+		D3D12_RESOURCE_FLAGS storage_flags = ZEST_DX_BACKEND(image, storage)->resource_flags;
+		failed |= !(mipped_flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) || (mipped_flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+		failed |= !(storage_flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) || !(storage_flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+		failed |= ZEST_DX_BACKEND(image, texture)->resource_flags & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+		failed |= clear_colour_image(device, mipped, zest_queue_graphics, colour_clear_value(0.2f, 0.4f, 0.6f), ZEST_TRUE);
+		failed |= mips_match(device, mipped, blue_expected);
+
+		//The storage image could take either path on the graphics queue, and a compute queue can only clear through a UAV
+		zest__dx_forced_uav_clear = ZEST_TRUE;
+		failed |= clear_colour_image(device, storage, zest_queue_graphics, colour_clear_value(0.6f, 0.4f, 0.2f), ZEST_TRUE);
+		failed |= mips_match(device, storage, orange_expected);
+		failed |= clear_colour_image(device, storage, zest_queue_compute, colour_clear_value(0.2f, 0.4f, 0.6f), ZEST_TRUE);
+		zest__dx_forced_uav_clear = ZEST_FALSE;
+		failed |= mips_match(device, storage, blue_expected);
+
+		//Both values are below 2^24, which a render target view's float colour holds exactly
+		failed |= integer_paths_match(device, zest_format_r32_uint, 0x00ABCDEFu);
+		failed |= integer_paths_match(device, zest_format_r32_sint, (zest_uint)-1234567);
+
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		failed |= clear_colour_image(device, texture, zest_queue_graphics, colour_clear_value(0.2f, 0.4f, 0.6f), ZEST_FALSE);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+		failed |= clear_colour_image(device, mipped, zest_queue_transfer, colour_clear_value(0.6f, 0.4f, 0.2f), ZEST_FALSE);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 2;
+		zest_ResetValidationErrors(device);
+
+		//Neither rejected clear recorded anything
+		const int black_expected[4] = { 0, 0, 0, 255 };
+		failed |= mips_match(device, texture, black_expected);
+		failed |= mips_match(device, mipped, blue_expected);
+	}
+	if (mipped_handle.value) zest_FreeImageNow(mipped_handle);
+	if (storage_handle.value) zest_FreeImageNow(storage_handle);
+	if (texture_handle.value) zest_FreeImageNow(texture_handle);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_clear_depth_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_image_info_t depth_info = zest_CreateImageInfo(16, 16);
+	depth_info.format = zest_format_d32_sfloat;
+	depth_info.flags = zest_image_preset_depth_attachment | zest_image_flag_transfer_src;
+	zest_image_handle depth_handle = zest_CreateImage(device, &depth_info);
+	int failed = !depth_handle.value;
+	if (!failed) {
+		zest_image depth_image = zest_GetImage(depth_handle);
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_ClearDepthStencilImage(queue, depth_image, 0.25f, 0);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		float depths[16 * 16];
+		memset(depths, 0, sizeof(depths));
+		failed |= !zest__dx_read_subresource(device, depth_image, 0, 0, depths);
+		for (zest_uint index = 0; index != 16 * 16; ++index) failed |= depths[index] != 0.25f;
+
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+		failed |= queue == NULL || zest_imm_ClearDepthStencilImage(queue, depth_image, 1.f, 0) != ZEST_FALSE;
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+		zest_ResetValidationErrors(device);
+		memset(depths, 0, sizeof(depths));
+		failed |= !zest__dx_read_subresource(device, depth_image, 0, 0, depths);
+		for (zest_uint index = 0; index != 16 * 16; ++index) failed |= depths[index] != 0.25f;
+	}
+	if (depth_handle.value) zest_FreeImageNow(depth_handle);
+	return failed | finish_device(device);
+}
+
+typedef struct d3d12_image_clear_task_t {
+	zest_bool cleared;
+	zest_device_queue_type queue_type;
+	int run_count;
+} d3d12_image_clear_task_t;
+
+static void d3d12_image_clear_pass(const zest_command_list command_list, void *user_data) {
+	d3d12_image_clear_task_t *task = (d3d12_image_clear_task_t *)user_data;
+	task->run_count++;
+	task->queue_type = ZEST_DX_BACKEND(command_list, command_list)->queue_type;
+	zest_resource_node target = zest_GetPassOutputResource(command_list, "Clear Target");
+	task->cleared = zest_cmd_ImageClear(command_list, zest_GetResourceImage(target));
+}
+
+//A wave that uses one queue type runs on the graphics queue, so a transfer pass beside the compute pass keeps it on the compute queue
+static int run_image_clear_graph(zest_context context, const char *name, zest_image image, zest_bool render_pass, zest_device_queue_type queue_type, zest_bool expected) {
+	if (!zest_BeginCommandGraph(context, name, 0)) return 1;
+	d3d12_image_clear_task_t task = {};
+	zest_resource_node node = zest_ImportImageResource("Clear Target", image, 0);
+	if (render_pass) {
+		zest_BeginRenderPass("Clear Pass");
+	} else {
+		zest_BeginComputePass("Clear Pass");
+	}
+	zest_ConnectOutput(node);
+	zest_SetPassTask(d3d12_image_clear_pass, &task);
+	zest_EndPass();
+	if (queue_type == zest_queue_compute) {
+		zest_BeginTransferPass("Wave Partner");
+		zest_DoNotCull();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+	}
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	return failed | (task.run_count != 1) | (task.queue_type != queue_type) | (task.cleared != expected);
+}
+
+static int image_is_zero(zest_device device, zest_image image) {
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0xCD, sizeof(pixels));
+	int failed = !zest__dx_read_subresource(device, image, 0, 0, pixels);
+	for (zest_uint index = 0; index != 16 * 16; ++index) failed |= pixels[index] != 0;
+	return failed;
+}
+
+int test_d3d12_image_clear_command(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	zest_uint white_pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) white_pixels[index] = 0xFFFFFFFFu;
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.flags = zest_image_preset_storage | zest_image_flag_transfer_src | zest_image_flag_transfer_dst;
+	zest_image_handle storage_handle = zest_CreateImageWithPixels(device, white_pixels, sizeof(white_pixels), &storage_info);
+	zest_image_handle target_handle = create_clear_target(device);
+	failed |= !storage_handle.value || !target_handle.value;
+	if (!failed) {
+		zest_image storage = zest_GetImage(storage_handle);
+		failed |= run_image_clear_graph(context, "Image Clear", storage, ZEST_FALSE, zest_queue_graphics, ZEST_TRUE);
+		failed |= image_is_zero(device, storage);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		failed |= !zest_CopyBitmapToImage(device, white_pixels, sizeof(white_pixels), storage, 16, 16);
+		failed |= run_image_clear_graph(context, "Image Clear Compute", storage, ZEST_FALSE, zest_queue_compute, ZEST_TRUE);
+		failed |= image_is_zero(device, storage);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//D3D12 can't clear inside a render pass
+		failed |= run_image_clear_graph(context, "Image Clear Render Pass", zest_GetImage(target_handle), ZEST_TRUE, zest_queue_graphics, ZEST_FALSE);
+		failed |= zest_GetValidationErrorCount(device) != 1;
+		zest_ResetValidationErrors(device);
+	}
+	if (storage_handle.value) zest_FreeImageNow(storage_handle);
+	if (target_handle.value) zest_FreeImageNow(target_handle);
+	if (context) zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+//zest_CreateImage only makes single sampled images, so this follows its steps with a sample count
+static zest_image_handle create_multisampled_attachment(zest_device device, zest_uint width, zest_uint height, zest_sample_count_flags sample_count) {
+	zest_image_handle handle = zest__new_image(device);
+	zest_image image = zest__get_image_unsafe(handle);
+	image->info = zest_CreateImageInfo(width, height);
+	image->info.format = zest_format_r8g8b8a8_unorm;
+	image->info.flags = zest_image_preset_color_attachment;
+	image->info.sample_count = sample_count;
+	image->info.aspect_flags = zest_image_aspect_color_bit;
+	if (!device->platform->create_image(device, 0, image, 1, sample_count, image->info.flags)) {
+		zest__cleanup_image(image);
+		return ZEST__ZERO_INIT(zest_image_handle);
+	}
+	image->default_view = device->platform->create_image_view(device, image, zest_image_view_type_2d, 1, 0, 0, 1, 0);
+	image->default_view->handle.store = &device->resource_stores[zest_handle_type_views];
+	zest__activate_resource(handle.store, handle.value);
+	return handle;
+}
+
+int test_d3d12_resolve_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_uint black_pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) black_pixels[index] = 0xFF000000u;
+	zest_image_handle multisampled_handle = create_multisampled_attachment(device, 16, 16, zest_sample_count_4_bit);
+	zest_image_info_t resolved_info = zest_CreateImageInfo(16, 16);
+	resolved_info.format = zest_format_r8g8b8a8_unorm;
+	resolved_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle resolved_handle = zest_CreateImageWithPixels(device, black_pixels, sizeof(black_pixels), &resolved_info);
+	zest_image_handle single_handle = zest_CreateImageWithPixels(device, black_pixels, sizeof(black_pixels), &resolved_info);
+	zest_image_info_t fresh_info = zest_CreateImageInfo(16, 16);
+	fresh_info.format = zest_format_r8g8b8a8_unorm;
+	fresh_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	zest_image_handle fresh_handle = zest_CreateImage(device, &fresh_info);
+	int failed = !multisampled_handle.value || !resolved_handle.value || !single_handle.value || !fresh_handle.value;
+	if (!failed) {
+		zest_image multisampled = zest_GetImage(multisampled_handle);
+		zest_image resolved = zest_GetImage(resolved_handle);
+		zest_image single = zest_GetImage(single_handle);
+		failed |= ZEST_DX_BACKEND(image, multisampled)->sample_count != 4;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_ClearColorImage(queue, multisampled, colour_clear_value(0.2f, 0.4f, 0.6f));
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		int multisampled_layout = zest_ImageRawLayout(multisampled);
+		D3D12_BARRIER_LAYOUT multisampled_backend_layout = ZEST_DX_BACKEND(image, multisampled)->layout;
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_ResolveImage(queue, multisampled, resolved);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= mips_match(device, resolved, blue_expected);
+		failed |= zest_ImageRawLayout(multisampled) != multisampled_layout || ZEST_DX_BACKEND(image, multisampled)->layout != multisampled_backend_layout;
+		failed |= zest_ImageRawLayout(resolved) != zest_image_layout_shader_read_only_optimal || ZEST_DX_BACKEND(image, resolved)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+
+		//A never written destination keeps what was resolved into it, and is left where Vulkan's resolve leaves it
+		zest_image fresh = zest_GetImage(fresh_handle);
+		failed |= !(ZEST_DX_BACKEND(image, fresh)->resource_flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) || ZEST_DX_BACKEND(image, fresh)->layout != D3D12_BARRIER_LAYOUT_UNDEFINED;
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_ResolveImage(queue, multisampled, fresh);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_ImageRawLayout(fresh) != zest_image_layout_transfer_dst_optimal || ZEST_DX_BACKEND(image, fresh)->layout != D3D12_BARRIER_LAYOUT_COPY_DEST;
+		failed |= mips_match(device, fresh, blue_expected);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint errors_before = zest_GetValidationErrorCount(device);
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || zest_imm_ResolveImage(queue, single, resolved) != ZEST_FALSE;
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != errors_before + 1;
+		zest_ResetValidationErrors(device);
+		failed |= mips_match(device, resolved, blue_expected);
+	}
+	if (multisampled_handle.value) zest_FreeImageNow(multisampled_handle);
+	if (resolved_handle.value) zest_FreeImageNow(resolved_handle);
+	if (single_handle.value) zest_FreeImageNow(single_handle);
+	if (fresh_handle.value) zest_FreeImageNow(fresh_handle);
+	return failed | finish_device(device);
+}
+
+int test_d3d12_transient_first_use_layout(void) {
+	zest_resource_node_t node = {};
+	zest_dx_image_backend_t backend = {};
+	node.flags = zest_resource_node_flag_transient;
+	node.image.backend = (zest_image_backend)&backend;
+	node.image.info.format = zest_format_r8g8b8a8_unorm;
+	node.image.info.sample_count = 1;
+	node.image.info.flags = zest_image_preset_color_attachment;
+	backend.sample_count = 1;
+	backend.resource_flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	//A cached graph's reused image still tracks the layout its previous execution left it in
+	backend.layout = D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+	zest_dx_frame_graph_image_barrier_t record = {};
+	record.resource = &node;
+	record.old_layout = zest_image_layout_undefined;
+	record.new_layout = zest_image_layout_color_attachment_optimal;
+	record.dst_access = zest_access_color_attachment_write_bit;
+	record.src_stage = zest_pipeline_stage_top_of_pipe_bit;
+	record.dst_stage = zest_pipeline_stage_color_attachment_output_bit;
+	D3D12_BARRIER_LAYOUT layout_before = zest__dx_record_layout_before(&record, &node.image);
+	int failed = layout_before != D3D12_BARRIER_LAYOUT_UNDEFINED;
+	D3D12_TEXTURE_BARRIER barrier = zest__dx_subresource_barrier(&node.image, layout_before, D3D12_BARRIER_LAYOUT_RENDER_TARGET, record.src_access, record.dst_access, record.src_stage, record.dst_stage, 0, 1, 0, 1);
+	failed |= barrier.LayoutBefore != D3D12_BARRIER_LAYOUT_UNDEFINED || !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
+	//An aliased transient's record carries the previous occupant's last write, which UNDEFINED can't be paired with
+	record.src_access = zest_access_color_attachment_write_bit;
+	record.src_stage = zest_pipeline_stage_color_attachment_output_bit;
+	barrier = zest__dx_subresource_barrier(&node.image, zest__dx_record_layout_before(&record, &node.image), D3D12_BARRIER_LAYOUT_RENDER_TARGET, record.src_access, record.dst_access, record.src_stage, record.dst_stage, 0, 1, 0, 1);
+	failed |= barrier.AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || barrier.SyncBefore != D3D12_BARRIER_SYNC_NONE;
+	failed |= barrier.AccessAfter != D3D12_BARRIER_ACCESS_RENDER_TARGET || barrier.SyncAfter != D3D12_BARRIER_SYNC_RENDER_TARGET;
+	failed |= !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
+	//Only the first use starts over, later records follow the tracked layout
+	record.old_layout = zest_image_layout_color_attachment_optimal;
+	failed |= zest__dx_record_layout_before(&record, &node.image) != D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+	//An image that isn't transient keeps its contents, so it starts from its tracked layout
+	record.old_layout = zest_image_layout_undefined;
+	node.flags = zest_resource_node_flag_imported;
+	failed |= zest__dx_record_layout_before(&record, &node.image) != D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+	return failed;
+}
+
+int test_d3d12_arena_backing(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	if (context) {
+		const zest_uint categories[3] = { ZEST_ARENA_CATEGORY_GPU_BUFFERS, ZEST_ARENA_CATEGORY_CPU_BUFFERS, ZEST_ARENA_CATEGORY_IMAGE_BASE + ZEST_DX_HEAP_CATEGORY_TEXTURES };
+		const zest_size backing_size = 1024 * 1024;
+		int allocations_before = device->memory_allocation_count;
+		zest_device_memory_pool backings[3] = {};
+		for (int index = 0; index != 3; ++index) {
+			backings[index] = device->platform->create_arena_backing(device, context, categories[index], backing_size);
+			failed |= backings[index] == NULL || backings[index]->size != backing_size;
+		}
+		failed |= device->memory_allocation_count != allocations_before + 3;
+		failed |= backings[1] == NULL || backings[1]->mapped == NULL;
+		failed |= backings[2] == NULL || ZEST_DX_BACKEND(device_memory_pool, backings[2])->heap == NULL;
+		if (backings[0]) {
+			//A transient buffer is a proxy into the backing, so the buffer helpers reach the backing's buffer at the proxy's offset
+			ID3D12Resource *backing_buffer = ZEST_DX_BACKEND(device_memory_pool, backings[0])->buffer;
+			zest_buffer_t proxy = {};
+			proxy.memory_pool = backings[0];
+			proxy.memory_offset = 256;
+			failed |= backing_buffer == NULL || zest__dx_buffer_resource(&proxy) != backing_buffer;
+			failed |= backing_buffer && zest__dx_buffer_address(&proxy) != backing_buffer->GetGPUVirtualAddress() + 256;
+		}
+		for (int index = 0; index != 3; ++index) {
+			if (backings[index]) device->platform->free_arena_backing(device, context, backings[index]);
+		}
+		failed |= device->memory_allocation_count != allocations_before;
+		zest_DestroyContext(context);
+	}
+	return failed | finish_device(device);
+}
+
+//Clears a colour target, samples it in a pass that clears a depth target and a second colour target, then samples that into a third target, which can take the bytes the first two left
+static zest_frame_graph build_transient_image_graph(zest_context context, zest_frame_graph_cache_key_t *cache_key, zest_bool windowed) {
+	zest_bool began = windowed ? zest_BeginFrameGraph(context, "Transient Images", cache_key) : zest_BeginCommandGraph(context, "Transient Images", cache_key);
+	if (!began) return NULL;
+	if (windowed) {
+		zest_ImportSwapchainResource();
+		zest_BeginRenderPass("Present Pass");
+		zest_ConnectSwapChainOutput();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+	}
+	zest_image_resource_info_t colour_info = { zest_format_r8g8b8a8_unorm };
+	colour_info.width = 64;
+	colour_info.height = 64;
+	zest_image_resource_info_t depth_info = { zest_format_depth };
+	depth_info.width = 64;
+	depth_info.height = 64;
+	zest_resource_node first_target = zest_AddTransientImageResource("First Target", &colour_info);
+	zest_resource_node depth_target = zest_AddTransientImageResource("Depth Target", &depth_info);
+	zest_resource_node second_target = zest_AddTransientImageResource("Second Target", &colour_info);
+	zest_resource_node third_target = zest_AddTransientImageResource("Third Target", &colour_info);
+	zest_FlagResourceAsEssential(depth_target);
+	zest_FlagResourceAsEssential(third_target);
+	zest_SetResourceClearColor(first_target, 0.2f, 0.4f, 0.6f, 1.0f);
+
+	zest_BeginRenderPass("First Pass");
+	zest_ConnectOutput(first_target);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Depth Pass");
+	zest_ConnectInput(first_target);
+	zest_ConnectOutput(second_target);
+	zest_ConnectOutput(depth_target);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Third Pass");
+	zest_ConnectInput(second_target);
+	zest_ConnectOutput(third_target);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+	return zest_EndFrameGraph();
+}
+
+//The third target's first barrier was compiled with the depth target's last write, and must have been sent with none of it
+static int third_target_barrier_is_clean(zest_frame_graph frame_graph) {
+	int found = 0;
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		for (zest_uint index = 0; index != zest_vec_size(backend->acquire_images); ++index) {
+			const zest_dx_frame_graph_image_barrier_t *record = &backend->acquire_images[index];
+			if (strcmp(record->resource->name, "Third Target") != 0) continue;
+			const D3D12_TEXTURE_BARRIER *barrier = &backend->acquire_translated[index];
+			found = ZEST__FLAGGED(record->src_access, zest_access_depth_stencil_attachment_write_bit);
+			found &= barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+			found &= barrier->AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && barrier->SyncBefore == D3D12_BARRIER_SYNC_NONE;
+			found &= (barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD) != 0;
+		}
+	}
+	return found;
+}
+
+//The barrier last sent for the third target's first use, and the image it was sent for
+static const D3D12_TEXTURE_BARRIER *third_target_first_barrier(zest_frame_graph frame_graph, zest_dx_image_backend_t **image_backend) {
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		for (zest_uint index = 0; index != zest_vec_size(backend->acquire_images); ++index) {
+			const zest_dx_frame_graph_image_barrier_t *record = &backend->acquire_images[index];
+			if (strcmp(record->resource->name, "Third Target") != 0 || record->old_layout != zest_image_layout_undefined) continue;
+			*image_backend = ZEST_DX_BACKEND(image, record->resource->view->image);
+			return &backend->acquire_translated[index];
+		}
+	}
+	return NULL;
+}
+
+//Command graphs can't run again from the cache, so frames reuse each slot's images, which still track the layout the slot's last frame left
+static int run_cached_transient_frames(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Transient Images")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		const int frame_count = ZEST_MAX_FIF + 2;
+		zest_dx_image_backend_t *slot_backends[ZEST_MAX_FIF + 2] = {};
+		D3D12_BARRIER_LAYOUT layouts_left[ZEST_MAX_FIF + 2] = {};
+		D3D12_BARRIER_LAYOUT layouts_before[ZEST_MAX_FIF + 2] = {};
+		int cached_count = 0;
+		for (int frame = 0; frame != frame_count && !failed; ++frame) {
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {}
+			zest_UpdateDevice(device);
+			if (!zest_BeginFrame(context)) {
+				failed = 1;
+				break;
+			}
+			zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+			cached_count += frame_graph != NULL;
+			if (!frame_graph) frame_graph = build_transient_image_graph(context, &cache_key, ZEST_TRUE);
+			zest_EndFrame(context, frame_graph);
+			failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+			const D3D12_TEXTURE_BARRIER *barrier = frame_graph ? third_target_first_barrier(frame_graph, &slot_backends[frame]) : NULL;
+			failed |= barrier == NULL;
+			if (barrier) {
+				layouts_before[frame] = barrier->LayoutBefore;
+				layouts_left[frame] = slot_backends[frame]->layout;
+			}
+		}
+		failed |= cached_count != frame_count - 1;
+		for (int frame = ZEST_MAX_FIF; frame != frame_count; ++frame) {
+			//The slot's image was left in a defined layout, and its first use still starts from UNDEFINED
+			failed |= slot_backends[frame] != slot_backends[frame - ZEST_MAX_FIF];
+			failed |= layouts_left[frame - ZEST_MAX_FIF] == D3D12_BARRIER_LAYOUT_UNDEFINED;
+			failed |= layouts_before[frame] != D3D12_BARRIER_LAYOUT_UNDEFINED;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+int test_d3d12_transient_images(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	if (context) {
+		zest_frame_graph frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE);
+		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint cache_state = 1;
+		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, &cache_state, sizeof(cache_state));
+		frame_graph = build_transient_image_graph(context, &cache_key, ZEST_FALSE);
+		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= zest_GetCachedFrameGraph(context, &cache_key) != frame_graph;
+		failed |= frame_graph == NULL || !third_target_barrier_is_clean(frame_graph);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	failed |= finish_device(device);
+	return failed | run_cached_transient_frames();
+}
+
+typedef struct d3d12_stride_capture_t {
+	zest_size offset;
+	zest_size stride_remainder;
+	zest_size view_remainder;
+	zest_size size;
+	int run_count;
+} d3d12_stride_capture_t;
+
+static void d3d12_stride_capture_pass(const zest_command_list command_list, void *user_data) {
+	d3d12_stride_capture_t *capture = (d3d12_stride_capture_t *)user_data;
+	zest_buffer buffer = zest_GetPassOutputResource(command_list, "Stride Buffer")->storage_buffer;
+	capture->run_count++;
+	if (!buffer) return;
+	capture->offset = buffer->memory_offset;
+	capture->stride_remainder = buffer->memory_offset % 76;
+	capture->view_remainder = buffer->memory_offset % 16;
+	capture->size = buffer->size;
+}
+
+//The leading buffer takes the start of the arena, so the stride buffer's raw offset is one that needs padding
+int test_d3d12_transient_buffer_stride(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Transient Buffer Stride")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		d3d12_stride_capture_t capture = {};
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {}
+		zest_UpdateDevice(device);
+		failed |= !zest_BeginFrame(context);
+		if (!failed) {
+			zest_frame_graph frame_graph = NULL;
+			if (zest_BeginFrameGraph(context, "Transient Buffer Stride", 0)) {
+				zest_ImportSwapchainResource();
+				zest_buffer_resource_info_t leading_info = {};
+				leading_info.size = 100;
+				zest_buffer_resource_info_t stride_info = {};
+				stride_info.size = 760;
+				stride_info.element_alignment = 76;
+				zest_resource_node leading_buffer = zest_AddTransientBufferResource("Leading Buffer", &leading_info);
+				zest_resource_node stride_buffer = zest_AddTransientBufferResource("Stride Buffer", &stride_info);
+				zest_FlagResourceAsEssential(leading_buffer);
+				zest_FlagResourceAsEssential(stride_buffer);
+				zest_BeginRenderPass("Stride Pass");
+				zest_ConnectSwapChainOutput();
+				zest_ConnectOutput(leading_buffer);
+				zest_ConnectOutput(stride_buffer);
+				zest_SetPassTask(d3d12_stride_capture_pass, &capture);
+				zest_EndPass();
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(context, frame_graph);
+			failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+		}
+		failed |= capture.run_count != 1 || capture.offset == 0 || capture.size < 760;
+		failed |= capture.stride_remainder != 0 || capture.view_remainder != 0;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+#define D3D12_CONCURRENT_THREAD_COUNT 4
+#define D3D12_CONCURRENT_ITERATIONS 200
+//More than a CPU descriptor block, so the heap grows while other threads allocate
+#define D3D12_CONCURRENT_HELD_HANDLES 1100
+#define D3D12_HANDLE_TABLE_SIZE 16384
+#define D3D12_CHUNK_COUNT (ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT / ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK)
+
+//Every handle seen gets a slot for good, and a slot's owner is the thread holding that handle, or 0
+struct D3D12ConcurrentShared {
+	volatile LONG64 handle_keys[D3D12_HANDLE_TABLE_SIZE];
+	volatile LONG handle_owners[D3D12_HANDLE_TABLE_SIZE];
+	volatile LONG chunk_owners[D3D12_CHUNK_COUNT];
+	volatile LONG duplicates;
+	volatile LONG failures;
+	zest_device device;
+	zest_dx_cpu_descriptor_heap_t *heap;
+	HANDLE start_event;
+};
+
+struct D3D12ConcurrentWorker {
+	D3D12ConcurrentShared *shared;
+	LONG owner;
+	D3D12_CPU_DESCRIPTOR_HANDLE handles[D3D12_CONCURRENT_HELD_HANDLES];
+};
+
+static volatile LONG *handle_owner_slot(D3D12ConcurrentShared *shared, SIZE_T handle) {
+	zest_uint slot = (zest_uint)(((zest_u64)handle * 0x9E3779B97F4A7C15ull) >> 50);
+	for (zest_uint probe = 0; probe != D3D12_HANDLE_TABLE_SIZE; ++probe) {
+		LONG64 key = InterlockedCompareExchange64(&shared->handle_keys[slot], (LONG64)handle, 0);
+		if (key == 0 || key == (LONG64)handle) return &shared->handle_owners[slot];
+		slot = (slot + 1) & (D3D12_HANDLE_TABLE_SIZE - 1);
+	}
+	return NULL;
+}
+
+static void claim_owner(D3D12ConcurrentShared *shared, volatile LONG *owner_slot, LONG owner) {
+	if (!owner_slot) {
+		InterlockedIncrement(&shared->failures);
+	} else if (InterlockedCompareExchange(owner_slot, owner, 0) != 0) {
+		InterlockedIncrement(&shared->duplicates);
+	}
+}
+
+static DWORD WINAPI concurrent_descriptor_worker(void *parameter) {
+	D3D12ConcurrentWorker *worker = (D3D12ConcurrentWorker *)parameter;
+	D3D12ConcurrentShared *shared = worker->shared;
+	zest_dx_transient_descriptors_t descriptors = {};
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu = {};
+	D3D12_GPU_DESCRIPTOR_HANDLE gpu = {};
+	WaitForSingleObject(shared->start_event, INFINITE);
+	for (int iteration = 0; iteration != D3D12_CONCURRENT_ITERATIONS; ++iteration) {
+		for (int index = 0; index != D3D12_CONCURRENT_HELD_HANDLES; ++index) {
+			worker->handles[index] = zest__dx_allocate_cpu_descriptor(shared->device, shared->heap);
+			claim_owner(shared, worker->handles[index].ptr ? handle_owner_slot(shared, worker->handles[index].ptr) : NULL, worker->owner);
+		}
+		for (int slot = 0; slot != 2 * ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK; ++slot) {
+			if (!zest__dx_allocate_transient_descriptor(shared->device, &descriptors, &cpu, &gpu)) InterlockedIncrement(&shared->failures);
+		}
+		zest_vec_foreach(chunk_index, descriptors.chunks) {
+			zest_uint chunk = descriptors.chunks[chunk_index];
+			claim_owner(shared, chunk < D3D12_CHUNK_COUNT ? &shared->chunk_owners[chunk] : NULL, worker->owner);
+		}
+		zest_vec_foreach(chunk_index, descriptors.chunks) {
+			zest_uint chunk = descriptors.chunks[chunk_index];
+			if (chunk < D3D12_CHUNK_COUNT) InterlockedCompareExchange(&shared->chunk_owners[chunk], 0, worker->owner);
+		}
+		zest__dx_release_transient_descriptors(shared->device, &descriptors);
+		for (int index = 0; index != D3D12_CONCURRENT_HELD_HANDLES; ++index) {
+			if (!worker->handles[index].ptr) continue;
+			volatile LONG *owner_slot = handle_owner_slot(shared, worker->handles[index].ptr);
+			if (owner_slot) InterlockedCompareExchange(owner_slot, 0, worker->owner);
+			zest__dx_free_cpu_descriptor(shared->device, shared->heap, worker->handles[index]);
+		}
+	}
+	return 0;
+}
+
+static zest_uint live_cpu_descriptors(const zest_dx_cpu_descriptor_heap_t *heap) {
+	zest_uint block_count = zest_vec_size(heap->blocks);
+	if (!block_count) return 0;
+	return (block_count - 1) * ZEST_DX_CPU_DESCRIPTOR_BLOCK_SIZE + heap->next_in_block - zest_vec_size(heap->free_handles);
+}
+
+//Threads that grow and share one CPU descriptor heap and the transient chunk free list never get the same handle or chunk while it's live
+int test_d3d12_concurrent_descriptor_allocation(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_dx_descriptor_pool_backend_t *pool = ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool;
+	D3D12ConcurrentShared *shared = (D3D12ConcurrentShared *)calloc(1, sizeof(D3D12ConcurrentShared));
+	D3D12ConcurrentWorker *workers = (D3D12ConcurrentWorker *)calloc(D3D12_CONCURRENT_THREAD_COUNT, sizeof(D3D12ConcurrentWorker));
+	int failed = shared == NULL || workers == NULL;
+	if (!failed) {
+		shared->device = device;
+		shared->heap = &ZEST_DX_BACKEND(device, device)->cpu_rtv_heap;
+		shared->start_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+		zest_uint blocks_before = zest_vec_size(shared->heap->blocks);
+		zest_uint live_before = live_cpu_descriptors(shared->heap);
+		zest_uint free_chunks_before = zest_vec_size(pool->free_transient_chunks);
+		HANDLE threads[D3D12_CONCURRENT_THREAD_COUNT] = {};
+		DWORD thread_count = 0;
+		failed |= shared->start_event == NULL;
+		for (int index = 0; index != D3D12_CONCURRENT_THREAD_COUNT && !failed; ++index) {
+			workers[index].shared = shared;
+			workers[index].owner = index + 1;
+			threads[thread_count] = CreateThread(NULL, 0, concurrent_descriptor_worker, &workers[index], 0, NULL);
+			failed |= threads[thread_count] == NULL;
+			thread_count += threads[thread_count] != NULL;
+		}
+		if (shared->start_event) SetEvent(shared->start_event);
+		if (thread_count) WaitForMultipleObjects(thread_count, threads, TRUE, INFINITE);
+		for (DWORD index = 0; index != thread_count; ++index) CloseHandle(threads[index]);
+		if (shared->start_event) CloseHandle(shared->start_event);
+		failed |= shared->duplicates != 0 || shared->failures != 0;
+		failed |= zest_vec_size(shared->heap->blocks) <= blocks_before;
+		failed |= live_cpu_descriptors(shared->heap) != live_before;
+		failed |= zest_vec_size(pool->free_transient_chunks) != free_chunks_before;
+		//Every owner is back to 0, so a free list entry that's there twice can't claim its slot the second time
+		zest_vec_foreach(index, shared->heap->free_handles) {
+			claim_owner(shared, handle_owner_slot(shared, shared->heap->free_handles[index].ptr), 1);
+		}
+		zest_vec_foreach(index, pool->free_transient_chunks) {
+			zest_uint chunk = pool->free_transient_chunks[index];
+			claim_owner(shared, chunk < D3D12_CHUNK_COUNT ? &shared->chunk_owners[chunk] : NULL, 1);
+		}
+		failed |= shared->duplicates != 0 || shared->failures != 0;
+	}
+	free(workers);
+	free(shared);
+	return failed | finish_device(device);
+}
+
 static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Builder", test_d3d12_builder },
 	{ "D3D12 Interface IDs", test_d3d12_interface_ids },
@@ -905,6 +3267,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 WARP Device", test_d3d12_warp_device },
 	{ "D3D12 Image Round Trip", test_d3d12_image_round_trip },
 	{ "D3D12 Allocation Baseline", test_d3d12_allocation_baseline },
+	{ "D3D12 Stride Aligned Allocation", test_d3d12_stride_aligned_allocation },
 	{ "D3D12 Failed Creation", test_d3d12_failed_creation },
 	{ "D3D12 Unsupported Format", test_d3d12_unsupported_format },
 	{ "D3D12 Sampler Ceiling Clamp", test_d3d12_sampler_ceiling_clamp },
@@ -916,6 +3279,8 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Unavailable Immediate Commands", test_d3d12_unavailable_immediate_commands },
 	{ "D3D12 Pool Failure Rejected", test_d3d12_pool_failure_rejected },
 	{ "D3D12 SRV Description", test_d3d12_srv_description },
+	{ "D3D12 Image Barrier Builder", test_d3d12_image_barrier_builder },
+	{ "D3D12 Attachment Views", test_d3d12_attachment_views },
 	{ "D3D12 Depth Deny SRV", test_d3d12_depth_deny_srv },
 	{ "D3D12 Format Support", test_d3d12_format_support },
 	{ "D3D12 3D Upload Slice Pitch", test_d3d12_3d_upload_slice_pitch },
@@ -925,6 +3290,44 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Feature Level Fallback", test_d3d12_feature_level_fallback },
 	{ "D3D12 Validation Without Debug Layer", test_d3d12_validation_without_debug_layer },
 	{ "D3D12 Recovers From Failed Signal", test_d3d12_recovers_from_failed_signal },
+	{ "D3D12 SDL Helpers", test_d3d12_sdl_helpers },
+	{ "D3D12 Device Reset", test_d3d12_device_reset },
+	{ "D3D12 Failed Reset Teardown", test_d3d12_failed_reset_teardown },
+	{ "D3D12 Render Pass Access", test_d3d12_render_pass_access },
+	{ "D3D12 Viewport Flip", test_d3d12_viewport_flip },
+	{ "D3D12 Empty Command Graph", test_d3d12_empty_command_graph },
+	{ "D3D12 Render Pass Clear", test_d3d12_render_pass_clear },
+	{ "D3D12 Failed Batch Signal Drains", test_d3d12_failed_batch_signal_drains },
+	{ "D3D12 Swapchain Formats", test_d3d12_swapchain_formats },
+	{ "D3D12 Present Parameters", test_d3d12_present_parameters },
+	{ "D3D12 Windowed Frames", test_d3d12_windowed_frames },
+	{ "D3D12 DXGI Messages Counted", test_d3d12_dxgi_messages_counted },
+	{ "D3D12 Per Mip Views", test_d3d12_per_mip_views },
+	{ "D3D12 HLSL Compile", test_d3d12_hlsl_compile },
+	{ "D3D12 HLSL Compile Error", test_d3d12_hlsl_compile_error },
+	{ "D3D12 DXC Missing", test_d3d12_dxc_missing },
+	{ "D3D12 Viewport Orientation", test_d3d12_viewport_orientation },
+	{ "D3D12 Buffer Copies", test_d3d12_buffer_copies },
+	{ "D3D12 Buffer Descriptors", test_d3d12_buffer_descriptors },
+	{ "D3D12 Frame Graph Buffer Copies", test_d3d12_frame_graph_buffer_copies },
+	{ "D3D12 Image Resource Flags", test_d3d12_image_resource_flags },
+	{ "D3D12 Discard Follows Resource Flags", test_d3d12_discard_follows_resource_flags },
+	{ "D3D12 Transient Descriptor Chunks", test_d3d12_transient_descriptor_chunks },
+	{ "D3D12 Generate Mipmaps", test_d3d12_generate_mipmaps },
+	{ "D3D12 Reset After Blit", test_d3d12_reset_after_blit },
+	{ "D3D12 Blit Image", test_d3d12_blit_image },
+	{ "D3D12 Image Mip Commands", test_d3d12_image_mip_commands },
+	{ "D3D12 Clear Colour Image", test_d3d12_clear_colour_image },
+	{ "D3D12 Clear Depth Image", test_d3d12_clear_depth_image },
+	{ "D3D12 Image Clear Command", test_d3d12_image_clear_command },
+	{ "D3D12 Resolve Image", test_d3d12_resolve_image },
+	{ "D3D12 Transient First Use Layout", test_d3d12_transient_first_use_layout },
+	{ "D3D12 Arena Backing", test_d3d12_arena_backing },
+	{ "D3D12 Transient Images", test_d3d12_transient_images },
+	{ "D3D12 Transient Buffer Stride", test_d3d12_transient_buffer_stride },
+	{ "D3D12 Concurrent Descriptor Allocation", test_d3d12_concurrent_descriptor_allocation },
+	//Must stay last, see the test
+	{ "D3D12 Device Removed Mid Frame", test_d3d12_device_removed_mid_frame },
 };
 
 int RunD3D12Suite(int *total_out) {

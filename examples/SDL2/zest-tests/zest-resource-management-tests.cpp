@@ -2604,6 +2604,13 @@ int test__image_allocator_memory_type_keying(ZestTests *tests, Test *test) {
 	info_a.backend_memory_bits = 0xFFFFFFFFu;
 	zest_buffer_info_t info_b = info_a;
 	info_b.backend_memory_bits = 0x7FFFFFFFu;
+#ifdef ZEST_ENABLE_D3D12
+	//D3D12 keys image pools by heap category rather than a memory type mask
+	if (tests->platform == zest_platform_d3d12) {
+		info_a.backend_memory_bits = ZEST_DX_HEAP_CATEGORY_TEXTURES;
+		info_b.backend_memory_bits = ZEST_DX_HEAP_CATEGORY_TARGETS;
+	}
+#endif
 
 	zest_buffer a1 = zest_CreateBuffer(tests->device, 4096, &info_a);
 	zest_buffer a2 = zest_CreateBuffer(tests->device, 4096, &info_a);
@@ -2664,6 +2671,9 @@ int test__large_readback_buffer(ZestTests *tests, Test *test) {
 	unregistered.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	unregistered.alignment = 4096;
 	unregistered.backend_memory_bits = 0xFFFFFFFFu;
+#ifdef ZEST_ENABLE_D3D12
+	if (tests->platform == zest_platform_d3d12) unregistered.backend_memory_bits = ZEST_DX_HEAP_CATEGORY_TEXTURES;
+#endif
 	zest_buffer fallback = zest_CreateBuffer(tests->device, zloc__KILOBYTE(256), &unregistered);
 	if (!fallback) {
 		failed_count++;
@@ -2808,6 +2818,353 @@ int test__buffer_grow_contract(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+#define STRIDE_CASE_COUNT 5
+#define STRIDE_ELEMENT_COUNT 37
+#define STRIDE_LOCAL_SIZE 64
+
+//912 is the least common multiple of 48 and 76
+static const zest_size stride_cases[STRIDE_CASE_COUNT] = { 48, 76, 96, 112, 912 };
+static const char *stride_transient_names[STRIDE_CASE_COUNT] = { "Stride 48", "Stride 76", "Stride 96", "Stride 112", "Stride 912" };
+
+struct StrideCheckPush {
+	zest_uint buffer_index;
+	zest_uint result_index;
+	zest_uint word_count;
+	zest_uint seed;
+	zest_uint mode;
+};
+
+struct StrideCheckCounts {
+	zest_uint checked;
+	zest_uint mismatches;
+};
+
+struct StrideCheckState;
+
+struct StrideTransientPass {
+	StrideCheckState *state;
+	zest_uint case_index;
+};
+
+struct StrideCheckState {
+	zest_compute_handle compute;
+	zest_uint result_index;
+	zest_uint buffer_index;
+	zest_uint word_count;
+	zest_uint seed;
+	StrideTransientPass transient_passes[STRIDE_CASE_COUNT];
+	zest_size transient_remainders[STRIDE_CASE_COUNT];
+};
+
+static zest_uint stride_word_count(zest_size stride) {
+	return (zest_uint)(stride * STRIDE_ELEMENT_COUNT / sizeof(zest_uint));
+}
+
+static zest_uint stride_seed(zest_size stride) {
+	return (zest_uint)stride * 1000u + 7u;
+}
+
+static void stride_write_pattern(zest_buffer buffer, zest_uint word_count, zest_uint seed) {
+	zest_uint *words = (zest_uint *)zest_BufferData(buffer);
+	for (zest_uint index = 0; index != word_count; ++index) {
+		words[index] = seed + index;
+	}
+}
+
+static zest_bool stride_pattern_intact(zest_buffer buffer, zest_uint word_count, zest_uint seed) {
+	zest_uint *words = (zest_uint *)zest_BufferData(buffer);
+	for (zest_uint index = 0; index != word_count; ++index) {
+		if (words[index] != seed + index) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static void stride_sum_pool_usage(zest_context context, zest_size *used, zest_uint *used_blocks) {
+	zest_buffer_pool_usage_t usages[64];
+	zest_uint count = zest_GetBufferPoolUsages(context, usages, 64);
+	count = count < 64 ? count : 64;
+	*used = 0;
+	*used_blocks = 0;
+	for (zest_uint index = 0; index != count; ++index) {
+		*used += usages[index].used;
+		*used_blocks += usages[index].used_blocks;
+	}
+}
+
+//zloc's split and merge callbacks rely on every block's raw range starting where the previous one ends
+static zest_bool stride_raw_blocks_contiguous(zest_buffer_allocator buffer_allocator) {
+	zest_vec_foreach(pool_index, buffer_allocator->range_pools) {
+		zloc_header *block = (zloc_header *)zloc__first_block_in_pool((zloc_pool *)buffer_allocator->range_pools[pool_index]);
+		zest_device_memory_pool memory_pool = 0;
+		zest_size expected_offset = 0;
+		while (!zloc__is_last_block_in_pool(block)) {
+			zest_buffer remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(block);
+			zest_size padding = zloc__is_free_block(block) ? 0 : remote_block->allocation_padding;
+			if (remote_block->memory_offset - padding != expected_offset) return ZEST_FALSE;
+			expected_offset += remote_block->size + padding;
+			memory_pool = remote_block->memory_pool;
+			block = zloc__next_physical_block(block);
+		}
+		if (memory_pool && expected_offset != memory_pool->size) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static void stride_check_pool_buffer_task(const zest_command_list command_list, void *user_data) {
+	StrideCheckState *state = (StrideCheckState *)user_data;
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->compute));
+	StrideCheckPush push = { state->buffer_index, state->result_index, state->word_count, state->seed, 1 };
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(StrideCheckPush));
+	zest_cmd_DispatchCompute(command_list, (state->word_count + STRIDE_LOCAL_SIZE - 1) / STRIDE_LOCAL_SIZE, 1, 1);
+}
+
+//Counts the pattern mismatches of a pool buffer on the GPU, read through the buffer's own storage descriptor
+static zest_bool stride_check_pool_buffer(ZestTests *tests, StrideCheckState *state, zest_buffer result_buffer, zest_buffer buffer, zest_uint word_count, zest_uint seed) {
+	StrideCheckCounts *counts = (StrideCheckCounts *)zest_BufferData(result_buffer);
+	counts->checked = 0;
+	counts->mismatches = 0;
+	state->buffer_index = zest_AcquireStorageBufferIndex(tests->device, buffer);
+	state->word_count = word_count;
+	state->seed = seed;
+	zest_bool passed = ZEST_FALSE;
+	if (zest_BeginCommandGraph(tests->context, "Stride Check", 0)) {
+		zest_resource_node result = zest_ImportBufferResource("Stride Result", result_buffer, 0);
+		zest_BeginComputePass("Stride Verify");
+		zest_ConnectOutput(result);
+		zest_SetPassTask(stride_check_pool_buffer_task, state);
+		zest_EndPass();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
+		passed = status == zest_semaphore_status_success && zest_GetFrameGraphResult(frame_graph) == 0 && counts->checked == word_count && counts->mismatches == 0;
+	}
+	zest_ReleaseStorageBufferIndex(tests->device, state->buffer_index);
+	return passed;
+}
+
+static void stride_transient_write_task(const zest_command_list command_list, void *user_data) {
+	StrideTransientPass *pass = (StrideTransientPass *)user_data;
+	StrideCheckState *state = pass->state;
+	zest_size stride = stride_cases[pass->case_index];
+	zest_resource_node buffer = zest_GetPassOutputResource(command_list, stride_transient_names[pass->case_index]);
+	state->transient_remainders[pass->case_index] = buffer->storage_buffer->memory_offset % stride;
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->compute));
+	StrideCheckPush push = { zest_GetTransientBufferBindlessIndex(command_list, buffer), 0, stride_word_count(stride), stride_seed(stride), 0 };
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(StrideCheckPush));
+	zest_cmd_DispatchCompute(command_list, (push.word_count + STRIDE_LOCAL_SIZE - 1) / STRIDE_LOCAL_SIZE, 1, 1);
+}
+
+static void stride_transient_verify_task(const zest_command_list command_list, void *user_data) {
+	StrideCheckState *state = (StrideCheckState *)user_data;
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->compute));
+	for (zest_uint case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+		zest_size stride = stride_cases[case_index];
+		zest_resource_node buffer = zest_GetPassInputResource(command_list, stride_transient_names[case_index]);
+		StrideCheckPush push = { zest_GetTransientBufferBindlessIndex(command_list, buffer), state->result_index, stride_word_count(stride), stride_seed(stride), 1 };
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(StrideCheckPush));
+		zest_cmd_DispatchCompute(command_list, (push.word_count + STRIDE_LOCAL_SIZE - 1) / STRIDE_LOCAL_SIZE, 1, 1);
+	}
+}
+
+//A buffer's data offset must be a multiple of its structured stride and of the storage offset alignment
+int test__stride_aligned_buffers(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_device device = tests->device;
+	zest_size granularity = device->buffer_offset_granularity;
+	zest_size storage_alignment = device->min_storage_buffer_offset_alignment;
+	if (!storage_alignment) failed_count++;
+
+	StrideCheckState state = {};
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, "examples/SDL2/zest-tests/shaders/stride_check.comp", "stride_check.spv", zest_compute_shader, NULL, 1);
+	state.compute = zest_CreateCompute(device, "Stride Check", shader);
+	if (!zest_IsValidHandle((void *)&state.compute)) {
+		test->frame_count++;
+		test->result = 1;
+		return test->result;
+	}
+	zest_buffer_info_t host_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_cpu_to_gpu);
+	zest_buffer result_buffer = zest_CreateBuffer(device, sizeof(StrideCheckCounts), &host_info);
+	if (!result_buffer) {
+		test->frame_count++;
+		test->result = 1;
+		return test->result;
+	}
+	state.result_index = zest_AcquireStorageBufferIndex(device, result_buffer);
+
+	//Phase 1: without an element alignment nothing is padded and the granularity invariant holds
+	zest_buffer baseline = zest_CreateBuffer(device, 4100, &host_info);
+	if (!baseline) {
+		failed_count++;
+	} else {
+		if (baseline->allocation_padding != 0) failed_count++;
+		if (baseline->element_alignment != 0) failed_count++;
+		if (baseline->memory_offset % granularity) failed_count++;
+		if (baseline->size % granularity) failed_count++;
+		if (baseline->size < 4100) failed_count++;
+		stride_write_pattern(baseline, 4100 / sizeof(zest_uint), 11);
+		if (!stride_check_pool_buffer(tests, &state, result_buffer, baseline, 4100 / sizeof(zest_uint), 11)) failed_count++;
+	}
+
+	zest_size used_before = 0;
+	zest_uint used_blocks_before = 0;
+	stride_sum_pool_usage(tests->context, &used_before, &used_blocks_before);
+
+	//Phase 2: a blocker in front of each buffer moves its raw offset off the stride
+	zest_buffer blockers[STRIDE_CASE_COUNT] = {};
+	zest_buffer pool_buffers[STRIDE_CASE_COUNT] = {};
+	int padded_count = 0;
+	for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+		zest_size stride = stride_cases[case_index];
+		blockers[case_index] = zest_CreateBuffer(device, 300, &host_info);
+		zest_buffer_info_t stride_info = host_info;
+		stride_info.element_alignment = stride;
+		zest_buffer buffer = zest_CreateBuffer(device, stride * STRIDE_ELEMENT_COUNT, &stride_info);
+		pool_buffers[case_index] = buffer;
+		if (!blockers[case_index] || !buffer) {
+			failed_count++;
+			continue;
+		}
+		if (buffer->memory_offset % stride) failed_count++;
+		if (buffer->memory_offset % storage_alignment) failed_count++;
+		if (buffer->size < stride * STRIDE_ELEMENT_COUNT) failed_count++;
+		if (buffer->element_alignment != stride) failed_count++;
+		if (buffer->allocation_padding) padded_count++;
+		stride_write_pattern(buffer, stride_word_count(stride), stride_seed(stride));
+		if (!stride_check_pool_buffer(tests, &state, result_buffer, buffer, stride_word_count(stride), stride_seed(stride))) failed_count++;
+	}
+	if (!padded_count) failed_count++;
+
+	//Phase 3: a padded host visible buffer that relocates keeps its data and its alignment
+	zest_buffer_info_t moving_info = host_info;
+	moving_info.element_alignment = 76;
+	zest_buffer moving = zest_CreateBuffer(device, 76 * STRIDE_ELEMENT_COUNT, &moving_info);
+	zest_buffer moving_blocker = zest_CreateBuffer(device, 300, &host_info);
+	if (!moving || !moving_blocker) {
+		failed_count++;
+	} else {
+		stride_write_pattern(moving, stride_word_count(76), stride_seed(76));
+		zest_buffer moving_before = moving;
+		zest_size moving_size = moving->size;
+		zest_size moving_padding = moving->allocation_padding;
+		if (!zest_ResizeBuffer(&moving, moving_size * 4)) failed_count++;
+		if (moving == moving_before) failed_count++;
+		//76 has a factor of 19 that the raw offset change lacks, so the padding changes and the data has to move
+		if (moving->allocation_padding == moving_padding) failed_count++;
+		if (moving->size < moving_size * 4) failed_count++;
+		if (moving->memory_offset % 76) failed_count++;
+		if (moving->memory_offset % storage_alignment) failed_count++;
+		if (moving->element_alignment != 76) failed_count++;
+		if (!stride_pattern_intact(moving, stride_word_count(76), stride_seed(76))) failed_count++;
+		if (!stride_check_pool_buffer(tests, &state, result_buffer, moving, stride_word_count(76), stride_seed(76))) failed_count++;
+	}
+
+	//A buffer with a free block after it grows in place
+	zest_buffer_info_t growing_info = host_info;
+	growing_info.element_alignment = 112;
+	zest_buffer growing = zest_CreateBuffer(device, 112 * STRIDE_ELEMENT_COUNT, &growing_info);
+	if (!growing) {
+		failed_count++;
+	} else {
+		zloc_header *growing_block = zloc__block_from_allocation((char *)growing - zloc__MINIMUM_BLOCK_SIZE);
+		if (!zloc__next_block_is_free(growing_block)) failed_count++;
+		stride_write_pattern(growing, stride_word_count(112), stride_seed(112));
+		zest_buffer growing_before = growing;
+		zest_size growing_offset = growing->memory_offset;
+		zest_size growing_size = growing->size;
+		if (!zest_ResizeBuffer(&growing, growing_size * 2)) failed_count++;
+		if (growing != growing_before) failed_count++;
+		if (growing->memory_offset != growing_offset) failed_count++;
+		if (growing->size < growing_size * 2) failed_count++;
+		if (!stride_pattern_intact(growing, stride_word_count(112), stride_seed(112))) failed_count++;
+		if (!stride_check_pool_buffer(tests, &state, result_buffer, growing, stride_word_count(112), stride_seed(112))) failed_count++;
+	}
+
+	//Phase 4: freeing hands the raw blocks back, so the pools return to where they started
+	for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+		zest_FreeBufferNow(pool_buffers[case_index]);
+		zest_FreeBufferNow(blockers[case_index]);
+	}
+	zest_FreeBufferNow(moving);
+	zest_FreeBufferNow(moving_blocker);
+	zest_FreeBufferNow(growing);
+	zest_size used_after = 0;
+	zest_uint used_blocks_after = 0;
+	stride_sum_pool_usage(tests->context, &used_after, &used_blocks_after);
+	if (used_after != used_before) failed_count++;
+	if (used_blocks_after != used_blocks_before) failed_count++;
+	if (!stride_raw_blocks_contiguous(result_buffer->memory_pool->allocator)) failed_count++;
+
+	//Phase 5: a device local grow relocates to a fresh block that is padded again
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	device_info.element_alignment = 48;
+	zest_buffer device_buffer = zest_CreateBuffer(device, 48 * STRIDE_ELEMENT_COUNT, &device_info);
+	if (!device_buffer) {
+		failed_count++;
+	} else {
+		zest_size device_size = device_buffer->size;
+		if (!zest_ResizeBuffer(&device_buffer, device_size * 4)) failed_count++;
+		if (device_buffer->size < device_size * 4) failed_count++;
+		if (device_buffer->memory_offset % 48) failed_count++;
+		if (device_buffer->memory_offset % storage_alignment) failed_count++;
+		if (device_buffer->element_alignment != 48) failed_count++;
+		zest_FreeBuffer(device_buffer);
+	}
+
+	//Phase 6: transient buffers are padded inside their arena placement
+	StrideCheckCounts *counts = (StrideCheckCounts *)zest_BufferData(result_buffer);
+	counts->checked = 0;
+	counts->mismatches = 0;
+	zest_uint expected_checked = 0;
+	for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+		state.transient_passes[case_index].state = &state;
+		state.transient_passes[case_index].case_index = case_index;
+		state.transient_remainders[case_index] = ZEST_INVALID;
+		expected_checked += stride_word_count(stride_cases[case_index]);
+	}
+	if (zest_BeginCommandGraph(tests->context, "Stride Transients", 0)) {
+		zest_resource_node transient_buffers[STRIDE_CASE_COUNT];
+		for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+			zest_buffer_resource_info_t info = {};
+			info.size = stride_cases[case_index] * STRIDE_ELEMENT_COUNT;
+			info.element_alignment = stride_cases[case_index];
+			transient_buffers[case_index] = zest_AddTransientBufferResource(stride_transient_names[case_index], &info);
+		}
+		zest_resource_node result = zest_ImportBufferResource("Stride Result", result_buffer, 0);
+		for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+			zest_BeginComputePass(stride_transient_names[case_index]);
+			zest_ConnectOutput(transient_buffers[case_index]);
+			zest_SetPassTask(stride_transient_write_task, &state.transient_passes[case_index]);
+			zest_EndPass();
+		}
+		zest_BeginComputePass("Stride Transient Verify");
+		for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+			zest_ConnectInput(transient_buffers[case_index]);
+		}
+		zest_ConnectOutput(result);
+		zest_SetPassTask(stride_transient_verify_task, &state);
+		zest_EndPass();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
+		if (status != zest_semaphore_status_success) failed_count++;
+		if (zest_GetFrameGraphResult(frame_graph) != 0) failed_count++;
+	} else {
+		failed_count++;
+	}
+	for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
+		if (state.transient_remainders[case_index] != 0) failed_count++;
+	}
+	if (counts->checked != expected_checked) failed_count++;
+	if (counts->mismatches != 0) failed_count++;
+
+	zest_FreeBufferNow(baseline);
+	zest_ReleaseStorageBufferIndex(device, state.result_index);
+	zest_FreeBufferNow(result_buffer);
+
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(device);
+	test->frame_count++;
+	return test->result;
+}
 //Non-transient images used to each get a dedicated vkAllocateMemory, so many small images could
 //exhaust maxMemoryAllocationCount (commonly 4096). They now sub-allocate from shared image pools
 //by default; only large images (>= the configurable dedicated_image_memory_threshold, default
@@ -2818,8 +3175,8 @@ int test__pooled_image_allocations(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 	zest_device device = tests->device;
 
-	//The backend limit must have been captured at device init
-	if (device->max_memory_allocation_count == 0) failed_count++;
+	//The backend limit must have been captured at device init (D3D12 has no allocation count limit and reports 0)
+	if (tests->platform != zest_platform_d3d12 && device->max_memory_allocation_count == 0) failed_count++;
 
 	int baseline = device->memory_allocation_count;
 	if (baseline <= 0) failed_count++;    //Pools/arenas created so far must have been counted

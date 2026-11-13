@@ -49,6 +49,7 @@ struct StressResources {
 };
 
 struct ZestTests {
+	zest_platform_type platform;
 	zest_device device;
 	zest_context context;
 	zest_window_data_t window_data;	//kept so the context can be recreated after zest_ResetDevice
@@ -82,7 +83,7 @@ void RegisterTest(ZestTests *tests, Test test);
 void ResetTests(ZestTests *tests);
 int RunTests(ZestTests *tests, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass);
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);
-int RunSuite(zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
+int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
 
 int test__blank_screen(ZestTests *tests, Test *test);
 int test__shader_cache_invalidation(ZestTests *tests, Test *test);

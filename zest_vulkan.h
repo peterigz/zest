@@ -2192,6 +2192,7 @@ zest_bool zest__vk_pick_physical_device(zest_device device) {
     vkGetPhysicalDeviceFeatures(device->backend->physical_device, &device->backend->features);
     // Store commonly needed limits in platform-agnostic device struct
     device->min_uniform_buffer_offset_alignment = device->backend->properties.limits.minUniformBufferOffsetAlignment;
+    device->min_storage_buffer_offset_alignment = device->backend->properties.limits.minStorageBufferOffsetAlignment;
     device->max_uniform_buffer_size = device->backend->properties.limits.maxUniformBufferRange;
     device->max_storage_buffer_size = device->backend->properties.limits.maxStorageBufferRange;
     //Buffer suballocation offset granularity: every buffer allocation size is rounded up to this

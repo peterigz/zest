@@ -505,6 +505,110 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return test->result;
 }
+
+//Clip positions (-1,-1), (1,-1) and (-1,1): top-left, top-right, bottom-left in framebuffer space, so clockwise
+static const char *winding_vertex_source =
+	"#version 450\n"
+	"void main() {\n"
+	"	vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+	"	gl_Position = vec4(corner - 1.0, 0.0, 1.0);\n"
+	"}\n";
+static const char *winding_fragment_source =
+	"#version 450\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() { out_colour = vec4(1.0, 0.0, 0.0, 1.0); }\n";
+
+struct WindingCoverage {
+	zest_uint red_count;
+	zest_uint red_inside_count;		//Red pixels with x + y < 15
+	zest_uint other_count;			//Pixels neither red nor opaque black
+};
+
+//Classifies a 16x16 r8g8b8a8 readback against the triangle, which covers exactly the pixels with x + y < 15
+static WindingCoverage winding_coverage(const zest_uint *pixels) {
+	WindingCoverage coverage = {};
+	for (zest_uint y = 0; y != 16; ++y) {
+		for (zest_uint x = 0; x != 16; ++x) {
+			const unsigned char *channels = (const unsigned char *)&pixels[y * 16 + x];
+			if (channels[0] == 255 && channels[1] == 0 && channels[2] == 0 && channels[3] == 255) {
+				coverage.red_count++;
+				if (x + y < 15) coverage.red_inside_count++;
+			} else if (channels[0] != 0 || channels[1] != 0 || channels[2] != 0 || channels[3] != 255) {
+				coverage.other_count++;
+			}
+		}
+	}
+	return coverage;
+}
+
+static zest_bool winding_covers_triangle(WindingCoverage coverage) {
+	return coverage.red_count == 120 && coverage.red_inside_count == 120 && coverage.other_count == 0;
+}
+
+static zest_bool winding_covers_nothing(WindingCoverage coverage) {
+	return coverage.red_count == 0 && coverage.other_count == 0;
+}
+
+static void winding_draw_task(const zest_command_list command_list, void *user_data) {
+	zest_pipeline_template pipeline_template = (zest_pipeline_template)user_data;
+	zest_viewport_t viewport = zest_CreateViewport(0.f, 0.f, 16.f, 16.f, 0.f, 1.f);
+	zest_scissor_rect_t scissor = zest_CreateRect2D(16, 16, 0, 0);
+	zest_cmd_ViewPort(command_list, &viewport);
+	zest_cmd_Scissor(command_list, &scissor);
+	zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static int draw_winding_triangle(ZestTests *tests, zest_image image, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader, zest_front_face front_face, const char *name, WindingCoverage *coverage) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(tests->device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, fragment_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	zest_SetPipelineCullMode(pipeline_template, zest_cull_mode_back);
+	zest_SetPipelineFrontFace(pipeline_template, front_face);
+	if (!zest_BeginCommandGraph(tests->context, "Winding Coverage", 0)) return 1;
+	zest_resource_node target = zest_ImportImageResource("Winding Target", image, 0);
+	zest_SetResourceClearColor(target, 0.f, 0.f, 0.f, 1.f);
+	zest_BeginRenderPass("Winding Draw");
+	zest_ConnectOutput(target);
+	zest_SetPassTask(winding_draw_task, pipeline_template);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0, sizeof(pixels));
+	failed |= !zest_CopyImageToBitmap(tests->device, image, pixels);
+	*coverage = winding_coverage(pixels);
+	ZEST_PRINT("\t%s: %u red pixels, %u of them inside x + y < 15, %u neither red nor black", name, coverage->red_count, coverage->red_inside_count, coverage->other_count);
+	return failed;
+}
+
+//With back faces culled, only the clockwise front face keeps the framebuffer-space clockwise triangle
+int test__pipeline_winding_coverage(ZestTests *tests, Test *test) {
+	zest_shader_handle vertex_shader = zest_CreateShader(tests->device, winding_vertex_source, zest_vertex_shader, "winding_coverage_vert", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(tests->device, winding_fragment_source, zest_fragment_shader, "winding_coverage_frag", NULL, ZEST_TRUE);
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	zest_image_handle image_handle = zest_CreateImage(tests->device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL;
+	if (!failed) {
+		WindingCoverage clockwise = {};
+		WindingCoverage counter_clockwise = {};
+		failed |= draw_winding_triangle(tests, image, vertex_shader, fragment_shader, zest_front_face_clockwise, "Winding Clockwise", &clockwise);
+		failed |= draw_winding_triangle(tests, image, vertex_shader, fragment_shader, zest_front_face_counter_clockwise, "Winding Counter Clockwise", &counter_clockwise);
+		failed |= !winding_covers_triangle(clockwise) || !winding_covers_nothing(counter_clockwise);
+		zest_FreeImageNow(image_handle);
+	}
+	test->result = failed;
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
 //Helper for the shader cache test: does a file exist on disk?
 static bool cache_file_exists(const char *path) {
 	FILE *file = fopen(path, "rb");

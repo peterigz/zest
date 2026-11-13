@@ -1,0 +1,36 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint buffer_index;
+    uint result_index;
+    uint word_count;
+    uint seed;
+    uint mode;
+} pc;
+
+layout(std430, set = 0, binding = 5) buffer WordBuffer {
+    uint words[];
+} word_buffers[];
+
+layout(std430, set = 0, binding = 5) buffer ResultBuffer {
+    uint checked;
+    uint mismatches;
+} result_buffers[];
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= pc.word_count) {
+        return;
+    }
+    if (pc.mode == 0) {
+        word_buffers[pc.buffer_index].words[index] = pc.seed + index;
+    } else {
+        atomicAdd(result_buffers[pc.result_index].checked, 1);
+        if (word_buffers[pc.buffer_index].words[index] != pc.seed + index) {
+            atomicAdd(result_buffers[pc.result_index].mismatches, 1);
+        }
+    }
+}

@@ -16,10 +16,20 @@ if(NOT DEFINED ZEST_D3D12_AGILITY_SHA512 AND ZEST_D3D12_AGILITY_VERSION STREQUAL
     set(ZEST_D3D12_AGILITY_SHA512 "cee32540e7ffb7d29165974e2daf9bc067ff225fa201f58abd4bd841a3d6a5b6a90e98dddedc27b256168927bfb3b49a7a7963fd8e26cf136a25dbffb27e3f25")
 endif()
 
+if(NOT DEFINED ZEST_D3D12_DXC_VERSION)
+    set(ZEST_D3D12_DXC_VERSION "1.9.2609.5" CACHE STRING "Microsoft.Direct3D.DXC NuGet package version")
+endif()
+# SHA512 of the .nupkg in hex, as for the Agility SDK above
+if(NOT DEFINED ZEST_D3D12_DXC_SHA512 AND ZEST_D3D12_DXC_VERSION STREQUAL "1.9.2609.5")
+    set(ZEST_D3D12_DXC_SHA512 "815ffc1bed44393a6e88368805ee77b01ef9940048719ad75aa50602f352360eaa5bcbbe90ff4254ce6703431b52474ff0de4289453f0443d345747600beabe3")
+endif()
+
 set(ZEST_D3D12_ENABLED FALSE)
 set(ZEST_D3D12_SDK_VERSION "")
 set(ZEST_D3D12_INCLUDE_DIR "")
 set(ZEST_D3D12_RUNTIME_FILES "")
+set(ZEST_D3D12_DXC_RUNTIME_FILES "")
+set(ZEST_D3D12_DXC_INCLUDE_DIR "")
 
 if(ZEST_ENABLE_D3D12)
     if(NOT WIN32)
@@ -103,12 +113,64 @@ if(ZEST_ENABLE_D3D12)
         "${_zest_d3d12_bin_dir}/D3D12Core.dll"
         "${_zest_d3d12_bin_dir}/d3d12SDKLayers.dll"
     )
+
+    # DXC names its x86 folder x86, where the Agility SDK says win32
+    if(_zest_d3d12_architecture STREQUAL "win32")
+        set(_zest_d3d12_dxc_architecture "x86")
+    else()
+        set(_zest_d3d12_dxc_architecture "${_zest_d3d12_architecture}")
+    endif()
+    set(_zest_d3d12_dxc_package_dir "${CMAKE_BINARY_DIR}/_deps/dxc-${ZEST_D3D12_DXC_VERSION}")
+    set(_zest_d3d12_dxc_bin_dir "${_zest_d3d12_dxc_package_dir}/build/native/bin/${_zest_d3d12_dxc_architecture}")
+
+    if(NOT EXISTS "${_zest_d3d12_dxc_package_dir}/Microsoft.Direct3D.DXC.nuspec")
+        if(NOT ZEST_D3D12_DXC_SHA512)
+            message(FATAL_ERROR "Set ZEST_D3D12_DXC_SHA512 to the SHA512 of the DXC ${ZEST_D3D12_DXC_VERSION} package, as hex. nuget.org publishes it base64 encoded, as packageHash in the version's catalog entry, so decode it to hex first.")
+        endif()
+        set(_zest_d3d12_dxc_package_file "${CMAKE_BINARY_DIR}/_deps/dxc-${ZEST_D3D12_DXC_VERSION}.nupkg")
+        message(STATUS "Downloading DXC ${ZEST_D3D12_DXC_VERSION}")
+        file(DOWNLOAD
+            "https://www.nuget.org/api/v2/package/Microsoft.Direct3D.DXC/${ZEST_D3D12_DXC_VERSION}"
+            "${_zest_d3d12_dxc_package_file}"
+            STATUS _zest_d3d12_dxc_download_status
+            TLS_VERIFY ON
+            EXPECTED_HASH SHA512=${ZEST_D3D12_DXC_SHA512}
+        )
+        list(GET _zest_d3d12_dxc_download_status 0 _zest_d3d12_dxc_download_code)
+        if(NOT _zest_d3d12_dxc_download_code EQUAL 0)
+            file(REMOVE "${_zest_d3d12_dxc_package_file}")
+            message(FATAL_ERROR "Couldn't download DXC ${ZEST_D3D12_DXC_VERSION}: ${_zest_d3d12_dxc_download_status}")
+        endif()
+        file(MAKE_DIRECTORY "${_zest_d3d12_dxc_package_dir}")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -E tar xf "${_zest_d3d12_dxc_package_file}"
+            WORKING_DIRECTORY "${_zest_d3d12_dxc_package_dir}"
+            RESULT_VARIABLE _zest_d3d12_dxc_extract_result
+        )
+        if(NOT _zest_d3d12_dxc_extract_result EQUAL 0)
+            message(FATAL_ERROR "Couldn't extract ${_zest_d3d12_dxc_package_file}: ${_zest_d3d12_dxc_extract_result}")
+        endif()
+    endif()
+
+    if(NOT IS_DIRECTORY "${_zest_d3d12_dxc_bin_dir}")
+        message(FATAL_ERROR "The DXC ${ZEST_D3D12_DXC_VERSION} package has no ${_zest_d3d12_dxc_architecture} runtime for the target '${_zest_d3d12_target}': ${_zest_d3d12_dxc_bin_dir} doesn't exist.")
+    endif()
+    foreach(_zest_d3d12_dxc_file dxcompiler.dll dxil.dll)
+        if(NOT EXISTS "${_zest_d3d12_dxc_bin_dir}/${_zest_d3d12_dxc_file}")
+            message(FATAL_ERROR "The DXC package doesn't contain ${_zest_d3d12_dxc_bin_dir}/${_zest_d3d12_dxc_file}")
+        endif()
+    endforeach()
+    set(ZEST_D3D12_DXC_INCLUDE_DIR "${_zest_d3d12_dxc_package_dir}/build/native/include")
+    set(ZEST_D3D12_DXC_RUNTIME_FILES
+        "${_zest_d3d12_dxc_bin_dir}/dxcompiler.dll"
+        "${_zest_d3d12_dxc_bin_dir}/dxil.dll"
+    )
     set(ZEST_D3D12_ENABLED TRUE)
     message(STATUS "D3D12 support enabled: Agility SDK ${ZEST_D3D12_AGILITY_VERSION}, SDK version ${ZEST_D3D12_SDK_VERSION}, ${_zest_d3d12_architecture} runtime")
 endif()
 
 if(NOT _zest_d3d12_included)
-    # Copy the Agility runtime into D3D12/ next to a target after it builds
+    # Copy the Agility runtime into D3D12/ and the DXC libraries beside the target after it builds
     function(zest_copy_d3d12_runtime TARGET_NAME)
         if(NOT ZEST_D3D12_ENABLED)
             return()
@@ -116,6 +178,7 @@ if(NOT _zest_d3d12_included)
         add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${TARGET_NAME}>/D3D12"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ZEST_D3D12_RUNTIME_FILES} "$<TARGET_FILE_DIR:${TARGET_NAME}>/D3D12"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${ZEST_D3D12_DXC_RUNTIME_FILES} "$<TARGET_FILE_DIR:${TARGET_NAME}>"
             VERBATIM
         )
     endfunction()

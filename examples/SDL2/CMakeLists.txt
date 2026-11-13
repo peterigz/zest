@@ -203,6 +203,7 @@ target_compile_definitions(zstd-decompress PRIVATE ZSTD_DISABLE_ASM)
 
 set(EXAMPLES
 	zest-minimal-template
+	zest-clear-screen
 	zest-image-swizzle
 	zest-imgui-template
 	zest-tests
@@ -238,6 +239,10 @@ foreach(SLANG_EXAMPLE ${SLANG_EXAMPLES})
 endforeach()
 zest_copy_slang_runtime(zest-tests)
 zest_copy_d3d12_runtime(zest-tests)
+if(ZEST_D3D12_ENABLED)
+	target_include_directories(zest-tests PRIVATE ${ZEST_D3D12_DXC_INCLUDE_DIR})
+endif()
+zest_copy_d3d12_runtime(zest-clear-screen)
 
 # Compiles zest.h as C11 so C regressions fail the build. Never linked.
 add_library(zest-c-compile-check OBJECT zest-tests/zest-c-compile-check.c)

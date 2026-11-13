@@ -681,9 +681,60 @@ int test__acquire_release_resources(ZestTests *tests, Test *test) {
 }
 
 int test__device_platform_query(ZestTests *tests, Test *test) {
-	test->result = zest_GetDevicePlatform(tests->device) == zest_platform_vulkan ? 0 : 1;
+	test->result = zest_GetDevicePlatform(tests->device) == tests->platform ? 0 : 1;
 	test->frame_count++;
 	return 0;
+}
+
+//Reads the flag after every frame, because the next zest_BeginFrame clears it
+static zest_bool run_frames_until_swapchain_recreated(ZestTests *tests) {
+	for (int frame = 0; frame != 10; ++frame) {
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {}
+		zest_UpdateDevice(tests->device);
+		if (zest_BeginFrame(tests->context)) {
+			zest_frame_graph frame_graph = NULL;
+			if (zest_BeginFrameGraph(tests->context, "Swapchain Resize", 0)) {
+				zest_ImportSwapchainResource();
+				zest_BeginRenderPass("Clear Swapchain");
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, 0);
+				zest_EndPass();
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+		}
+		if (zest_SwapchainWasRecreated(tests->context)) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+static int resize_window_and_check_swapchain(ZestTests *tests, int width, int height) {
+	zest_window_data_t *window_data = &tests->context->window_data;
+	SDL_SetWindowSize((SDL_Window *)window_data->window_handle, width, height);
+	int failed = !run_frames_until_swapchain_recreated(tests);
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	window_data->window_sizes_callback(window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	zest_extent2d_t extent = zest_GetSwapChainExtent(tests->context);
+	failed |= extent.width != (zest_uint)framebuffer_width || extent.height != (zest_uint)framebuffer_height;
+	return failed;
+}
+
+int test__swapchain_resize(ZestTests *tests, Test *test) {
+	zest_window_data_t *window_data = &tests->context->window_data;
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	window_data->window_sizes_callback(window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	int phase_failed = resize_window_and_check_swapchain(tests, 640, 400);
+	PrintTestUpdate(test, 1, !phase_failed);
+	test->result |= phase_failed;
+	phase_failed = resize_window_and_check_swapchain(tests, window_width, window_height);
+	zest_extent2d_t extent = zest_GetSwapChainExtent(tests->context);
+	phase_failed |= extent.width != (zest_uint)framebuffer_width || extent.height != (zest_uint)framebuffer_height;
+	PrintTestUpdate(test, 2, !phase_failed);
+	test->result |= phase_failed;
+	test->result |= zest_GetValidationErrorCount(tests->device) != 0;
+	test->frame_count++;
+	return test->result;
 }
 
 //Fails the way a backend does when the API rejects the pool: it frees the pool's backend and leaves the pool to the caller

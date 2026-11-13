@@ -3803,6 +3803,8 @@ typedef struct zest_buffer_info_t {
 	//images with incompatible memory requirements never share a memory pool. Leave 0 for plain
 	//buffers (the backend derives the requirements itself).
 	zest_uint backend_memory_bits;
+	//Structured buffer stride the data offset must be a multiple of, any integer. 0 for none.
+	zest_size element_alignment;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {
@@ -4353,6 +4355,7 @@ typedef struct zest_image_resource_info_t {
 typedef struct zest_buffer_resource_info_t {
 	zest_resource_usage_hint usage_hints;
 	zest_size size;
+	zest_size element_alignment;		//Structured buffer stride the data offset must be a multiple of, 0 for none
 } zest_buffer_resource_info_t;
 
 typedef struct zest_attachment_usage_t {
@@ -4891,6 +4894,9 @@ ZEST_PRIVATE zest_bool zest__add_gpu_memory_pool(zest_buffer_allocator allocator
 ZEST_PRIVATE zest_device_memory zest__create_device_memory(zest_device device, zest_size size, zest_buffer_info_t *buffer_info, zest_uint backend_memory_bits);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size);
+ZEST_PRIVATE zest_size zest__element_padding_target(zest_device device, zest_size element_alignment);
+ZEST_PRIVATE void zest__pad_buffer(zest_buffer buffer, zest_size padding_target);
+ZEST_PRIVATE void zest__unpad_buffer(zest_buffer buffer);
 ZEST_PRIVATE zest_bool zest__grow_buffer_geometric(zest_buffer *buffer, zest_size unit_size);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 //End Buffer Management
@@ -5124,6 +5130,9 @@ ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, 
 //Device creation builder. Each backend has its own begin function (defined by its platform header).
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags);
 ZEST_API zest_device_builder zest_BeginD3D12DeviceBuilder(zest_device_init_flags flags);
+//The SDL2 helper matches zest_implsdl2_CreateVulkanDevice's parameters so apps can switch by name, and ignores window_data
+ZEST_API zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zest_device_init_flags flags);
+ZEST_API zest_device zest_implglfw_CreateD3D12Device(zest_device_init_flags flags);
 //Add a required Vulkan instance extension, e.g. the surface extensions reported by
 //glfwGetRequiredInstanceExtensions or SDL_Vulkan_GetInstanceExtensions. Vulkan only: other
 //backends have no instance extensions and ignore this list, so calling this is a no-op there.
@@ -7230,6 +7239,7 @@ typedef struct zest_device_t {
 	zest_uint max_image_size;
 	zest_uint max_multiview_view_count;
 	zest_size min_uniform_buffer_offset_alignment;
+	zest_size min_storage_buffer_offset_alignment;
 	zest_size buffer_offset_granularity;
 	zest_size max_uniform_buffer_size;
 	zest_size max_storage_buffer_size;
@@ -7783,6 +7793,8 @@ typedef struct zest_buffer_t {
 	zest_size memory_offset;				//Offset from the start of the memory pool on the GPU
 	zest_device_memory_pool memory_pool;	//Pointer to the memory pool where this allocation belongs
 	zest_buffer_usage_flags usage_flags;	//Usage flags of the buffer so that frame graphs can create appropriate barriers
+	zest_size element_alignment;			//Stride the data offset is aligned to, 0 for none
+	zest_size allocation_padding;			//Bytes between the raw block start and memory_offset
 } zest_buffer_t;
 
 //Transient arena categories. Buffers and images never share an arena (D3D12 tier 1 heap rules and
@@ -9828,7 +9840,16 @@ void zest_ResetDevice(zest_device device) {
 	//instance and validation layers, so the driver releases all the host memory it retains per
 	//created object until vkDestroyDevice - otherwise that retention grows on every reset without
 	//bound.
-	device->platform->reinit_logical_device(device);
+	if (!device->platform->reinit_logical_device(device)) {
+		//The layout objects were freed above, and zest_DestroyDevice needs them NULL and the stores initialised
+		device->pipeline_layout = NULL;
+		device->bindless_set_layout = NULL;
+		device->bindless_set = NULL;
+		zest__initialise_device_stores(device);
+		ZEST_ALERT("zest_ResetDevice couldn't recreate the logical device, so the device is unusable. Destroy it with zest_DestroyDevice.");
+		ZEST_ASSERT(0, "zest_ResetDevice couldn't recreate the logical device.");
+		return;
+	}
 
 	zest__initialise_device_stores(device);
 
@@ -10819,6 +10840,40 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
     return count;
 }
 
+//The data offset has to satisfy the stride and the storage descriptor offset alignment at once
+zest_size zest__element_padding_target(zest_device device, zest_size element_alignment) {
+	if (!element_alignment) {
+		return 0;
+	}
+	zest_size storage_alignment = ZEST__MAX(device->min_storage_buffer_offset_alignment, (zest_size)1);
+	zest_size greatest_common_divisor = element_alignment;
+	zest_size remainder = storage_alignment;
+	while (remainder) {
+		zest_size next_remainder = greatest_common_divisor % remainder;
+		greatest_common_divisor = remainder;
+		remainder = next_remainder;
+	}
+	return element_alignment / greatest_common_divisor * storage_alignment;
+}
+
+//Turns the raw block range into the data range. zloc only ever sees the raw range (see zest__unpad_buffer).
+void zest__pad_buffer(zest_buffer buffer, zest_size padding_target) {
+	if (!padding_target) {
+		buffer->allocation_padding = 0;
+		return;
+	}
+	zest_size padding = zloc__align_size_up(buffer->memory_offset, padding_target) - buffer->memory_offset;
+	buffer->allocation_padding = padding;
+	buffer->memory_offset += padding;
+	buffer->size -= padding;
+}
+
+void zest__unpad_buffer(zest_buffer buffer) {
+	buffer->memory_offset -= buffer->allocation_padding;
+	buffer->size += buffer->allocation_padding;
+	buffer->allocation_padding = 0;
+}
+
 zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_info_t* buffer_info) {
 	ZEST_ASSERT_OR_VALIDATE((buffer_info->property_flags & zest_memory_property_device_local_bit) ||
 							(buffer_info->property_flags & (zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit)) ||
@@ -10851,6 +10906,11 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     usage_key.frame_in_flight = buffer_info->frame_in_flight;
     usage_key.backend_memory_bits = buffer_info->backend_memory_bits;
     zest_key key = zest_map_hash_ptr(&usage_key, sizeof(zest_buffer_allocator_key_t));
+	zest_size padding_target = zest__element_padding_target(device, buffer_info->element_alignment);
+	if (padding_target) {
+		//Room to move the data offset up to the next multiple of the padding target
+		size += padding_target - 1;
+	}
     if (!zest_map_valid_key((*buffer_allocators), key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(device, NULL, buffer_info, key, &usage, size, buffer_info->backend_memory_bits, ZEST_TRUE);
@@ -10894,6 +10954,8 @@ zest_buffer zest_CreateBuffer(zest_device device, zest_size size, zest_buffer_in
     }
 
 	buffer->usage_flags = buffer_info->buffer_usage_flags;
+	buffer->element_alignment = buffer_info->element_alignment;
+	zest__pad_buffer(buffer, padding_target);
     return buffer;
 }
 
@@ -10949,6 +11011,9 @@ zest_buffer zest_CreateDedicatedBuffer(zest_device device, zest_size size, zest_
 	device->dedicated_buffer_count++;
 	device->dedicated_buffer_total_size += pool_size;
 	buffer->usage_flags = buffer_info->buffer_usage_flags;
+	//The single block sits at offset 0, which is a multiple of any stride
+	buffer->element_alignment = buffer_info->element_alignment;
+	buffer->allocation_padding = 0;
 	return buffer;
 }
 
@@ -11195,6 +11260,15 @@ void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size si
 //next allocation reuse memory the GPU is still reading). Device local contents are not preserved.
 zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
     zest_buffer_allocator_t *buffer_allocator = (*buffer)->memory_pool->allocator;
+	zest_size element_alignment = (*buffer)->element_alignment;
+	//Dedicated buffers sit at offset 0 so they never need room to pad
+	zest_size padding_target = buffer_allocator->is_dedicated ? 0 : zest__element_padding_target(buffer_allocator->device, element_alignment);
+	if (padding_target) {
+		if (new_size <= (*buffer)->size) {
+			return ZEST_TRUE;
+		}
+		new_size += padding_target - 1;
+	}
 	new_size = zloc__align_size_up(new_size, buffer_allocator->offset_granularity);
     if (new_size <= (*buffer)->size) {
         //The rounded request is already satisfied by the current block
@@ -11216,17 +11290,28 @@ zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
 				new_buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, new_size);
 				ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory? this needs to be much cleaner!
 			}
+			zest__pad_buffer(new_buffer, padding_target);
 			zest_FreeBuffer(*buffer);
 		} else {
+			zest_size data_size = (*buffer)->size;
+			zest_size previous_padding = (*buffer)->allocation_padding;
+			zest__unpad_buffer(*buffer);
 			new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 			if (!new_buffer) {
 				//Create a new memory pool and try again
 				zest_device_memory_pool buffer_pool = 0;
 				if (zest__add_gpu_memory_pool(buffer_allocator, new_size, &buffer_pool) != ZEST_TRUE) {
+					zest__pad_buffer(*buffer, padding_target);
 					return ZEST_FALSE;
 				}
 				new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 				ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory? this needs to be much cleaner!
+			}
+			zest__pad_buffer(new_buffer, padding_target);
+			if (new_buffer->allocation_padding != previous_padding) {
+				//A relocation copied the raw block, so the data still sits at the old padding
+				char *block_start = (char *)new_buffer->memory_pool->mapped + new_buffer->memory_offset - new_buffer->allocation_padding;
+				memmove(block_start + new_buffer->allocation_padding, block_start + previous_padding, data_size);
 			}
 		}
 	} else {
@@ -11242,6 +11327,7 @@ zest_bool zest__reallocate_buffer(zest_buffer *buffer, zest_size new_size) {
 		zest_FreeBuffer(*buffer);
 	}
     new_buffer->usage_flags = usage_flags;
+	new_buffer->element_alignment = element_alignment;
     *buffer = new_buffer;
     return ZEST_TRUE;
 }
@@ -11353,6 +11439,7 @@ void zest_FreeBufferNow(zest_buffer buffer) {
 		zest__destroy_buffer_allocator(buffer_allocator);
 		return;
 	}
+	zest__unpad_buffer(buffer);
     zloc_FreeRemote(buffer_allocator->allocator, buffer);
 }
 
@@ -13625,7 +13712,7 @@ void zest__fill_buffer_pool_usage(zest_buffer_allocator buffer_allocator, zest_b
 		while (!zloc__is_last_block_in_pool(current_block)) {
 			if (!zloc__is_free_block(current_block)) {
 				zest_buffer buffer = (zest_buffer)zloc_BlockUserExtensionPtr(current_block);
-				usage->used += buffer->size;
+				usage->used += buffer->size + buffer->allocation_padding;
 				usage->used_blocks++;
 			}
 			current_block = zloc__next_physical_block(current_block);
@@ -14657,7 +14744,10 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 			}
 			if (resource->storage_buffer) continue;   //A provider supplied an external buffer this execution
 			if (!resource->buffer_desc.size) continue;
-			entry->size = (resource->buffer_desc.size + entry->alignment - 1) & ~(entry->alignment - 1);
+			//Padding room stays out of entry->alignment, as the packing masks below only handle powers of two
+			zest_size padding_target = zest__element_padding_target(device, resource->buffer_desc.buffer_info.element_alignment);
+			zest_size padding_room = padding_target ? padding_target - 1 : 0;
+			entry->size = (resource->buffer_desc.size + padding_room + entry->alignment - 1) & ~(entry->alignment - 1);
 			entry->placed = ZEST_TRUE;
 		} else {
 			zest_image image = &resource->image;
@@ -14836,6 +14926,8 @@ zest_bool zest__place_transient_resources(zest_context context, zest_frame_graph
 			entry->buffer_proxy.memory_offset = entry->offset;
 			entry->buffer_proxy.memory_pool = backing;
 			entry->buffer_proxy.usage_flags = resource->buffer_desc.buffer_info.buffer_usage_flags;
+			entry->buffer_proxy.element_alignment = resource->buffer_desc.buffer_info.element_alignment;
+			zest__pad_buffer(&entry->buffer_proxy, zest__element_padding_target(device, entry->buffer_proxy.element_alignment));
 			resource->storage_buffer = &entry->buffer_proxy;
 			#ifdef ZEST_DEBUGGING
 			resource->buffer_identifier = (void *)&entry->buffer_proxy;
@@ -18423,6 +18515,7 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     }
     node.frame_graph = frame_graph;
 	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_transient;
+	node.buffer_desc.buffer_info.element_alignment = info->element_alignment;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.producer_pass_idx = -1;
@@ -18816,6 +18909,10 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     if (!resource->view_array) {
         resource->view_array = device->platform->create_image_views_per_mip(context->device, &resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
+		if (!resource->view_array) {
+			ZEST_REPORT(context->device, zest_report_invalid_resource, "Unable to create the per mip image views for resource [%s].", resource->name);
+			return NULL;
+		}
 		resource->view_array->handle.store = &context->device->resource_stores[zest_handle_type_view_arrays];
     }
 	zest_descriptor_type descriptor_type = binding_number == zest_storage_image_binding ? zest_descriptor_type_storage_image : zest_descriptor_type_sampled_image;
@@ -20314,6 +20411,11 @@ zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_device device, zes
     zest_image_view_array *view = (zest_image_view_array*)zest__get_store_resource_unsafe(view_store, view_handle.value);
     zest_image_view_type view_type = zest__get_image_view_type(image);
     *view = device->platform->create_image_views_per_mip(device, image, view_type, 0, image->info.layer_count, 0);
+	if (!*view) {
+		ZEST_APPEND_LOG(device->log_path.str, "Unable to create the per mip image views.");
+		zest__remove_store_resource(view_store, view_handle.value);
+		return ZEST__ZERO_INIT(zest_image_view_array_handle);
+	}
     (*view)->magic = zest_INIT_MAGIC(zest_struct_type_view_array);
     (*view)->handle = view_handle;
 	zest__activate_resource(view_handle.store, view_handle.value);
@@ -22924,6 +23026,18 @@ void zest_implglfw_DestroyWindow(zest_context context) {
 	glfwDestroyWindow(handle);
 }
 
+#ifdef ZEST_D3D12_IMPLEMENTATION
+zest_device zest_implglfw_CreateD3D12Device(zest_device_init_flags flags) {
+	if (!glfwInit()) {
+		return 0;
+	}
+
+	zest_device_builder device_builder = zest_BeginD3D12DeviceBuilder(flags);
+	zest_SetDeviceBuilderMemoryPoolSize(device_builder, zloc__MEGABYTE(32));
+	return zest_EndDeviceBuilder(device_builder);
+}
+#endif
+
 #endif // GLFW_VERSION_MAJOR
 // --- End GLFW Utilities ----------------------------------------------------
 
@@ -22953,12 +23067,18 @@ zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, ze
 	return device;
 }
 
+#ifdef ZEST_D3D12_IMPLEMENTATION
+zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zest_device_init_flags flags) {
+	(void)window_data;
+	zest_device_builder device_builder = zest_BeginD3D12DeviceBuilder(flags);
+	return zest_EndDeviceBuilder(device_builder);
+}
+#endif
+
 zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char *title) {
     Uint32 flags = 0;
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
     flags = SDL_WINDOW_VULKAN;
-#elif defined(ZEST_IMPLEMENT_DX12)
-    // flags = SDL_WINDOW_DX12; // Placeholder for DX12
 #elif defined(ZEST_IMPLEMENT_METAL)
     // flags = SDL_WINDOW_METAL; // Placeholder for Metal
 #endif
@@ -22970,6 +23090,13 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
     flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
 
     SDL_Window *window_handle = SDL_CreateWindow(title, x, y, width, height, flags);
+#if defined(ZEST_VULKAN_IMPLEMENTATION)
+    //Without a Vulkan loader SDL can't create a window with the Vulkan flag
+    if (!window_handle) {
+        window_handle = SDL_CreateWindow(title, x, y, width, height, flags & ~SDL_WINDOW_VULKAN);
+    }
+#endif
+    ZEST_ASSERT(window_handle);    //SDL could not create the window
 
     zest_window_data_t window_data = { 0 };
     window_data.width = width;
@@ -23011,14 +23138,20 @@ zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int heigh
 }
 
 void zest_implsdl2_GetWindowSizeCallback(zest_window_data_t *window_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
+	SDL_Window *window = (SDL_Window*)window_data->window_handle;
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
-	SDL_Vulkan_GetDrawableSize((SDL_Window*)window_data->window_handle, fb_width, fb_height);
-#elif defined(ZEST_IMPLEMENT_DX12)
-    // DX12 equivalent
-#elif defined(ZEST_IMPLEMENT_METAL)
-    // Metal equivalent
+	if (SDL_GetWindowFlags(window) & SDL_WINDOW_VULKAN) {
+		SDL_Vulkan_GetDrawableSize(window, fb_width, fb_height);
+	} else
 #endif
-	SDL_GetWindowSize((SDL_Window*)window_data->window_handle, window_width, window_height);
+	{
+#if SDL_VERSION_ATLEAST(2, 26, 0)
+		SDL_GetWindowSizeInPixels(window, fb_width, fb_height);
+#else
+		SDL_GetWindowSize(window, fb_width, fb_height);
+#endif
+	}
+	SDL_GetWindowSize(window, window_width, window_height);
 	//On macOS, SDL_Vulkan_GetDrawableSize can return invalid sizes during
 	//swapchain recreation. Cache valid framebuffer sizes and fall back to
 	//the cached values when this happens.
