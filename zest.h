@@ -370,6 +370,9 @@ static inline int zloc__scan_forward(zloc_size bitmap)
 static inline zloc_thread_access zloc__compare_and_exchange(volatile zloc_thread_access* target, zloc_thread_access value, zloc_thread_access original) {
 	return InterlockedCompareExchange(target, value, original);
 }
+static inline void zloc__store_release(volatile zloc_thread_access* target, zloc_thread_access value) {
+	WriteRelease((volatile LONG *)target, (LONG)value);
+}
 #endif
 
 #elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && \
@@ -401,6 +404,9 @@ static inline int zloc__scan_forward(zloc_size bitmap)
 
 static inline zloc_thread_access zloc__compare_and_exchange(volatile zloc_thread_access* target, zloc_thread_access value, zloc_thread_access original) {
 	return __sync_val_compare_and_swap(target, original, value);
+}
+static inline void zloc__store_release(volatile zloc_thread_access* target, zloc_thread_access value) {
+	__atomic_store_n(target, value, __ATOMIC_RELEASE);
 }
 #else
 
@@ -636,7 +642,8 @@ do { \
 } while (0 != zloc__compare_and_exchange(&allocator->access, 1, 0)); \
 ZLOC_ASSERT(allocator->access != 0);
 
-#define zloc__unlock_thread_access allocator->access = 0;
+//A plain store would let writes made under the lock become visible after the unlock on weakly ordered CPUs
+#define zloc__unlock_thread_access zloc__store_release(&allocator->access, 0);
 
 #else
 
@@ -5058,6 +5065,8 @@ ZEST_PRIVATE zest_device zest__end_device_builder(zest_device_builder builder);
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name);
 ZEST_PRIVATE void zest__free_frame_graph_allocator_chain(zest_context context, zloc_linear_allocator_t *base_allocator);
+ZEST_PRIVATE volatile int *zest__lock_pool_growth(zloc_allocator *allocator);
+ZEST_PRIVATE void zest__unlock_pool_growth(volatile int *growth_lock);
 ZEST_PRIVATE void zest__destroy_device(zest_device device);
 ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 ZEST_PRIVATE void zest__free_device_buffer_allocators(zest_device device);
@@ -7270,6 +7279,7 @@ typedef struct zest_device_t {
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_uint memory_pool_count;
+	volatile int pool_growth_lock;		//Serialises adding memory pools across threads, valid when zeroed
 	zloc_allocator *allocator;
 	const char **extensions;
 	zest_platform_memory_info_t platform_memory_info;
@@ -7410,6 +7420,7 @@ typedef struct zest_context_t {
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_uint memory_pool_count;
+	volatile int pool_growth_lock;		//Serialises adding memory pools across threads, valid when zeroed
 	zloc_allocator *allocator;
 	zest_resource_store_t resource_stores[zest_max_context_handle_type];
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
@@ -10372,8 +10383,13 @@ void* zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_siz
 	}
 	*/
     if (!allocation) {
-		zest__add_memory_pool(allocator, size);
-        allocation = zloc_AllocateAligned(allocator, size, alignment);
+		volatile int *growth_lock = zest__lock_pool_growth(allocator);
+		allocation = zloc_AllocateAligned(allocator, size, alignment);
+		if (!allocation) {
+			zest__add_memory_pool(allocator, size);
+			allocation = zloc_AllocateAligned(allocator, size, alignment);
+		}
+		zest__unlock_pool_growth(growth_lock);
         ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
     }
     return allocation;
@@ -10387,19 +10403,20 @@ void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) 
 		case zest_struct_type_device: {
 			zest_device device = (zest_device)allocator->user_data;
 			zest_size pool_size = ZEST__MAX(device->setup_info.memory_pool_size, min_pool_size);
-			if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-				ZEST_REPORT(device, zest_report_memory, "Adding a new device memory pool of size %llu", pool_size);
-			}
 			zest__add_host_memory_pool(device, pool_size);
+			//Reports allocate from the device allocator, so they can only run once the new pool is in place
+			if (ZEST__FLAGGED(device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
+				ZEST_REPORT(device, zest_report_memory, "Added a new device memory pool of size %llu", pool_size);
+			}
 			break;
 		}
 		case zest_struct_type_context: {
 			zest_context context = (zest_context)allocator->user_data;
 			zest_size pool_size = ZEST__MAX(context->create_info.memory_pool_size, min_pool_size);
-			if (ZEST__FLAGGED(context->device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
-				ZEST_REPORT(context->device, zest_report_memory, "Adding a new context memory pool of size %llu", pool_size);
-			}
 			zest__add_context_memory_pool(context, pool_size);
+			if (ZEST__FLAGGED(context->device->init_flags, zest_device_init_flag_output_memory_pool_info)) {
+				ZEST_REPORT(context->device, zest_report_memory, "Added a new context memory pool of size %llu", pool_size);
+			}
 			break;
 		}
 		default:
@@ -10408,7 +10425,7 @@ void zest__add_memory_pool(zloc_allocator *allocator, zest_size requested_size) 
 }
 
 void zest__add_host_memory_pool(zest_device device, zest_size size) {
-	ZEST_ASSERT(device->memory_pool_count < 32);    //Reached the max number of memory pools
+	ZEST_ASSERT(device->memory_pool_count < ZEST_MAX_DEVICE_MEMORY_POOLS);    //Reached the max number of memory pools
 	zest_size pool_size = device->setup_info.memory_pool_size;
 	if (pool_size <= size) {
 		pool_size = zest_GetNextPower(size);
@@ -10424,7 +10441,7 @@ void zest__add_host_memory_pool(zest_device device, zest_size size) {
 }
 
 void zest__add_context_memory_pool(zest_context context, zest_size size) {
-	ZEST_ASSERT(context->memory_pool_count < 32);    //Reached the max number of memory pools for contexts
+	ZEST_ASSERT(context->memory_pool_count < ZEST_MAX_DEVICE_MEMORY_POOLS);    //Reached the max number of memory pools for contexts
 	zest_size pool_size = context->create_info.memory_pool_size;
 	if (pool_size <= size) {
 		pool_size = zest_GetNextPower(size);
@@ -10450,8 +10467,14 @@ void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 		int d = 0;
 	}
 	if (!allocation) {
-		zest__add_memory_pool(allocator, size);
+		volatile int *growth_lock = zest__lock_pool_growth(allocator);
+		//Another thread may have added a pool while this one waited for the lock
 		allocation = zloc_Allocate(allocator, size);
+		if (!allocation) {
+			zest__add_memory_pool(allocator, size);
+			allocation = zloc_Allocate(allocator, size);
+		}
+		zest__unlock_pool_growth(growth_lock);
 		ZEST_ASSERT(allocation);    //Out of memory? Unable to allocate even after trying to add a new pool
 	}
 	return allocation;
@@ -10467,11 +10490,40 @@ void *zest__reallocate(zloc_allocator *allocator, void *memory, zest_size size) 
 	}
 	*/
 	if (!allocation) {
-		zest__add_memory_pool(allocator, size);
+		volatile int *growth_lock = zest__lock_pool_growth(allocator);
 		allocation = zloc_Reallocate(allocator, memory, size);
+		if (!allocation) {
+			zest__add_memory_pool(allocator, size);
+			allocation = zloc_Reallocate(allocator, memory, size);
+		}
+		zest__unlock_pool_growth(growth_lock);
 		ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
 	}
 	return allocation;
+}
+
+volatile int *zest__lock_pool_growth(zloc_allocator *allocator) {
+	volatile int *growth_lock = NULL;
+	if (allocator->user_data) {
+		zest_struct_type struct_type = ZEST_STRUCT_TYPE(allocator->user_data);
+		if (struct_type == zest_struct_type_device) {
+			growth_lock = &((zest_device)allocator->user_data)->pool_growth_lock;
+		} else if (struct_type == zest_struct_type_context) {
+			growth_lock = &((zest_context)allocator->user_data)->pool_growth_lock;
+		}
+	}
+	if (growth_lock) {
+		while (!zest__atomic_compare_exchange(growth_lock, 1, 0)) {
+			zest__thread_yield();
+		}
+	}
+	return growth_lock;
+}
+
+void zest__unlock_pool_growth(volatile int *growth_lock) {
+	if (growth_lock) {
+		zest__atomic_store(growth_lock, 0);
+	}
 }
 
 zest_size zest__get_largest_slab(zloc_linear_allocator_t *allocator) {

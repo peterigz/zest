@@ -1,4 +1,6 @@
 #include "zest-tests.h"
+#include <atomic>
+#include <thread>
 
 //Test image format support
 int test__image_format_support(ZestTests *tests, Test *test) {
@@ -2751,6 +2753,108 @@ int test__dedicated_buffer(ZestTests *tests, Test *test) {
 //buffers keep the realloc path, which copies contents CPU-side when the buffer relocates. In both
 //cases a relocation must carry the buffer's usage flags to the new block (the extension data of a
 //fresh block doesn't have them and frame graphs read them to plan barriers).
+#define POOL_GROWTH_THREAD_COUNT 8
+#define POOL_GROWTH_ALLOCATIONS 16
+#define POOL_GROWTH_ALLOCATION_SIZE zloc__KILOBYTE(8)
+#define POOL_GROWTH_POOL_SIZE zloc__KILOBYTE(256)
+
+static void tst__pool_growth_worker(zloc_allocator *allocator, void **allocations, std::atomic<int> *ready, std::atomic<int> *start) {
+	ready->fetch_add(1);
+	while (!start->load()) {
+	}
+	for (int index = 0; index != POOL_GROWTH_ALLOCATIONS; ++index) {
+		allocations[index] = zest__allocate(allocator, POOL_GROWTH_ALLOCATION_SIZE);
+	}
+}
+
+//Threads that run a device allocator out of space at the same moment must add pools one at a time: every pool has to
+//be recorded so teardown can scan and free it, and a thread that finds a new pool already added must use it rather
+//than add another. The device here is a bare record over its own small allocator so the pool fills quickly.
+int test__concurrent_pool_growth(ZestTests *tests, Test *test) {
+	int failed = 0;
+	zest_device device = (zest_device)calloc(1, sizeof(zest_device_t));
+	void *initial_pool = ZEST__ALLOCATE_POOL(POOL_GROWTH_POOL_SIZE);
+	zloc_allocator *allocator = zloc_InitialiseAllocatorWithPool(initial_pool, POOL_GROWTH_POOL_SIZE);
+	allocator->user_data = device;
+	device->magic = zest_INIT_MAGIC(zest_struct_type_device);
+	device->allocator = allocator;
+	device->setup_info.memory_pool_size = POOL_GROWTH_POOL_SIZE;
+	device->memory_pools[0] = initial_pool;
+	device->memory_pool_sizes[0] = POOL_GROWTH_POOL_SIZE;
+	device->memory_pool_count = 1;
+	//Growth reports allocate from the allocator that is growing while its growth lock is held
+	device->init_flags = zest_device_init_flag_output_memory_pool_info;
+
+	static void *allocations[POOL_GROWTH_THREAD_COUNT][POOL_GROWTH_ALLOCATIONS];
+	memset(allocations, 0, sizeof(allocations));
+	std::atomic<int> ready(0);
+	std::atomic<int> start(0);
+	std::thread threads[POOL_GROWTH_THREAD_COUNT];
+	for (int thread_index = 0; thread_index != POOL_GROWTH_THREAD_COUNT; ++thread_index) {
+		threads[thread_index] = std::thread(tst__pool_growth_worker, allocator, allocations[thread_index], &ready, &start);
+	}
+	//Thread start up is serialised on some platforms, so release the workers only once they are all waiting
+	while (ready.load() != POOL_GROWTH_THREAD_COUNT) {
+	}
+	start.store(1);
+	for (int thread_index = 0; thread_index != POOL_GROWTH_THREAD_COUNT; ++thread_index) {
+		threads[thread_index].join();
+	}
+
+	zest_uint pool_count = device->memory_pool_count;
+	zest_size recorded_capacity = 0;
+	for (zest_uint pool_index = 0; pool_index != pool_count; ++pool_index) {
+		if (!device->memory_pools[pool_index]) {
+			ZEST_PRINT("Pool slot %u of %u was never recorded", pool_index, pool_count);
+			failed = 1;
+		}
+		for (zest_uint other_index = 0; other_index != pool_index; ++other_index) {
+			if (device->memory_pools[other_index] == device->memory_pools[pool_index]) failed = 1;
+		}
+		recorded_capacity += device->memory_pool_sizes[pool_index];
+	}
+	int unrecorded_allocations = 0;
+	for (int thread_index = 0; thread_index != POOL_GROWTH_THREAD_COUNT; ++thread_index) {
+		for (int index = 0; index != POOL_GROWTH_ALLOCATIONS; ++index) {
+			char *allocation = (char *)allocations[thread_index][index];
+			zest_bool recorded = ZEST_FALSE;
+			for (zest_uint pool_index = 0; pool_index != pool_count && !recorded; ++pool_index) {
+				char *pool = (char *)device->memory_pools[pool_index];
+				recorded = pool && allocation >= pool && allocation < pool + device->memory_pool_sizes[pool_index];
+			}
+			if (!allocation || !recorded) unrecorded_allocations++;
+		}
+	}
+	if (unrecorded_allocations) {
+		ZEST_PRINT("%i allocations live in pools the device never recorded", unrecorded_allocations);
+		failed = 1;
+	}
+	//Serial growth covers this demand with about 1.3MB of pools, so far more means threads each added their own
+	zest_size demand = (zest_size)POOL_GROWTH_THREAD_COUNT * POOL_GROWTH_ALLOCATIONS * POOL_GROWTH_ALLOCATION_SIZE;
+	if (recorded_capacity > demand + 3 * POOL_GROWTH_POOL_SIZE) {
+		ZEST_PRINT("Pools grew to %llu bytes for %llu bytes of allocations", (unsigned long long)recorded_capacity, (unsigned long long)demand);
+		failed = 1;
+	}
+
+	for (int thread_index = 0; thread_index != POOL_GROWTH_THREAD_COUNT; ++thread_index) {
+		for (int index = 0; index != POOL_GROWTH_ALLOCATIONS; ++index) {
+			if (allocations[thread_index][index]) zloc_Free(allocator, allocations[thread_index][index]);
+		}
+	}
+	for (zest_uint pool_index = 1; pool_index < pool_count && pool_index < ZEST_MAX_DEVICE_MEMORY_POOLS; ++pool_index) {
+		zest_bool already_freed = ZEST_FALSE;
+		for (zest_uint other_index = 1; other_index != pool_index; ++other_index) {
+			already_freed |= device->memory_pools[other_index] == device->memory_pools[pool_index];
+		}
+		if (device->memory_pools[pool_index] && !already_freed) ZEST__FREE_POOL(device->memory_pools[pool_index]);
+	}
+	ZEST__FREE_POOL(initial_pool);
+	free(device);
+	test->result = failed;
+	test->frame_count++;
+	return test->result;
+}
+
 int test__buffer_grow_contract(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 	zest_device device = tests->device;
