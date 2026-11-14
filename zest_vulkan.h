@@ -1528,7 +1528,6 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
     context->dpi_scale = (float)extent.width / (float)context->window_data.width;
     swapchain->format = (zest_format)surfaceFormat.format;
 
-    swapchain->format = (zest_format)surfaceFormat.format;
     swapchain->size.width = extent.width;
     swapchain->size.height = extent.height;
     context->window_extent.width = context->swapchain->size.width;
@@ -1609,7 +1608,7 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
         swapchain->images[i].backend->vk_format = surfaceFormat.format;
         swapchain->images[i].backend->vk_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         swapchain->images[i].backend->vk_extent.width = extent.width;
-        swapchain->images[i].backend->vk_extent.width = extent.width;
+        swapchain->images[i].backend->vk_extent.depth = 1;
         swapchain->images[i].backend->vk_extent.height = extent.height;
         swapchain->images[i].backend->vk_current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         swapchain->images[i].info = image_info;
@@ -1950,6 +1949,7 @@ zest_bool zest__vk_check_validation_layer_support(zest_device device) {
         }
 
         if (!layer_found) {
+            ZEST__FREE(device->allocator, available_layers);
             return 0;
         }
     }
@@ -2260,13 +2260,14 @@ zest_bool zest__vk_create_instance(zest_device device) {
             VK_API_VERSION_MINOR(instance_api_version_supported),
             VK_API_VERSION_PATCH(instance_api_version_supported));
         if (instance_api_version_supported < VK_API_VERSION_1_2) {
+            ZEST_ALERT("Zest requires Vulkan 1.2+ but this system only supports Vulkan %d.%d. Try updating your graphics driver.", VK_API_VERSION_MAJOR(instance_api_version_supported), VK_API_VERSION_MINOR(instance_api_version_supported));
             ZEST_APPEND_LOG(device->log_path.str, "Zest requires minumum Vulkan version: 1.2+. Version found: %u", instance_api_version_supported);
-            return VK_ERROR_INCOMPATIBLE_DRIVER;
+            return ZEST_FALSE;
         }
     } else {
         ZEST_ALERT("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
 		ZEST_APPEND_LOG(device->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.");
-		return VK_ERROR_INCOMPATIBLE_DRIVER;
+		return ZEST_FALSE;
     }
 
     VkApplicationInfo app_info = ZEST__ZERO_INIT(VkApplicationInfo);
@@ -3443,7 +3444,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_device device, zest_context conte
 	memory_pool->alignment = memory_requirements.alignment;
 
     memory_pool->backend->vk_buffer = temp_buffer;
-    vkBindBufferMemory(device->backend->logical_device, memory_pool->backend->vk_buffer, memory_pool->backend->memory, 0);
+    ZEST_RETURN_FALSE_ON_FAIL(device, vkBindBufferMemory(device->backend->logical_device, memory_pool->backend->vk_buffer, memory_pool->backend->memory, 0));
     return ZEST_TRUE;
 }
 
@@ -4477,7 +4478,9 @@ zest_device_memory_pool zest__vk_create_arena_backing(zest_device device, zest_c
         if (zest__vk_allocate_memory(device, &alloc_info, allocation_callbacks, &pool->backend->memory) != VK_SUCCESS) {
             goto cleanup;
         }
-        vkBindBufferMemory(device->backend->logical_device, pool->backend->vk_buffer, pool->backend->memory, 0);
+        if (vkBindBufferMemory(device->backend->logical_device, pool->backend->vk_buffer, pool->backend->memory, 0) != VK_SUCCESS) {
+            goto cleanup;
+        }
 
         pool->size = size;
         pool->alignment = memory_requirements.alignment;
@@ -5329,7 +5332,6 @@ void *zest__vk_device_reallocate_callback(void *pUserData, void *pOriginal, size
     zest_device device = (zest_device)pUserData;
     zest_platform_memory_info_t *pHeader = ((zest_platform_memory_info_t *)pOriginal) - 1;
     void *pNewAllocation = ZEST__REALLOCATE(device->allocator, pHeader, size + sizeof(zest_platform_memory_info_t));
-    zest_platform_memory_info_t *pInfo = (zest_platform_memory_info_t *)pUserData;
     *(zest_platform_memory_info_t *)pNewAllocation = device->platform_memory_info;
     return (void *)((zest_platform_memory_info_t *)pNewAllocation + 1);
 }
@@ -5355,8 +5357,7 @@ void *zest__vk_context_reallocate_callback(void *pUserData, void *pOriginal, siz
     zest_context context = (zest_context)pUserData;
     zest_platform_memory_info_t *pHeader = ((zest_platform_memory_info_t *)pOriginal) - 1;
     void *pNewAllocation = ZEST__REALLOCATE(context->allocator, pHeader, size + sizeof(zest_platform_memory_info_t));
-    zest_platform_memory_info_t *pInfo = (zest_platform_memory_info_t *)pUserData;
-    *(zest_platform_memory_info_t *)pNewAllocation = *pInfo;
+    *(zest_platform_memory_info_t *)pNewAllocation = context->platform_memory_info;
     return (void *)((zest_platform_memory_info_t *)pNewAllocation + 1);
 }
 
