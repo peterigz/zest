@@ -1030,42 +1030,43 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	// Read and validate header
 	zest_uint magic = 0;
 	zest_uint version = 0;
-	fread(&magic, sizeof(zest_uint), 1, font_file);
+	zest_bool read_ok = ZEST_TRUE;
+	read_ok &= fread(&magic, sizeof(zest_uint), 1, font_file) == 1;
 
 	if (magic == ZEST_MSDF_FONT_MAGIC) {
 		// New cross-platform format (version 2+)
-		fread(&version, sizeof(zest_uint), 1, font_file);
+		read_ok &= fread(&version, sizeof(zest_uint), 1, font_file) == 1;
 		if (version < ZEST_MSDF_FONT_VERSION) {
 			ZEST_PRINT("Warning: Font file version %u is older than current version %u", version, ZEST_MSDF_FONT_VERSION);
 		}
 
 		// Read font-level metrics
-		fread(&font.size, sizeof(float), 1, font_file);
-		fread(&font.sdf_range, sizeof(float), 1, font_file);
-		fread(&font.y_max_offset, sizeof(float), 1, font_file);
+		read_ok &= fread(&font.size, sizeof(float), 1, font_file) == 1;
+		read_ok &= fread(&font.sdf_range, sizeof(float), 1, font_file) == 1;
+		read_ok &= fread(&font.y_max_offset, sizeof(float), 1, font_file) == 1;
 
 		// Read character count
 		zest_uint char_count = 0;
-		fread(&char_count, sizeof(zest_uint), 1, font_file);
+		read_ok &= fread(&char_count, sizeof(zest_uint), 1, font_file) == 1;
 		if (char_count > 256) char_count = 256;
 
 		// Read each character's data
 		for (zest_uint i = 0; i < char_count; ++i) {
 			zest_font_character_t *ch = &font.characters[i];
-			fread(&ch->x_offset, sizeof(float), 1, font_file);
-			fread(&ch->y_offset, sizeof(float), 1, font_file);
-			fread(&ch->width, sizeof(float), 1, font_file);
-			fread(&ch->height, sizeof(float), 1, font_file);
-			fread(&ch->x_advance, sizeof(float), 1, font_file);
-			fread(&ch->flags, sizeof(zest_uint), 1, font_file);
-			fread(&ch->region.top, sizeof(zest_uint), 1, font_file);
-			fread(&ch->region.left, sizeof(zest_uint), 1, font_file);
-			fread(&ch->region.width, sizeof(zest_uint), 1, font_file);
-			fread(&ch->region.height, sizeof(zest_uint), 1, font_file);
-			fread(&ch->region.uv.x, sizeof(float), 1, font_file);
-			fread(&ch->region.uv.y, sizeof(float), 1, font_file);
-			fread(&ch->region.uv.z, sizeof(float), 1, font_file);
-			fread(&ch->region.uv.w, sizeof(float), 1, font_file);
+			read_ok &= fread(&ch->x_offset, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->y_offset, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->width, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->height, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->x_advance, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->flags, sizeof(zest_uint), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.top, sizeof(zest_uint), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.left, sizeof(zest_uint), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.width, sizeof(zest_uint), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.height, sizeof(zest_uint), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.uv.x, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.uv.y, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.uv.z, sizeof(float), 1, font_file) == 1;
+			read_ok &= fread(&ch->region.uv.w, sizeof(float), 1, font_file) == 1;
 			// Compute packed UV from the UV coordinates
 			ch->region.uv_packed = zest_Pack16bit4SNorm(ch->region.uv.x, ch->region.uv.y, ch->region.uv.z, ch->region.uv.w);
 			ch->uv_packed = ch->region.uv_packed;
@@ -1073,10 +1074,15 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 
 		// Read PNG data
 		zest_uint png_size = 0;
-		fread(&png_size, sizeof(zest_uint), 1, font_file);
+		read_ok &= fread(&png_size, sizeof(zest_uint), 1, font_file) == 1;
 		unsigned char *png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(png_size);
-		fread(png_buffer, sizeof(char), png_size, font_file);
+		read_ok &= fread(png_buffer, sizeof(char), png_size, font_file) == png_size;
 		fclose(font_file);
+		if (!read_ok) {
+			ZEST_PRINT("Unable to read font file %s, it ends early. Please regenerate the font cache.", filename);
+			ZEST_UTILITIES_FREE(png_buffer);
+			return ZEST__ZERO_INIT(zest_msdf_font_t);
+		}
 
 		// Decode PNG
 		zest_device device = zest_GetContextDevice(context);
