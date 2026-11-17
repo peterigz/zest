@@ -1,4 +1,5 @@
 #include <dxcapi.h>
+#include <d3d12shader.h>
 typedef int (*d3d12_test_callback)(void);
 
 struct D3D12Test {
@@ -54,6 +55,7 @@ int test_d3d12_interface_ids(void) {
 	CHECK_INTERFACE_ID(ID3D12CommandQueue);
 	CHECK_INTERFACE_ID(ID3D12CommandAllocator);
 	CHECK_INTERFACE_ID(ID3D12GraphicsCommandList7);
+	CHECK_INTERFACE_ID(ID3D12GraphicsCommandList9);
 	CHECK_INTERFACE_ID(ID3D12Fence);
 	CHECK_INTERFACE_ID(ID3D12Resource);
 	CHECK_INTERFACE_ID(ID3D12Heap);
@@ -616,11 +618,11 @@ int test_d3d12_hlsl_compile(void) {
 	int failed = 0;
 	ID3DBlob *vertex_dxil = NULL;
 	ID3DBlob *pixel_dxil = NULL;
-	failed |= !zest__dx_compile_hlsl(device, hlsl_vertex_source, (zest_size)strlen(hlsl_vertex_source), "test_vertex", "main", "vs_6_0", &vertex_dxil);
+	failed |= !zest__dx_compile_hlsl(device, hlsl_vertex_source, (zest_size)strlen(hlsl_vertex_source), "test_vertex", "main", "vs_6_0", NULL, 0, NULL, &vertex_dxil);
 	failed |= check_dxil_container(vertex_dxil);
 	zest_dxc_compiler3_t *compiler = ZEST_DX_BACKEND(device, device)->dxc_compiler;
 	failed |= compiler == NULL;
-	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &pixel_dxil);
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", NULL, 0, NULL, &pixel_dxil);
 	failed |= check_dxil_container(pixel_dxil);
 	failed |= ZEST_DX_BACKEND(device, device)->dxc_compiler != compiler;
 	ZEST_DX_RELEASE(vertex_dxil);
@@ -634,9 +636,12 @@ int test_d3d12_hlsl_compile_error(void) {
 	int failed = 0;
 	const char *broken_source = "float4 main( : SV_Target { return float4(1.0; }\n";
 	ID3DBlob *dxil = (ID3DBlob *)(void *)&failed;
-	failed |= zest__dx_compile_hlsl(device, broken_source, (zest_size)strlen(broken_source), "broken", "main", "ps_6_0", &dxil) != ZEST_FALSE;
+	zest_text_t error_text = {};
+	failed |= zest__dx_compile_hlsl(device, broken_source, (zest_size)strlen(broken_source), "broken", "main", "ps_6_0", NULL, 0, &error_text, &dxil) != ZEST_FALSE;
 	failed |= dxil != NULL;
-	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil);
+	failed |= zest_TextLength(&error_text) == 0;
+	zest_FreeText(device->allocator, &error_text);
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", NULL, 0, NULL, &dxil);
 	failed |= check_dxil_container(dxil);
 	ZEST_DX_RELEASE(dxil);
 	return failed | finish_device(device);
@@ -649,31 +654,1836 @@ int test_d3d12_dxc_missing(void) {
 	ID3DBlob *dxil = NULL;
 	zest_uint error_count = zest_GetValidationErrorCount(device);
 	zest__dx_forced_dxc_library = "zest-missing-dxcompiler.dll";
-	failed |= zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil) != ZEST_FALSE;
+	zest_text_t error_text = {};
+	failed |= zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", NULL, 0, &error_text, &dxil) != ZEST_FALSE;
 	zest__dx_forced_dxc_library = NULL;
 	failed |= dxil != NULL;
+	failed |= zest_TextLength(&error_text) == 0 || strcmp(error_text.str, "Shader compiler unavailable") != 0;
+	zest_FreeText(device->allocator, &error_text);
 	failed |= zest_GetValidationErrorCount(device) != error_count + 1;
 	failed |= ZEST_DX_BACKEND(device, device)->dxc_compiler != NULL;
-	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", &dxil);
+	failed |= !zest__dx_compile_hlsl(device, hlsl_pixel_source, (zest_size)strlen(hlsl_pixel_source), "test_pixel", "main", "ps_6_0", NULL, 0, NULL, &dxil);
 	failed |= check_dxil_container(dxil);
 	ZEST_DX_RELEASE(dxil);
 	zest_ResetValidationErrors(device);
 	return failed | finish_device(device);
 }
-int test_d3d12_unavailable_immediate_commands(void) {
+
+#define D3D12_HLSL_SHADER_PATH "examples/SDL2/zest-tests/shaders/hlsl/"
+
+struct D3D12TestShaderFile {
+	const char *file_name;
+	const char *profile;
+};
+
+static const D3D12TestShaderFile d3d12_test_shader_files[] = {
+	{ "buffer_write.comp.hlsl", "cs_6_0" },
+	{ "buffer_verify.comp.hlsl", "cs_6_0" },
+	{ "image_verify.comp.hlsl", "cs_6_0" },
+	{ "image_write2.comp.hlsl", "cs_6_0" },
+	{ "stride_check.comp.hlsl", "cs_6_0" },
+	{ "genbrdflut.comp.hlsl", "cs_6_0" },
+	{ "instance.vert.hlsl", "vs_6_0" },
+	{ "instance.frag.hlsl", "ps_6_0" },
+	{ "vertex.vert.hlsl", "vs_6_0" },
+	{ "vertex.frag.hlsl", "ps_6_0" },
+};
+#define D3D12_TEST_SHADER_FILE_COUNT (sizeof(d3d12_test_shader_files) / sizeof(d3d12_test_shader_files[0]))
+
+static ID3DBlob *compile_test_hlsl(zest_device device, const char *source, const char *name, const char *profile, const char **arguments, zest_uint argument_count) {
+	ID3DBlob *dxil = NULL;
+	zest__dx_compile_hlsl(device, source, (zest_size)strlen(source), name, "main", profile, arguments, argument_count, NULL, &dxil);
+	return dxil;
+}
+
+static ID3DBlob *compile_test_shader_file(zest_device device, const D3D12TestShaderFile *shader_file) {
+	char path[256];
+	snprintf(path, sizeof(path), D3D12_HLSL_SHADER_PATH "%s", shader_file->file_name);
+	zest_file source = zest_ReadEntireFile(device, path, ZEST_TRUE);
+	if (!source) {
+		ZEST_PRINT("\tCouldn't read %s. Run the tests from the repository root.", path);
+		return NULL;
+	}
+	ID3DBlob *dxil = compile_test_hlsl(device, source, shader_file->file_name, shader_file->profile, NULL, 0);
+	zest_FreeFile(device, source);
+	return dxil;
+}
+
+static zest_bool reflect_blob(ID3DBlob *dxil, zest_dx_shader_reflection_t *out_reflection, const char *name) {
+	if (!dxil) return ZEST_FALSE;
+	const char *error = NULL;
+	if (!zest__dx_reflect_shader(ZEST_DX_CALL0(dxil, GetBufferPointer), ZEST_DX_CALL0(dxil, GetBufferSize), out_reflection, &error)) {
+		ZEST_PRINT("\t%s: %s", name, error);
+		return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static const char *reflection_vertex_source =
+	"cbuffer zest_push : register(b0, space0) { float4 offset; };\n"
+	"struct vertex_input {\n"
+	"	uint instance : SV_InstanceID;\n"
+	"	float3 position : POSITION0;\n"
+	"	float2 uv : TEXCOORD0;\n"
+	"	float4 color : COLOR1;\n"
+	"};\n"
+	"float4 main(vertex_input input) : SV_Position {\n"
+	"	return float4(input.position + offset.xyz, 1.0) + float4(input.uv, 0.0, 0.0) * input.color + float(input.instance);\n"
+	"}\n";
+
+//One unbounded array for each row of the slot table, every one used, at space 100 + its row
+static const char *reflection_slot_pixel_source =
+	"SamplerState samplers[] : register(s0, space100);\n"
+	"Texture2D textures_2d[] : register(t0, space101);\n"
+	"TextureCube textures_cube[] : register(t0, space102);\n"
+	"Texture2DArray textures_array[] : register(t0, space103);\n"
+	"Texture3D textures_3d[] : register(t0, space104);\n"
+	"TextureCubeArray textures_cube_array[] : register(t0, space105);\n"
+	"StructuredBuffer<float4> structured_buffers[] : register(t0, space106);\n"
+	"ByteAddressBuffer raw_buffers[] : register(t0, space107);\n"
+	"RWStructuredBuffer<float4> read_write_structured_buffers[] : register(u0, space108);\n"
+	"RWByteAddressBuffer read_write_raw_buffers[] : register(u0, space109);\n"
+	"RWTexture2D<float4> storage_images[] : register(u0, space110);\n"
+	"struct uniform_t { float4 value; };\n"
+	"ConstantBuffer<uniform_t> uniforms[] : register(b0, space111);\n"
+	"float4 main(float4 position : SV_Position, nointerpolation uint index : TEXCOORD0) : SV_Target0 {\n"
+	"	SamplerState chosen_sampler = samplers[NonUniformResourceIndex(index)];\n"
+	"	float4 sum = textures_2d[NonUniformResourceIndex(index)].Sample(chosen_sampler, position.xy);\n"
+	"	sum += textures_cube[NonUniformResourceIndex(index)].Sample(chosen_sampler, position.xyz);\n"
+	"	sum += textures_array[NonUniformResourceIndex(index)].Sample(chosen_sampler, position.xyz);\n"
+	"	sum += textures_3d[NonUniformResourceIndex(index)].Sample(chosen_sampler, position.xyz);\n"
+	"	sum += textures_cube_array[NonUniformResourceIndex(index)].Sample(chosen_sampler, position);\n"
+	"	sum += structured_buffers[NonUniformResourceIndex(index)][0];\n"
+	"	sum += asfloat(raw_buffers[NonUniformResourceIndex(index)].Load4(0));\n"
+	"	sum += uniforms[NonUniformResourceIndex(index)].value;\n"
+	"	read_write_structured_buffers[NonUniformResourceIndex(index)][0] = sum;\n"
+	"	read_write_raw_buffers[NonUniformResourceIndex(index)].Store4(0, asuint(sum));\n"
+	"	storage_images[NonUniformResourceIndex(index)][uint2(position.xy)] = sum;\n"
+	"	return sum;\n"
+	"}\n";
+
+//PSV0 (ResType, ResKind) for each declaration of reflection_slot_pixel_source, in its order
+static const zest_uint reflection_slot_types[12][2] = {
+	{ 1, 14 }, { 3, 2 }, { 3, 5 }, { 3, 7 }, { 3, 4 }, { 3, 9 }, { 5, 12 }, { 4, 11 }, { 8, 12 }, { 7, 11 }, { 6, 2 }, { 2, 13 },
+};
+
+static const char *reflection_compute_source =
+	"cbuffer zest_push : register(b0, space0) { uint buffer_index; uint value; };\n"
+	"RWByteAddressBuffer zest_buffers[] : register(u0, space105);\n"
+	"[numthreads(64, 1, 1)]\n"
+	"void main(uint3 thread_id : SV_DispatchThreadID) {\n"
+	"	zest_buffers[NonUniformResourceIndex(buffer_index)].Store(thread_id.x * 4, value);\n"
+	"}\n";
+
+int test_d3d12_shader_reflection(void) {
 	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
 	if (!device) return 1;
-	zest_buffer buffer = zest_CreateStagingBuffer(device, 256, NULL);
-	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
-	int failed = queue == NULL || buffer == NULL;
-	zest_imm_SendPushConstants(queue, NULL, 0);
-	zest_imm_BindComputePipeline(queue, NULL);
-	failed |= zest_imm_DispatchCompute(queue, 1, 1, 1) != ZEST_FALSE;
+	ID3DBlob *vertex_dxil = compile_test_hlsl(device, reflection_vertex_source, "reflection_vertex", "vs_6_0", NULL, 0);
+	ID3DBlob *pixel_dxil = compile_test_hlsl(device, reflection_slot_pixel_source, "reflection_pixel", "ps_6_0", NULL, 0);
+	ID3DBlob *compute_dxil = compile_test_hlsl(device, reflection_compute_source, "reflection_compute", "cs_6_0", NULL, 0);
+	zest_dx_shader_reflection_t reflection;
+	int failed = 0;
+
+	if (reflect_blob(vertex_dxil, &reflection, "reflection_vertex")) {
+		failed |= reflection.stage != 1 || reflection.input_count != 4;
+		failed |= reflection.inputs[0].system_value != 8;
+		failed |= strcmp(reflection.inputs[1].semantic_name, "POSITION") != 0 || reflection.inputs[1].semantic_index != 0 || reflection.inputs[1].register_index != 1 || reflection.inputs[1].system_value != 0;
+		failed |= strcmp(reflection.inputs[3].semantic_name, "COLOR") != 0 || reflection.inputs[3].semantic_index != 1;
+		failed |= reflection.resource_count != 1;
+		zest_dx_shader_resource_t *push = &reflection.resources[0];
+		failed |= push->type != 2 || push->kind != 13 || push->space != 0 || push->lower_bound != 0 || push->upper_bound != 0;
+	} else {
+		failed = 1;
+	}
+
+	if (reflect_blob(pixel_dxil, &reflection, "reflection_pixel")) {
+		failed |= reflection.stage != 0 || reflection.resource_count != 12;
+		for (zest_uint slot = 0; slot != 12; ++slot) {
+			zest_bool found = ZEST_FALSE;
+			for (zest_uint resource_index = 0; resource_index != reflection.resource_count; ++resource_index) {
+				zest_dx_shader_resource_t *resource = &reflection.resources[resource_index];
+				if (resource->space != 100 + slot) continue;
+				found = resource->type == reflection_slot_types[slot][0] && resource->kind == reflection_slot_types[slot][1] && resource->lower_bound == 0 && resource->upper_bound == 0xFFFFFFFF;
+			}
+			if (!found) {
+				ZEST_PRINT("\tSlot %u in space %u wasn't reflected as type %u kind %u", slot, 100 + slot, reflection_slot_types[slot][0], reflection_slot_types[slot][1]);
+				failed = 1;
+			}
+		}
+	} else {
+		failed = 1;
+	}
+
+	if (reflect_blob(compute_dxil, &reflection, "reflection_compute")) {
+		failed |= reflection.stage != 5 || reflection.input_count != 0 || reflection.resource_count != 2;
+	} else {
+		failed = 1;
+	}
+	ZEST_DX_RELEASE(vertex_dxil);
+	ZEST_DX_RELEASE(pixel_dxil);
+	ZEST_DX_RELEASE(compute_dxil);
+	return failed | finish_device(device);
+}
+
+//The reflection Type a PSV0 ResType becomes, indexed by ResType
+static const D3D_SHADER_INPUT_TYPE psv_type_to_input_type[10] = {
+	D3D_SIT_CBUFFER, D3D_SIT_SAMPLER, D3D_SIT_CBUFFER, D3D_SIT_TEXTURE, D3D_SIT_BYTEADDRESS, D3D_SIT_STRUCTURED,
+	D3D_SIT_UAV_RWTYPED, D3D_SIT_UAV_RWBYTEADDRESS, D3D_SIT_UAV_RWSTRUCTURED, D3D_SIT_UAV_RWSTRUCTURED_WITH_COUNTER,
+};
+
+//The reflection Dimension a PSV0 ResKind becomes, indexed by ResKind up to Sampler
+static const D3D_SRV_DIMENSION psv_kind_to_dimension[15] = {
+	D3D_SRV_DIMENSION_UNKNOWN, D3D_SRV_DIMENSION_TEXTURE1D, D3D_SRV_DIMENSION_TEXTURE2D, D3D_SRV_DIMENSION_TEXTURE2DMS, D3D_SRV_DIMENSION_TEXTURE3D,
+	D3D_SRV_DIMENSION_TEXTURECUBE, D3D_SRV_DIMENSION_TEXTURE1DARRAY, D3D_SRV_DIMENSION_TEXTURE2DARRAY, D3D_SRV_DIMENSION_TEXTURE2DMSARRAY,
+	D3D_SRV_DIMENSION_TEXTURECUBEARRAY, D3D_SRV_DIMENSION_BUFFER, D3D_SRV_DIMENSION_BUFFER, D3D_SRV_DIMENSION_BUFFER,
+	D3D_SRV_DIMENSION_UNKNOWN, D3D_SRV_DIMENSION_UNKNOWN,
+};
+
+static zest_bool resource_matches_binding(const zest_dx_shader_resource_t *resource, const D3D12_SHADER_INPUT_BIND_DESC *binding) {
+	if (resource->type == 0 || resource->type >= 10 || resource->kind >= 15) return ZEST_FALSE;
+	//An unbounded CBV array reports UINT_MAX and every other unbounded array 0
+	zest_bool count_matches = resource->upper_bound == 0xFFFFFFFF ? (binding->BindCount == 0 || binding->BindCount == UINT_MAX) : binding->BindCount == resource->upper_bound - resource->lower_bound + 1;
+	return binding->Type == psv_type_to_input_type[resource->type] && binding->Dimension == psv_kind_to_dimension[resource->kind] && binding->Space == resource->space && binding->BindPoint == resource->lower_bound && count_matches;
+}
+
+static int cross_check_reflection(IDxcUtils *utils, const void *data, size_t size, const char *name) {
+	zest_dx_shader_reflection_t parsed;
+	const char *error = NULL;
+	if (!zest__dx_reflect_shader(data, size, &parsed, &error)) {
+		ZEST_PRINT("\t%s: %s", name, error);
+		return 1;
+	}
+	DxcBuffer buffer = { data, size, 0 };
+	ID3D12ShaderReflection *reflection = NULL;
+	if (FAILED(utils->CreateReflection(&buffer, IID_PPV_ARGS(&reflection))) || !reflection) {
+		ZEST_PRINT("\t%s: IDxcUtils::CreateReflection failed", name);
+		return 1;
+	}
+	D3D12_SHADER_DESC description;
+	reflection->GetDesc(&description);
+	int failed = 0;
+	if (description.BoundResources != parsed.resource_count) {
+		ZEST_PRINT("\t%s: %u resources parsed, %u reflected", name, parsed.resource_count, description.BoundResources);
+		failed = 1;
+	} else {
+		zest_bool used[ZEST_DX_MAX_SHADER_RESOURCES] = {};
+		for (zest_uint resource_index = 0; resource_index != parsed.resource_count; ++resource_index) {
+			const zest_dx_shader_resource_t *resource = &parsed.resources[resource_index];
+			zest_bool found = ZEST_FALSE;
+			for (zest_uint binding_index = 0; binding_index != description.BoundResources && !found; ++binding_index) {
+				D3D12_SHADER_INPUT_BIND_DESC binding;
+				reflection->GetResourceBindingDesc(binding_index, &binding);
+				if (!used[binding_index] && resource_matches_binding(resource, &binding)) {
+					used[binding_index] = ZEST_TRUE;
+					found = ZEST_TRUE;
+				}
+			}
+			if (!found) {
+				ZEST_PRINT("\t%s: no reflected binding matches type %u kind %u space %u bounds %u to %u", name, resource->type, resource->kind, resource->space, resource->lower_bound, resource->upper_bound);
+				failed = 1;
+			}
+		}
+	}
+	if (description.InputParameters != parsed.input_count) {
+		ZEST_PRINT("\t%s: %u inputs parsed, %u reflected", name, parsed.input_count, description.InputParameters);
+		failed = 1;
+	} else {
+		//ISG1 is in register order and reflection in declaration order, which differ where pixel inputs pack into one register
+		zest_bool used[ZEST_DX_MAX_SHADER_INPUTS] = {};
+		for (zest_uint input_index = 0; input_index != parsed.input_count; ++input_index) {
+			const zest_dx_shader_input_t *input = &parsed.inputs[input_index];
+			zest_bool found = ZEST_FALSE;
+			for (zest_uint parameter_index = 0; parameter_index != description.InputParameters && !found; ++parameter_index) {
+				D3D12_SIGNATURE_PARAMETER_DESC parameter;
+				reflection->GetInputParameterDesc(parameter_index, &parameter);
+				//Reflection upper-cases system value names, so those compare by number
+				zest_bool name_matches = input->system_value != 0 || strcmp(input->semantic_name, parameter.SemanticName) == 0;
+				if (used[parameter_index] || !name_matches || parameter.SemanticIndex != input->semantic_index || (zest_uint)parameter.SystemValueType != input->system_value) continue;
+				used[parameter_index] = ZEST_TRUE;
+				found = ZEST_TRUE;
+				if (parameter.Register != input->register_index || (zest_uint)parameter.ComponentType != input->component_type || parameter.Mask != input->mask) {
+					ZEST_PRINT("\t%s: input %s%u is register %u mask %u type %u, reflected as register %u mask %u type %u", name, input->semantic_name, input->semantic_index, input->register_index, input->mask, input->component_type, parameter.Register, (zest_uint)parameter.Mask, (zest_uint)parameter.ComponentType);
+					failed = 1;
+				}
+			}
+			if (!found) {
+				ZEST_PRINT("\t%s: input %s%u isn't reflected", name, input->semantic_name, input->semantic_index);
+				failed = 1;
+			}
+		}
+	}
+	reflection->Release();
+	return failed;
+}
+
+#ifdef ZEST_ENABLE_SLANG
+struct D3D12SlangEntry {
+	const char *module;
+	const char *entry_point;
+	zest_uint stage;
+};
+
+//Every entry point of timelinefx.slang in its default configuration, then particle.slang's compute stage, as its vertex stage writes SV_PointSize
+static const D3D12SlangEntry d3d12_slang_entries[] = {
+	{ "timelinefx", "simulate_particles", 5 },
+	{ "timelinefx", "tfx_ribbon_compute", 5 },
+	{ "timelinefx", "tfx_sprite_playback", 5 },
+	{ "timelinefx", "tfx_ribbon_playback", 5 },
+	{ "timelinefx", "tfx_sprite_bounds", 5 },
+	{ "timelinefx", "tfx_ribbon_bounds", 5 },
+	{ "timelinefx", "tfx_billboard_vertex", 1 },
+	{ "timelinefx", "tfx_billboard_lit_vertex", 1 },
+	{ "timelinefx", "tfx_billboard_baked_vertex", 1 },
+	{ "timelinefx", "tfx_billboard_baked_lit_vertex", 1 },
+	{ "timelinefx", "tfx_ribbon_vertex", 1 },
+	{ "timelinefx", "tfx_ribbon_lit_vertex", 1 },
+	{ "timelinefx", "tfx_billboard_fragment", 0 },
+	{ "timelinefx", "tfx_billboard_cutout_fragment", 0 },
+	{ "timelinefx", "tfx_billboard_lit_fragment", 0 },
+	{ "timelinefx", "tfx_billboard_lit_cutout_fragment", 0 },
+	{ "timelinefx", "tfx_ribbon_fragment", 0 },
+	{ "timelinefx", "tfx_ribbon_cutout_fragment", 0 },
+	{ "timelinefx", "tfx_ribbon_lit_fragment", 0 },
+	{ "timelinefx", "tfx_ribbon_lit_cutout_fragment", 0 },
+	{ "particle", "computeMain", 5 },
+};
+#define D3D12_SLANG_ENTRY_COUNT (sizeof(d3d12_slang_entries) / sizeof(d3d12_slang_entries[0]))
+
+static void print_slang_diagnostics(slang::IBlob *diagnostics, const char *entry_point) {
+	if (diagnostics && diagnostics->getBufferSize()) {
+		ZEST_PRINT("\t%s: %.*s", entry_point, (int)diagnostics->getBufferSize(), (const char *)diagnostics->getBufferPointer());
+	}
+	if (diagnostics) diagnostics->release();
+}
+
+//Compiles the entries above to DXIL through the Slang API, as shared code has no DXIL target yet. A failed entry is left NULL
+static int compile_slang_dxil_set(slang::IBlob **out_blobs) {
+	memset(out_blobs, 0, sizeof(slang::IBlob *) * D3D12_SLANG_ENTRY_COUNT);
+	slang::IGlobalSession *global_session = NULL;
+	if (SLANG_FAILED(slang::createGlobalSession(&global_session)) || !global_session) return 1;
+	slang::TargetDesc target_description = {};
+	target_description.format = SLANG_DXIL;
+	target_description.profile = global_session->findProfile("sm_6_0");
+	const char *search_paths[2] = { "submodules/timelinefxlib/Shaders", "examples/SDL2/zest-compute-example/shaders" };
+	slang::SessionDesc session_description = {};
+	session_description.targets = &target_description;
+	session_description.targetCount = 1;
+	session_description.searchPaths = search_paths;
+	session_description.searchPathCount = 2;
+	session_description.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
+	slang::ISession *session = NULL;
+	int failed = SLANG_FAILED(global_session->createSession(session_description, &session)) || !session;
+	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT && !failed; ++entry_index) {
+		const D3D12SlangEntry *entry = &d3d12_slang_entries[entry_index];
+		slang::IBlob *diagnostics = NULL;
+		slang::IModule *module = session->loadModule(entry->module, &diagnostics);
+		print_slang_diagnostics(diagnostics, entry->module);
+		slang::IEntryPoint *entry_point = NULL;
+		if (!module || SLANG_FAILED(module->findEntryPointByName(entry->entry_point, &entry_point)) || !entry_point) {
+			ZEST_PRINT("\tSlang couldn't find %s in %s", entry->entry_point, entry->module);
+			failed = 1;
+			break;
+		}
+		slang::IComponentType *components[2] = { module, entry_point };
+		slang::IComponentType *program = NULL;
+		diagnostics = NULL;
+		session->createCompositeComponentType(components, 2, &program, &diagnostics);
+		print_slang_diagnostics(diagnostics, entry->entry_point);
+		diagnostics = NULL;
+		if (program) {
+			program->getEntryPointCode(0, 0, &out_blobs[entry_index], &diagnostics);
+			print_slang_diagnostics(diagnostics, entry->entry_point);
+			program->release();
+		}
+		entry_point->release();
+		if (!out_blobs[entry_index]) {
+			ZEST_PRINT("\tSlang couldn't compile %s to DXIL", entry->entry_point);
+			failed = 1;
+		}
+	}
+	if (session) session->release();
+	global_session->release();
+	return failed;
+}
+
+static void release_slang_dxil_set(slang::IBlob **blobs) {
+	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
+		if (blobs[entry_index]) blobs[entry_index]->release();
+		blobs[entry_index] = NULL;
+	}
+}
+#endif
+
+int test_d3d12_shader_reflection_cross_check(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_uint checked_count = 0;
+	ID3DBlob *blit_vertex = NULL;
+	ID3DBlob *blit_pixel = NULL;
+	zest_size blit_length = (zest_size)strlen(zest__dx_blit_shader);
+	failed |= !zest__dx_compile_hlsl(device, zest__dx_blit_shader, blit_length, "zest_blit_vertex", "vertex_main", "vs_6_0", NULL, 0, NULL, &blit_vertex);
+	failed |= !zest__dx_compile_hlsl(device, zest__dx_blit_shader, blit_length, "zest_blit_pixel", "pixel_main", "ps_6_0", NULL, 0, NULL, &blit_pixel);
+	DxcCreateInstanceProc create_instance = (DxcCreateInstanceProc)(void *)GetProcAddress(ZEST_DX_BACKEND(device, device)->dxc_module, "DxcCreateInstance");
+	IDxcUtils *utils = NULL;
+	if (!create_instance || FAILED(create_instance(CLSID_DxcUtils, IID_PPV_ARGS(&utils))) || !utils) {
+		ZEST_DX_RELEASE(blit_vertex);
+		ZEST_DX_RELEASE(blit_pixel);
+		finish_device(device);
+		return 1;
+	}
+	for (zest_uint file_index = 0; file_index != D3D12_TEST_SHADER_FILE_COUNT; ++file_index) {
+		ID3DBlob *dxil = compile_test_shader_file(device, &d3d12_test_shader_files[file_index]);
+		failed |= !dxil || cross_check_reflection(utils, ZEST_DX_CALL0(dxil, GetBufferPointer), ZEST_DX_CALL0(dxil, GetBufferSize), d3d12_test_shader_files[file_index].file_name);
+		checked_count += dxil != NULL;
+		ZEST_DX_RELEASE(dxil);
+	}
+	ID3DBlob *blit_blobs[2] = { blit_vertex, blit_pixel };
+	for (zest_uint blit_index = 0; blit_index != 2; ++blit_index) {
+		failed |= !blit_blobs[blit_index] || cross_check_reflection(utils, ZEST_DX_CALL0(blit_blobs[blit_index], GetBufferPointer), ZEST_DX_CALL0(blit_blobs[blit_index], GetBufferSize), blit_index ? "zest_blit_pixel" : "zest_blit_vertex");
+		checked_count += blit_blobs[blit_index] != NULL;
+	}
+	ZEST_DX_RELEASE(blit_vertex);
+	ZEST_DX_RELEASE(blit_pixel);
+#ifdef ZEST_ENABLE_SLANG
+	slang::IBlob *slang_blobs[D3D12_SLANG_ENTRY_COUNT];
+	failed |= compile_slang_dxil_set(slang_blobs);
+	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
+		slang::IBlob *blob = slang_blobs[entry_index];
+		const D3D12SlangEntry *entry = &d3d12_slang_entries[entry_index];
+		if (!blob) continue;
+		zest_dx_shader_reflection_t reflection;
+		const char *error = NULL;
+		failed |= cross_check_reflection(utils, blob->getBufferPointer(), blob->getBufferSize(), entry->entry_point);
+		if (zest__dx_reflect_shader(blob->getBufferPointer(), blob->getBufferSize(), &reflection, &error) && reflection.stage != entry->stage) {
+			ZEST_PRINT("\t%s: stage %u, expected %u", entry->entry_point, reflection.stage, entry->stage);
+			failed = 1;
+		}
+		checked_count++;
+	}
+	release_slang_dxil_set(slang_blobs);
+#else
+	ZEST_PRINT("\tThe Slang set was skipped, as ZEST_ENABLE_SLANG isn't defined");
+#endif
+	ZEST_PRINT("\t%u shaders cross checked", checked_count);
+	utils->Release();
+	return failed | finish_device(device);
+}
+
+//Places the bytes so they end where a no access page begins, so any read past them faults
+struct GuardedBuffer {
+	unsigned char *allocation;
+	unsigned char *guard;
+};
+
+static GuardedBuffer create_guarded_buffer(size_t capacity) {
+	SYSTEM_INFO system_info;
+	GetSystemInfo(&system_info);
+	size_t page_size = system_info.dwPageSize;
+	size_t usable_size = (capacity + page_size - 1) / page_size * page_size;
+	GuardedBuffer buffer = {};
+	buffer.allocation = (unsigned char *)VirtualAlloc(NULL, usable_size + page_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!buffer.allocation) return buffer;
+	DWORD old_protection = 0;
+	VirtualProtect(buffer.allocation + usable_size, page_size, PAGE_NOACCESS, &old_protection);
+	buffer.guard = buffer.allocation + usable_size;
+	return buffer;
+}
+
+static unsigned char *guarded_copy(GuardedBuffer *buffer, const void *data, size_t size) {
+	unsigned char *destination = buffer->guard - size;
+	memcpy(destination, data, size);
+	return destination;
+}
+
+int test_d3d12_shader_reflection_bad_containers(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_dx_shader_reflection_t reflection;
+	const char *error = NULL;
+	ID3DBlob *dxil = compile_test_hlsl(device, reflection_slot_pixel_source, "reflection_pixel", "ps_6_0", NULL, 0);
+	if (!dxil) return 1 | finish_device(device);
+	const unsigned char *container = (const unsigned char *)ZEST_DX_CALL0(dxil, GetBufferPointer);
+	size_t container_size = ZEST_DX_CALL0(dxil, GetBufferSize);
+	GuardedBuffer buffer = create_guarded_buffer(container_size);
+	failed |= buffer.allocation == NULL;
+	if (buffer.allocation) {
+		failed |= !zest__dx_reflect_shader(guarded_copy(&buffer, container, container_size), container_size, &reflection, &error);
+		zest_uint accepted_prefixes = 0;
+		for (size_t length = 0; length != container_size; ++length) {
+			accepted_prefixes += zest__dx_reflect_shader(guarded_copy(&buffer, container, length), length, &reflection, &error) != ZEST_FALSE;
+			//The same prefix with its size field rewritten to match, so the part bounds are what has to catch it
+			if (length >= 28) {
+				unsigned char *copy = guarded_copy(&buffer, container, length);
+				zest_uint patched_size = (zest_uint)length;
+				memcpy(copy + 24, &patched_size, sizeof(patched_size));
+				accepted_prefixes += zest__dx_reflect_shader(copy, length, &reflection, &error) != ZEST_FALSE;
+			}
+		}
+		if (accepted_prefixes) {
+			ZEST_PRINT("\t%u truncated containers were accepted", accepted_prefixes);
+			failed = 1;
+		}
+		zest_uint spirv[16] = { 0x07230203 };
+		failed |= zest__dx_reflect_shader(guarded_copy(&buffer, spirv, sizeof(spirv)), sizeof(spirv), &reflection, &error) != ZEST_FALSE;
+		VirtualFree(buffer.allocation, 0, MEM_RELEASE);
+	}
+	ZEST_DX_RELEASE(dxil);
+
+	const char *old_validator[2] = { "-validator-version", "1.5" };
+	ID3DBlob *old_dxil = compile_test_hlsl(device, reflection_compute_source, "reflection_compute_validator_1_5", "cs_6_0", old_validator, 2);
+	ID3DBlob *current_dxil = compile_test_hlsl(device, reflection_compute_source, "reflection_compute", "cs_6_0", NULL, 0);
+	failed |= !old_dxil || !current_dxil;
+	if (old_dxil) {
+		error = NULL;
+		failed |= zest__dx_reflect_shader(ZEST_DX_CALL0(old_dxil, GetBufferPointer), ZEST_DX_CALL0(old_dxil, GetBufferSize), &reflection, &error) != ZEST_FALSE;
+		failed |= !error || !strstr(error, "1.6");
+	}
+	failed |= !reflect_blob(current_dxil, &reflection, "reflection_compute");
+	ZEST_DX_RELEASE(old_dxil);
+	ZEST_DX_RELEASE(current_dxil);
+	return failed | finish_device(device);
+}
+
+#define TEST_UNBOUNDED 0xFFFFFFFF
+
+static zest_dx_shader_reflection_t test_reflection(zest_uint stage) {
+	zest_dx_shader_reflection_t reflection;
+	memset(&reflection, 0, sizeof(reflection));
+	reflection.stage = stage;
+	return reflection;
+}
+
+static void add_test_resource(zest_dx_shader_reflection_t *reflection, zest_uint type, zest_uint kind, zest_uint space, zest_uint lower_bound, zest_uint upper_bound) {
+	zest_dx_shader_resource_t *resource = &reflection->resources[reflection->resource_count++];
+	resource->type = type;
+	resource->kind = kind;
+	resource->space = space;
+	resource->lower_bound = lower_bound;
+	resource->upper_bound = upper_bound;
+}
+
+static zest_dx_bindless_regions_t test_bindless_regions(void) {
+	zest_uint counts[zest_max_global_binding_number] = { 64, 1024, 1024, 1024, 256, 1024, 1024, 64, 256 };
+	zest_dx_bindless_regions_t regions;
+	zest__dx_compute_bindless_regions(counts, &regions);
+	return regions;
+}
+
+static zest_bool derive_test_layout(zest_dx_shader_reflection_t *first, zest_dx_shader_reflection_t *second, zest_uint push_constant_size, zest_dx_root_layout_t *out_layout, char *out_error, zest_size error_size) {
+	zest_dx_bindless_regions_t regions = test_bindless_regions();
+	const zest_dx_shader_reflection_t *stages[2] = { first, second };
+	return zest__dx_derive_root_layout(stages, second ? 2 : 1, push_constant_size, first->stage == 1, &regions, out_layout, out_error, error_size);
+}
+
+int test_d3d12_root_layout_rules(void) {
+	int failed = 0;
+	char error[512] = {};
+	zest_dx_root_layout_t layout;
+
+	zest_dx_shader_reflection_t vertex = test_reflection(1);
+	zest_dx_shader_reflection_t pixel = test_reflection(0);
+	add_test_resource(&vertex, 2, 13, 0, 0, 0);
+	add_test_resource(&pixel, 2, 13, 0, 0, 0);
+	failed |= !derive_test_layout(&vertex, &pixel, 128, &layout, error, sizeof(error));
+	failed |= layout.push_count != 1 || layout.pushes[0].visibility != D3D12_SHADER_VISIBILITY_ALL || layout.push_dword_count != 32 || layout.push_as_cbv != ZEST_FALSE;
+
+	//The baked billboard's shape: two push registers and both tables, 66 DWORDs as root constants
+	vertex = test_reflection(1);
+	pixel = test_reflection(0);
+	add_test_resource(&vertex, 2, 13, 0, 2, 2);
+	add_test_resource(&pixel, 2, 13, 0, 1, 1);
+	add_test_resource(&pixel, 1, 14, 100, 0, TEST_UNBOUNDED);
+	add_test_resource(&pixel, 3, 2, 101, 0, TEST_UNBOUNDED);
+	failed |= !derive_test_layout(&vertex, &pixel, 128, &layout, error, sizeof(error));
+	failed |= layout.push_count != 2 || layout.pushes[0].shader_register != 2 || layout.pushes[0].visibility != D3D12_SHADER_VISIBILITY_VERTEX;
+	failed |= layout.pushes[1].shader_register != 1 || layout.pushes[1].visibility != D3D12_SHADER_VISIBILITY_PIXEL || layout.push_as_cbv != ZEST_TRUE;
+	zest_dx_root_parameters_t parameters = zest__dx_root_parameters(&layout);
+	failed |= parameters.push_count != 2 || parameters.resource_table != 2 || parameters.sampler_table != 3 || parameters.push_as_cbv != ZEST_TRUE;
+	failed |= !derive_test_layout(&vertex, &pixel, 48, &layout, error, sizeof(error));
+	failed |= layout.push_as_cbv != ZEST_FALSE || layout.push_dword_count != 12;
+
+	//Every row of the slot table, expected range type and region start written out for the counts above
+	static const zest_uint expected_range_types[12] = {
+		D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+		D3D12_DESCRIPTOR_RANGE_TYPE_UAV, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, D3D12_DESCRIPTOR_RANGE_TYPE_CBV,
+	};
+	static const zest_uint expected_heap_offsets[12] = { 0, 0, 1024, 2048, 3072, 6464, 3328, 3328, 4352, 4352, 5376, 6400 };
+	pixel = test_reflection(0);
+	for (zest_uint slot = 0; slot != 12; ++slot) {
+		add_test_resource(&pixel, reflection_slot_types[slot][0], reflection_slot_types[slot][1], 100 + slot, 0, TEST_UNBOUNDED);
+	}
+	failed |= !derive_test_layout(&pixel, NULL, 128, &layout, error, sizeof(error));
+	failed |= layout.resource_range_count != 11 || layout.sampler_range_count != 1 || layout.push_count != 0;
+	for (zest_uint slot = 0; slot != 12; ++slot) {
+		const zest_dx_root_range_t *range = NULL;
+		const zest_dx_root_range_t *ranges = slot == 0 ? layout.sampler_ranges : layout.resource_ranges;
+		zest_uint range_count = slot == 0 ? layout.sampler_range_count : layout.resource_range_count;
+		for (zest_uint range_index = 0; range_index != range_count; ++range_index) {
+			if (ranges[range_index].space == 100 + slot) range = &ranges[range_index];
+		}
+		if (!range || range->range_type != expected_range_types[slot] || range->heap_offset != expected_heap_offsets[slot] || range->base_register != 0) {
+			ZEST_PRINT("\tSlot %u in space %u didn't get range type %u at heap offset %u", slot, 100 + slot, expected_range_types[slot], expected_heap_offsets[slot]);
+			failed = 1;
+		}
+	}
+	parameters = zest__dx_root_parameters(&layout);
+	failed |= parameters.resource_table != 0 || parameters.sampler_table != 1;
+
+	//One array two stages declare at the same register is one range
+	vertex = test_reflection(1);
+	pixel = test_reflection(0);
+	add_test_resource(&vertex, 3, 2, 101, 0, TEST_UNBOUNDED);
+	add_test_resource(&pixel, 3, 2, 101, 0, TEST_UNBOUNDED);
+	failed |= !derive_test_layout(&vertex, &pixel, 128, &layout, error, sizeof(error));
+	failed |= layout.resource_range_count != 1;
+	parameters = zest__dx_root_parameters(&layout);
+	failed |= parameters.resource_table != 0 || parameters.sampler_table != ZEST_INVALID;
+
+	//An unbounded ConstantBuffer<T> array in space 0 is a uniform array, beside the push block
+	pixel = test_reflection(0);
+	add_test_resource(&pixel, 2, 13, 0, 0, 0);
+	add_test_resource(&pixel, 2, 13, 0, 1, TEST_UNBOUNDED);
+	failed |= !derive_test_layout(&pixel, NULL, 128, &layout, error, sizeof(error));
+	failed |= layout.push_count != 1 || layout.pushes[0].shader_register != 0 || layout.resource_range_count != 1;
+	failed |= layout.resource_ranges[0].range_type != D3D12_DESCRIPTOR_RANGE_TYPE_CBV || layout.resource_ranges[0].base_register != 1 || layout.resource_ranges[0].heap_offset != 6400;
+
+	//The layout's bytes are the cache key, so nothing left over from before may survive in them
+	vertex = test_reflection(1);
+	pixel = test_reflection(0);
+	add_test_resource(&vertex, 2, 13, 0, 2, 2);
+	add_test_resource(&pixel, 2, 13, 0, 1, 1);
+	add_test_resource(&pixel, 1, 14, 100, 0, TEST_UNBOUNDED);
+	zest_dx_root_layout_t second_layout;
+	memset(&layout, 0xCD, sizeof(layout));
+	memset(&second_layout, 0x5A, sizeof(second_layout));
+	failed |= !derive_test_layout(&vertex, &pixel, 128, &layout, error, sizeof(error));
+	failed |= !derive_test_layout(&vertex, &pixel, 128, &second_layout, error, sizeof(error));
+	failed |= memcmp(&layout, &second_layout, sizeof(layout)) != 0;
+	if (error[0]) ZEST_PRINT("\t%s", error);
+	return failed;
+}
+
+struct RootLayoutErrorCase {
+	const char *name;
+	const char *fragment;
+	zest_uint space;
+};
+
+int test_d3d12_root_layout_errors(void) {
+	int failed = 0;
+	char error[512];
+	zest_dx_root_layout_t layout;
+	static const RootLayoutErrorCase cases[] = {
+		{ "Texture2DMS array", "is an unbounded array of a type the D3D12 backend has no bindless region for (type 3, kind 3)", 101 },
+		{ "Counter buffer", "is a structured buffer that uses its hidden counter, which the D3D12 backend doesn't support", 105 },
+		{ "Non-array in space 3", "is a non-array resource in space 3. Custom descriptor sets aren't available on the D3D12 backend", 3 },
+		{ "Non-array texture in space 0", "is a non-array resource in space 0. Only constant buffers, which are push constants, can be declared there", 0 },
+		{ "Push without a range", "reads a push constant block but the pipeline layout has no push constant range", 0 },
+		{ "Different types", "has a different type from the array another stage declares at the same register", 101 },
+		{ "Too many arrays", "is one bindless array more than the D3D12 backend's limit", 132 },
+		{ "Too many samplers", "is one bindless array more than the D3D12 backend's limit", 104 },
+		{ "Too many push registers", "is one push constant register more than the D3D12 backend's limit", 0 },
+		{ "Fixed size array", "is a fixed size array", 9 },
+		{ "Push range too large", "is over the D3D12 backend's limit of 128 bytes", 0 },
+	};
+	zest_uint case_count = sizeof(cases) / sizeof(cases[0]);
+	for (zest_uint case_index = 0; case_index != case_count; ++case_index) {
+		zest_dx_shader_reflection_t vertex = test_reflection(1);
+		zest_dx_shader_reflection_t pixel = test_reflection(0);
+		zest_dx_shader_reflection_t *first = &pixel;
+		zest_dx_shader_reflection_t *second = NULL;
+		zest_uint push_constant_size = 128;
+		switch (case_index) {
+		case 0: add_test_resource(&pixel, 3, 3, 101, 0, TEST_UNBOUNDED); break;
+		case 1: add_test_resource(&pixel, 9, 12, 105, 0, TEST_UNBOUNDED); break;
+		case 2: add_test_resource(&pixel, 3, 2, 3, 0, 0); break;
+		case 3: add_test_resource(&pixel, 3, 2, 0, 0, 0); break;
+		case 4: add_test_resource(&pixel, 2, 13, 0, 0, 0); push_constant_size = 0; break;
+		case 5:
+			add_test_resource(&vertex, 3, 2, 101, 0, TEST_UNBOUNDED);
+			add_test_resource(&pixel, 3, 5, 101, 0, TEST_UNBOUNDED);
+			first = &vertex;
+			second = &pixel;
+			break;
+		case 6:
+			for (zest_uint space = 0; space != ZEST_DX_MAX_ROOT_RANGES + 1; ++space) add_test_resource(&pixel, 3, 2, 100 + space, 0, TEST_UNBOUNDED);
+			break;
+		case 7:
+			for (zest_uint space = 0; space != ZEST_DX_MAX_SAMPLER_RANGES + 1; ++space) add_test_resource(&pixel, 1, 14, 100 + space, 0, TEST_UNBOUNDED);
+			break;
+		case 8:
+			for (zest_uint shader_register = 0; shader_register != ZEST_DX_MAX_PUSH_REGISTERS + 1; ++shader_register) add_test_resource(&pixel, 2, 13, 0, shader_register, shader_register);
+			break;
+		case 9: add_test_resource(&pixel, 3, 2, 9, 0, 3); break;
+		case 10: add_test_resource(&pixel, 2, 13, 0, 0, 0); push_constant_size = 256; break;
+		}
+		error[0] = 0;
+		zest_bool derived = derive_test_layout(first, second, push_constant_size, &layout, error, sizeof(error));
+		char space_text[32];
+		snprintf(space_text, sizeof(space_text), "space %u", cases[case_index].space);
+		if (derived || !strstr(error, cases[case_index].fragment) || !strstr(error, space_text) || strncmp(error, "The pixel shader's ", 19) != 0) {
+			ZEST_PRINT("\t%s: %s", cases[case_index].name, derived ? "derived without an error" : error);
+			failed = 1;
+		}
+	}
+	zest_dx_shader_reflection_t geometry = test_reflection(2);
+	failed |= derive_test_layout(&geometry, NULL, 128, &layout, error, sizeof(error)) != ZEST_FALSE;
+	return failed;
+}
+
+static int create_root_signature_from_blobs(zest_device device, const void **datas, const size_t *sizes, zest_uint stage_count, const char *name, zest_dx_root_layout_t *out_layout) {
+	zest_dx_shader_reflection_t reflections[2];
+	const zest_dx_shader_reflection_t *stages[2];
+	zest_bool input_assembler = ZEST_FALSE;
+	for (zest_uint stage_index = 0; stage_index != stage_count; ++stage_index) {
+		const char *error = NULL;
+		if (!zest__dx_reflect_shader(datas[stage_index], sizes[stage_index], &reflections[stage_index], &error)) {
+			ZEST_PRINT("\t%s: %s", name, error);
+			return 1;
+		}
+		stages[stage_index] = &reflections[stage_index];
+		input_assembler |= reflections[stage_index].stage == 1;
+	}
+	char error_text[512];
+	const zest_dx_bindless_regions_t *regions = &ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool->regions;
+	if (!zest__dx_derive_root_layout(stages, stage_count, 128, input_assembler, regions, out_layout, error_text, sizeof(error_text))) {
+		ZEST_PRINT("\t%s: %s", name, error_text);
+		return 1;
+	}
+	if (!zest__dx_root_signature(device, out_layout)) {
+		ZEST_PRINT("\t%s: the root signature wasn't created", name);
+		return 1;
+	}
+	return 0;
+}
+
+static int create_root_signature_from_dxil(zest_device device, ID3DBlob **blobs, zest_uint stage_count, const char *name, zest_dx_root_layout_t *out_layout) {
+	const void *datas[2];
+	size_t sizes[2];
+	for (zest_uint stage_index = 0; stage_index != stage_count; ++stage_index) {
+		if (!blobs[stage_index]) return 1;
+		datas[stage_index] = ZEST_DX_CALL0(blobs[stage_index], GetBufferPointer);
+		sizes[stage_index] = ZEST_DX_CALL0(blobs[stage_index], GetBufferSize);
+	}
+	return create_root_signature_from_blobs(device, datas, sizes, stage_count, name, out_layout);
+}
+
+int test_d3d12_root_signatures_from_shaders(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_uint created_count = 0;
+	zest_dx_root_layout_t layout;
+	ID3DBlob *files[D3D12_TEST_SHADER_FILE_COUNT];
+	for (zest_uint file_index = 0; file_index != D3D12_TEST_SHADER_FILE_COUNT; ++file_index) {
+		files[file_index] = compile_test_shader_file(device, &d3d12_test_shader_files[file_index]);
+	}
+	//The six compute files come first, then instance.vert, instance.frag, vertex.vert and vertex.frag
+	for (zest_uint file_index = 0; file_index != 6; ++file_index) {
+		failed |= create_root_signature_from_dxil(device, &files[file_index], 1, d3d12_test_shader_files[file_index].file_name, &layout);
+		created_count++;
+	}
+	failed |= create_root_signature_from_dxil(device, &files[6], 2, "instance.vert + instance.frag", &layout);
+	failed |= create_root_signature_from_dxil(device, &files[8], 2, "vertex.vert + vertex.frag", &layout);
+	created_count += 2;
+	ID3D12RootSignature *first_signature = zest__dx_root_signature(device, &layout);
+	failed |= first_signature == NULL || zest__dx_root_signature(device, &layout) != first_signature;
+	for (zest_uint file_index = 0; file_index != D3D12_TEST_SHADER_FILE_COUNT; ++file_index) {
+		ZEST_DX_RELEASE(files[file_index]);
+	}
+
+#ifdef ZEST_ENABLE_SLANG
+	slang::IBlob *slang_blobs[D3D12_SLANG_ENTRY_COUNT];
+	failed |= compile_slang_dxil_set(slang_blobs);
+	zest_uint baked_vertex = ZEST_INVALID;
+	zest_uint billboard_fragment = ZEST_INVALID;
+	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
+		slang::IBlob *blob = slang_blobs[entry_index];
+		if (!strcmp(d3d12_slang_entries[entry_index].entry_point, "tfx_billboard_baked_vertex")) baked_vertex = entry_index;
+		if (!strcmp(d3d12_slang_entries[entry_index].entry_point, "tfx_billboard_fragment")) billboard_fragment = entry_index;
+		if (!blob) continue;
+		const void *data = blob->getBufferPointer();
+		size_t size = blob->getBufferSize();
+		failed |= create_root_signature_from_blobs(device, &data, &size, 1, d3d12_slang_entries[entry_index].entry_point, &layout);
+		created_count++;
+	}
+	if (baked_vertex != ZEST_INVALID && billboard_fragment != ZEST_INVALID && slang_blobs[baked_vertex] && slang_blobs[billboard_fragment]) {
+		const void *datas[2] = { slang_blobs[baked_vertex]->getBufferPointer(), slang_blobs[billboard_fragment]->getBufferPointer() };
+		size_t sizes[2] = { slang_blobs[baked_vertex]->getBufferSize(), slang_blobs[billboard_fragment]->getBufferSize() };
+		failed |= create_root_signature_from_blobs(device, datas, sizes, 2, "tfx_billboard_baked_vertex + tfx_billboard_fragment", &layout);
+		created_count++;
+		zest_bool baked_shape = layout.push_count == 2 && layout.pushes[0].shader_register == 2 && layout.pushes[0].visibility == D3D12_SHADER_VISIBILITY_VERTEX &&
+			layout.pushes[1].shader_register == 1 && layout.pushes[1].visibility == D3D12_SHADER_VISIBILITY_PIXEL && layout.push_as_cbv;
+		ZEST_PRINT("\tBaked billboard: %u push registers, b%u for %s and b%u for %s, %s", layout.push_count, layout.pushes[0].shader_register, layout.pushes[0].visibility == D3D12_SHADER_VISIBILITY_VERTEX ? "vertex" : "other",
+			layout.pushes[1].shader_register, layout.pushes[1].visibility == D3D12_SHADER_VISIBILITY_PIXEL ? "pixel" : "other", layout.push_as_cbv ? "root CBVs" : "root constants");
+		failed |= !baked_shape;
+	} else {
+		failed = 1;
+	}
+	release_slang_dxil_set(slang_blobs);
+#else
+	ZEST_PRINT("\tThe Slang set was skipped, as ZEST_ENABLE_SLANG isn't defined");
+#endif
+	ZEST_PRINT("\t%u root signatures created, %u distinct", created_count, zest_map_size(ZEST_DX_BACKEND(device, device)->root_signatures));
+	failed |= zest_GetValidationErrorCount(device) != 0;
+
+	zest_ResetDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= zest_map_size(ZEST_DX_BACKEND(device, device)->root_signatures) != 0;
+	ID3D12RootSignature *recreated = zest__dx_root_signature(device, &layout);
+	failed |= recreated == NULL || zest_map_size(ZEST_DX_BACKEND(device, device)->root_signatures) != 1;
+	return failed | finish_device(device);
+}
+
+static const char *macro_compute_source =
+	"#if FIRST != 3\n"
+	"#error FIRST must be 3\n"
+	"#endif\n"
+	"#ifndef SECOND\n"
+	"#error SECOND is missing\n"
+	"#endif\n"
+	"[numthreads(1, 1, 1)]\n"
+	"void main() {}\n";
+
+//The part's data, or NULL when a container that already parsed has no part with this FourCC
+static const unsigned char *find_container_part(const void *container, zest_uint fourcc, zest_uint *out_part_size) {
+	const unsigned char *bytes = (const unsigned char *)container;
+	zest_uint part_count;
+	memcpy(&part_count, bytes + 28, sizeof(part_count));
+	for (zest_uint part = 0; part != part_count; ++part) {
+		zest_uint offset;
+		zest_uint part_fourcc;
+		memcpy(&offset, bytes + 32 + part * 4, sizeof(offset));
+		memcpy(&part_fourcc, bytes + offset, sizeof(part_fourcc));
+		if (part_fourcc == fourcc) {
+			memcpy(out_part_size, bytes + offset + 4, sizeof(*out_part_size));
+			return bytes + offset + 8;
+		}
+	}
+	return NULL;
+}
+
+#define D3D12_CONCURRENT_SOURCE_COUNT 8
+#define D3D12_CONCURRENT_THREAD_COUNT 4
+
+struct D3D12CompileWorker {
+	zest_device device;
+	zest_file *sources;				//D3D12_CONCURRENT_SOURCE_COUNT, the first files of d3d12_test_shader_files
+	zest_uint parsed_count;
+};
+
+static DWORD WINAPI concurrent_compile_worker(void *parameter) {
+	D3D12CompileWorker *worker = (D3D12CompileWorker *)parameter;
+	for (zest_uint source_index = 0; source_index != D3D12_CONCURRENT_SOURCE_COUNT; ++source_index) {
+		const D3D12TestShaderFile *shader_file = &d3d12_test_shader_files[source_index];
+		ID3DBlob *dxil = compile_test_hlsl(worker->device, worker->sources[source_index], shader_file->file_name, shader_file->profile, NULL, 0);
+		zest_dx_shader_reflection_t reflection;
+		if (reflect_blob(dxil, &reflection, shader_file->file_name)) worker->parsed_count++;
+		ZEST_DX_RELEASE(dxil);
+	}
+	return 0;
+}
+
+int test_d3d12_shader_compile(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	int failed = 0;
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+
+	//Profile: the DXIL part's program version ends in the shader model as 0x6x
+	zest_shader_handle profile_handle = zest_CreateShader(device, hlsl_empty_compute, zest_compute_shader, "zest_profile_test", NULL, ZEST_TRUE);
+	zest_shader profile_shader = zest_GetShader(profile_handle);
+	zest_dx_shader_reflection_t reflection;
+	const char *error = NULL;
+	zest_uint program_version = 0;
+	if (zest__dx_reflect_shader(profile_shader->binary, profile_shader->binary_size, &reflection, &error)) {
+		zest_uint part_size = 0;
+		const unsigned char *program = find_container_part(profile_shader->binary, ZEST__DX_FOURCC_DXIL, &part_size);
+		if (program && part_size >= sizeof(program_version)) memcpy(&program_version, program, sizeof(program_version));
+	}
+	ZEST_PRINT("\tShader model 0x%X, compute program version 0x%X", (unsigned int)backend->support.shader_model, program_version);
+	failed |= program_version == 0 || (program_version & 0xFF) != ((zest_uint)backend->support.shader_model & 0xFF);
+	zest_FreeShader(profile_handle);
+
+	//Macros: one with a value and one without, then a compile without them fails and keeps the last binary
+	zest_shader_handle macro_handle = zest_CreateShader(device, hlsl_empty_compute, zest_compute_shader, "zest_macro_test", NULL, ZEST_TRUE);
+	zest_shader_options options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(options, "FIRST", "3");
+	zest_AddMacroDefinition(options, "SECOND", NULL);
+	failed |= !compile_test_source(device, macro_handle, macro_compute_source, options);
+	zest_FreeShaderOptions(options);
+	zest_shader macro_shader = zest_GetShader(macro_handle);
+	char *binary_before = macro_shader->binary;
+	zest_size size_before = macro_shader->binary_size;
+	zest_key hash_before = zest_Hash(macro_shader->binary, (zest_uint)size_before, ZEST_HASH_SEED);
+	zest_shader_options no_macros = zest_CreateShaderOptions(device);
+	ZEST_PRINT("\tThe next shader compilation error is expected");
+	failed |= zest_CompileShader(macro_handle, no_macros) != ZEST_FALSE;
+	zest_FreeShaderOptions(no_macros);
+	failed |= macro_shader->binary != binary_before || macro_shader->binary_size != size_before || zest_Hash(macro_shader->binary, (zest_uint)size_before, ZEST_HASH_SEED) != hash_before;
+	failed |= zest_GetShaderLastError(macro_handle)[0] == 0;
+	zest_FreeShader(macro_handle);
+
+	//Salt
+	failed |= device->shader_cache_salt == 0;
+	failed |= zest__shader_cache_key(macro_compute_source, zest_compute_shader, "main", NULL, 0) == zest__shader_cache_key(macro_compute_source, zest_compute_shader, "main", NULL, 1);
+
+	//Concurrent: DXC compiler objects aren't thread safe, so compiles must serialise inside zest__dx_compile_hlsl
+	zest_file sources[D3D12_CONCURRENT_SOURCE_COUNT] = {};
+	for (zest_uint source_index = 0; source_index != D3D12_CONCURRENT_SOURCE_COUNT; ++source_index) {
+		char path[256];
+		snprintf(path, sizeof(path), D3D12_HLSL_SHADER_PATH "%s", d3d12_test_shader_files[source_index].file_name);
+		sources[source_index] = zest_ReadEntireFile(device, path, ZEST_TRUE);
+		failed |= sources[source_index] == NULL;
+	}
+	if (!failed) {
+		D3D12CompileWorker workers[D3D12_CONCURRENT_THREAD_COUNT] = {};
+		HANDLE threads[D3D12_CONCURRENT_THREAD_COUNT] = {};
+		zest_uint thread_count = 0;
+		for (; thread_count != D3D12_CONCURRENT_THREAD_COUNT; ++thread_count) {
+			workers[thread_count].device = device;
+			workers[thread_count].sources = sources;
+			threads[thread_count] = CreateThread(NULL, 0, concurrent_compile_worker, &workers[thread_count], 0, NULL);
+			if (!threads[thread_count]) break;
+		}
+		WaitForMultipleObjects(thread_count, threads, TRUE, INFINITE);
+		zest_uint parsed_count = 0;
+		for (zest_uint thread = 0; thread != thread_count; ++thread) {
+			CloseHandle(threads[thread]);
+			parsed_count += workers[thread].parsed_count;
+		}
+		ZEST_PRINT("\t%u of %u concurrent compiles parsed", parsed_count, D3D12_CONCURRENT_THREAD_COUNT * D3D12_CONCURRENT_SOURCE_COUNT);
+		failed |= parsed_count != D3D12_CONCURRENT_THREAD_COUNT * D3D12_CONCURRENT_SOURCE_COUNT;
+	}
+	for (zest_uint source_index = 0; source_index != D3D12_CONCURRENT_SOURCE_COUNT; ++source_index) {
+		if (sources[source_index]) zest_FreeFile(device, sources[source_index]);
+	}
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	return failed | finish_device(device);
+}
+
+static const char *translation_vertex_source =
+	"struct vertex_input {\n"
+	"	uint instance : SV_InstanceID;\n"
+	"	float3 position : POSITION0;\n"
+	"	float2 uv : TEXCOORD0;\n"
+	"	float4 color : COLOR0;\n"
+	"};\n"
+	"float4 main(vertex_input input) : SV_Position {\n"
+	"	return float4(input.position + float3(input.uv, (float)input.instance), 1.0) * input.color;\n"
+	"}\n";
+
+static zest_rendering_info_t colour_rendering_info(zest_format depth_format) {
+	zest_rendering_info_t rendering_info = {};
+	rendering_info.color_attachment_count = 1;
+	rendering_info.color_attachment_formats[0] = zest_format_r8g8b8a8_unorm;
+	rendering_info.depth_attachment_format = depth_format;
+	return rendering_info;
+}
+
+//Location 3 sits on a per instance binding that the translation vertex shader never reads
+static zest_pipeline_template translation_template(zest_device device, const char *name, zest_bool with_uv) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_AddVertexInputBindingDescription(pipeline_template, 0, 36, zest_input_rate_vertex);
+	zest_AddVertexInputBindingDescription(pipeline_template, 1, 16, zest_input_rate_instance);
+	zest_AddVertexAttribute(pipeline_template, 0, 0, zest_format_r32g32b32_sfloat, 0);
+	if (with_uv) zest_AddVertexAttribute(pipeline_template, 0, 1, zest_format_r32g32_sfloat, 12);
+	zest_AddVertexAttribute(pipeline_template, 0, 2, zest_format_r8g8b8a8_unorm, 20);
+	zest_AddVertexAttribute(pipeline_template, 1, 3, zest_format_r32g32b32a32_sfloat, 0);
+	return pipeline_template;
+}
+
+int test_d3d12_pipeline_state_translation(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	ID3DBlob *translation_dxil = compile_test_hlsl(device, translation_vertex_source, "translation_vertex", "vs_6_0", NULL, 0);
+	ID3DBlob *simple_dxil = compile_test_hlsl(device, hlsl_vertex_source, "simple_vertex", "vs_6_0", NULL, 0);
+	zest_dx_shader_reflection_t translation_reflection;
+	zest_dx_shader_reflection_t simple_reflection;
+	int failed = !reflect_blob(translation_dxil, &translation_reflection, "translation_vertex") || !reflect_blob(simple_dxil, &simple_reflection, "simple_vertex");
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC description;
+	D3D12_INPUT_ELEMENT_DESC elements[ZEST_DX_MAX_SHADER_INPUTS];
+	char error[640] = {};
+	zest_rendering_info_t colour_only = colour_rendering_info(zest_format_undefined);
+	zest_rendering_info_t with_depth = colour_rendering_info(zest_format_d32_sfloat);
+	if (!failed) {
+		//Input layout
+		zest_pipeline_template input_template = translation_template(device, "Translation Input", ZEST_TRUE);
+		if (zest__dx_pipeline_description(device, input_template, &colour_only, &translation_reflection, &description, elements, error, sizeof(error))) {
+			failed |= description.InputLayout.NumElements != 3;
+			failed |= strcmp(elements[0].SemanticName, "POSITION") != 0 || elements[0].InputSlot != 0 || elements[0].InputSlotClass != D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA || elements[0].InstanceDataStepRate != 0;
+			failed |= strcmp(elements[1].SemanticName, "TEXCOORD") != 0 || strcmp(elements[2].SemanticName, "COLOR") != 0;
+		} else {
+			ZEST_PRINT("\t%s", error);
+			failed = 1;
+		}
+		input_template->attribute_descriptions[2].binding = 1;
+		if (zest__dx_pipeline_description(device, input_template, &colour_only, &translation_reflection, &description, elements, error, sizeof(error))) {
+			failed |= elements[2].InputSlot != 1 || elements[2].InputSlotClass != D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA || elements[2].InstanceDataStepRate != 1;
+		} else {
+			ZEST_PRINT("\t%s", error);
+			failed = 1;
+		}
+		zest_pipeline_template missing_template = translation_template(device, "Translation Missing", ZEST_FALSE);
+		failed |= zest__dx_pipeline_description(device, missing_template, &colour_only, &translation_reflection, &description, elements, error, sizeof(error)) != ZEST_FALSE;
+		failed |= strstr(error, "TEXCOORD") == NULL;
+		zest_FreePipelineTemplate(input_template);
+		zest_FreePipelineTemplate(missing_template);
+
+		//Blend
+		zest_pipeline_template state_template = zest_CreatePipelineTemplate(device, "Translation State");
+		zest_SetPipelineDisableVertexInput(state_template);
+		state_template->color_blend_attachment.src_color_blend_factor = zest_blend_factor_dst_color;
+		state_template->color_blend_attachment.src_alpha_blend_factor = zest_blend_factor_dst_color;
+		failed |= !zest__dx_pipeline_description(device, state_template, &colour_only, &simple_reflection, &description, elements, error, sizeof(error));
+		failed |= description.BlendState.RenderTarget[0].SrcBlend != D3D12_BLEND_DEST_COLOR || description.BlendState.RenderTarget[0].SrcBlendAlpha != D3D12_BLEND_DEST_ALPHA;
+
+		//Depth, and the sample count of 0 the rendering info has
+		zest_SetPipelineDepthTest(state_template, ZEST_TRUE, ZEST_TRUE);
+		state_template->depth_stencil.depth_compare_op = zest_compare_op_less;
+		failed |= !zest__dx_pipeline_description(device, state_template, &colour_only, &simple_reflection, &description, elements, error, sizeof(error));
+		failed |= description.DepthStencilState.DepthEnable != FALSE || description.SampleDesc.Count != 1;
+		failed |= !zest__dx_pipeline_description(device, state_template, &with_depth, &simple_reflection, &description, elements, error, sizeof(error));
+		failed |= description.DepthStencilState.DepthEnable != TRUE || description.DepthStencilState.DepthFunc != D3D12_COMPARISON_FUNC_LESS || description.DSVFormat != DXGI_FORMAT_D32_FLOAT;
+
+		//Front face
+		zest_front_face front_faces[2] = { zest_front_face_counter_clockwise, zest_front_face_clockwise };
+		for (int face_index = 0; face_index != 2; ++face_index) {
+			state_template->rasterization.front_face = front_faces[face_index];
+			failed |= !zest__dx_pipeline_description(device, state_template, &colour_only, &simple_reflection, &description, elements, error, sizeof(error));
+			failed |= description.RasterizerState.FrontCounterClockwise != zest__dx_front_counter_clockwise(front_faces[face_index]);
+		}
+
+		//Depth bias
+		state_template->rasterization.depth_bias_enable = ZEST_TRUE;
+		state_template->rasterization.depth_bias_constant_factor = 1.6f;
+		state_template->rasterization.depth_bias_clamp = 0.0f;
+		state_template->rasterization.depth_bias_slope_factor = 1.75f;
+		zest_bool saved_dynamic_depth_bias = backend->support.dynamic_depth_bias;
+		backend->support.dynamic_depth_bias = ZEST_TRUE;
+		failed |= !zest__dx_pipeline_description(device, state_template, &with_depth, &simple_reflection, &description, elements, error, sizeof(error));
+		failed |= description.RasterizerState.DepthBias != 2 || description.RasterizerState.SlopeScaledDepthBias != 1.75f;
+		failed |= (description.Flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS) == 0;
+		backend->support.dynamic_depth_bias = ZEST_FALSE;
+		failed |= !zest__dx_pipeline_description(device, state_template, &with_depth, &simple_reflection, &description, elements, error, sizeof(error));
+		failed |= (description.Flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS) != 0;
+		backend->support.dynamic_depth_bias = saved_dynamic_depth_bias;
+		zest_FreePipelineTemplate(state_template);
+
+		//Errors
+		const char *unsupported_states[8] = { "zest_cull_mode_front_and_back", "zest_polygon_mode_point", "zest_topology_triangle_fan", "zest_topology_patch_list", "view_mask", "stencil_test_enable", "depth_bounds_test_enable", "rasterizer_discard_enable" };
+		zest_bool saved_triangle_fan = backend->support.triangle_fan;
+		for (int case_index = 0; case_index != 8; ++case_index) {
+			zest_pipeline_template error_template = zest_CreatePipelineTemplate(device, "Translation Error");
+			zest_SetPipelineDisableVertexInput(error_template);
+			backend->support.triangle_fan = ZEST_TRUE;
+			switch (case_index) {
+				case 0: error_template->rasterization.cull_mode = zest_cull_mode_front_and_back; break;
+				case 1: error_template->rasterization.polygon_mode = zest_polygon_mode_point; break;
+				case 2: error_template->primitive_topology = zest_topology_triangle_fan; backend->support.triangle_fan = ZEST_FALSE; break;
+				case 3: error_template->primitive_topology = zest_topology_patch_list; break;
+				case 4: error_template->view_mask = 3; break;
+				case 5: error_template->depth_stencil.stencil_test_enable = ZEST_TRUE; break;
+				case 6: error_template->depth_stencil.depth_bounds_test_enable = ZEST_TRUE; break;
+				case 7: error_template->rasterization.rasterizer_discard_enable = ZEST_TRUE; break;
+			}
+			error[0] = 0;
+			zest_bool described = zest__dx_pipeline_description(device, error_template, &colour_only, &simple_reflection, &description, elements, error, sizeof(error));
+			if (described || strstr(error, unsupported_states[case_index]) == NULL) {
+				ZEST_PRINT("\t%s wasn't rejected by name", unsupported_states[case_index]);
+				failed = 1;
+			}
+			zest_FreePipelineTemplate(error_template);
+		}
+		backend->support.triangle_fan = saved_triangle_fan;
+	}
+	ZEST_DX_RELEASE(translation_dxil);
+	ZEST_DX_RELEASE(simple_dxil);
+	return failed | finish_device(device);
+}
+
+static const char *cache_other_pixel_source =
+	"float4 main() : SV_Target {\n"
+	"	return float4(0.25, 0.5, 1.0, 1.0);\n"
+	"}\n";
+static const char *cache_lonely_texture_source =
+	"Texture2D lonely_texture : register(t0, space0);\n"
+	"float4 main() : SV_Target {\n"
+	"	return lonely_texture.Load(int3(0, 0, 0));\n"
+	"}\n";
+
+//A command list with no backend, which is all a pipeline build reads
+static zest_command_list_t colour_command_list(zest_context context, zest_key render_pass_key) {
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = context;
+	command_list.device = context->device;
+	command_list.rendering_info = colour_rendering_info(zest_format_undefined);
+	command_list.rendering_info.render_pass_key = render_pass_key;
+	return command_list;
+}
+
+static zest_pipeline_template no_input_template(zest_device device, const char *name, zest_shader_handle vertex_shader, zest_shader_handle pixel_shader) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, pixel_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	return pipeline_template;
+}
+
+static ID3D12PipelineState *pipeline_state_of(zest_pipeline pipeline) {
+	return pipeline ? ZEST_DX_BACKEND(pipeline, pipeline)->pipeline_state : NULL;
+}
+
+#define D3D12_CONCURRENT_PIPELINE_THREAD_COUNT 4
+
+struct D3D12PipelineWorker {
+	zest_device device;
+	HANDLE start_event;			//Set once every thread exists, so their cache misses overlap
+	const void *bytecode;
+	zest_size bytecode_size;
+	ID3D12RootSignature *root_signature;
+	ID3D12PipelineState *pipeline_state;
+};
+
+static DWORD WINAPI concurrent_pipeline_worker(void *parameter) {
+	D3D12PipelineWorker *worker = (D3D12PipelineWorker *)parameter;
+	WaitForSingleObject(worker->start_event, INFINITE);
+	worker->pipeline_state = zest__dx_compute_pipeline_state(worker->device, worker->bytecode, worker->bytecode_size, worker->root_signature);
+	return 0;
+}
+
+//Every thread asks for the same compute pipeline state at once, and all must get the one the cache keeps
+static int run_concurrent_pipeline_states(zest_device device) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	//The layout shader's root signature has a push block and a table, which a shader that reads nothing can run under
+	zest_shader_handle layout_shader = zest_CreateShader(device, reflection_compute_source, zest_compute_shader, "cache_concurrent_layout", NULL, ZEST_TRUE);
+	zest_shader_handle empty_shader = zest_CreateShader(device, hlsl_empty_compute, zest_compute_shader, "cache_concurrent_empty", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Cache Concurrent", layout_shader);
+	zest_compute compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_shader empty = zest_GetShader(empty_shader);
+	HANDLE start_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+	int failed = compute == NULL || empty == NULL || start_event == NULL;
+	if (!failed) {
+		zest_uint state_count = zest_map_size(backend->pipeline_states);
+		D3D12PipelineWorker workers[D3D12_CONCURRENT_PIPELINE_THREAD_COUNT] = {};
+		HANDLE threads[D3D12_CONCURRENT_PIPELINE_THREAD_COUNT] = {};
+		zest_uint thread_count = 0;
+		for (; thread_count != D3D12_CONCURRENT_PIPELINE_THREAD_COUNT; ++thread_count) {
+			D3D12PipelineWorker *worker = &workers[thread_count];
+			worker->device = device;
+			worker->start_event = start_event;
+			worker->bytecode = empty->binary;
+			worker->bytecode_size = empty->binary_size;
+			worker->root_signature = ZEST_DX_BACKEND(compute, compute)->root_signature;
+			threads[thread_count] = CreateThread(NULL, 0, concurrent_pipeline_worker, worker, 0, NULL);
+			if (!threads[thread_count]) break;
+		}
+		SetEvent(start_event);
+		WaitForMultipleObjects(thread_count, threads, TRUE, INFINITE);
+		for (zest_uint thread = 0; thread != thread_count; ++thread) {
+			CloseHandle(threads[thread]);
+			failed |= workers[thread].pipeline_state == NULL || workers[thread].pipeline_state != workers[0].pipeline_state;
+		}
+		failed |= thread_count != D3D12_CONCURRENT_PIPELINE_THREAD_COUNT || zest_map_size(backend->pipeline_states) != state_count + 1;
+		ZEST_PRINT("\t%u threads asked for one pipeline state and the cache grew by %u", thread_count, zest_map_size(backend->pipeline_states) - state_count);
+	}
+	if (start_event) CloseHandle(start_event);
+	if (compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(layout_shader);
+	zest_FreeShader(empty_shader);
+	return failed;
+}
+
+int test_d3d12_pipeline_cache(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, hlsl_vertex_source, zest_vertex_shader, "cache_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle pixel_shader = zest_CreateShader(device, hlsl_pixel_source, zest_fragment_shader, "cache_pixel", NULL, ZEST_TRUE);
+	zest_shader_handle other_pixel_shader = zest_CreateShader(device, cache_other_pixel_source, zest_fragment_shader, "cache_other_pixel", NULL, ZEST_TRUE);
+	zest_shader_handle texture_pixel_shader = zest_CreateShader(device, cache_lonely_texture_source, zest_fragment_shader, "cache_texture_pixel", NULL, ZEST_TRUE);
+
+	//Shared object
+	zest_pipeline_template base_template = no_input_template(device, "Cache Base", vertex_shader, pixel_shader);
+	zest_command_list_t first_list = colour_command_list(context, 1);
+	zest_command_list_t second_list = colour_command_list(context, 2);
+	zest_pipeline first_pipeline = zest_GetPipeline(base_template, &first_list);
+	zest_pipeline second_pipeline = zest_GetPipeline(base_template, &second_list);
+	ID3D12PipelineState *first_state = pipeline_state_of(first_pipeline);
+	int failed = first_state == NULL || second_pipeline == NULL || first_pipeline == second_pipeline || pipeline_state_of(second_pipeline) != first_state;
+
+	//Different state
+	zest_pipeline_template blend_template = zest_CopyPipelineTemplate("Cache Blend", base_template);
+	zest_SetPipelineBlend(blend_template, zest_AlphaBlendState());
+	ID3D12PipelineState *blend_state = pipeline_state_of(zest_GetPipeline(blend_template, &first_list));
+	failed |= blend_state == NULL || blend_state == first_state;
+	zest_pipeline_template source_template = no_input_template(device, "Cache Source", vertex_shader, other_pixel_shader);
+	ID3D12PipelineState *source_state = pipeline_state_of(zest_GetPipeline(source_template, &first_list));
+	failed |= source_state == NULL || source_state == first_state;
+
+	//Recreate, as a swapchain recreate does
+	zest__cleanup_pipelines(context);
+	zest_map_free(context->allocator, context->cached_pipelines);
+	failed |= pipeline_state_of(zest_GetPipeline(base_template, &first_list)) != first_state;
+	ZEST_PRINT("\t%u pipeline states and %u root signatures cached", zest_map_size(backend->pipeline_states), zest_map_size(backend->root_signatures));
+
+	//Unsupported state
+	zest_pipeline_template culled_template = zest_CopyPipelineTemplate("Cache Cull Both", base_template);
+	zest_SetPipelineCullMode(culled_template, zest_cull_mode_front_and_back);
+	zest_uint error_count = zest_GetValidationErrorCount(device);
+	failed |= zest_GetPipeline(culled_template, &first_list) != NULL || zest_GetValidationErrorCount(device) != error_count + 1 || zest_PipelineIsValid(culled_template);
+
+	//Unsupported shader
+	zest_pipeline_template texture_template = no_input_template(device, "Cache Texture", vertex_shader, texture_pixel_shader);
+	error_count = zest_GetValidationErrorCount(device);
+	failed |= zest_GetPipeline(texture_template, &first_list) != NULL || zest_GetValidationErrorCount(device) != error_count + 1;
+
+	//Still alive
+	zest_pipeline_template alive_template = zest_CopyPipelineTemplate("Cache Alive", base_template);
+	zest_SetPipelineCullMode(alive_template, zest_cull_mode_back);
+	failed |= zest_GetPipeline(alive_template, &first_list) == NULL;
+
+	zest_FreePipelineTemplate(base_template);
+	zest_FreePipelineTemplate(blend_template);
+	zest_FreePipelineTemplate(source_template);
+	zest_FreePipelineTemplate(culled_template);
+	zest_FreePipelineTemplate(texture_template);
+	zest_FreePipelineTemplate(alive_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(pixel_shader);
+	zest_FreeShader(other_pixel_shader);
+	zest_FreeShader(texture_pixel_shader);
+
+	//Concurrent misses on one new state. Whether a create loses the race depends on timing; when one does, the release count after the reset checks it was released
+	failed |= run_concurrent_pipeline_states(device);
+
+	//Reset, which frees shaders and templates, so the first pipeline is made again from scratch
+	zest_ResetValidationErrors(device);
+	zest_ResetDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= zest_map_size(backend->pipeline_states) != 0 || zest_map_size(backend->root_signatures) != 0;
+	context = zest_CreateHeadlessContext(device, &info);
+	failed |= context == NULL;
+	if (context) {
+		vertex_shader = zest_CreateShader(device, hlsl_vertex_source, zest_vertex_shader, "cache_vertex", NULL, ZEST_TRUE);
+		pixel_shader = zest_CreateShader(device, hlsl_pixel_source, zest_fragment_shader, "cache_pixel", NULL, ZEST_TRUE);
+		base_template = no_input_template(device, "Cache Base", vertex_shader, pixel_shader);
+		first_list = colour_command_list(context, 1);
+		failed |= zest_GetPipeline(base_template, &first_list) == NULL;
+		failed |= zest_map_size(backend->pipeline_states) != 1;
+		zest_FreePipelineTemplate(base_template);
+		zest_FreeShader(vertex_shader);
+		zest_FreeShader(pixel_shader);
+		zest_DestroyContext(context);
+	}
+	return failed | finish_device(device);
+}
+
+int test_d3d12_precompiled_shaders(void) {
+	zest_device first_device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!first_device) return 1;
+	zest_shader_handle compiled_vertex = zest_CreateShaderFromFile(first_device, D3D12_HLSL_SHADER_PATH "vertex.vert.hlsl", "precompiled_vertex", zest_vertex_shader, NULL, ZEST_TRUE);
+	zest_shader_handle compiled_pixel = zest_CreateShaderFromFile(first_device, D3D12_HLSL_SHADER_PATH "vertex.frag.hlsl", "precompiled_pixel", zest_fragment_shader, NULL, ZEST_TRUE);
+	zest_shader vertex_source = zest_GetShader(compiled_vertex);
+	zest_shader pixel_source = zest_GetShader(compiled_pixel);
+	zest_uint vertex_size = (zest_uint)vertex_source->binary_size;
+	zest_uint pixel_size = (zest_uint)pixel_source->binary_size;
+	//The copies outlive the first device and its allocator
+	void *vertex_binary = malloc(vertex_size);
+	void *pixel_binary = malloc(pixel_size);
+	memcpy(vertex_binary, vertex_source->binary, vertex_size);
+	memcpy(pixel_binary, pixel_source->binary, pixel_size);
+	int failed = finish_device(first_device);
+
+	zest__dx_forced_dxc_library = "zest-missing-dxcompiler.dll";
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	failed |= device == NULL;
+	if (device) {
+		zest_shader_handle vertex_shader = zest_CreateShaderFromBinary(device, "precompiled_vertex", vertex_binary, vertex_size, zest_vertex_shader);
+		zest_shader_handle pixel_shader = zest_CreateShaderFromBinary(device, "precompiled_pixel", pixel_binary, pixel_size, zest_fragment_shader);
+		zest_create_context_info_t info = zest_CreateContextInfo();
+		zest_context context = zest_CreateHeadlessContext(device, &info);
+		failed |= context == NULL;
+		if (context) {
+			zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, "Precompiled");
+			zest_SetPipelineShaders(pipeline_template, vertex_shader, pixel_shader);
+			zest_AddVertexInputBindingDescription(pipeline_template, 0, 48, zest_input_rate_vertex);
+			zest_AddVertexAttribute(pipeline_template, 0, 0, zest_format_r32g32b32a32_sfloat, 0);
+			zest_AddVertexAttribute(pipeline_template, 0, 1, zest_format_r32g32b32a32_sfloat, 16);
+			zest_AddVertexAttribute(pipeline_template, 0, 2, zest_format_r8g8b8a8_unorm, 32);
+			zest_command_list_t command_list = colour_command_list(context, 0);
+			failed |= zest_GetPipeline(pipeline_template, &command_list) == NULL;
+			zest_FreePipelineTemplate(pipeline_template);
+			zest_DestroyContext(context);
+		}
+		failed |= ZEST_DX_BACKEND(device, device)->dxc_compiler != NULL;
+		zest_FreeShader(vertex_shader);
+		zest_FreeShader(pixel_shader);
+		zest__dx_forced_dxc_library = NULL;
+		failed |= finish_device(device);
+	}
+	zest__dx_forced_dxc_library = NULL;
+	free(vertex_binary);
+	free(pixel_binary);
+	return failed;
+}
+
+struct LazyBindingDraws {
+	VertexDrawResources resources;
+	zest_pipeline_template wide_template;		//The vertex draw's pipeline with a stride of 24
+	zest_pipeline_template no_push_template;
+	zest_uint stride_before;
+	zest_uint stride_after;
+	zest_pipeline pipeline_after_blit;			//What the pass after the blit found bound, NULL when it started a new list
+	ID3D12PipelineState *recorded_state_after_blit;
+};
+
+//Pushes, buffers, viewport and scissor all come before the pipeline they're for
+static void lazy_order_task(const zest_command_list command_list, void *user_data) {
+	LazyBindingDraws *draws = (LazyBindingDraws *)user_data;
+	float tint[4] = { 1.f, 0.5f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, tint, sizeof(tint));
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	zest_pipeline wide_pipeline = zest_GetPipeline(draws->wide_template, command_list);
+	if (!pipeline || !wide_pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 0, 0);
+	zest_dx_bind_state_t *state = &ZEST_DX_BACKEND(command_list, command_list)->bind_state;
+	draws->stride_before = state->recorded_vertex_strides[0];
+	//Vertices 0, 2 and 4, a triangle inside the left quad, with no new vertex buffer bind
+	zest_cmd_BindPipeline(command_list, wide_pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+	draws->stride_after = state->recorded_vertex_strides[0];
+}
+
+static void lazy_no_push_task(const zest_command_list command_list, void *user_data) {
+	LazyBindingDraws *draws = (LazyBindingDraws *)user_data;
+	char push_data[ZEST_MAX_PUSH_SIZE];
+	memset(push_data, 0x3F, sizeof(push_data));
+	zest_cmd_SendPushConstants(command_list, push_data, sizeof(push_data));
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->no_push_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static void lazy_blit_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Blit Source");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Blit Destination");
+	zest_cmd_BlitImageMip(command_list, source, destination, 0, zest_shader_fragment_stage);
+}
+
+//Tinted unlike the draw before the blit, so a draw that ran on the blit's pipeline state, copying that target, shows
+static void lazy_after_blit_task(const zest_command_list command_list, void *user_data) {
+	LazyBindingDraws *draws = (LazyBindingDraws *)user_data;
+	draws->pipeline_after_blit = ZEST_DX_BACKEND(command_list, command_list)->bind_state.pipeline;
+	draws->recorded_state_after_blit = ZEST_DX_BACKEND(command_list, command_list)->bind_state.recorded_pipeline_state;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float left_tint[4] = { 0.5f, 1.f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, left_tint, sizeof(left_tint));
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 0, 0);
+	float right_tint[4] = { 1.f, 0.f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, right_tint, sizeof(right_tint));
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 4, 0);
+}
+
+static void lazy_no_pipeline_task(const zest_command_list command_list, void *user_data) {
+	set_full_viewport(command_list);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static void lazy_mip_copy_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Copy Source");
+	zest_resource_node target = zest_GetPassOutputResource(command_list, "Copy Target");
+	zest_cmd_CopyImageMip(command_list, source, target, 0, zest_shader_fragment_stage);
+}
+
+//A draw, a blit that sets its own root signature and pipeline state, then a draw into another target. The blit is in a compute
+//pass, as a transfer pass records its image outputs as reads, which would leave nothing ordering the second draw after it.
+static int run_blit_between_draws(zest_context context, LazyBindingDraws *draws, zest_image first_target, zest_image converted, zest_image second_target) {
+	if (!zest_BeginCommandGraph(context, "Lazy Blit", 0)) return 1;
+	zest_resource_node first = zest_ImportImageResource("Blit Source", first_target, 0);
+	zest_resource_node converted_node = zest_ImportImageResource("Blit Destination", converted, 0);
+	zest_resource_node second = zest_ImportImageResource("Second Target", second_target, 0);
+	zest_SetResourceClearColor(first, 0.f, 0.f, 0.f, 1.f);
+	zest_SetResourceClearColor(second, 0.f, 0.f, 0.f, 1.f);
+	zest_BeginRenderPass("Draw Before Blit");
+	zest_ConnectOutput(first);
+	zest_SetPassTask(vertex_draw_task, &draws->resources);
+	zest_EndPass();
+	zest_BeginComputePass("Blit Between Draws");
+	zest_ConnectInput(first);
+	zest_ConnectOutput(converted_node);
+	zest_SetPassTask(lazy_blit_task, NULL);
+	zest_EndPass();
+	zest_BeginRenderPass("Draw After Blit");
+	zest_ConnectInput(converted_node);
+	zest_ConnectOutput(second);
+	zest_SetPassTask(lazy_after_blit_task, draws);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	return frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+}
+
+static int run_mip_copy_in_pass(zest_context context, zest_image source, zest_image target) {
+	if (!zest_BeginCommandGraph(context, "Lazy Mip Copy", 0)) return 1;
+	zest_resource_node source_node = zest_ImportImageResource("Copy Source", source, 0);
+	zest_resource_node target_node = zest_ImportImageResource("Copy Target", target, 0);
+	zest_SetResourceClearColor(target_node, 0.f, 0.f, 0.f, 1.f);
+	zest_BeginRenderPass("Mip Copy In Pass");
+	zest_ConnectInput(source_node);
+	zest_ConnectOutput(target_node);
+	zest_SetPassTask(lazy_mip_copy_task, NULL);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	return frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+}
+
+int test_d3d12_lazy_binding_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	LazyBindingDraws draws = {};
+	int failed = !create_vertex_draw_resources(device, &draws.resources);
+	draws.wide_template = zest_CopyPipelineTemplate("Lazy Wide", draws.resources.pipeline_template);
+	draws.wide_template->binding_descriptions[0].stride = 24;
+	zest_shader_handle no_push_vertex = zest_CreateShader(device, hlsl_vertex_source, zest_vertex_shader, "lazy_no_push_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle no_push_pixel = zest_CreateShader(device, hlsl_pixel_source, zest_fragment_shader, "lazy_no_push_pixel", NULL, ZEST_TRUE);
+	draws.no_push_template = no_input_template(device, "Lazy No Push", no_push_vertex, no_push_pixel);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image_handle second_handle = create_draw_target(device);
+	zest_image_handle source_handle = create_draw_target(device);
+	zest_image_info_t copy_target_info = zest_CreateImageInfo(16, 16);
+	copy_target_info.format = zest_format_r8g8b8a8_unorm;
+	copy_target_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_dst;
+	zest_image_handle copy_target_handle = zest_CreateImage(device, &copy_target_info);
+	zest_image_info_t converted_info = zest_CreateImageInfo(16, 16);
+	converted_info.format = zest_format_r16g16b16a16_sfloat;
+	converted_info.flags = zest_image_preset_storage | zest_image_flag_color_attachment;
+	zest_image_handle converted_handle = zest_CreateImage(device, &converted_info);
+	zest_image target = zest_GetImage(target_handle);
+	zest_image second = zest_GetImage(second_handle);
+	zest_image source = zest_GetImage(source_handle);
+	zest_image converted = zest_GetImage(converted_handle);
+	zest_image copy_target = zest_GetImage(copy_target_handle);
+	failed |= !target || !second || !source || !converted || !copy_target;
+	const int black[4] = { 0, 0, 0, 255 };
+	const int no_push_colour[4] = { 255, 128, 64, 255 };
+	zest_uint pixels[256];
+	if (!failed) {
+		//Order, and a stride change with no new vertex buffer bind
+		failed |= render_draw_pass(context, "Lazy Order", target, ZEST_FALSE, lazy_order_task, &draws, pixels);
+		failed |= !columns_hold(pixels, 0, 8, vertex_draw_left) || !columns_hold(pixels, 8, 8, black);
+		ZEST_PRINT("\tVertex stride %u before the second pipeline's draw and %u after", draws.stride_before, draws.stride_after);
+		failed |= draws.stride_before != 12 || draws.stride_after != 24;
+
+		//No push block, after 128 bytes were pushed
+		failed |= render_draw_pass(context, "Lazy No Push", target, ZEST_FALSE, lazy_no_push_task, &draws, pixels);
+		failed |= !columns_hold(pixels, 0, 16, no_push_colour);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//After a blit
+		failed |= run_blit_between_draws(context, &draws, target, converted, second);
+		const int after_blit_left[4] = { 128, 128, 0, 255 };
+		const int after_blit_right[4] = { 255, 0, 0, 255 };
+		failed |= !zest_CopyImageToBitmap(device, second, pixels) || !columns_hold(pixels, 0, 8, after_blit_left) || !columns_hold(pixels, 8, 8, after_blit_right);
+		ZEST_PRINT("\tThe draw after the blit %s the blit's command list and found %s pipeline state recorded", draws.pipeline_after_blit ? "shared" : "didn't share", draws.recorded_state_after_blit ? "a" : "no");
+		failed |= draws.pipeline_after_blit == NULL || draws.recorded_state_after_blit != NULL;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//No pipeline
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		failed |= render_draw_pass(context, "Lazy No Pipeline", target, ZEST_FALSE, lazy_no_pipeline_task, NULL, pixels);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1 || !columns_hold(pixels, 0, 16, black);
+
+		//Mip copy in a render pass
+		error_count = zest_GetValidationErrorCount(device);
+		failed |= run_mip_copy_in_pass(context, source, copy_target);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+		zest_ResetValidationErrors(device);
+	}
+	if (target) zest_FreeImageNow(target_handle);
+	if (second) zest_FreeImageNow(second_handle);
+	if (source) zest_FreeImageNow(source_handle);
+	if (converted) zest_FreeImageNow(converted_handle);
+	if (copy_target) zest_FreeImageNow(copy_target_handle);
+	zest_FreePipelineTemplate(draws.wide_template);
+	zest_FreePipelineTemplate(draws.no_push_template);
+	zest_FreeShader(no_push_vertex);
+	zest_FreeShader(no_push_pixel);
+	free_vertex_draw_resources(&draws.resources);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+//The table keeps the two push registers over 64 DWORDs, and the read behind it never runs
+static const char *fallback_vertex_source =
+	"cbuffer placement_block : register(b0, space0) { float4 placement; };\n"
+	"ByteAddressBuffer zest_buffers[] : register(t0, space105);\n"
+	"static const float2 corners[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 0), float2(1, 1), float2(0, 1) };\n"
+	"float4 main(uint vertex_index : SV_VertexID) : SV_Position {\n"
+	"	float4 position = float4((placement.xy + corners[vertex_index]) / 8.0 - 1.0, 0.0, 1.0);\n"
+	"	if (placement.w > 1000.0) position.z = asfloat(zest_buffers[NonUniformResourceIndex(uint(placement.z))].Load(0));\n"
+	"	return position;\n"
+	"}\n";
+static const char *fallback_pixel_source =
+	"cbuffer colour_block : register(b1, space0) { float4 unused_placement; float4 colour; };\n"
+	"float4 main() : SV_Target0 { return colour; }\n";
+
+#define FALLBACK_DRAW_COUNT 300
+
+struct FallbackPush {
+	float placement[4];		//The pixel's x and y
+	float colour[4];
+};
+
+struct FallbackDraws {
+	zest_pipeline_template pipeline_template;
+	zest_bool push_as_cbv;
+	zest_uint block_count;
+	zest_uint fif_block_counts[ZEST_MAX_FIF];		//The chain of each frame in flight after its last frame
+	zest_uint fif_frame_counts[ZEST_MAX_FIF];
+};
+
+static void fallback_task(const zest_command_list command_list, void *user_data) {
+	FallbackDraws *draws = (FallbackDraws *)user_data;
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	for (zest_uint draw = 0; draw != FALLBACK_DRAW_COUNT; ++draw) {
+		zest_uint pixel = draw % 256;
+		FallbackPush push = {};
+		push.placement[0] = (float)(pixel % 16);
+		push.placement[1] = (float)(pixel / 16);
+		push.colour[0] = (float)(draw % 256) / 255.f;
+		push.colour[1] = (float)(draw / 256 * 100) / 255.f;
+		push.colour[2] = 7.f / 255.f;
+		push.colour[3] = 1.f;
+		zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+		zest_cmd_Draw(command_list, 6, 1, 0, 0);
+	}
+	draws->push_as_cbv = ZEST_DX_BACKEND(pipeline, pipeline)->root_parameters.push_as_cbv;
+	zest_dx_context_queue_backend_t *queue_backend = ZEST_DX_BACKEND(context_queue, ZEST_DX_BACKEND(command_list, command_list)->context_queue);
+	zest_uint fif = command_list->context->current_fif;
+	draws->block_count = zest_vec_size(queue_backend->push_uploads[fif].blocks);
+	draws->fif_block_counts[fif] = draws->block_count;
+	draws->fif_frame_counts[fif]++;
+}
+
+//Each pixel holds the colour of the last draw placed on it
+static zest_uint count_fallback_wrong_pixels(const zest_uint *pixels) {
+	zest_uint wrong_pixels = 0;
+	for (zest_uint pixel = 0; pixel != 256; ++pixel) {
+		zest_uint last_draw = pixel + 256 < FALLBACK_DRAW_COUNT ? pixel + 256 : pixel;
+		zest_uint expected = (last_draw % 256) | ((last_draw / 256 * 100) << 8) | (7u << 16) | (255u << 24);
+		if (pixels[pixel] != expected) {
+			if (!wrong_pixels) ZEST_PRINT("\tPixel %u is 0x%08X, expected 0x%08X", pixel, pixels[pixel], expected);
+			wrong_pixels++;
+		}
+	}
+	return wrong_pixels;
+}
+
+int test_d3d12_push_constant_fallback(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, fallback_vertex_source, zest_vertex_shader, "fallback_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle pixel_shader = zest_CreateShader(device, fallback_pixel_source, zest_fragment_shader, "fallback_pixel", NULL, ZEST_TRUE);
+	FallbackDraws draws = {};
+	draws.pipeline_template = no_input_template(device, "Push Fallback", vertex_shader, pixel_shader);
+	zest_image_handle image_handle = create_draw_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL;
+	if (!failed) {
+		zest_uint pixels[256];
+		failed |= render_draw_pass(context, "Push Fallback", image, ZEST_FALSE, fallback_task, &draws, pixels);
+		zest_uint wrong_pixels = count_fallback_wrong_pixels(pixels);
+		ZEST_PRINT("\tRoot CBV pushes: %s, %u wrong pixels, %u upload blocks", draws.push_as_cbv ? "yes" : "no", wrong_pixels, draws.block_count);
+		failed |= !draws.push_as_cbv || wrong_pixels != 0 || draws.block_count != 2;
+		zest_FreeImageNow(image_handle);
+	}
+	zest_FreePipelineTemplate(draws.pipeline_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(pixel_shader);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+#define IMMEDIATE_COMPUTE_ELEMENTS 64
+
+//buffer_write stores (x + added, 0, 0, 0) at element x for the 64 threads across of an 8x1x1 dispatch
+static int run_immediate_write(zest_device device, zest_device_queue_type queue_type, zest_compute compute, zest_buffer buffer, zest_uint buffer_index, float added) {
+	memset(zest_BufferData(buffer), 0xFF, IMMEDIATE_COMPUTE_ELEMENTS * 16);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return 1;
+	TestPushConstants push = {};
+	push.index1 = (int)buffer_index;
+	zest_imm_SendPushConstants(queue, &push, sizeof(push));
+	zest_imm_BindComputePipeline(queue, compute);
+	int failed = !zest_imm_DispatchCompute(queue, 8, 1, 1);
 	failed |= !zest_imm_EndCommandBuffer(queue);
-	failed |= zest_GetValidationErrorCount(device) != 3;
-	zest_FreeBufferNow(buffer);
-	zest_DestroyDevice(device);
-	return failed | (zest__dx_last_device_release_count() != 0);
+	const float *values = (const float *)zest_BufferData(buffer);
+	for (zest_uint element = 0; element != IMMEDIATE_COMPUTE_ELEMENTS; ++element) {
+		const float *value = &values[element * 4];
+		if (value[0] != (float)element + added || value[1] != 0.f || value[2] != 0.f || value[3] != 0.f) {
+			ZEST_PRINT("\tElement %u holds (%f, %f, %f, %f), expected %f", element, value[0], value[1], value[2], value[3], (float)element + added);
+			return 1;
+		}
+	}
+	return failed;
+}
+
+int test_d3d12_immediate_compute(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, D3D12_HLSL_SHADER_PATH "buffer_write.comp.hlsl", "immediate_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Immediate Buffer Write", shader);
+	zest_compute compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, IMMEDIATE_COMPUTE_ELEMENTS * 16, &buffer_info);
+	int failed = compute == NULL || buffer == NULL;
+	zest_uint buffer_index = buffer ? zest_AcquireStorageBufferIndex(device, buffer) : ZEST_INVALID;
+	if (!failed) {
+		//Dispatch, on the graphics queue and then the compute queue
+		failed |= run_immediate_write(device, zest_queue_graphics, compute, buffer, buffer_index, 0.f);
+		failed |= run_immediate_write(device, zest_queue_compute, compute, buffer, buffer_index, 0.f);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//Nothing bound
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || zest_imm_DispatchCompute(queue, 1, 1, 1) != ZEST_FALSE;
+		failed |= queue == NULL || !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+
+		//Transfer queue, when it's a copy list
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+		failed |= queue == NULL;
+		if (queue && ZEST_DX_BACKEND(queue, queue)->type == D3D12_COMMAND_LIST_TYPE_COPY) {
+			error_count = zest_GetValidationErrorCount(device);
+			zest_imm_BindComputePipeline(queue, compute);
+			failed |= zest_imm_DispatchCompute(queue, 8, 1, 1) != ZEST_FALSE;
+			failed |= zest_GetValidationErrorCount(device) < error_count + 1;
+		} else {
+			ZEST_PRINT("\tThe transfer queue phase was skipped, as the queue given is more capable than a copy queue");
+		}
+		if (queue) failed |= !zest_imm_EndCommandBuffer(queue);
+
+		//Hot reload, through the same compute handle
+		const char *hot_path = "zest_hot_reload_compute.hlsl";
+		zest_file original = zest_ReadEntireFile(device, D3D12_HLSL_SHADER_PATH "buffer_write.comp.hlsl", ZEST_TRUE);
+		const char *write_value = original ? strstr(original, "float(index)") : NULL;
+		failed |= write_value == NULL || !macro_test__write_file(hot_path, original, 0);
+		if (write_value) {
+			zest_shader_handle hot_shader = zest_CreateShaderFromFile(device, hot_path, "hot_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+			zest_SetShaderHotReload(hot_shader, ZEST_TRUE);
+			zest_compute_handle hot_handle = zest_CreateCompute(device, "Hot Buffer Write", hot_shader);
+			zest_compute hot_compute = hot_handle.value ? zest_GetCompute(hot_handle) : NULL;
+			failed |= hot_compute == NULL;
+			if (hot_compute) {
+				failed |= run_immediate_write(device, zest_queue_compute, hot_compute, buffer, buffer_index, 0.f);
+				char edited[4096];
+				snprintf(edited, sizeof(edited), "%.*sfloat(index + 1000)%s", (int)(write_value - original), original, write_value + strlen("float(index)"));
+				failed |= !macro_test__write_file(hot_path, edited, zest_GetShader(hot_shader)->last_mtime);
+				zest_uint reload_count = zest_CheckShaderHotReload(device);
+				ZEST_PRINT("\t%u shader reloaded", reload_count);
+				failed |= reload_count != 1;
+				failed |= run_immediate_write(device, zest_queue_compute, hot_compute, buffer, buffer_index, 1000.f);
+				zest_FreeCompute(hot_handle);
+			}
+			zest_FreeShader(hot_shader);
+		}
+		remove(hot_path);
+		if (original) zest_FreeFile(device, original);
+		zest_ResetValidationErrors(device);
+	}
+	if (buffer) zest_FreeBufferNow(buffer);
+	if (compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	return failed | finish_device(device);
+}
+
+static const char *reads_descriptors_source =
+	"cbuffer zest_push : register(b0, space0) {\n"
+	"	uint raw_index;\n"
+	"	uint structured_index;\n"
+	"	uint uniform_index;\n"
+	"	uint image_index;\n"
+	"	uint result_index;\n"
+	"	uint raw_word_count;\n"
+	"	uint structured_count;\n"
+	"};\n"
+	"struct structured_element { uint index; uint3 padding0; float4 padding1; float4 padding2; };\n"
+	"struct four_floats { float4 values; };\n"
+	"ByteAddressBuffer zest_raw_buffers[] : register(t0, space105);\n"
+	"StructuredBuffer<structured_element> zest_structured_buffers[] : register(t0, space109);\n"
+	"ConstantBuffer<four_floats> zest_uniforms[] : register(b0, space107);\n"
+	"RWTexture2D<float4> zest_images[] : register(u0, space106);\n"
+	"RWByteAddressBuffer zest_results[] : register(u0, space105);\n"
+	"[numthreads(8, 8, 1)]\n"
+	"void main(uint3 thread_id : SV_DispatchThreadID) {\n"
+	"	zest_images[NonUniformResourceIndex(image_index)][thread_id.xy] = float4(0.25, 0.5, 0.75, 1.0);\n"
+	"	if (thread_id.x != 0 || thread_id.y != 0) return;\n"
+	"	uint raw_sum = 0;\n"
+	"	for (uint word = 0; word != raw_word_count; ++word) raw_sum += zest_raw_buffers[NonUniformResourceIndex(raw_index)].Load(word * 4);\n"
+	"	uint structured_sum = 0;\n"
+	"	for (uint element = 0; element != structured_count; ++element) structured_sum += zest_structured_buffers[NonUniformResourceIndex(structured_index)][element].index;\n"
+	"	zest_results[NonUniformResourceIndex(result_index)].Store4(0, uint4(raw_sum, structured_sum, 0, 0));\n"
+	"	zest_results[NonUniformResourceIndex(result_index)].Store4(16, asuint(zest_uniforms[NonUniformResourceIndex(uniform_index)].values));\n"
+	"}\n";
+
+#define READS_RAW_WORD_COUNT 256
+#define READS_STRUCTURED_COUNT 37
+
+struct ReadsDescriptorsPush {
+	zest_uint raw_index;
+	zest_uint structured_index;
+	zest_uint uniform_index;
+	zest_uint image_index;
+	zest_uint result_index;
+	zest_uint raw_word_count;
+	zest_uint structured_count;
+};
+
+struct ReadsDescriptorsTask {
+	zest_compute compute;
+	ReadsDescriptorsPush push;
+};
+
+static void reads_descriptors_task(const zest_command_list command_list, void *user_data) {
+	ReadsDescriptorsTask *task = (ReadsDescriptorsTask *)user_data;
+	zest_cmd_BindComputePipeline(command_list, task->compute);
+	zest_cmd_SendPushConstants(command_list, &task->push, sizeof(task->push));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+}
+
+static int pixels_within(const zest_uint *pixels, zest_uint pixel_count, const int expected[4], int tolerance);
+
+int test_d3d12_compute_reads_descriptors(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_shader_handle shader = zest_CreateShader(device, reads_descriptors_source, zest_compute_shader, "reads_descriptors", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Reads Descriptors", shader);
+	ReadsDescriptorsTask task = {};
+	task.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t structured_info = upload_info;
+	structured_info.element_alignment = 48;
+	zest_buffer_info_t uniform_info = zest_CreateBufferInfo(zest_buffer_type_uniform, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t result_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	//The blockers move the raw and structured views' first elements past 0
+	zest_buffer raw_blocker = zest_CreateBuffer(device, 300, &upload_info);
+	zest_buffer raw_buffer = zest_CreateBuffer(device, READS_RAW_WORD_COUNT * 4, &upload_info);
+	zest_buffer structured_blocker = zest_CreateBuffer(device, 300, &upload_info);
+	zest_buffer structured_buffer = zest_CreateBuffer(device, 48 * READS_STRUCTURED_COUNT, &structured_info);
+	zest_buffer uniform_buffer = zest_CreateBuffer(device, 256, &uniform_info);
+	zest_buffer result_buffer = zest_CreateBuffer(device, 256, &result_info);
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_storage | zest_image_flag_transfer_dst | zest_image_flag_transfer_src;
+	image_info.mip_levels = 2;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = task.compute == NULL || !raw_blocker || !raw_buffer || !structured_blocker || !structured_buffer || !uniform_buffer || !result_buffer || !image;
+	if (!failed) {
+		zest_uint expected_raw_sum = 0;
+		zest_uint *raw_words = (zest_uint *)zest_BufferData(raw_buffer);
+		for (zest_uint word = 0; word != READS_RAW_WORD_COUNT; ++word) {
+			raw_words[word] = word * 3 + 1;
+			expected_raw_sum += raw_words[word];
+		}
+		unsigned char *structured_bytes = (unsigned char *)zest_BufferData(structured_buffer);
+		memset(structured_bytes, 0xCD, 48 * READS_STRUCTURED_COUNT);
+		zest_uint expected_structured_sum = 0;
+		for (zest_uint element = 0; element != READS_STRUCTURED_COUNT; ++element) {
+			memcpy(structured_bytes + element * 48, &element, sizeof(element));
+			expected_structured_sum += element;
+		}
+		const float uniform_values[4] = { 1.5f, -2.25f, 3.0f, 0.125f };
+		memcpy(zest_BufferData(uniform_buffer), uniform_values, sizeof(uniform_values));
+		memset(zest_BufferData(result_buffer), 0, 256);
+		zest_uint upload[256];
+		for (zest_uint pixel = 0; pixel != 256; ++pixel) upload[pixel] = 10u | (20u << 8) | (30u << 16) | (255u << 24);
+		failed |= !zest_CopyBitmapToImage(device, upload, sizeof(upload), image, 16, 16);
+		zest_image_view_array_handle view_array_handle = zest_CreateImageViewsPerMip(device, image);
+		zest_image_view_array view_array = view_array_handle.value ? zest_GetImageViewArray(view_array_handle) : NULL;
+		zest_uint *mip_indexes = view_array ? zest_AcquireImageMipIndexes(device, image, view_array, zest_storage_image_binding, zest_descriptor_type_storage_image) : NULL;
+		failed |= zest_vec_size(mip_indexes) != 2;
+		task.push.raw_index = zest_AcquireStorageBufferIndex(device, raw_buffer);
+		task.push.structured_index = zest_AcquireStructuredBufferIndex(device, structured_buffer, 48);
+		task.push.uniform_index = zest_AcquireUniformBufferIndex(device, uniform_buffer);
+		task.push.image_index = mip_indexes ? mip_indexes[1] : 0;
+		task.push.result_index = zest_AcquireStorageBufferIndex(device, result_buffer);
+		task.push.raw_word_count = READS_RAW_WORD_COUNT;
+		task.push.structured_count = READS_STRUCTURED_COUNT;
+		if (!failed && zest_BeginCommandGraph(context, "Reads Descriptors", 0)) {
+			zest_resource_node image_node = zest_ImportImageResource("Mip Image", image, 0);
+			zest_BeginComputePass("Read Descriptors");
+			zest_ConnectOutput(image_node);
+			zest_SetPassTask(reads_descriptors_task, &task);
+			zest_EndPass();
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
+			failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		} else {
+			failed = 1;
+		}
+		const zest_uint *results = (const zest_uint *)zest_BufferData(result_buffer);
+		float result_floats[4];
+		memcpy(result_floats, results + 4, sizeof(result_floats));
+		ZEST_PRINT("\tRaw sum %u (expected %u), structured sum %u (expected %u), uniform (%g, %g, %g, %g)", results[0], expected_raw_sum, results[1], expected_structured_sum, result_floats[0], result_floats[1], result_floats[2], result_floats[3]);
+		failed |= results[0] != expected_raw_sum || results[1] != expected_structured_sum || memcmp(result_floats, uniform_values, sizeof(uniform_values)) != 0;
+		zest_uint mip_pixels[64];
+		memset(mip_pixels, 0, sizeof(mip_pixels));
+		failed |= !zest__dx_read_subresource(device, image, 1, 0, mip_pixels);
+		const int written[4] = { 64, 128, 191, 255 };
+		failed |= !pixels_within(mip_pixels, 64, written, 1);
+		zest_uint base_pixels[256];
+		memset(base_pixels, 0, sizeof(base_pixels));
+		failed |= !zest__dx_read_subresource(device, image, 0, 0, base_pixels);
+		const int uploaded[4] = { 10, 20, 30, 255 };
+		failed |= !pixels_within(base_pixels, 256, uploaded, 0);
+		zest_ReleaseStorageBufferIndex(device, task.push.raw_index);
+		zest_ReleaseStorageBufferIndex(device, task.push.structured_index);
+		zest_ReleaseBindlessIndex(device, task.push.uniform_index, zest_uniform_buffer_binding);
+		zest_ReleaseStorageBufferIndex(device, task.push.result_index);
+		if (view_array) zest_FreeImageViewArrayNow(view_array_handle);
+	}
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (image) zest_FreeImageNow(image_handle);
+	zest_buffer buffers[6] = { raw_blocker, raw_buffer, structured_blocker, structured_buffer, uniform_buffer, result_buffer };
+	for (int buffer_index = 0; buffer_index != 6; ++buffer_index) {
+		if (buffers[buffer_index]) zest_FreeBufferNow(buffers[buffer_index]);
+	}
+	if (task.compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
 }
 int test_d3d12_pool_failure_rejected(void) {
 	zest_device device = create_device_with_failing_pool(BeginD3D12TestBuilder());
@@ -745,6 +2555,72 @@ int test_d3d12_image_barrier_builder(void) {
 	D3D12_BARRIER_LAYOUT copy_layout = zest__dx_barrier_layout(zest_image_layout_shader_read_only_optimal, zest_access_shader_read_bit, zest_queue_transfer);
 	barrier = zest__dx_image_barrier(&image, copy_layout, 0, zest_access_shader_read_bit, zest_pipeline_stage_top_of_pipe_bit, zest_pipeline_stage_transfer_bit, 0, 1, 0, 1);
 	failed |= barrier.LayoutAfter != D3D12_BARRIER_LAYOUT_COMMON || barrier.AccessAfter != D3D12_BARRIER_ACCESS_SHADER_RESOURCE;
+	return failed;
+}
+
+static zest_dx_frame_graph_buffer_barrier_t buffer_barrier_record(zest_resource_node node, zest_access_flags src_access, zest_access_flags dst_access, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
+	zest_dx_frame_graph_buffer_barrier_t record;
+	record.resource = node;
+	record.src_access = src_access;
+	record.dst_access = dst_access;
+	record.src_stage = src_stage;
+	record.dst_stage = dst_stage;
+	return record;
+}
+
+int test_d3d12_buffer_barrier_translation(void) {
+	//Fake pool resources, which the translation only compares and copies
+	zest_dx_device_memory_pool_backend_t pool_backends[2] = {};
+	pool_backends[0].buffer = (ID3D12Resource *)(void *)&pool_backends[0];
+	pool_backends[1].buffer = (ID3D12Resource *)(void *)&pool_backends[1];
+	zest_device_memory_pool_t pools[2] = {};
+	pools[0].backend = (zest_device_memory_pool_backend)&pool_backends[0];
+	pools[1].backend = (zest_device_memory_pool_backend)&pool_backends[1];
+	zest_buffer_t buffers[3] = {};
+	buffers[0].memory_pool = &pools[0];
+	buffers[1].memory_pool = &pools[1];
+	buffers[2].memory_pool = &pools[1];
+	zest_resource_node_t nodes[4] = {};
+	for (int node_index = 0; node_index != 3; ++node_index) nodes[node_index].storage_buffer = &buffers[node_index];
+	zest_dx_frame_graph_buffer_barrier_t records[2];
+	D3D12_BUFFER_BARRIER barriers[2];
+	int failed = 0;
+
+	//Write then read in compute
+	records[0] = buffer_barrier_record(&nodes[0], zest_access_shader_write_bit, zest_access_shader_read_bit, zest_pipeline_stage_compute_shader_bit, zest_pipeline_stage_compute_shader_bit);
+	zest_uint count = zest__dx_translate_buffer_barriers(records, 1, barriers);
+	failed |= count != 1 || barriers[0].pResource != pool_backends[0].buffer || barriers[0].Offset != 0 || barriers[0].Size != UINT64_MAX;
+	failed |= barriers[0].AccessBefore != D3D12_BARRIER_ACCESS_UNORDERED_ACCESS || barriers[0].AccessAfter != (D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_UNORDERED_ACCESS);
+	failed |= barriers[0].SyncBefore != D3D12_BARRIER_SYNC_COMPUTE_SHADING || barriers[0].SyncAfter != D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+
+	//Upload then draw
+	records[0] = buffer_barrier_record(&nodes[0], zest_access_transfer_write_bit, zest_access_vertex_attribute_read_bit, zest_pipeline_stage_transfer_bit, zest_pipeline_stage_vertex_input_bit);
+	count = zest__dx_translate_buffer_barriers(records, 1, barriers);
+	failed |= count != 1 || barriers[0].AccessBefore != D3D12_BARRIER_ACCESS_COPY_DEST || barriers[0].AccessAfter != D3D12_BARRIER_ACCESS_VERTEX_BUFFER;
+	//The vertex input stage's index input scope is dropped, as the runtime rejects it beside a vertex buffer read alone (message 1331)
+	failed |= barriers[0].SyncBefore != D3D12_BARRIER_SYNC_COPY || barriers[0].SyncAfter != D3D12_BARRIER_SYNC_VERTEX_SHADING;
+
+	//First use, with nothing before to order, needs no barrier: SYNC_NONE would be invalid once another buffer of the pool was used in the list (message 1417)
+	records[0] = buffer_barrier_record(&nodes[0], 0, zest_access_shader_read_bit, 0, zest_pipeline_stage_compute_shader_bit);
+	failed |= zest__dx_translate_buffer_barriers(records, 1, barriers) != 0;
+
+	//A stage with no access is an execution dependency
+	records[0] = buffer_barrier_record(&nodes[0], 0, zest_access_shader_write_bit, zest_pipeline_stage_fragment_shader_bit, zest_pipeline_stage_compute_shader_bit);
+	count = zest__dx_translate_buffer_barriers(records, 1, barriers);
+	failed |= count != 1 || barriers[0].AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || barriers[0].SyncBefore != D3D12_BARRIER_SYNC_PIXEL_SHADING;
+
+	//No backing
+	records[0] = buffer_barrier_record(&nodes[3], zest_access_shader_write_bit, zest_access_shader_read_bit, zest_pipeline_stage_compute_shader_bit, zest_pipeline_stage_compute_shader_bit);
+	failed |= zest__dx_translate_buffer_barriers(records, 1, barriers) != 0;
+
+	//Shared pool
+	records[0] = buffer_barrier_record(&nodes[1], zest_access_shader_write_bit, zest_access_shader_read_bit, zest_pipeline_stage_compute_shader_bit, zest_pipeline_stage_compute_shader_bit);
+	records[1] = buffer_barrier_record(&nodes[2], zest_access_transfer_write_bit, zest_access_vertex_attribute_read_bit, zest_pipeline_stage_transfer_bit, zest_pipeline_stage_vertex_input_bit);
+	count = zest__dx_translate_buffer_barriers(records, 2, barriers);
+	failed |= count != 1 || barriers[0].pResource != pool_backends[1].buffer;
+	failed |= barriers[0].AccessBefore != (D3D12_BARRIER_ACCESS_UNORDERED_ACCESS | D3D12_BARRIER_ACCESS_COPY_DEST);
+	failed |= barriers[0].AccessAfter != (D3D12_BARRIER_ACCESS_SHADER_RESOURCE | D3D12_BARRIER_ACCESS_UNORDERED_ACCESS | D3D12_BARRIER_ACCESS_VERTEX_BUFFER);
+	failed |= barriers[0].SyncBefore != (D3D12_BARRIER_SYNC_COMPUTE_SHADING | D3D12_BARRIER_SYNC_COPY);
 	return failed;
 }
 int test_d3d12_image_resource_flags(void) {
@@ -1523,6 +3399,136 @@ static int run_srgb_swapchain(zest_device device) {
 	return failed;
 }
 
+//Text and a rectangle before each frame, which the frame's swapchain pass draws and then resets
+static int run_overlay_frames(zest_context context, int frame_count) {
+	int failed = 0;
+	for (int frame = 0; frame != frame_count; ++frame) {
+		zest_DrawDebugText(context, 4.0f, 4.0f, 0xFFFFFFFF, "Zest %d", frame);
+		zest_DrawDebugRect(context, 4.0f, 16.0f, 64.0f, 8.0f, 0xCC000000);
+		D3D12FrameTimes times;
+		failed |= !run_windowed_clear_frame(context, &times);
+		failed |= context->db_overlay.vertex_count != 0;
+	}
+	return failed;
+}
+
+int test_d3d12_debug_overlay(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Debug Overlay")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	info.flags |= zest_context_init_flag_debug_overlay;
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		failed |= run_overlay_frames(context, 8);
+		failed |= !zest_PipelineIsValid(context->db_overlay.pipeline);
+		ID3DBlob *vertex_blob = backend->overlay_vertex_shader;
+		ID3DBlob *pixel_blob = backend->overlay_pixel_shader;
+		failed |= vertex_blob == NULL || pixel_blob == NULL;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		//The reset destroys the context, and the blobs outlive it as they don't depend on the device
+		zest_ResetDevice(device);
+		failed |= backend->overlay_vertex_shader != vertex_blob || backend->overlay_pixel_shader != pixel_blob;
+		context = zest_CreateContext(device, &window.window_data, &info);
+		failed |= context == NULL;
+		if (context) {
+			set_test_clear_color(context);
+			failed |= run_overlay_frames(context, 2);
+			failed |= zest_GetValidationErrorCount(device) != 0;
+			zest_DestroyContext(context);
+		}
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+//One frame that draws the fallback pushes into target and clears the swapchain. fallback_task counts the frames that ran
+static void run_fallback_frame(zest_context context, FallbackDraws *draws, zest_image target) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {}
+	zest_UpdateDevice(context->device);
+	if (!zest_BeginFrame(context)) return;
+	zest_frame_graph frame_graph = NULL;
+	if (zest_BeginFrameGraph(context, "Push Fallback Frame", NULL)) {
+		zest_ImportSwapchainResource();
+		zest_resource_node target_node = zest_ImportImageResource("Fallback Target", target, 0);
+		zest_SetResourceClearColor(target_node, 0.f, 0.f, 0.f, 1.f);
+		zest_BeginRenderPass("Fallback Draws");
+		zest_ConnectOutput(target_node);
+		zest_SetPassTask(fallback_task, draws);
+		zest_EndPass();
+		zest_BeginRenderPass("Clear Swapchain");
+		zest_ConnectSwapChainOutput();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+	}
+	zest_EndFrame(context, frame_graph);
+}
+
+//Root CBV pushes over several frames, so each frame in flight's chain is reset and reused when its frame comes round again rather than grown
+int test_d3d12_push_constant_fallback_frames(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Push Constant Fallback Frames")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		zest_shader_handle vertex_shader = zest_CreateShader(device, fallback_vertex_source, zest_vertex_shader, "fallback_frames_vertex", NULL, ZEST_TRUE);
+		zest_shader_handle pixel_shader = zest_CreateShader(device, fallback_pixel_source, zest_fragment_shader, "fallback_frames_pixel", NULL, ZEST_TRUE);
+		FallbackDraws draws = {};
+		draws.pipeline_template = no_input_template(device, "Push Fallback Frames", vertex_shader, pixel_shader);
+		zest_image_handle image_handle = create_draw_target(device);
+		zest_image image = zest_GetImage(image_handle);
+		failed |= image == NULL;
+		if (image) {
+			for (int frame = 0; frame != ZEST_MAX_FIF * 3; ++frame) {
+				run_fallback_frame(context, &draws, image);
+			}
+			zest_WaitForIdleDevice(device);
+			zest_uint pixels[256];
+			memset(pixels, 0, sizeof(pixels));
+			failed |= !zest_CopyImageToBitmap(device, image, pixels);
+			zest_uint wrong_pixels = count_fallback_wrong_pixels(pixels);
+			ZEST_PRINT("\tRoot CBV pushes: %s, %u wrong pixels after the last frame", draws.push_as_cbv ? "yes" : "no", wrong_pixels);
+			failed |= !draws.push_as_cbv || wrong_pixels != 0;
+			for (zest_uint fif = 0; fif != ZEST_MAX_FIF; ++fif) {
+				ZEST_PRINT("\tFrame in flight %u drew %u frames and ended with %u upload blocks", fif, draws.fif_frame_counts[fif], draws.fif_block_counts[fif]);
+				failed |= draws.fif_frame_counts[fif] < 2 || draws.fif_block_counts[fif] != 2;
+			}
+			zest_FreeImageNow(image_handle);
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_FreePipelineTemplate(draws.pipeline_template);
+		zest_FreeShader(vertex_shader);
+		zest_FreeShader(pixel_shader);
+		zest_DestroyContext(context);
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
 int test_d3d12_windowed_frames(void) {
 	D3D12TestWindow window;
 	if (!open_test_window(&window, "D3D12 Windowed Frames")) {
@@ -1737,8 +3743,8 @@ int test_d3d12_viewport_orientation(void) {
 	if (!device) return 1;
 	ID3DBlob *vertex_dxil = NULL;
 	ID3DBlob *pixel_dxil = NULL;
-	int failed = !zest__dx_compile_hlsl(device, orientation_vertex_source, (zest_size)strlen(orientation_vertex_source), "orientation_vertex", "main", "vs_6_0", &vertex_dxil);
-	failed |= !zest__dx_compile_hlsl(device, orientation_pixel_source, (zest_size)strlen(orientation_pixel_source), "orientation_pixel", "main", "ps_6_0", &pixel_dxil);
+	int failed = !zest__dx_compile_hlsl(device, orientation_vertex_source, (zest_size)strlen(orientation_vertex_source), "orientation_vertex", "main", "vs_6_0", NULL, 0, NULL, &vertex_dxil);
+	failed |= !zest__dx_compile_hlsl(device, orientation_pixel_source, (zest_size)strlen(orientation_pixel_source), "orientation_pixel", "main", "ps_6_0", NULL, 0, NULL, &pixel_dxil);
 	zest_image_handle image_handle = create_clear_target(device);
 	zest_image image = zest_GetImage(image_handle);
 	failed |= image == NULL;
@@ -1976,6 +3982,31 @@ int test_d3d12_buffer_descriptors(void) {
 		zest_FreeBufferNow(oversized_buffer);
 		zest_ResetValidationErrors(device);
 	}
+	return failed | finish_device(device);
+}
+
+int test_d3d12_structured_buffer_descriptors(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_buffer_info_t storage_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer_info_t stride_info = storage_info;
+	stride_info.element_alignment = 48;
+	//The blocker puts the structured view's first element past 0
+	zest_buffer blocker = zest_CreateBuffer(device, 300, &storage_info);
+	zest_buffer stride_buffer = zest_CreateBuffer(device, 48 * 37, &stride_info);
+	int failed = !blocker || !stride_buffer;
+	if (!failed) {
+		ZEST_PRINT("\tThe stride 48 buffer is at offset %llu", (unsigned long long)stride_buffer->memory_offset);
+		failed |= stride_buffer->memory_offset == 0 || stride_buffer->memory_offset % 48 != 0;
+		zest_uint raw_index = zest_AcquireStorageBufferIndex(device, stride_buffer);
+		zest_uint structured_index = zest_AcquireStructuredBufferIndex(device, stride_buffer, 48);
+		failed |= raw_index == ZEST_INVALID || structured_index == ZEST_INVALID || raw_index == structured_index;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_ReleaseStorageBufferIndex(device, raw_index);
+		zest_ReleaseStorageBufferIndex(device, structured_index);
+	}
+	if (blocker) zest_FreeBufferNow(blocker);
+	if (stride_buffer) zest_FreeBufferNow(stride_buffer);
 	return failed | finish_device(device);
 }
 
@@ -3276,10 +5307,11 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Many Layer Upload", test_d3d12_many_layer_upload },
 	{ "D3D12 Second Device Rejected", test_d3d12_second_device_rejected },
 	{ "D3D12 Invalid Copy Regions", test_d3d12_invalid_copy_regions },
-	{ "D3D12 Unavailable Immediate Commands", test_d3d12_unavailable_immediate_commands },
+	{ "D3D12 Immediate Compute", test_d3d12_immediate_compute },
 	{ "D3D12 Pool Failure Rejected", test_d3d12_pool_failure_rejected },
 	{ "D3D12 SRV Description", test_d3d12_srv_description },
 	{ "D3D12 Image Barrier Builder", test_d3d12_image_barrier_builder },
+	{ "D3D12 Buffer Barrier Translation", test_d3d12_buffer_barrier_translation },
 	{ "D3D12 Attachment Views", test_d3d12_attachment_views },
 	{ "D3D12 Depth Deny SRV", test_d3d12_depth_deny_srv },
 	{ "D3D12 Format Support", test_d3d12_format_support },
@@ -3301,14 +5333,30 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Swapchain Formats", test_d3d12_swapchain_formats },
 	{ "D3D12 Present Parameters", test_d3d12_present_parameters },
 	{ "D3D12 Windowed Frames", test_d3d12_windowed_frames },
+	{ "D3D12 Debug Overlay", test_d3d12_debug_overlay },
+	{ "D3D12 Push Constant Fallback Frames", test_d3d12_push_constant_fallback_frames },
 	{ "D3D12 DXGI Messages Counted", test_d3d12_dxgi_messages_counted },
 	{ "D3D12 Per Mip Views", test_d3d12_per_mip_views },
 	{ "D3D12 HLSL Compile", test_d3d12_hlsl_compile },
 	{ "D3D12 HLSL Compile Error", test_d3d12_hlsl_compile_error },
 	{ "D3D12 DXC Missing", test_d3d12_dxc_missing },
+	{ "D3D12 Shader Reflection", test_d3d12_shader_reflection },
+	{ "D3D12 Shader Reflection Cross Check", test_d3d12_shader_reflection_cross_check },
+	{ "D3D12 Shader Reflection Bad Containers", test_d3d12_shader_reflection_bad_containers },
+	{ "D3D12 Root Layout Rules", test_d3d12_root_layout_rules },
+	{ "D3D12 Root Layout Errors", test_d3d12_root_layout_errors },
+	{ "D3D12 Root Signatures From Shaders", test_d3d12_root_signatures_from_shaders },
+	{ "D3D12 Shader Compile", test_d3d12_shader_compile },
+	{ "D3D12 Pipeline State Translation", test_d3d12_pipeline_state_translation },
+	{ "D3D12 Pipeline Cache", test_d3d12_pipeline_cache },
+	{ "D3D12 Precompiled Shaders", test_d3d12_precompiled_shaders },
+	{ "D3D12 Lazy Binding Order", test_d3d12_lazy_binding_order },
+	{ "D3D12 Push Constant Fallback", test_d3d12_push_constant_fallback },
+	{ "D3D12 Compute Reads Descriptors", test_d3d12_compute_reads_descriptors },
 	{ "D3D12 Viewport Orientation", test_d3d12_viewport_orientation },
 	{ "D3D12 Buffer Copies", test_d3d12_buffer_copies },
 	{ "D3D12 Buffer Descriptors", test_d3d12_buffer_descriptors },
+	{ "D3D12 Structured Buffer Descriptors", test_d3d12_structured_buffer_descriptors },
 	{ "D3D12 Frame Graph Buffer Copies", test_d3d12_frame_graph_buffer_copies },
 	{ "D3D12 Image Resource Flags", test_d3d12_image_resource_flags },
 	{ "D3D12 Discard Follows Resource Flags", test_d3d12_discard_follows_resource_flags },

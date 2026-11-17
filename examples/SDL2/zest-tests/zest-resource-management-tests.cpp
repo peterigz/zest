@@ -1992,9 +1992,10 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		int phase_passed = 0;
 
 		// Create compute shader from file
+		char shader_path[256];
 		zest_shader_handle shader = zest_CreateShaderFromFile(
 			tests->device,
-			"examples/SDL2/zest-tests/shaders/buffer_write.comp",
+			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
 			"test_compute.spv",
 			zest_compute_shader, NULL,
 			1  // disable caching
@@ -2120,9 +2121,10 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 
 		// Create multiple compute pipelines
 		for (int i = 0; i < compute_count; i++) {
+			char shader_path[256];
 			shaders[i] = zest_CreateShaderFromFile(
 				tests->device,
-				"examples/SDL2/zest-tests/shaders/buffer_write.comp",
+				TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
 				"multi_compute.spv",
 				zest_compute_shader, NULL,
 				1
@@ -2274,9 +2276,10 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		int phase_passed = 0;
 
 		// Create compute with NULL user data (should be fine)
+		char shader_path[256];
 		zest_shader_handle shader = zest_CreateShaderFromFile(
 			tests->device,
-			"examples/SDL2/zest-tests/shaders/buffer_write.comp",
+			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
 			"edge_compute.spv",
 			zest_compute_shader, NULL,
 			1
@@ -2290,7 +2293,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			for (int i = 0; i < cycle_count; i++) {
 				zest_shader_handle cycle_shader = zest_CreateShaderFromFile(
 					tests->device,
-					"examples/SDL2/zest-tests/shaders/buffer_write.comp",
+					TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
 					"cycle_compute.spv",
 					zest_compute_shader, NULL,
 					1
@@ -3079,7 +3082,8 @@ int test__stride_aligned_buffers(ZestTests *tests, Test *test) {
 	if (!storage_alignment) failed_count++;
 
 	StrideCheckState state = {};
-	zest_shader_handle shader = zest_CreateShaderFromFile(device, "examples/SDL2/zest-tests/shaders/stride_check.comp", "stride_check.spv", zest_compute_shader, NULL, 1);
+	char shader_path[256];
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, TestShaderPath(device, "examples/SDL2/zest-tests/shaders/stride_check.comp", shader_path, sizeof(shader_path)), "stride_check.spv", zest_compute_shader, NULL, 1);
 	state.compute = zest_CreateCompute(device, "Stride Check", shader);
 	if (!zest_IsValidHandle((void *)&state.compute)) {
 		test->frame_count++;
@@ -3264,6 +3268,96 @@ int test__stride_aligned_buffers(ZestTests *tests, Test *test) {
 	zest_ReleaseStorageBufferIndex(device, state.result_index);
 	zest_FreeBufferNow(result_buffer);
 
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(device);
+	test->frame_count++;
+	return test->result;
+}
+
+//A structured buffer index needs a stride of 1 to 2048 bytes, no larger than its buffer and dividing its offset, and instance layers align their device buffers to the instance size
+int test__structured_buffer_index(ZestTests *tests, Test *test) {
+	int failed_count = 0;
+	zest_device device = tests->device;
+	zest_buffer_info_t storage_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+
+	zest_buffer_info_t aligned_info = storage_info;
+	aligned_info.element_alignment = 48;
+	zest_buffer aligned_buffer = zest_CreateBuffer(device, 48 * 37, &aligned_info);
+	if (!aligned_buffer) {
+		failed_count++;
+	} else {
+		zest_uint index = zest_AcquireStructuredBufferIndex(device, aligned_buffer, 48);
+		if (index == ZEST_INVALID) {
+			ZEST_PRINT("\tA buffer aligned to its stride didn't get a structured index");
+			failed_count++;
+		} else {
+			zest_ReleaseStorageBufferIndex(device, index);
+		}
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		if (zest_AcquireStructuredBufferIndex(device, aligned_buffer, 0) != ZEST_INVALID || zest_GetValidationErrorCount(device) != error_count + 1) {
+			ZEST_PRINT("\tA stride of 0 wasn't rejected with one validation error");
+			failed_count++;
+		}
+		error_count = zest_GetValidationErrorCount(device);
+		if (zest_AcquireStructuredBufferIndex(device, aligned_buffer, 4096) != ZEST_INVALID || zest_GetValidationErrorCount(device) != error_count + 1) {
+			ZEST_PRINT("\tA stride over D3D12's 2048 byte limit wasn't rejected with one validation error");
+			failed_count++;
+		}
+	}
+	//Buffer sizes are padded, so the stride is taken from the size the small buffer ended up with
+	zest_buffer small_buffer = zest_CreateBuffer(device, 48, &aligned_info);
+	zest_uint past_size = small_buffer ? (zest_uint)small_buffer->size + 48 : 0;
+	if (!small_buffer || past_size > ZEST_MAX_STRUCTURED_STRIDE) {
+		ZEST_PRINT("\tThe small buffer couldn't be created under %u bytes, so the stride past its size can't be tried", (zest_uint)ZEST_MAX_STRUCTURED_STRIDE);
+		failed_count++;
+	} else {
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		if (zest_AcquireStructuredBufferIndex(device, small_buffer, past_size) != ZEST_INVALID || zest_GetValidationErrorCount(device) != error_count + 1) {
+			ZEST_PRINT("\tA stride of %u, past the %llu byte buffer, wasn't rejected with one validation error", past_size, (unsigned long long)small_buffer->size);
+			failed_count++;
+		}
+	}
+
+	zest_buffer blocker = zest_CreateBuffer(device, 300, &storage_info);
+	zest_buffer unaligned_buffer = zest_CreateBuffer(device, 76 * 37, &storage_info);
+	if (!blocker || !unaligned_buffer || unaligned_buffer->memory_offset % 76 == 0) {
+		ZEST_PRINT("\tThe buffer behind the blocker wasn't created off a multiple of 76, so the misaligned case can't run");
+		failed_count++;
+	} else {
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		if (zest_AcquireStructuredBufferIndex(device, unaligned_buffer, 76) != ZEST_INVALID || zest_GetValidationErrorCount(device) != error_count + 1) {
+			ZEST_PRINT("\tA buffer whose offset isn't a multiple of the stride wasn't rejected with one validation error");
+			failed_count++;
+		}
+	}
+
+	//Blockers in each frame in flight's pool, so the layer's device buffers don't start at 0
+	zest_buffer layer_blockers[ZEST_MAX_FIF] = {};
+	zest_ForEachFrameInFlight(fif) {
+		zest_buffer_info_t blocker_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
+		blocker_info.frame_in_flight = fif;
+		layer_blockers[fif] = zest_CreateBuffer(device, 300, &blocker_info);
+	}
+	zest_layer_handle layer_handle = zest_CreateFIFInstanceLayer(tests->context, "Structured Layer", 48, 100);
+	zest_layer layer = zest_GetLayer(layer_handle);
+	zest_AcquireInstanceLayerBufferIndex(device, layer);
+	zest_ForEachFrameInFlight(fif) {
+		zest_buffer device_buffer = layer->memory_refs[fif].device_vertex_data;
+		if (device_buffer->memory_offset % 48 || layer->memory_refs[fif].descriptor_array_index == ZEST_INVALID) {
+			ZEST_PRINT("\tFrame in flight %u's layer device buffer is at offset %llu, or has no index", fif, (unsigned long long)device_buffer->memory_offset);
+			failed_count++;
+		}
+	}
+	zest_FreeLayer(layer_handle);
+	zest_ForEachFrameInFlight(fif) {
+		if (layer_blockers[fif]) zest_FreeBufferNow(layer_blockers[fif]);
+	}
+	if (blocker) zest_FreeBufferNow(blocker);
+	if (unaligned_buffer) zest_FreeBufferNow(unaligned_buffer);
+	if (aligned_buffer) zest_FreeBufferNow(aligned_buffer);
+	if (small_buffer) zest_FreeBufferNow(small_buffer);
+
+	zest_ResetValidationErrors(device);
 	test->result = failed_count > 0 ? 1 : 0;
 	test->result |= zest_GetValidationErrorCount(device);
 	test->frame_count++;

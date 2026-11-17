@@ -55,7 +55,11 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test State MultiBlend", test__pipeline_state_multiblend, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test State Rasterization", test__pipeline_state_rasterization, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test Winding Coverage", test__pipeline_winding_coverage, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test Vertex Draw", test__pipeline_vertex_draw, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test Depth Bias", test__pipeline_depth_bias, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Shader Binary Platform Mismatch", test__shader_binary_platform_mismatch, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Shader Platform Macro", test__shader_platform_macro, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Format Support", test__image_format_support, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Format Edge Cases", test__image_format_validation_edge_cases, 0, 1, 0, 0, tests->simple_create_info });
@@ -113,6 +117,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Resource Test Buffer Grow Contract", test__buffer_grow_contract, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Concurrent Pool Growth", test__concurrent_pool_growth, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Stride Aligned Buffers", test__stride_aligned_buffers, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Resource Test Structured Buffer Index", test__structured_buffer_index, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Pooled Image Allocations", test__pooled_image_allocations, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Transient Placement", test__cached_transient_placement, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Unbacked Transient Barrier", test__unbacked_transient_barrier, 0, ZEST_MAX_FIF * 4, 0, 0, tests->simple_create_info });
@@ -197,6 +202,21 @@ static const char *d3d12_suite_tests[] = {
 	"User Test Unused Swapchain", "User Test Buffer Output In Render Pass", "User Test Transient Dependency Ordering",
 	"User Test Acquire/Release Indexes",
 	"Device Reset Deferred Frees", "Device Reset Bindless Indexes",
+	"Shader Cache Invalidation", "Shader Hot Reload Keeps Macros", "Shader Binary Platform Mismatch", "Shader Platform Macro",
+	"Resource Test Structured Buffer Index",
+	"Pipeline Test State Depth", "Pipeline Test State Blending", "Pipeline Test State Culling", "Pipeline Test State Topology",
+	"Pipeline Test State Polygon Mode", "Pipeline Test State Front Face", "Pipeline Test State Vertex Input", "Pipeline Test State MultiBlend",
+	"Pipeline Test State Rasterization",
+	"Pipeline Test Winding Coverage", "Pipeline Test Vertex Draw", "Pipeline Test Depth Bias",
+	"Image Write/Read", "Resource Test Compute Shader Resources", "Compute Test Frame Graph and Execute", "Compute Test Timeline Wait External",
+	"Compute Test Immediate Execute Cached", "Compute Test Flush Compile Failure No Hang", "Stress Test Transient Images",
+	"Layer Test Instance Upload", "Layer Test Instruction Batching", "Layer Test Buffer Growth", "Layer Test Instance Draw",
+	"Layer Test Frame In Flight", "Resource Test Stride Aligned Buffers",
+	"Device Reset Pool Sizing",
+	"Buffer Read/Write",
+	"Compute Test Multiple Timeline Signals", "Compute Test Read Modify Write", "Compute Test Only Graph", "Compute Test Immediate Execute No Wait",
+	"Cached Transient Placement", "Unbacked Transient Barrier", "Intraframe Two Graphs",
+	"Stress Test Pass Dependencies", "Stress Test Pass Dependency Chain", "Stress Test Transient Buffers", "Stress Test All Transients",
 };
 
 static zest_bool IsD3D12SuiteTest(const char *name) {

@@ -87,6 +87,7 @@ ZEST__DX_DEFINE_IID(ID3D12DeviceRemovedExtendedDataSettings1, 0xdbd5ae51, 0x3317
 ZEST__DX_DEFINE_IID(ID3D12CommandQueue, 0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 ZEST__DX_DEFINE_IID(ID3D12CommandAllocator, 0x6102dee4, 0xaf59, 0x4b09, 0xb9, 0x99, 0xb4, 0x4d, 0x73, 0xf0, 0x9b, 0x24);
 ZEST__DX_DEFINE_IID(ID3D12GraphicsCommandList7, 0xdd171223, 0x8b61, 0x4769, 0x90, 0xe3, 0x16, 0x0c, 0xcd, 0xe4, 0xe2, 0xc1);
+ZEST__DX_DEFINE_IID(ID3D12GraphicsCommandList9, 0x34ed2808, 0xffe6, 0x4c2b, 0xb1, 0x1a, 0xca, 0xbd, 0x2b, 0x0c, 0x59, 0xe1);
 ZEST__DX_DEFINE_IID(ID3D12Fence, 0x0a753dcf, 0xc4d8, 0x4b91, 0xad, 0xf6, 0xbe, 0x5a, 0x60, 0xd9, 0x5a, 0x76);
 ZEST__DX_DEFINE_IID(ID3D12Resource, 0x696442be, 0xa72e, 0x4059, 0xbc, 0x79, 0x5b, 0x5c, 0x98, 0x04, 0x0f, 0xad);
 ZEST__DX_DEFINE_IID(ID3D12Heap, 0x6b3b2502, 0x6e51, 0x45b3, 0x90, 0xee, 0x98, 0x84, 0x26, 0x5e, 0x8d, 0xf3);
@@ -140,6 +141,60 @@ float4 pixel_main(zest_blit_varyings input) : SV_Target {
 	return source.SampleLevel(linear_sampler, location, 0.0);
 }
 );
+
+//The debug overlay, which samples one slice of the font array per character
+ZEST_GLOBAL const char *zest__dx_shader_db_overlay_vert = ZEST_HLSL(
+cbuffer zest_push : register(b0, space0) {
+	float4 transform;
+	uint font_index;
+	uint sampler_index;
+};
+
+struct zest_overlay_input {
+	float2 position : POSITION0;
+	float2 uv : TEXCOORD0;
+	float4 color : COLOR0;
+	uint character_index : TEXCOORD1;
+};
+
+struct zest_overlay_varyings {
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float2 uv : TEXCOORD0;
+	nointerpolation float layer : TEXCOORD1;
+};
+
+zest_overlay_varyings main(zest_overlay_input input) {
+	zest_overlay_varyings output;
+	output.position = float4(input.position * transform.xy + transform.zw, 0.0, 1.0);
+	output.color = input.color;
+	output.uv = input.uv;
+	output.layer = (float)input.character_index;
+	return output;
+}
+);
+
+ZEST_GLOBAL const char *zest__dx_shader_db_overlay_frag = ZEST_HLSL(
+cbuffer zest_push : register(b0, space0) {
+	float4 transform;
+	uint font_index;
+	uint sampler_index;
+};
+SamplerState zest_samplers[] : register(s0, space100);
+Texture2DArray zest_texture_arrays[] : register(t0, space103);
+
+struct zest_overlay_varyings {
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float2 uv : TEXCOORD0;
+	nointerpolation float layer : TEXCOORD1;
+};
+
+float4 main(zest_overlay_varyings input) : SV_Target0 {
+	float alpha = zest_texture_arrays[NonUniformResourceIndex(font_index)].Sample(zest_samplers[NonUniformResourceIndex(sampler_index)], float3(input.uv, input.layer)).r;
+	return float4(input.color.rgb, input.color.a * alpha);
+}
+);
 // -- End Shader_code
 
 // -- Backend_structs
@@ -153,6 +208,7 @@ typedef struct zest_dx_feature_support_t {
 	zest_bool inverted_viewport_height;
 	zest_bool unrestricted_copy_pitch;
 	zest_bool dynamic_depth_bias;
+	zest_bool triangle_fan;
 	zest_bool gpu_upload_heap;
 	zest_bool copy_queue_timestamps;
 	zest_bool tearing;
@@ -177,6 +233,7 @@ typedef struct zest_dxc_compiler3_t zest_dxc_compiler3_t;
 #define ZEST_DX_BLIT_FORMAT_COUNT 192
 #define ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT 8192
 #define ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK 64
+#define ZEST_DX_MAX_VERTEX_BINDINGS 8
 
 //Chunks are indexes into the transient region of the bindless resource heap
 typedef struct zest_dx_transient_descriptors_t {
@@ -185,11 +242,49 @@ typedef struct zest_dx_transient_descriptors_t {
 	zest_uint slot_cursor;
 } zest_dx_transient_descriptors_t;
 
+#define ZEST_DX_PUSH_UPLOAD_BLOCK_SIZE 65536
+#define ZEST__DX_PUSH_UPLOAD_SLOT_SIZE D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT
+
+//Root CBV push data, one 256-byte slot per flush that sends a push
+typedef struct zest_dx_push_upload_t {
+	zest_buffer *blocks;			//zest_vec of ZEST_DX_PUSH_UPLOAD_BLOCK_SIZE staging buffers
+	zest_uint block_cursor;
+	zest_uint slot_cursor;
+} zest_dx_push_upload_t;
+
+//The plain fields are what the app asked for, the recorded_ fields what the native list holds
+typedef struct zest_dx_bind_state_t {
+	zest_pipeline pipeline;
+	zest_compute compute;
+	ID3D12PipelineState *recorded_pipeline_state;
+	ID3D12RootSignature *recorded_graphics_root_signature;
+	ID3D12RootSignature *recorded_compute_root_signature;
+	D3D12_PRIMITIVE_TOPOLOGY recorded_topology;
+	zest_buffer vertex_buffers[ZEST_DX_MAX_VERTEX_BINDINGS];
+	zest_buffer recorded_vertex_buffers[ZEST_DX_MAX_VERTEX_BINDINGS];
+	zest_uint recorded_vertex_strides[ZEST_DX_MAX_VERTEX_BINDINGS];
+	zest_buffer index_buffer;
+	zest_buffer recorded_index_buffer;
+	char push_data[ZEST_MAX_PUSH_SIZE];
+	zest_bool graphics_push_dirty;
+	zest_bool compute_push_dirty;
+	float depth_bias[3];			//Constant factor, clamp, slope
+	zest_bool depth_bias_set;		//Until zest_cmd_SetDepthBias, each pipeline keeps the bias baked into it
+	zest_bool depth_bias_dirty;
+	zest_bool reported_missing_pipeline;
+	zest_bool reported_depth_bias;
+} zest_dx_bind_state_t;
+
 typedef struct zest_dx_blit_constants_t {
 	float source_rect[4];
 	zest_uint filter;
 	zest_uint padding[3];
 } zest_dx_blit_constants_t;
+
+//Keyed by zest_Hash of the zest_dx_root_layout_t it was created from
+zest_hash_map(ID3D12RootSignature *) zest_dx_root_signature_map;
+//Keyed by a hash of the description's contents, the shader bytes and the root signature
+zest_hash_map(ID3D12PipelineState *) zest_dx_pipeline_state_map;
 
 typedef struct zest_dx_device_backend_t {
 	IDXGIFactory6 *factory;
@@ -212,11 +307,17 @@ typedef struct zest_dx_device_backend_t {
 	//DXIL is independent of the ID3D12Device, so the blobs outlive a device reset while the pipelines don't
 	ID3DBlob *blit_vertex_shader;
 	ID3DBlob *blit_pixel_shader;
+	ID3DBlob *overlay_vertex_shader;
+	ID3DBlob *overlay_pixel_shader;
 	ID3D12PipelineState *blit_pipelines[ZEST_DX_BLIT_FORMAT_COUNT];
+	zest_dx_root_signature_map root_signatures;
+	zest_dx_pipeline_state_map pipeline_states;
 	//Guard the lazily created objects above, and blit_lock is held while taking either of the others but never the reverse
-	SRWLOCK dxc_lock;
+	SRWLOCK dxc_lock;				//Also serialises compiles, as DXC compiler objects aren't thread safe
 	SRWLOCK root_signature_lock;
 	SRWLOCK blit_lock;
+	SRWLOCK overlay_lock;			//Held while taking dxc_lock but never the reverse
+	SRWLOCK pipeline_cache_lock;	//Guards root_signatures and pipeline_states, and is never held while taking another Zest lock
 	HRESULT last_result;
 	zest_bool counted_as_live;
 } zest_dx_device_backend_t;
@@ -228,6 +329,8 @@ typedef struct zest_dx_queue_backend_t {
 	D3D12_COMMAND_LIST_TYPE type;
 	zest_buffer *pending_staging_buffers;
 	zest_dx_transient_descriptors_t transient_descriptors;
+	zest_dx_bind_state_t bind_state;
+	zest_dx_push_upload_t push_upload;		//Each block is also in pending_staging_buffers, so none outlives its submission
 	//The last immediate list was executed but its fence signal failed, so nothing yet says when it finishes
 	zest_bool unfenced_submission;
 } zest_dx_queue_backend_t;
@@ -255,7 +358,9 @@ typedef struct zest_dx_swapchain_backend_t {
 typedef struct zest_dx_context_queue_backend_t {
 	ID3D12CommandAllocator *command_allocators[ZEST_MAX_FIF];
 	ID3D12GraphicsCommandList7 *command_list;
+	ID3D12GraphicsCommandList9 *command_list9;		//NULL without dynamic depth bias support
 	zest_dx_transient_descriptors_t transient_descriptors[ZEST_MAX_FIF];
+	zest_dx_push_upload_t push_uploads[ZEST_MAX_FIF];
 } zest_dx_context_queue_backend_t;
 
 typedef struct zest_dx_execution_timeline_backend_t {
@@ -266,9 +371,7 @@ typedef struct zest_dx_command_list_backend_t {
 	ID3D12GraphicsCommandList7 *command_list;
 	zest_context_queue context_queue;
 	zest_device_queue_type queue_type;
-	zest_descriptor_set *bound_sets;
-	zest_uint bound_set_count;
-	zest_pipeline_bind_point bound_point;
+	zest_dx_bind_state_t bind_state;
 	zest_bool render_pass_open;
 	HRESULT close_result;
 } zest_dx_command_list_backend_t;
@@ -286,12 +389,25 @@ typedef struct zest_dx_frame_graph_image_barrier_t {
 	zest_uint dst_family;
 } zest_dx_frame_graph_image_barrier_t;
 
+//Recorded when the graph is compiled, before the buffer behind a transient is known
+typedef struct zest_dx_frame_graph_buffer_barrier_t {
+	zest_resource_node resource;
+	zest_access_flags src_access;
+	zest_access_flags dst_access;
+	zest_pipeline_stage_flags src_stage;
+	zest_pipeline_stage_flags dst_stage;
+} zest_dx_frame_graph_buffer_barrier_t;
+
 //The translated arrays always hold one entry per record, so executing a cached graph only fills them in
 typedef struct zest_dx_execution_barriers_backend_t {
 	zest_dx_frame_graph_image_barrier_t *acquire_images;
 	zest_dx_frame_graph_image_barrier_t *release_images;
 	D3D12_TEXTURE_BARRIER *acquire_translated;
 	D3D12_TEXTURE_BARRIER *release_translated;
+	zest_dx_frame_graph_buffer_barrier_t *acquire_buffers;
+	zest_dx_frame_graph_buffer_barrier_t *release_buffers;
+	D3D12_BUFFER_BARRIER *acquire_buffers_translated;
+	D3D12_BUFFER_BARRIER *release_buffers_translated;
 } zest_dx_execution_barriers_backend_t;
 
 //The fence values are in the shared values[fif][queue]
@@ -373,6 +489,7 @@ typedef struct zest_dx_descriptor_pool_backend_t {
 	D3D12_CPU_DESCRIPTOR_HANDLE resource_cpu_start;
 	D3D12_GPU_DESCRIPTOR_HANDLE resource_gpu_start;
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu_start;
+	D3D12_GPU_DESCRIPTOR_HANDLE sampler_gpu_start;
 	zest_uint *free_transient_chunks;
 	SRWLOCK chunk_lock;
 } zest_dx_descriptor_pool_backend_t;
@@ -453,7 +570,122 @@ struct zest_dxc_result_t {
 typedef HRESULT (STDMETHODCALLTYPE *zest_dxc_create_instance_function)(const GUID *class_id, const IID *riid, void **object);
 
 #define ZEST__DX_DXC_UTF8 65001
-#define ZEST__DX_DXC_ARGUMENT_LENGTH 32
+
+#define ZEST__DX_FOURCC_DXBC 0x43425844
+#define ZEST__DX_FOURCC_PSV0 0x30565350
+#define ZEST__DX_FOURCC_ISG1 0x31475349
+#define ZEST__DX_FOURCC_DXIL 0x4C495844
+#define ZEST__DX_STRING(value) #value
+#define ZEST__DX_STRING_VALUE(value) ZEST__DX_STRING(value)
+
+#define ZEST_DX_MAX_SHADER_RESOURCES 64
+#define ZEST_DX_MAX_SHADER_INPUTS 32
+
+typedef struct zest_dx_shader_resource_t {
+	zest_uint type;					//PSV0 ResType
+	zest_uint kind;					//PSV0 ResKind
+	zest_uint space;
+	zest_uint lower_bound;
+	zest_uint upper_bound;			//0xFFFFFFFF for an unbounded array
+} zest_dx_shader_resource_t;
+
+typedef struct zest_dx_shader_input_t {
+	const char *semantic_name;		//Points into the container, so it lives as long as the container's bytes
+	zest_uint semantic_index;
+	zest_uint register_index;
+	zest_uint system_value;			//0 for a vertex attribute
+	zest_uint component_type;
+	zest_uint mask;
+} zest_dx_shader_input_t;
+
+typedef struct zest_dx_shader_reflection_t {
+	zest_uint stage;				//0 pixel, 1 vertex, 5 compute
+	zest_uint resource_count;
+	zest_dx_shader_resource_t resources[ZEST_DX_MAX_SHADER_RESOURCES];
+	zest_uint input_count;
+	zest_dx_shader_input_t inputs[ZEST_DX_MAX_SHADER_INPUTS];
+} zest_dx_shader_reflection_t;
+
+#define ZEST_DX_MAX_ROOT_RANGES 32
+#define ZEST_DX_MAX_SAMPLER_RANGES 4
+#define ZEST_DX_MAX_PUSH_REGISTERS 4
+#define ZEST__DX_MAX_ROOT_DWORDS 64
+
+typedef struct zest_dx_root_range_t {
+	zest_uint range_type;			//D3D12_DESCRIPTOR_RANGE_TYPE
+	zest_uint space;
+	zest_uint base_register;
+	zest_uint heap_offset;			//OffsetInDescriptorsFromTableStart
+} zest_dx_root_range_t;
+
+typedef struct zest_dx_root_push_t {
+	zest_uint shader_register;
+	zest_uint visibility;			//D3D12_SHADER_VISIBILITY
+} zest_dx_root_push_t;
+
+//Zeroed before it's filled, so its bytes are the root signature cache key
+typedef struct zest_dx_root_layout_t {
+	zest_uint push_count;
+	zest_dx_root_push_t pushes[ZEST_DX_MAX_PUSH_REGISTERS];
+	zest_uint push_dword_count;
+	zest_bool push_as_cbv;
+	zest_uint resource_range_count;
+	zest_dx_root_range_t resource_ranges[ZEST_DX_MAX_ROOT_RANGES];
+	zest_uint sampler_range_count;
+	zest_dx_root_range_t sampler_ranges[ZEST_DX_MAX_SAMPLER_RANGES];
+	zest_bool input_assembler;
+} zest_dx_root_layout_t;
+
+//The part of a root layout the draw and dispatch flushes read, so they never touch the 632-byte layout
+typedef struct zest_dx_root_parameters_t {
+	zest_uint push_count;			//Push parameters are 0 to push_count - 1
+	zest_uint push_dword_count;
+	zest_bool push_as_cbv;
+	zest_uint resource_table;		//Parameter index, or ZEST_INVALID with no resource range
+	zest_uint sampler_table;		//Parameter index, or ZEST_INVALID with no sampler range
+} zest_dx_root_parameters_t;
+
+//The pipeline state and root signature are borrowed from the device caches
+typedef struct zest_dx_pipeline_backend_t {
+	ID3D12PipelineState *pipeline_state;
+	ID3D12RootSignature *root_signature;
+	zest_dx_root_parameters_t root_parameters;
+	D3D12_PRIMITIVE_TOPOLOGY topology;
+	zest_uint vertex_strides[ZEST_DX_MAX_VERTEX_BINDINGS];		//Bytes, indexed by binding
+	zest_uint vertex_binding_count;							//Highest binding with a stride, plus 1
+	zest_bool dynamic_depth_bias;
+} zest_dx_pipeline_backend_t;
+
+//The pipeline state and root signature are borrowed from the device caches
+typedef struct zest_dx_compute_backend_t {
+	ID3D12PipelineState *pipeline_state;
+	ID3D12RootSignature *root_signature;
+	zest_dx_root_parameters_t root_parameters;
+} zest_dx_compute_backend_t;
+
+//Where an unbounded array of one PSV0 (ResType, ResKind) goes in the shader visible heaps
+typedef struct zest_dx_bindless_slot_t {
+	zest_uint type;
+	zest_uint kind;
+	D3D12_DESCRIPTOR_RANGE_TYPE range_type;
+	zest_uint binding;				//zest_global_binding_number, or ZEST_INVALID for the storage buffer UAV region
+} zest_dx_bindless_slot_t;
+
+#define ZEST__DX_BINDLESS_SLOT_COUNT 12
+ZEST_GLOBAL const zest_dx_bindless_slot_t zest__dx_bindless_slots[ZEST__DX_BINDLESS_SLOT_COUNT] = {
+	{ 1, 14, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, zest_sampler_binding },
+	{ 3, 2, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_2d_binding },
+	{ 3, 5, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_cube_binding },
+	{ 3, 7, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_array_binding },
+	{ 3, 4, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_3d_binding },
+	{ 3, 9, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_cube_array_binding },
+	{ 5, 12, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_storage_buffer_binding },
+	{ 4, 11, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_storage_buffer_binding },
+	{ 8, 12, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ZEST_INVALID },
+	{ 7, 11, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ZEST_INVALID },
+	{ 6, 2, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, zest_storage_image_binding },
+	{ 2, 13, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, zest_uniform_buffer_binding },
+};
 
 static const char *zest__dx_forced_dxc_library = NULL;
 static const char *zest__dx_forced_missing_feature = NULL;
@@ -510,6 +742,11 @@ ZEST_PRIVATE zest_uint zest__dx_plane_count(zest_format format);
 ZEST_PRIVATE D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE zest__dx_beginning_access(zest_load_op load_op);
 ZEST_PRIVATE D3D12_RENDER_PASS_ENDING_ACCESS_TYPE zest__dx_ending_access(zest_store_op store_op);
 ZEST_PRIVATE D3D12_VIEWPORT zest__dx_viewport(float x, float y, float width, float height, float min_depth, float max_depth);
+//D3D12 rejects a colour factor in an alpha field, so with alpha set they become the matching alpha factor, which is what Vulkan computes there anyway
+ZEST_PRIVATE D3D12_BLEND zest__dx_blend_factor(zest_blend_factor factor, zest_bool alpha);
+ZEST_PRIVATE D3D12_BLEND_OP zest__dx_blend_op(zest_blend_op blend_op);
+ZEST_PRIVATE D3D12_PRIMITIVE_TOPOLOGY zest__dx_primitive_topology(zest_topology topology);
+ZEST_PRIVATE D3D12_PRIMITIVE_TOPOLOGY_TYPE zest__dx_primitive_topology_type(zest_topology topology);
 ZEST_PRIVATE zest_bool zest__dx_swapchain_formats(zest_format requested, DXGI_FORMAT *buffer_format, DXGI_FORMAT *view_format, zest_format *reported);
 ZEST_PRIVATE void zest__dx_present_parameters(zest_bool vsync, zest_bool tearing_supported, UINT *sync_interval, UINT *flags);
 
@@ -540,6 +777,18 @@ ZEST_PRIVATE void zest__dx_bind_bindless_heaps(zest_device device, ID3D12Graphic
 ZEST_PRIVATE zest_bool zest__dx_allocate_transient_descriptor(zest_device device, zest_dx_transient_descriptors_t *descriptors, D3D12_CPU_DESCRIPTOR_HANDLE *cpu, D3D12_GPU_DESCRIPTOR_HANDLE *gpu);
 ZEST_PRIVATE void zest__dx_reset_transient_descriptors(zest_dx_transient_descriptors_t *descriptors);
 ZEST_PRIVATE void zest__dx_release_transient_descriptors(zest_device device, zest_dx_transient_descriptors_t *descriptors);
+//Copies ZEST_MAX_PUSH_SIZE bytes into the next 256-byte slot, adding a block to the chain when it runs out
+ZEST_PRIVATE zest_bool zest__dx_allocate_push_upload(zest_device device, zest_dx_push_upload_t *upload, const void *push_data, D3D12_GPU_VIRTUAL_ADDRESS *out_address);
+ZEST_PRIVATE void zest__dx_reset_push_upload(zest_dx_push_upload_t *upload);
+ZEST_PRIVATE void zest__dx_release_push_upload(zest_device device, zest_dx_push_upload_t *upload);
+//Clears every recorded_ field and marks the pushes and depth bias dirty, keeping what the app asked for
+ZEST_PRIVATE void zest__dx_invalidate_bind_state(zest_dx_bind_state_t *state);
+//Sends what differs between the bind state and the native list before a draw
+ZEST_PRIVATE zest_bool zest__dx_flush_graphics_state(const zest_command_list command_list);
+//Sends what differs between the bind state and the native list before a dispatch
+ZEST_PRIVATE zest_bool zest__dx_flush_compute_state(zest_device device, ID3D12GraphicsCommandList7 *native_list, zest_dx_bind_state_t *state, zest_dx_push_upload_t *push_upload);
+//Sends the bindless tables of a root signature that was just set
+ZEST_PRIVATE void zest__dx_set_bindless_tables(zest_device device, ID3D12GraphicsCommandList7 *native_list, const zest_dx_root_parameters_t *parameters, zest_bool compute);
 ZEST_PRIVATE void zest__dx_free_transient_descriptors(zest_device device, zest_dx_transient_descriptors_t *descriptors);
 
 //Images
@@ -634,7 +883,12 @@ ZEST_PRIVATE zest_bool zest__dx_set_next_command_buffer(const zest_command_list 
 ZEST_PRIVATE zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__dx_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE D3D12_BARRIER_LAYOUT zest__dx_record_layout_before(const zest_dx_frame_graph_image_barrier_t *record, zest_image image);
-ZEST_PRIVATE void zest__dx_send_image_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *records, D3D12_TEXTURE_BARRIER *translated);
+ZEST_PRIVATE void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers);
+//Runs when the graph executes and returns how many barriers it wrote. Records on one D3D12 resource become one barrier
+ZEST_PRIVATE zest_uint zest__dx_translate_buffer_barriers(const zest_dx_frame_graph_buffer_barrier_t *records, zest_uint record_count, D3D12_BUFFER_BARRIER *out_barriers);
+ZEST_PRIVATE D3D12_BARRIER_ACCESS zest__dx_merge_access(D3D12_BARRIER_ACCESS first, D3D12_BARRIER_ACCESS second);
+//As zest__dx_normalise_sync, except that a sync with no access stays, as it does on a buffer
+ZEST_PRIVATE D3D12_BARRIER_SYNC zest__dx_normalise_buffer_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access);
 ZEST_PRIVATE void zest__dx_acquire_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__dx_release_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE zest_bool zest__dx_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details);
@@ -706,11 +960,20 @@ ZEST_PRIVATE void zest__dx_update_bindless_image_descriptor(zest_device device, 
 ZEST_PRIVATE void *zest__dx_new_pipeline_layout_backend(zest_device device);
 ZEST_PRIVATE zest_bool zest__dx_build_pipeline_layout(zest_device device, zest_pipeline_layout layout, zest_pipeline_layout_info_t *info);
 ZEST_PRIVATE void zest__dx_cleanup_pipeline_layout_backend(zest_pipeline_layout layout);
-ZEST_PRIVATE void zest__dx_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+ZEST_PRIVATE void zest__dx_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_uint stride, zest_descriptor_set set);
 ZEST_PRIVATE void zest__dx_update_bindless_uniform_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 ZEST_PRIVATE void *zest__dx_new_pipeline_backend(zest_context context);
 ZEST_PRIVATE zest_bool zest__dx_build_pipeline(zest_pipeline pipeline, zest_command_list command_list);
 ZEST_PRIVATE void zest__dx_cleanup_pipeline_backend(zest_pipeline pipeline);
+//Fills everything but the root signature and the shader bytecode. The semantic names point into the vertex shader's container
+ZEST_PRIVATE zest_bool zest__dx_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_dx_shader_reflection_t *vertex_reflection, D3D12_GRAPHICS_PIPELINE_STATE_DESC *out_description, D3D12_INPUT_ELEMENT_DESC *out_input_elements, char *out_error, zest_size error_size);
+//Thread safe. The pointer is borrowed from the device's cache and valid until the device is reset or destroyed
+ZEST_PRIVATE ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description);
+//Thread safe. The pointer is borrowed from the device's cache and valid until the device is reset or destroyed
+ZEST_PRIVATE ID3D12PipelineState *zest__dx_compute_pipeline_state(zest_device device, const void *bytecode, zest_size bytecode_size, ID3D12RootSignature *root_signature);
+ZEST_PRIVATE ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description);
+//Parses a pipeline's shader and checks its stage
+ZEST_PRIVATE zest_bool zest__dx_reflect_pipeline_shader(zest_shader_handle shader_handle, zest_uint expected_stage, const char *pipeline_name, zest_dx_shader_reflection_t *out_reflection, zest_shader *out_shader, char *out_error, zest_size error_size);
 ZEST_PRIVATE ID3D12RootSignature *zest__dx_utility_root_signature(zest_device device);
 ZEST_PRIVATE ID3D12RootSignature *zest__dx_create_utility_root_signature(zest_device device);
 ZEST_PRIVATE ID3D12PipelineState *zest__dx_create_utility_pipeline(zest_device device, ID3DBlob *vertex_shader, ID3DBlob *pixel_shader, DXGI_FORMAT render_target_format, D3D12_CULL_MODE cull_mode, BOOL front_counter_clockwise);
@@ -723,6 +986,8 @@ ZEST_PRIVATE zest_bool zest__dx_finish_compute(zest_device device, zest_compute 
 ZEST_PRIVATE void zest__dx_cleanup_compute_backend(zest_compute compute);
 ZEST_PRIVATE zest_shader_handle zest__dx_get_db_overlay_vertex_shader(zest_device device);
 ZEST_PRIVATE zest_shader_handle zest__dx_get_db_overlay_fragment_shader(zest_device device);
+//Compiled once and kept across device resets, as DXIL doesn't depend on the device. NULL after a failed compile, which DXC's report covers
+ZEST_PRIVATE ID3DBlob *zest__dx_overlay_shader(zest_device device, zest_bool pixel);
 ZEST_PRIVATE void zest__dx_create_test_render_pass(zest_device device, const zest_command_list_t *command_list);
 ZEST_PRIVATE zest_image_view_array zest__dx_create_image_views_per_mip(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 ZEST_PRIVATE void *zest__dx_new_frame_graph_image_backend(zest_device device, zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
@@ -754,7 +1019,26 @@ ZEST_PRIVATE void zest__dx_set_depth_bias(const zest_command_list command_list, 
 ZEST_PRIVATE zest_bool zest__dx_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 ZEST_PRIVATE zest_bool zest__dx_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options);
 ZEST_PRIVATE zest_bool zest__dx_load_dxc(zest_device device);
-ZEST_PRIVATE zest_bool zest__dx_compile_hlsl(zest_device device, const char *source, zest_size source_length, const char *name, const char *entry_point, const char *profile, ID3DBlob **dxil);
+ZEST_PRIVATE const wchar_t *zest__dx_widen_ascii(const char *text, wchar_t **cursor);
+//Container fields aren't always 4 byte aligned
+ZEST_PRIVATE zest_uint zest__dx_read_u32(const unsigned char *bytes);
+//arguments are extra ASCII arguments after -E, -T and the debug info ones. out_error_text, when not NULL, receives DXC's message on a failure
+ZEST_PRIVATE zest_bool zest__dx_compile_hlsl(zest_device device, const char *source, zest_size source_length, const char *name, const char *entry_point, const char *profile, const char **arguments, zest_uint argument_count, zest_text_t *out_error_text, ID3DBlob **out_dxil);
+//Compiles main with ZEST_D3D12 and the option macros defined, for the device's shader model
+ZEST_PRIVATE zest_bool zest__dx_compile_shader_source(zest_device device, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options, zest_text_t *out_error_text, ID3DBlob **out_dxil);
+//Reads PSV0, ISG1 and DXIL with every read bounds checked, so it needs no device or DXC and is safe on any thread. out_error is a fixed string
+ZEST_PRIVATE zest_bool zest__dx_reflect_shader(const void *container, zest_size size, zest_dx_shader_reflection_t *out_reflection, const char **out_error);
+//Needs no device. Arrays go to their bindless region by type and non-array constant buffers in space 0 become push constants; anything else is an error
+ZEST_PRIVATE zest_bool zest__dx_derive_root_layout(const zest_dx_shader_reflection_t **stages, zest_uint stage_count, zest_uint push_constant_size, zest_bool input_assembler, const zest_dx_bindless_regions_t *regions, zest_dx_root_layout_t *out_layout, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_dx_root_parameters_t zest__dx_root_parameters(const zest_dx_root_layout_t *layout);
+//Thread safe. The pointer is borrowed from the device's cache and valid until the device is reset or destroyed
+ZEST_PRIVATE ID3D12RootSignature *zest__dx_root_signature(zest_device device, const zest_dx_root_layout_t *layout);
+ZEST_PRIVATE ID3D12RootSignature *zest__dx_create_root_signature(zest_device device, const zest_dx_root_layout_t *layout);
+ZEST_PRIVATE ID3D12RootSignature *zest__dx_serialize_root_signature(zest_device device, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *description, const char *name);
+ZEST_PRIVATE char zest__dx_register_class(zest_uint type);
+ZEST_PRIVATE const char *zest__dx_stage_name(zest_uint stage);
+ZEST_PRIVATE zest_dx_root_range_t *zest__dx_find_root_range(zest_dx_root_range_t *ranges, zest_uint range_count, const zest_dx_root_range_t *range);
+ZEST_PRIVATE void zest__dx_fill_descriptor_ranges(const zest_dx_root_range_t *ranges, zest_uint range_count, D3D12_DESCRIPTOR_RANGE_FLAGS flags, D3D12_DESCRIPTOR_RANGE1 *out_ranges);
 ZEST_PRIVATE zest_bool zest__dx_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler);
 ZEST_PRIVATE void *zest__dx_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__dx_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
@@ -1243,6 +1527,10 @@ D3D12_BARRIER_SYNC zest__dx_normalise_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIE
 	if (access != D3D12_BARRIER_ACCESS_COMMON && !(access & (D3D12_BARRIER_ACCESS_RESOLVE_SOURCE | D3D12_BARRIER_ACCESS_RESOLVE_DEST))) {
 		trimmed &= ~(UINT)D3D12_BARRIER_SYNC_RESOLVE;
 	}
+	//And the index input scope, which the vertex input stage brings with it, alongside one with no index buffer read
+	if (access != D3D12_BARRIER_ACCESS_COMMON && !(access & D3D12_BARRIER_ACCESS_INDEX_BUFFER)) {
+		trimmed &= ~(UINT)D3D12_BARRIER_SYNC_INDEX_INPUT;
+	}
 	return trimmed ? (D3D12_BARRIER_SYNC)trimmed : D3D12_BARRIER_SYNC_ALL;
 }
 
@@ -1386,6 +1674,64 @@ void zest__dx_present_parameters(zest_bool vsync, zest_bool tearing_supported, U
 	*sync_interval = vsync ? 1 : 0;
 	*flags = !vsync && tearing_supported ? DXGI_PRESENT_ALLOW_TEARING : 0;
 }
+
+D3D12_BLEND zest__dx_blend_factor(zest_blend_factor factor, zest_bool alpha) {
+	switch (factor) {
+		case zest_blend_factor_zero: return D3D12_BLEND_ZERO;
+		case zest_blend_factor_one: return D3D12_BLEND_ONE;
+		case zest_blend_factor_src_color: return alpha ? D3D12_BLEND_SRC_ALPHA : D3D12_BLEND_SRC_COLOR;
+		case zest_blend_factor_one_minus_src_color: return alpha ? D3D12_BLEND_INV_SRC_ALPHA : D3D12_BLEND_INV_SRC_COLOR;
+		case zest_blend_factor_dst_color: return alpha ? D3D12_BLEND_DEST_ALPHA : D3D12_BLEND_DEST_COLOR;
+		case zest_blend_factor_one_minus_dst_color: return alpha ? D3D12_BLEND_INV_DEST_ALPHA : D3D12_BLEND_INV_DEST_COLOR;
+		case zest_blend_factor_src_alpha: return D3D12_BLEND_SRC_ALPHA;
+		case zest_blend_factor_one_minus_src_alpha: return D3D12_BLEND_INV_SRC_ALPHA;
+		case zest_blend_factor_dst_alpha: return D3D12_BLEND_DEST_ALPHA;
+		case zest_blend_factor_one_minus_dst_alpha: return D3D12_BLEND_INV_DEST_ALPHA;
+		case zest_blend_factor_constant_color: return D3D12_BLEND_BLEND_FACTOR;
+		case zest_blend_factor_one_minus_constant_color: return D3D12_BLEND_INV_BLEND_FACTOR;
+		case zest_blend_factor_constant_alpha: return D3D12_BLEND_ALPHA_FACTOR;
+		case zest_blend_factor_one_minus_constant_alpha: return D3D12_BLEND_INV_ALPHA_FACTOR;
+		case zest_blend_factor_src_alpha_saturate: return D3D12_BLEND_SRC_ALPHA_SAT;
+		case zest_blend_factor_src1_color: return alpha ? D3D12_BLEND_SRC1_ALPHA : D3D12_BLEND_SRC1_COLOR;
+		case zest_blend_factor_one_minus_src1_color: return alpha ? D3D12_BLEND_INV_SRC1_ALPHA : D3D12_BLEND_INV_SRC1_COLOR;
+		case zest_blend_factor_src1_alpha: return D3D12_BLEND_SRC1_ALPHA;
+		case zest_blend_factor_one_minus_src1_alpha: return D3D12_BLEND_INV_SRC1_ALPHA;
+		default: return D3D12_BLEND_ONE;
+	}
+}
+
+D3D12_BLEND_OP zest__dx_blend_op(zest_blend_op blend_op) {
+	switch (blend_op) {
+		case zest_blend_op_subtract: return D3D12_BLEND_OP_SUBTRACT;
+		case zest_blend_op_reverse_subtract: return D3D12_BLEND_OP_REV_SUBTRACT;
+		case zest_blend_op_min: return D3D12_BLEND_OP_MIN;
+		case zest_blend_op_max: return D3D12_BLEND_OP_MAX;
+		default: return D3D12_BLEND_OP_ADD;
+	}
+}
+
+D3D12_PRIMITIVE_TOPOLOGY zest__dx_primitive_topology(zest_topology topology) {
+	switch (topology) {
+		case zest_topology_point_list: return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+		case zest_topology_line_list: return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+		case zest_topology_line_strip: return D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
+		case zest_topology_triangle_strip: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+		case zest_topology_triangle_fan: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLEFAN;
+		case zest_topology_line_list_with_adjacency: return D3D_PRIMITIVE_TOPOLOGY_LINELIST_ADJ;
+		case zest_topology_line_strip_with_adjacency: return D3D_PRIMITIVE_TOPOLOGY_LINESTRIP_ADJ;
+		case zest_topology_triangle_list_with_adjacency: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ;
+		case zest_topology_triangle_strip_with_adjacency: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ;
+		default: return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	}
+}
+
+D3D12_PRIMITIVE_TOPOLOGY_TYPE zest__dx_primitive_topology_type(zest_topology topology) {
+	switch (topology) {
+		case zest_topology_point_list: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+		case zest_topology_line_list: case zest_topology_line_strip: case zest_topology_line_list_with_adjacency: case zest_topology_line_strip_with_adjacency: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+		default: return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	}
+}
 // -- End Type_converters
 
 // -- Inline_helpers
@@ -1528,6 +1874,11 @@ void zest__dx_query_feature_support(ID3D12Device *native_device, IDXGIFactory6 *
 	if (ZEST__DX_CHECK_FEATURE(native_device, D3D12_FEATURE_D3D12_OPTIONS13, options13)) {
 		support->unrestricted_copy_pitch = options13.UnrestrictedBufferTextureCopyPitchSupported ? ZEST_TRUE : ZEST_FALSE;
 		support->inverted_viewport_height = options13.InvertedViewportHeightFlipsYSupported ? ZEST_TRUE : ZEST_FALSE;
+	}
+
+	D3D12_FEATURE_DATA_D3D12_OPTIONS15 options15 = ZEST__ZERO_INIT(D3D12_FEATURE_DATA_D3D12_OPTIONS15);
+	if (ZEST__DX_CHECK_FEATURE(native_device, D3D12_FEATURE_D3D12_OPTIONS15, options15)) {
+		support->triangle_fan = options15.TriangleFanSupported ? ZEST_TRUE : ZEST_FALSE;
 	}
 
 	D3D12_FEATURE_DATA_D3D12_OPTIONS16 options16 = ZEST__ZERO_INIT(D3D12_FEATURE_DATA_D3D12_OPTIONS16);
@@ -1932,6 +2283,8 @@ zest_bool zest__dx_initialise_device(zest_device device) {
 	if (!zest__dx_select_adapter(device)) {
 		return ZEST_FALSE;
 	}
+	//DXIL compiled for another shader model never comes back from the shader cache
+	device->shader_cache_salt = 0x44000000 | (zest_uint)backend->support.shader_model;
 	if (!zest__dx_create_device_objects(device)) {
 		return ZEST_FALSE;
 	}
@@ -2619,6 +2972,8 @@ void zest__dx_cleanup_device_backend(zest_device device) {
 	//The blobs' code lives in dxcompiler.dll, so they're released before it unloads
 	ZEST_DX_RELEASE(backend->blit_vertex_shader);
 	ZEST_DX_RELEASE(backend->blit_pixel_shader);
+	ZEST_DX_RELEASE(backend->overlay_vertex_shader);
+	ZEST_DX_RELEASE(backend->overlay_pixel_shader);
 	ZEST_DXC_RELEASE(backend->dxc_compiler);
 	if (backend->dxc_module) FreeLibrary(backend->dxc_module);
 	if (backend->dxil_module) FreeLibrary(backend->dxil_module);
@@ -2641,6 +2996,14 @@ void zest__dx_release_device_objects(zest_device device) {
 		ZEST_DX_RELEASE(backend->blit_pipelines[format_index]);
 	}
 	ZEST_DX_RELEASE(backend->utility_root_signature);
+	zest_map_foreach(pipeline_state_index, backend->pipeline_states) {
+		ZEST_DX_RELEASE(backend->pipeline_states.data[zest_map_index(backend->pipeline_states, pipeline_state_index)]);
+	}
+	zest_map_free(device->allocator, backend->pipeline_states);
+	zest_map_foreach(root_signature_index, backend->root_signatures) {
+		ZEST_DX_RELEASE(backend->root_signatures.data[zest_map_index(backend->root_signatures, root_signature_index)]);
+	}
+	zest_map_free(device->allocator, backend->root_signatures);
 	zest__dx_cleanup_cpu_descriptor_heap(device, &backend->cpu_resource_heap);
 	zest__dx_cleanup_cpu_descriptor_heap(device, &backend->cpu_sampler_heap);
 	zest__dx_cleanup_cpu_descriptor_heap(device, &backend->cpu_rtv_heap);
@@ -2685,6 +3048,7 @@ void zest__dx_cleanup_queue_backend(zest_device device, zest_queue queue) {
 	ZEST_DX_RELEASE(backend->command_allocator);
 	ZEST_DX_RELEASE(backend->queue);
 	zest_vec_free(device->allocator, backend->pending_staging_buffers);
+	zest_vec_free(device->allocator, backend->push_upload.blocks);
 	zest__dx_free_transient_descriptors(device, &backend->transient_descriptors);
 	ZEST__FREE(device->allocator, backend);
 	queue->backend = NULL;
@@ -2725,10 +3089,12 @@ void zest__dx_cleanup_queues(zest_device device) {
 void zest__dx_cleanup_context_queue_backend(zest_context context, zest_context_queue context_queue) {
 	zest_dx_context_queue_backend_t *backend = ZEST_DX_BACKEND(context_queue, context_queue);
 	if (!backend) return;
+	ZEST_DX_RELEASE(backend->command_list9);
 	ZEST_DX_RELEASE(backend->command_list);
 	zest_ForEachFrameInFlight(frame_in_flight) {
 		ZEST_DX_RELEASE(backend->command_allocators[frame_in_flight]);
 		zest__dx_release_transient_descriptors(context->device, &backend->transient_descriptors[frame_in_flight]);
+		zest__dx_release_push_upload(context->device, &backend->push_uploads[frame_in_flight]);
 	}
 	ZEST__FREE(context->allocator, backend);
 	context_queue->backend = NULL;
@@ -2879,6 +3245,9 @@ void zest__dx_release_immediate_queue(zest_queue queue, zest_bool gpu_finished) 
 		}
 	}
 	zest_vec_clear(backend->pending_staging_buffers);
+	//The push upload's blocks were freed with the pending staging buffers
+	zest_vec_clear(backend->push_upload.blocks);
+	zest__dx_reset_push_upload(&backend->push_upload);
 	queue->last_bound_compute = NULL;
 	zest__release_queue(queue);
 }
@@ -2912,6 +3281,7 @@ zest_queue zest__dx_imm_begin_command_buffer(zest_device device, zest_device_que
 		return NULL;
 	}
 	zest__dx_reset_transient_descriptors(&queue_backend->transient_descriptors);
+	memset(&queue_backend->bind_state, 0, sizeof(queue_backend->bind_state));
 	device_backend->last_result = ZEST_DX_CALL0(queue_backend->command_allocator, Reset);
 	if (SUCCEEDED(device_backend->last_result) && queue_backend->command_list) {
 		device_backend->last_result = ZEST_DX_CALL(queue_backend->command_list, Reset, queue_backend->command_allocator, NULL);
@@ -3129,6 +3499,8 @@ zest_bool zest__dx_imm_blit_image(zest_queue queue, zest_image src_image, zest_i
 		zest__dx_discard_subresource(queue_backend->command_list, destination_backend->resource, 0);
 	}
 	zest_bool drawn = zest__dx_record_blit(device, queue_backend->command_list, &queue_backend->transient_descriptors, src_image, 0, 0, source_rect, dst_image, 0, 0, &viewport, &scissor, filter == zest_filter_nearest ? 0 : 1);
+	//The blit set its own root signature and pipeline state
+	zest__dx_invalidate_bind_state(&queue_backend->bind_state);
 	barriers[0] = zest__dx_subresource_barrier(src_image, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, source_layout, read_access, source_access, read_stage, source_stage, 0, 1, 0, 1);
 	//Going back to UNDEFINED would throw the blit away, so an undefined destination stays a render target
 	if (destination_undefined) {
@@ -3201,9 +3573,36 @@ zest_bool zest__dx_imm_resolve_image(zest_queue queue, zest_image src_image, zes
 	return ZEST_TRUE;
 }
 
-void zest__dx_imm_send_push_constants(zest_queue queue, void *data, zest_uint size) { zest__dx_report_unavailable(queue->device, "zest_imm_SendPushConstants is not available on the D3D12 backend yet."); }
-void zest__dx_imm_bind_compute_pipeline(zest_queue queue, zest_compute compute) { zest__dx_report_unavailable(queue->device, "zest_imm_BindComputePipeline is not available on the D3D12 backend yet."); }
-zest_bool zest__dx_imm_dispatch_compute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) { return zest__dx_report_unavailable(queue->device, "zest_imm_DispatchCompute is not available on the D3D12 backend yet."); }
+void zest__dx_imm_send_push_constants(zest_queue queue, void *data, zest_uint size) {
+	if (!queue) return;
+	zest_dx_bind_state_t *state = &ZEST_DX_BACKEND(queue, queue)->bind_state;
+	memcpy(state->push_data, data, ZEST__MIN(size, (zest_uint)ZEST_MAX_PUSH_SIZE));
+	state->graphics_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+}
+void zest__dx_imm_bind_compute_pipeline(zest_queue queue, zest_compute compute) {
+	if (!queue) return;
+	ZEST_ASSERT_HANDLE(compute);		//Not a valid compute handle
+	ZEST_DX_BACKEND(queue, queue)->bind_state.compute = compute;
+	queue->last_bound_compute = compute;
+}
+zest_bool zest__dx_imm_dispatch_compute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	if (!queue) return ZEST_FALSE;
+	zest_device device = queue->device;
+	ZEST_ASSERT_OR_VALIDATE(queue->last_bound_compute, device, "You must bind a compute pipeline by calling zest_imm_BindComputePipeline before calling this function", ZEST_FALSE);
+	zest_dx_queue_backend_t *backend = ZEST_DX_BACKEND(queue, queue);
+	if (backend->type == D3D12_COMMAND_LIST_TYPE_COPY) {
+		return zest__dx_report_unavailable(device, "zest_imm_DispatchCompute can't record on a copy queue on the D3D12 backend, as the descriptor heaps aren't bound there. Begin the immediate commands on a compute or graphics queue.");
+	}
+	zest_uint block_count = zest_vec_size(backend->push_upload.blocks);
+	zest_bool flushed = zest__dx_flush_compute_state(device, backend->command_list, &backend->bind_state, &backend->push_upload);
+	if (zest_vec_size(backend->push_upload.blocks) != block_count) {
+		zest_vec_push(device->allocator, backend->pending_staging_buffers, zest_vec_back(backend->push_upload.blocks));
+	}
+	if (!flushed) return ZEST_FALSE;
+	ZEST_DX_CALL(backend->command_list, Dispatch, group_count_x, group_count_y, group_count_z);
+	return ZEST_TRUE;
+}
 zest_bool zest__dx_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset) {
 	ID3D12GraphicsCommandList7 *command_list = ZEST_DX_BACKEND(queue, queue)->command_list;
 	zest__dx_record_buffer_copy(command_list, src_buffer, src_buffer->memory_offset + src_offset, dst_buffer, dst_buffer->memory_offset + dst_offset, size);
@@ -3266,6 +3665,8 @@ zest_bool zest__dx_generate_mipmaps(zest_queue queue, zest_image image) {
 			drawn =zest__dx_record_blit(device, queue_backend->command_list, &queue_backend->transient_descriptors, image, source_mip, layer, full_rect, image, mip, layer, &viewport, &scissor, 1);
 		}
 	}
+	//The blits set their own root signature and pipeline state
+	zest__dx_invalidate_bind_state(&queue_backend->bind_state);
 	zest_uint last_mip = mip_count - 1;
 	if (mip_count > 1) {
 		barriers[0] = zest__dx_subresource_barrier(image, D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, target_access, read_access, target_stage, read_stage, last_mip, 1, 0, layer_count);
@@ -3290,8 +3691,9 @@ void zest__dx_reset_queue_command_pool(zest_context context, zest_context_queue 
 		zest__dx_log_hresult(context->device, context_backend->last_result, __FILE__, __LINE__);
 		return;
 	}
-	//An allocator is only reset once the lists recorded from it have finished, so their descriptors are free too
+	//An allocator is only reset once the lists recorded from it have finished, so their descriptors and push slots are free too
 	zest__dx_reset_transient_descriptors(&queue_backend->transient_descriptors[context->current_fif]);
+	zest__dx_reset_push_upload(&queue_backend->push_uploads[context->current_fif]);
 }
 // -- End Command_pools
 
@@ -3594,6 +3996,43 @@ void zest__dx_compute_bindless_regions(const zest_uint binding_counts[zest_max_g
 	regions->sampler_descriptor_count = binding_counts[zest_sampler_binding];
 }
 
+zest_bool zest__dx_allocate_push_upload(zest_device device, zest_dx_push_upload_t *upload, const void *push_data, D3D12_GPU_VIRTUAL_ADDRESS *out_address) {
+	if (upload->block_cursor < zest_vec_size(upload->blocks) && upload->slot_cursor == ZEST_DX_PUSH_UPLOAD_BLOCK_SIZE / ZEST__DX_PUSH_UPLOAD_SLOT_SIZE) {
+		upload->block_cursor++;
+		upload->slot_cursor = 0;
+	}
+	if (upload->block_cursor == zest_vec_size(upload->blocks)) {
+		zest_buffer block = zest_CreateStagingBuffer(device, ZEST_DX_PUSH_UPLOAD_BLOCK_SIZE, NULL);
+		if (!block) {
+			zest__log_validation_error(device, "A 64 KB upload block for push constants couldn't be created, so the draw or dispatch was skipped. The device is out of upload memory.");
+			return ZEST_FALSE;
+		}
+		//Buffer offsets are a multiple of ZEST_BUFFER_OFFSET_GRANULARITY, which keeps every slot on the CBV alignment
+		ZEST_ASSERT(zest__dx_buffer_address(block) % ZEST__DX_PUSH_UPLOAD_SLOT_SIZE == 0);
+		zest_vec_push(device->allocator, upload->blocks, block);
+		upload->slot_cursor = 0;
+	}
+	zest_buffer block = upload->blocks[upload->block_cursor];
+	zest_size offset = (zest_size)upload->slot_cursor * ZEST__DX_PUSH_UPLOAD_SLOT_SIZE;
+	memcpy((char *)zest_BufferData(block) + offset, push_data, ZEST_MAX_PUSH_SIZE);
+	*out_address = zest__dx_buffer_address(block) + offset;
+	upload->slot_cursor++;
+	return ZEST_TRUE;
+}
+
+void zest__dx_reset_push_upload(zest_dx_push_upload_t *upload) {
+	upload->block_cursor = 0;
+	upload->slot_cursor = 0;
+}
+
+void zest__dx_release_push_upload(zest_device device, zest_dx_push_upload_t *upload) {
+	zest_vec_foreach(block_index, upload->blocks) {
+		zest_FreeBufferNow(upload->blocks[block_index]);
+	}
+	zest_vec_free(device->allocator, upload->blocks);
+	zest__dx_reset_push_upload(upload);
+}
+
 void zest__dx_bind_bindless_heaps(zest_device device, ID3D12GraphicsCommandList7 *command_list) {
 	zest_dx_descriptor_pool_backend_t *pool_backend = ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool;
 	ID3D12DescriptorHeap *heaps[2] = { pool_backend->resource_heap, pool_backend->sampler_heap };
@@ -3714,6 +4153,7 @@ zest_bool zest__dx_create_set_pool(zest_device device, zest_context context, zes
 	backend->resource_cpu_start = zest__dx_cpu_heap_start(backend->resource_heap);
 	backend->resource_gpu_start = zest__dx_gpu_heap_start(backend->resource_heap);
 	backend->sampler_cpu_start = zest__dx_cpu_heap_start(backend->sampler_heap);
+	backend->sampler_gpu_start = zest__dx_gpu_heap_start(backend->sampler_heap);
 	//Pushed in reverse so chunks are handed out from the start of the region
 	zest_uint chunk_count = backend->regions.transient_count / ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK;
 	zest_vec_reserve(allocator, backend->free_transient_chunks, chunk_count);
@@ -3805,31 +4245,40 @@ void zest__dx_cleanup_pipeline_layout_backend(zest_pipeline_layout layout) {
 	layout->backend = NULL;
 }
 
-void zest__dx_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
-	ZEST_ASSERT_OR_VALIDATE(buffer->memory_offset % D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT == 0, device, "A storage buffer descriptor's offset must be a multiple of 16 bytes on the D3D12 backend.", );
+void zest__dx_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_uint stride, zest_descriptor_set set) {
+	if (stride && buffer->memory_offset % stride) {
+		zest__log_validation_error(device, "A structured buffer descriptor's offset must be a multiple of its stride on the D3D12 backend. Create the buffer with element_alignment set to the stride.");
+		return;
+	}
+	ZEST_ASSERT_OR_VALIDATE(stride || buffer->memory_offset % D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT == 0, device, "A storage buffer descriptor's offset must be a multiple of 16 bytes on the D3D12 backend.", );
 	zest_dx_descriptor_pool_backend_t *pool_backend = ZEST_DX_BACKEND(descriptor_set, set)->pool;
 	ID3D12Device *native_device = ZEST_DX_BACKEND(device, device)->device;
 	ID3D12Resource *resource = zest__dx_buffer_resource(buffer);
-	zest_uint element_count = (zest_uint)(buffer->size / 4);
-	UINT64 first_element = buffer->memory_offset / 4;
+	//Raw views count 4 byte words and structured views whole structs
+	zest_uint element_size = stride ? stride : 4;
+	zest_uint element_count = (zest_uint)(buffer->size / element_size);
+	UINT64 first_element = buffer->memory_offset / element_size;
+	DXGI_FORMAT format = stride ? DXGI_FORMAT_UNKNOWN : DXGI_FORMAT_R32_TYPELESS;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC shader_view = ZEST__ZERO_INIT(D3D12_SHADER_RESOURCE_VIEW_DESC);
-	shader_view.Format = DXGI_FORMAT_R32_TYPELESS;
+	shader_view.Format = format;
 	shader_view.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 	shader_view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	shader_view.Buffer.FirstElement = first_element;
 	shader_view.Buffer.NumElements = element_count;
-	shader_view.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+	shader_view.Buffer.StructureByteStride = stride;
+	shader_view.Buffer.Flags = stride ? D3D12_BUFFER_SRV_FLAG_NONE : D3D12_BUFFER_SRV_FLAG_RAW;
 	D3D12_CPU_DESCRIPTOR_HANDLE destination = pool_backend->resource_cpu_start;
 	destination.ptr += (SIZE_T)(pool_backend->regions.resource_offsets[binding_number] + array_index) * pool_backend->resource_increment;
 	ZEST_DX_CALL(native_device, CreateShaderResourceView, resource, &shader_view, destination);
 
 	D3D12_UNORDERED_ACCESS_VIEW_DESC unordered_view = ZEST__ZERO_INIT(D3D12_UNORDERED_ACCESS_VIEW_DESC);
-	unordered_view.Format = DXGI_FORMAT_R32_TYPELESS;
+	unordered_view.Format = format;
 	unordered_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 	unordered_view.Buffer.FirstElement = first_element;
 	unordered_view.Buffer.NumElements = element_count;
-	unordered_view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+	unordered_view.Buffer.StructureByteStride = stride;
+	unordered_view.Buffer.Flags = stride ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
 	destination = pool_backend->resource_cpu_start;
 	destination.ptr += (SIZE_T)(pool_backend->regions.storage_buffer_uav_offset + array_index) * pool_backend->resource_increment;
 	ZEST_DX_CALL(native_device, CreateUnorderedAccessView, resource, NULL, &unordered_view, destination);
@@ -3924,14 +4373,391 @@ ID3D12CommandQueue *zest_GetD3D12CommandQueue(zest_context context) {
 // -- End Device_OS
 
 // -- Pipelines
-void *zest__dx_new_pipeline_backend(zest_context context) { zest__dx_report_unavailable(context->device, "Graphics pipelines are not available on the D3D12 backend yet."); return NULL; }
-zest_bool zest__dx_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) { return zest__dx_report_unavailable(pipeline->context->device, "Graphics pipelines are not available on the D3D12 backend yet."); }
-void zest__dx_cleanup_pipeline_backend(zest_pipeline pipeline) { zest__dx_report_unavailable(pipeline->context->device, "Graphics pipelines are not available on the D3D12 backend yet."); }
-void *zest__dx_new_compute_backend(zest_device device) { zest__dx_report_unavailable(device, "Compute pipelines are not available on the D3D12 backend yet."); return NULL; }
-zest_bool zest__dx_finish_compute(zest_device device, zest_compute compute) { return zest__dx_report_unavailable(device, "Compute pipelines are not available on the D3D12 backend yet."); }
-void zest__dx_cleanup_compute_backend(zest_compute compute) { zest__dx_report_unavailable((zest_device)compute->handle.store->origin, "Compute pipelines are not available on the D3D12 backend yet."); }
-zest_shader_handle zest__dx_get_db_overlay_vertex_shader(zest_device device) { zest__dx_report_unavailable(device, "The debug overlay is not available on the D3D12 backend yet."); return ZEST__ZERO_INIT(zest_shader_handle); }
-zest_shader_handle zest__dx_get_db_overlay_fragment_shader(zest_device device) { zest__dx_report_unavailable(device, "The debug overlay is not available on the D3D12 backend yet."); return ZEST__ZERO_INIT(zest_shader_handle); }
+void *zest__dx_new_pipeline_backend(zest_context context) {
+	zest_dx_pipeline_backend_t *backend = (zest_dx_pipeline_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_dx_pipeline_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_dx_pipeline_backend_t);
+	return backend;
+}
+
+zest_bool zest__dx_reflect_pipeline_shader(zest_shader_handle shader_handle, zest_uint expected_stage, const char *pipeline_name, zest_dx_shader_reflection_t *out_reflection, zest_shader *out_shader, char *out_error, zest_size error_size) {
+	const char *stage_name = zest__dx_stage_name(expected_stage);
+	zest_shader shader = shader_handle.value ? (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value) : NULL;
+	if (!shader || !shader->binary) {
+		snprintf(out_error, error_size, "The pipeline %s has no compiled %s shader.", pipeline_name, stage_name);
+		return ZEST_FALSE;
+	}
+	const char *parse_error = NULL;
+	if (!zest__dx_reflect_shader(shader->binary, shader->binary_size, out_reflection, &parse_error)) {
+		snprintf(out_error, error_size, "The pipeline %s can't use its %s shader %s. %s", pipeline_name, stage_name, shader->name.str, parse_error);
+		return ZEST_FALSE;
+	}
+	if (out_reflection->stage != expected_stage) {
+		snprintf(out_error, error_size, "The pipeline %s's %s shader %s was compiled as a %s shader.", pipeline_name, stage_name, shader->name.str, zest__dx_stage_name(out_reflection->stage));
+		return ZEST_FALSE;
+	}
+	*out_shader = shader;
+	return ZEST_TRUE;
+}
+
+zest_bool zest__dx_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_dx_shader_reflection_t *vertex_reflection, D3D12_GRAPHICS_PIPELINE_STATE_DESC *out_description, D3D12_INPUT_ELEMENT_DESC *out_input_elements, char *out_error, zest_size error_size) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	const char *name = pipeline_template->name;
+	const zest_rasterization_state_t *rasterization = &pipeline_template->rasterization;
+	const zest_depth_stencil_state_t *depth_stencil = &pipeline_template->depth_stencil;
+	//Zeroed first, so the padding is zero and the description's bytes can key the pipeline state cache
+	memset(out_description, 0, sizeof(*out_description));
+
+	const char *unsupported = NULL;
+	if (rasterization->cull_mode == zest_cull_mode_front_and_back) unsupported = "zest_cull_mode_front_and_back";
+	else if (rasterization->polygon_mode == zest_polygon_mode_point) unsupported = "zest_polygon_mode_point";
+	else if (rasterization->rasterizer_discard_enable) unsupported = "rasterizer_discard_enable";
+	else if (depth_stencil->stencil_test_enable) unsupported = "stencil_test_enable";
+	else if (depth_stencil->depth_bounds_test_enable) unsupported = "depth_bounds_test_enable";
+	else if (pipeline_template->primitive_topology == zest_topology_patch_list) unsupported = "zest_topology_patch_list";
+	else if (pipeline_template->view_mask) unsupported = "a non-zero view_mask";
+	if (unsupported) {
+		snprintf(out_error, error_size, "The pipeline %s uses %s, which the D3D12 backend doesn't support.", name, unsupported);
+		return ZEST_FALSE;
+	}
+	if (pipeline_template->primitive_topology == zest_topology_triangle_fan && !backend->support.triangle_fan) {
+		snprintf(out_error, error_size, "The pipeline %s uses zest_topology_triangle_fan, which this D3D12 driver doesn't support. Use a triangle list or strip instead.", name);
+		return ZEST_FALSE;
+	}
+
+	zest_uint element_count = 0;
+	zest_uint location = 0;
+	if (!pipeline_template->no_vertex_input) {
+		zest_vec_foreach(binding_index, pipeline_template->binding_descriptions) {
+			if (pipeline_template->binding_descriptions[binding_index].binding >= ZEST_DX_MAX_VERTEX_BINDINGS) {
+				snprintf(out_error, error_size, "The pipeline %s uses vertex binding %u, past the D3D12 backend's limit of " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_VERTEX_BINDINGS) " bindings.", name, pipeline_template->binding_descriptions[binding_index].binding);
+				return ZEST_FALSE;
+			}
+		}
+	}
+	for (zest_uint input_index = 0; input_index != vertex_reflection->input_count; ++input_index) {
+		const zest_dx_shader_input_t *input = &vertex_reflection->inputs[input_index];
+		//Location N is the Nth non system value input, as system values take registers too
+		if (input->system_value) continue;
+		zest_uint input_location = location++;
+		if (pipeline_template->no_vertex_input) {
+			snprintf(out_error, error_size, "The pipeline %s has vertex input turned off, but its vertex shader reads %s%u. Remove the input or turn vertex input on.", name, input->semantic_name, input->semantic_index);
+			return ZEST_FALSE;
+		}
+		const zest_vertex_attribute_desc_t *attribute = NULL;
+		zest_vec_foreach(attribute_index, pipeline_template->attribute_descriptions) {
+			if (pipeline_template->attribute_descriptions[attribute_index].location == input_location) {
+				attribute = &pipeline_template->attribute_descriptions[attribute_index];
+				break;
+			}
+		}
+		if (!attribute) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex shader reads %s%u at location %u, which has no vertex attribute in the template. D3D12 needs an attribute for every input the shader declares, even one it never reads.", name, input->semantic_name, input->semantic_index, input_location);
+			return ZEST_FALSE;
+		}
+		const zest_vertex_binding_desc_t *binding = NULL;
+		zest_vec_foreach(binding_index, pipeline_template->binding_descriptions) {
+			if (pipeline_template->binding_descriptions[binding_index].binding == attribute->binding) {
+				binding = &pipeline_template->binding_descriptions[binding_index];
+				break;
+			}
+		}
+		if (!binding) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex attribute at location %u uses binding %u, which has no binding description. Add one with zest_AddVertexInputBindingDescription.", name, input_location, attribute->binding);
+			return ZEST_FALSE;
+		}
+		DXGI_FORMAT format = zest__dx_to_dxgi_format(attribute->format);
+		if (format == DXGI_FORMAT_UNKNOWN) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex attribute at location %u has zest_format %u, which has no DXGI vertex format. Use a format with one, two or four channels.", name, input_location, (zest_uint)attribute->format);
+			return ZEST_FALSE;
+		}
+		zest_bool per_instance = binding->input_rate == zest_input_rate_instance;
+		D3D12_INPUT_ELEMENT_DESC *element = &out_input_elements[element_count++];
+		element->SemanticName = input->semantic_name;
+		element->SemanticIndex = input->semantic_index;
+		element->Format = format;
+		element->InputSlot = attribute->binding;
+		element->AlignedByteOffset = attribute->offset;
+		element->InputSlotClass = per_instance ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA;
+		element->InstanceDataStepRate = per_instance ? 1 : 0;
+	}
+	out_description->InputLayout.pInputElementDescs = element_count ? out_input_elements : NULL;
+	out_description->InputLayout.NumElements = element_count;
+
+	D3D12_RASTERIZER_DESC *rasterizer = &out_description->RasterizerState;
+	rasterizer->FillMode = rasterization->polygon_mode == zest_polygon_mode_line ? D3D12_FILL_MODE_WIREFRAME : D3D12_FILL_MODE_SOLID;
+	rasterizer->CullMode = rasterization->cull_mode == zest_cull_mode_front ? D3D12_CULL_MODE_FRONT : rasterization->cull_mode == zest_cull_mode_back ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+	rasterizer->FrontCounterClockwise = zest__dx_front_counter_clockwise(rasterization->front_face);
+	rasterizer->DepthClipEnable = rasterization->depth_clamp_enable ? FALSE : TRUE;
+	if (rasterization->depth_bias_enable) {
+		//The classic description only holds a whole number constant factor
+		rasterizer->DepthBias = (INT)floorf(rasterization->depth_bias_constant_factor + 0.5f);
+		rasterizer->DepthBiasClamp = rasterization->depth_bias_clamp;
+		rasterizer->SlopeScaledDepthBias = rasterization->depth_bias_slope_factor;
+		if (backend->support.dynamic_depth_bias) {
+			out_description->Flags |= D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS;
+		}
+	}
+
+	D3D12_DEPTH_STENCILOP_DESC stencil_op;
+	stencil_op.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+	stencil_op.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+	stencil_op.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+	stencil_op.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+	D3D12_DEPTH_STENCIL_DESC *depth = &out_description->DepthStencilState;
+	depth->FrontFace = stencil_op;
+	depth->BackFace = stencil_op;
+	depth->StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
+	depth->StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
+	depth->DepthFunc = (D3D12_COMPARISON_FUNC)(depth_stencil->depth_compare_op + 1);
+	depth->DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	//Vulkan passes every fragment when a depth test has no depth attachment
+	if (rendering_info->depth_attachment_format != zest_format_undefined) {
+		out_description->DSVFormat = zest__dx_to_dxgi_format(rendering_info->depth_attachment_format);
+		depth->DepthEnable = depth_stencil->depth_test_enable ? TRUE : FALSE;
+		depth->DepthWriteMask = depth_stencil->depth_write_enable ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
+	}
+
+	const zest_color_blend_attachment_t *blend = &pipeline_template->color_blend_attachment;
+	D3D12_RENDER_TARGET_BLEND_DESC *target_blend = &out_description->BlendState.RenderTarget[0];
+	target_blend->BlendEnable = blend->blend_enable ? TRUE : FALSE;
+	target_blend->SrcBlend = zest__dx_blend_factor(blend->src_color_blend_factor, ZEST_FALSE);
+	target_blend->DestBlend = zest__dx_blend_factor(blend->dst_color_blend_factor, ZEST_FALSE);
+	target_blend->BlendOp = zest__dx_blend_op(blend->color_blend_op);
+	target_blend->SrcBlendAlpha = zest__dx_blend_factor(blend->src_alpha_blend_factor, ZEST_TRUE);
+	target_blend->DestBlendAlpha = zest__dx_blend_factor(blend->dst_alpha_blend_factor, ZEST_TRUE);
+	target_blend->BlendOpAlpha = zest__dx_blend_op(blend->alpha_blend_op);
+	target_blend->LogicOp = D3D12_LOGIC_OP_NOOP;
+	target_blend->RenderTargetWriteMask = (UINT8)(blend->color_write_mask & D3D12_COLOR_WRITE_ENABLE_ALL);
+
+	out_description->NumRenderTargets = ZEST__MIN(rendering_info->color_attachment_count, (zest_uint)D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT);
+	for (zest_uint attachment_index = 0; attachment_index != out_description->NumRenderTargets; ++attachment_index) {
+		out_description->RTVFormats[attachment_index] = zest__dx_to_dxgi_format(rendering_info->color_attachment_formats[attachment_index]);
+	}
+	out_description->SampleMask = UINT_MAX;
+	out_description->SampleDesc.Count = rendering_info->sample_count ? (UINT)rendering_info->sample_count : 1;
+	out_description->PrimitiveTopologyType = zest__dx_primitive_topology_type(pipeline_template->primitive_topology);
+	//Vulkan hard codes primitive restart off
+	out_description->IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+	return ZEST_TRUE;
+}
+
+ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	ID3D12PipelineState *pipeline_state = NULL;
+	AcquireSRWLockShared(&backend->pipeline_cache_lock);
+	if (zest_map_valid_key(backend->pipeline_states, key)) {
+		pipeline_state = *zest_map_at_key(backend->pipeline_states, key);
+	}
+	ReleaseSRWLockShared(&backend->pipeline_cache_lock);
+	if (pipeline_state) return pipeline_state;
+
+	//Created outside the lock, so a slow driver compile doesn't hold up other threads' lookups and builds
+	HRESULT result = graphics_description
+		? ZEST_DX_CALL(backend->device, CreateGraphicsPipelineState, graphics_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state)
+		: ZEST_DX_CALL(backend->device, CreateComputePipelineState, compute_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state);
+	if (FAILED(result)) {
+		backend->last_result = result;
+		zest__dx_log_hresult(device, result, __FILE__, __LINE__);
+		return NULL;
+	}
+	ID3D12PipelineState *cached_state = NULL;
+	AcquireSRWLockExclusive(&backend->pipeline_cache_lock);
+	if (zest_map_valid_key(backend->pipeline_states, key)) {
+		cached_state = *zest_map_at_key(backend->pipeline_states, key);
+	} else {
+		zest_map_insert_key(device->allocator, backend->pipeline_states, key, pipeline_state);
+	}
+	ReleaseSRWLockExclusive(&backend->pipeline_cache_lock);
+	//Another thread cached the same state while this one was creating it
+	if (cached_state) {
+		ZEST_DX_RELEASE(pipeline_state);
+		return cached_state;
+	}
+	return pipeline_state;
+}
+
+ID3D12PipelineState *zest__dx_compute_pipeline_state(zest_device device, const void *bytecode, zest_size bytecode_size, ID3D12RootSignature *root_signature) {
+	D3D12_COMPUTE_PIPELINE_STATE_DESC description = ZEST__ZERO_INIT(D3D12_COMPUTE_PIPELINE_STATE_DESC);
+	description.pRootSignature = root_signature;
+	description.CS.pShaderBytecode = bytecode;
+	description.CS.BytecodeLength = bytecode_size;
+	zest_hasher_t hasher;
+	zest__hash_initialise(&hasher, ZEST_HASH_SEED);
+	zest__hasher_add(&hasher, "compute", 7);
+	zest__hasher_add(&hasher, &root_signature, sizeof(root_signature));
+	zest__hasher_add(&hasher, bytecode, bytecode_size);
+	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), NULL, &description);
+}
+
+ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description) {
+	//Pointers are hashed by what they point to, apart from the root signature, which the device cache keeps alive
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC key_description = *description;
+	key_description.VS.pShaderBytecode = NULL;
+	key_description.PS.pShaderBytecode = NULL;
+	key_description.InputLayout.pInputElementDescs = NULL;
+	zest_hasher_t hasher;
+	zest__hash_initialise(&hasher, ZEST_HASH_SEED);
+	zest__hasher_add(&hasher, &key_description, sizeof(key_description));
+	for (zest_uint element_index = 0; element_index != description->InputLayout.NumElements; ++element_index) {
+		D3D12_INPUT_ELEMENT_DESC element = description->InputLayout.pInputElementDescs[element_index];
+		zest__hasher_add(&hasher, element.SemanticName, strlen(element.SemanticName) + 1);
+		element.SemanticName = NULL;
+		zest__hasher_add(&hasher, &element, sizeof(element));
+	}
+	if (description->VS.BytecodeLength) zest__hasher_add(&hasher, description->VS.pShaderBytecode, description->VS.BytecodeLength);
+	if (description->PS.BytecodeLength) zest__hasher_add(&hasher, description->PS.pShaderBytecode, description->PS.BytecodeLength);
+	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), description, NULL);
+}
+
+zest_bool zest__dx_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
+	zest_device device = command_list->context->device;
+	zest_pipeline_template pipeline_template = pipeline->pipeline_template;
+	zest_dx_pipeline_backend_t *backend = ZEST_DX_BACKEND(pipeline, pipeline);
+	const char *name = pipeline_template->name;
+	char error[640];
+	char stage_error[512];
+	zest_dx_shader_reflection_t reflections[2];
+	const zest_dx_shader_reflection_t *stages[2];
+	zest_shader shaders[2] = { NULL, NULL };
+	zest_uint stage_count = 0;
+	zest_dx_root_layout_t layout;
+	const zest_dx_bindless_regions_t *regions = &ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool->regions;
+	ID3D12RootSignature *root_signature = NULL;
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC description;
+	D3D12_INPUT_ELEMENT_DESC input_elements[ZEST_DX_MAX_SHADER_INPUTS];
+	ID3D12PipelineState *pipeline_state = NULL;
+	if (!zest__dx_reflect_pipeline_shader(pipeline_template->vertex_shader, 1, name, &reflections[0], &shaders[0], error, sizeof(error))) goto failed;
+	stages[stage_count++] = &reflections[0];
+	if (pipeline_template->fragment_shader.value) {
+		if (!zest__dx_reflect_pipeline_shader(pipeline_template->fragment_shader, 0, name, &reflections[1], &shaders[1], error, sizeof(error))) goto failed;
+		stages[stage_count++] = &reflections[1];
+	}
+
+	if (!zest__dx_derive_root_layout(stages, stage_count, pipeline->layout->push_constant_range.size, !pipeline_template->no_vertex_input, regions, &layout, stage_error, sizeof(stage_error))) {
+		snprintf(error, sizeof(error), "The pipeline %s can't be built. %s", name, stage_error);
+		goto failed;
+	}
+	root_signature = zest__dx_root_signature(device, &layout);
+	if (!root_signature) {
+		snprintf(error, sizeof(error), "The pipeline %s's root signature couldn't be created. The log has the D3D12 error.", name);
+		goto failed;
+	}
+
+	if (!zest__dx_pipeline_description(device, pipeline_template, &command_list->rendering_info, &reflections[0], &description, input_elements, error, sizeof(error))) goto failed;
+	description.pRootSignature = root_signature;
+	description.VS.pShaderBytecode = shaders[0]->binary;
+	description.VS.BytecodeLength = shaders[0]->binary_size;
+	if (shaders[1]) {
+		description.PS.pShaderBytecode = shaders[1]->binary;
+		description.PS.BytecodeLength = shaders[1]->binary_size;
+	}
+	pipeline_state = zest__dx_graphics_pipeline_state(device, &description);
+	if (!pipeline_state) {
+		snprintf(error, sizeof(error), "The pipeline %s's pipeline state couldn't be created. The log has the D3D12 error.", name);
+		goto failed;
+	}
+
+	backend->pipeline_state = pipeline_state;
+	backend->root_signature = root_signature;
+	backend->root_parameters = zest__dx_root_parameters(&layout);
+	backend->topology = zest__dx_primitive_topology(pipeline_template->primitive_topology);
+	backend->vertex_binding_count = 0;
+	memset(backend->vertex_strides, 0, sizeof(backend->vertex_strides));
+	if (!pipeline_template->no_vertex_input) {
+		zest_vec_foreach(binding_index, pipeline_template->binding_descriptions) {
+			const zest_vertex_binding_desc_t *binding = &pipeline_template->binding_descriptions[binding_index];
+			backend->vertex_strides[binding->binding] = binding->stride;
+			backend->vertex_binding_count = ZEST__MAX(backend->vertex_binding_count, binding->binding + 1);
+		}
+	}
+	backend->dynamic_depth_bias = (description.Flags & D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS) ? ZEST_TRUE : ZEST_FALSE;
+	ZEST_APPEND_LOG(device->log_path.str, "Built pipeline %s", name);
+	ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
+	return ZEST_TRUE;
+
+	failed:
+	zest__log_validation_error(device, error);
+	return ZEST_FALSE;
+}
+
+void zest__dx_cleanup_pipeline_backend(zest_pipeline pipeline) {
+	if (!pipeline->backend) return;
+	ZEST__FREE(pipeline->context->allocator, pipeline->backend);
+	pipeline->backend = NULL;
+}
+void *zest__dx_new_compute_backend(zest_device device) {
+	zest_dx_compute_backend_t *backend = (zest_dx_compute_backend_t *)ZEST__ALLOCATE(device->allocator, sizeof(zest_dx_compute_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_dx_compute_backend_t);
+	return backend;
+}
+
+zest_bool zest__dx_finish_compute(zest_device device, zest_compute compute) {
+	zest_dx_compute_backend_t *backend = ZEST_DX_BACKEND(compute, compute);
+	zest_shader shader = compute->shader.value ? (zest_shader)zest__get_store_resource_checked(compute->shader.store, compute->shader.value) : NULL;
+	const char *name = shader ? shader->name.str : "with no shader";
+	char error[640];
+	char stage_error[512];
+	zest_dx_shader_reflection_t reflection;
+	const zest_dx_shader_reflection_t *stages[1] = { &reflection };
+	const zest_dx_bindless_regions_t *regions = &ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool->regions;
+	zest_dx_root_layout_t layout;
+	ID3D12RootSignature *root_signature = NULL;
+	ID3D12PipelineState *pipeline_state = NULL;
+	if (!zest__dx_reflect_pipeline_shader(compute->shader, 5, name, &reflection, &shader, error, sizeof(error))) goto failed;
+	if (!zest__dx_derive_root_layout(stages, 1, compute->pipeline_layout->push_constant_range.size, ZEST_FALSE, regions, &layout, stage_error, sizeof(stage_error))) {
+		snprintf(error, sizeof(error), "The compute pipeline %s can't be built. %s", name, stage_error);
+		goto failed;
+	}
+	root_signature = zest__dx_root_signature(device, &layout);
+	if (!root_signature) {
+		snprintf(error, sizeof(error), "The compute pipeline %s's root signature couldn't be created. The log has the D3D12 error.", name);
+		goto failed;
+	}
+	pipeline_state = zest__dx_compute_pipeline_state(device, shader->binary, shader->binary_size, root_signature);
+	if (!pipeline_state) {
+		snprintf(error, sizeof(error), "The compute pipeline %s's pipeline state couldn't be created. The log has the D3D12 error.", name);
+		goto failed;
+	}
+	backend->pipeline_state = pipeline_state;
+	backend->root_signature = root_signature;
+	backend->root_parameters = zest__dx_root_parameters(&layout);
+	return ZEST_TRUE;
+
+	failed:
+	zest__log_validation_error(device, error);
+	return ZEST_FALSE;
+}
+
+void zest__dx_cleanup_compute_backend(zest_compute compute) {
+	if (!compute->backend) return;
+	zest_device device = (zest_device)compute->handle.store->origin;
+	ZEST__FREE(device->allocator, compute->backend);
+	compute->backend = NULL;
+}
+ID3DBlob *zest__dx_overlay_shader(zest_device device, zest_bool pixel) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	ID3DBlob **blob = pixel ? &backend->overlay_pixel_shader : &backend->overlay_vertex_shader;
+	AcquireSRWLockExclusive(&backend->overlay_lock);
+	if (!*blob) {
+		const char *source = pixel ? zest__dx_shader_db_overlay_frag : zest__dx_shader_db_overlay_vert;
+		zest__dx_compile_hlsl(device, source, (zest_size)strlen(source), pixel ? "zest_db_overlay_pixel" : "zest_db_overlay_vertex", "main", pixel ? "ps_6_0" : "vs_6_0", NULL, 0, NULL, blob);
+	}
+	ID3DBlob *result = *blob;
+	ReleaseSRWLockExclusive(&backend->overlay_lock);
+	return result;
+}
+
+zest_shader_handle zest__dx_get_db_overlay_vertex_shader(zest_device device) {
+	ID3DBlob *blob = zest__dx_overlay_shader(device, ZEST_FALSE);
+	if (!blob) return ZEST__ZERO_INIT(zest_shader_handle);
+	return zest_CreateShaderFromBinary(device, "DB Overlay Vertex", ZEST_DX_CALL0(blob, GetBufferPointer), (zest_uint)ZEST_DX_CALL0(blob, GetBufferSize), zest_vertex_shader);
+}
+
+zest_shader_handle zest__dx_get_db_overlay_fragment_shader(zest_device device) {
+	ID3DBlob *blob = zest__dx_overlay_shader(device, ZEST_TRUE);
+	if (!blob) return ZEST__ZERO_INIT(zest_shader_handle);
+	return zest_CreateShaderFromBinary(device, "DB Overlay Fragment", ZEST_DX_CALL0(blob, GetBufferPointer), (zest_uint)ZEST_DX_CALL0(blob, GetBufferSize), zest_fragment_shader);
+}
 
 //Pipelines are built from rendering info, so there's no render pass to make
 void zest__dx_create_test_render_pass(zest_device device, const zest_command_list_t *command_list) {
@@ -3991,13 +4817,18 @@ ID3D12RootSignature *zest__dx_create_utility_root_signature(zest_device device) 
 	description.Desc_1_1.NumStaticSamplers = 2;
 	description.Desc_1_1.pStaticSamplers = samplers;
 	description.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+	return zest__dx_serialize_root_signature(device, &description, "utility");
+}
 
+ID3D12RootSignature *zest__dx_serialize_root_signature(zest_device device, const D3D12_VERSIONED_ROOT_SIGNATURE_DESC *description, const char *name) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
 	ID3DBlob *serialized = NULL;
 	ID3DBlob *errors = NULL;
-	backend->last_result = D3D12SerializeVersionedRootSignature(&description, &serialized, &errors);
+	backend->last_result = D3D12SerializeVersionedRootSignature(description, &serialized, &errors);
 	if (FAILED(backend->last_result)) {
 		if (errors) {
-			ZEST_APPEND_LOG(device->log_path.str, "The utility root signature couldn't be serialized: %.*s", (int)ZEST_DX_CALL0(errors, GetBufferSize), (const char *)ZEST_DX_CALL0(errors, GetBufferPointer));
+			ZEST_ALERT("The %s root signature couldn't be serialized: %.*s", name, (int)ZEST_DX_CALL0(errors, GetBufferSize), (const char *)ZEST_DX_CALL0(errors, GetBufferPointer));
+			ZEST_APPEND_LOG(device->log_path.str, "The %s root signature couldn't be serialized: %.*s", name, (int)ZEST_DX_CALL0(errors, GetBufferSize), (const char *)ZEST_DX_CALL0(errors, GetBufferPointer));
 		}
 		zest__dx_log_hresult(device, backend->last_result, __FILE__, __LINE__);
 		ZEST_DX_RELEASE(errors);
@@ -4012,6 +4843,214 @@ ID3D12RootSignature *zest__dx_create_utility_root_signature(zest_device device) 
 		zest__dx_log_hresult(device, backend->last_result, __FILE__, __LINE__);
 		return NULL;
 	}
+	return root_signature;
+}
+
+char zest__dx_register_class(zest_uint type) {
+	switch (type) {
+	case 1: return 's';
+	case 2: return 'b';
+	case 3: case 4: case 5: return 't';
+	default: return 'u';
+	}
+}
+
+const char *zest__dx_stage_name(zest_uint stage) {
+	switch (stage) {
+	case 0: return "pixel";
+	case 1: return "vertex";
+	case 5: return "compute";
+	default: return "unsupported";
+	}
+}
+
+zest_dx_root_range_t *zest__dx_find_root_range(zest_dx_root_range_t *ranges, zest_uint range_count, const zest_dx_root_range_t *range) {
+	for (zest_uint range_index = 0; range_index != range_count; ++range_index) {
+		if (ranges[range_index].range_type == range->range_type && ranges[range_index].space == range->space && ranges[range_index].base_register == range->base_register) {
+			return &ranges[range_index];
+		}
+	}
+	return NULL;
+}
+
+zest_bool zest__dx_derive_root_layout(const zest_dx_shader_reflection_t **stages, zest_uint stage_count, zest_uint push_constant_size, zest_bool input_assembler, const zest_dx_bindless_regions_t *regions, zest_dx_root_layout_t *out_layout, char *out_error, zest_size error_size) {
+	memset(out_layout, 0, sizeof(*out_layout));
+	out_layout->input_assembler = input_assembler;
+	out_layout->push_dword_count = (push_constant_size + 3) / 4;
+	for (zest_uint stage_index = 0; stage_index != stage_count; ++stage_index) {
+		const zest_dx_shader_reflection_t *stage = stages[stage_index];
+		const char *stage_name = zest__dx_stage_name(stage->stage);
+		D3D12_SHADER_VISIBILITY visibility;
+		switch (stage->stage) {
+		case 0: visibility = D3D12_SHADER_VISIBILITY_PIXEL; break;
+		case 1: visibility = D3D12_SHADER_VISIBILITY_VERTEX; break;
+		case 5: visibility = D3D12_SHADER_VISIBILITY_ALL; break;
+		default:
+			snprintf(out_error, error_size, "A shader of stage %u reached the D3D12 backend, which only builds vertex, pixel and compute pipelines.", stage->stage);
+			return ZEST_FALSE;
+		}
+		for (zest_uint resource_index = 0; resource_index != stage->resource_count; ++resource_index) {
+			const zest_dx_shader_resource_t *resource = &stage->resources[resource_index];
+			char register_class = zest__dx_register_class(resource->type);
+			if (resource->type == 9) {
+				snprintf(out_error, error_size, "The %s shader's u%u, space %u, is a structured buffer that uses its hidden counter, which the D3D12 backend doesn't support.", stage_name, resource->lower_bound, resource->space);
+				return ZEST_FALSE;
+			}
+			if (resource->upper_bound == 0xFFFFFFFF) {
+				const zest_dx_bindless_slot_t *slot = NULL;
+				for (zest_uint slot_index = 0; slot_index != ZEST__DX_BINDLESS_SLOT_COUNT && !slot; ++slot_index) {
+					if (zest__dx_bindless_slots[slot_index].type == resource->type && zest__dx_bindless_slots[slot_index].kind == resource->kind) slot = &zest__dx_bindless_slots[slot_index];
+				}
+				if (!slot) {
+					snprintf(out_error, error_size, "The %s shader's %c%u, space %u, is an unbounded array of a type the D3D12 backend has no bindless region for (type %u, kind %u).", stage_name, register_class, resource->lower_bound, resource->space, resource->type, resource->kind);
+					return ZEST_FALSE;
+				}
+				zest_dx_root_range_t range;
+				range.range_type = (zest_uint)slot->range_type;
+				range.space = resource->space;
+				range.base_register = resource->lower_bound;
+				range.heap_offset = slot->binding == ZEST_INVALID ? regions->storage_buffer_uav_offset : regions->resource_offsets[slot->binding];
+				zest_bool sampler = slot->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+				zest_dx_root_range_t *ranges = sampler ? out_layout->sampler_ranges : out_layout->resource_ranges;
+				zest_uint *range_count = sampler ? &out_layout->sampler_range_count : &out_layout->resource_range_count;
+				zest_uint capacity = sampler ? ZEST_DX_MAX_SAMPLER_RANGES : ZEST_DX_MAX_ROOT_RANGES;
+				//Two stages that declare the same class, space and register share one range
+				zest_dx_root_range_t *existing = zest__dx_find_root_range(ranges, *range_count, &range);
+				if (existing && existing->heap_offset != range.heap_offset) {
+					snprintf(out_error, error_size, "The %s shader's %c%u, space %u, has a different type from the array another stage declares at the same register.", stage_name, register_class, resource->lower_bound, resource->space);
+					return ZEST_FALSE;
+				}
+				if (existing) continue;
+				if (*range_count == capacity) {
+					snprintf(out_error, error_size, "The %s shader's %c%u, space %u, is one bindless array more than the D3D12 backend's limit of " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_ROOT_RANGES) " resource and " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_SAMPLER_RANGES) " sampler arrays per pipeline.", stage_name, register_class, resource->lower_bound, resource->space);
+					return ZEST_FALSE;
+				}
+				ranges[(*range_count)++] = range;
+				continue;
+			}
+			if (resource->upper_bound != resource->lower_bound) {
+				snprintf(out_error, error_size, "The %s shader's %c%u, space %u, is a fixed size array. Declare bindless arrays unbounded, as in Texture2D textures[].", stage_name, register_class, resource->lower_bound, resource->space);
+				return ZEST_FALSE;
+			}
+			if (resource->space != 0) {
+				snprintf(out_error, error_size, "The %s shader's %c%u, space %u, is a non-array resource in space %u. Custom descriptor sets aren't available on the D3D12 backend.", stage_name, register_class, resource->lower_bound, resource->space, resource->space);
+				return ZEST_FALSE;
+			}
+			if (resource->type != 2) {
+				snprintf(out_error, error_size, "The %s shader's %c%u, space 0, is a non-array resource in space 0. Only constant buffers, which are push constants, can be declared there.", stage_name, register_class, resource->lower_bound);
+				return ZEST_FALSE;
+			}
+			if (!push_constant_size) {
+				snprintf(out_error, error_size, "The %s shader's b%u, space 0, reads a push constant block but the pipeline layout has no push constant range.", stage_name, resource->lower_bound);
+				return ZEST_FALSE;
+			}
+			//Pushes are sent from a ZEST_MAX_PUSH_SIZE copy, so a larger range would read past it
+			if (push_constant_size > ZEST_MAX_PUSH_SIZE) {
+				snprintf(out_error, error_size, "The %s shader's b%u, space 0, reads a push constant block, but the pipeline layout's push constant range of %u bytes is over the D3D12 backend's limit of %u bytes.", stage_name, resource->lower_bound, push_constant_size, (zest_uint)ZEST_MAX_PUSH_SIZE);
+				return ZEST_FALSE;
+			}
+			//One register read by two stages is one parameter visible to all, as D3D12 rejects an all stage parameter beside a single stage one
+			zest_dx_root_push_t *push = NULL;
+			for (zest_uint push_index = 0; push_index != out_layout->push_count && !push; ++push_index) {
+				if (out_layout->pushes[push_index].shader_register == resource->lower_bound) push = &out_layout->pushes[push_index];
+			}
+			if (push) {
+				if (push->visibility != (zest_uint)visibility) push->visibility = D3D12_SHADER_VISIBILITY_ALL;
+				continue;
+			}
+			if (out_layout->push_count == ZEST_DX_MAX_PUSH_REGISTERS) {
+				snprintf(out_error, error_size, "The %s shader's b%u, space 0, is one push constant register more than the D3D12 backend's limit of " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_PUSH_REGISTERS) " per pipeline.", stage_name, resource->lower_bound);
+				return ZEST_FALSE;
+			}
+			push = &out_layout->pushes[out_layout->push_count++];
+			push->shader_register = resource->lower_bound;
+			push->visibility = (zest_uint)visibility;
+		}
+	}
+	//A table costs 1 DWORD, root constants push_dword_count each and a root CBV 2
+	zest_uint table_cost = (out_layout->resource_range_count ? 1 : 0) + (out_layout->sampler_range_count ? 1 : 0);
+	out_layout->push_as_cbv = table_cost + out_layout->push_count * out_layout->push_dword_count > ZEST__DX_MAX_ROOT_DWORDS;
+	return ZEST_TRUE;
+}
+
+zest_dx_root_parameters_t zest__dx_root_parameters(const zest_dx_root_layout_t *layout) {
+	zest_dx_root_parameters_t parameters;
+	parameters.push_count = layout->push_count;
+	parameters.push_dword_count = layout->push_dword_count;
+	parameters.push_as_cbv = layout->push_as_cbv;
+	parameters.resource_table = layout->resource_range_count ? layout->push_count : ZEST_INVALID;
+	parameters.sampler_table = layout->sampler_range_count ? layout->push_count + (layout->resource_range_count ? 1 : 0) : ZEST_INVALID;
+	return parameters;
+}
+
+void zest__dx_fill_descriptor_ranges(const zest_dx_root_range_t *ranges, zest_uint range_count, D3D12_DESCRIPTOR_RANGE_FLAGS flags, D3D12_DESCRIPTOR_RANGE1 *out_ranges) {
+	for (zest_uint range_index = 0; range_index != range_count; ++range_index) {
+		out_ranges[range_index].RangeType = (D3D12_DESCRIPTOR_RANGE_TYPE)ranges[range_index].range_type;
+		out_ranges[range_index].NumDescriptors = UINT_MAX;
+		out_ranges[range_index].BaseShaderRegister = ranges[range_index].base_register;
+		out_ranges[range_index].RegisterSpace = ranges[range_index].space;
+		out_ranges[range_index].Flags = flags;
+		out_ranges[range_index].OffsetInDescriptorsFromTableStart = ranges[range_index].heap_offset;
+	}
+}
+
+ID3D12RootSignature *zest__dx_create_root_signature(zest_device device, const zest_dx_root_layout_t *layout) {
+	D3D12_DESCRIPTOR_RANGE1 resource_ranges[ZEST_DX_MAX_ROOT_RANGES];
+	D3D12_DESCRIPTOR_RANGE1 sampler_ranges[ZEST_DX_MAX_SAMPLER_RANGES];
+	D3D12_ROOT_PARAMETER1 parameters[ZEST_DX_MAX_PUSH_REGISTERS + 2];
+	memset(parameters, 0, sizeof(parameters));
+	zest_uint parameter_count = 0;
+	for (zest_uint push_index = 0; push_index != layout->push_count; ++push_index) {
+		D3D12_ROOT_PARAMETER1 *parameter = &parameters[parameter_count++];
+		parameter->ShaderVisibility = (D3D12_SHADER_VISIBILITY)layout->pushes[push_index].visibility;
+		if (layout->push_as_cbv) {
+			parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+			parameter->Descriptor.ShaderRegister = layout->pushes[push_index].shader_register;
+		} else {
+			parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+			parameter->Constants.ShaderRegister = layout->pushes[push_index].shader_register;
+			parameter->Constants.Num32BitValues = layout->push_dword_count;
+		}
+	}
+	if (layout->resource_range_count) {
+		zest__dx_fill_descriptor_ranges(layout->resource_ranges, layout->resource_range_count, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE, resource_ranges);
+		D3D12_ROOT_PARAMETER1 *parameter = &parameters[parameter_count++];
+		parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		parameter->DescriptorTable.NumDescriptorRanges = layout->resource_range_count;
+		parameter->DescriptorTable.pDescriptorRanges = resource_ranges;
+		parameter->ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	}
+	if (layout->sampler_range_count) {
+		//D3D12 rejects data flags on sampler ranges
+		zest__dx_fill_descriptor_ranges(layout->sampler_ranges, layout->sampler_range_count, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE, sampler_ranges);
+		D3D12_ROOT_PARAMETER1 *parameter = &parameters[parameter_count++];
+		parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		parameter->DescriptorTable.NumDescriptorRanges = layout->sampler_range_count;
+		parameter->DescriptorTable.pDescriptorRanges = sampler_ranges;
+		parameter->ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	}
+	D3D12_VERSIONED_ROOT_SIGNATURE_DESC description = ZEST__ZERO_INIT(D3D12_VERSIONED_ROOT_SIGNATURE_DESC);
+	description.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+	description.Desc_1_1.NumParameters = parameter_count;
+	description.Desc_1_1.pParameters = parameters;
+	description.Desc_1_1.Flags = layout->input_assembler ? D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT : D3D12_ROOT_SIGNATURE_FLAG_NONE;
+	return zest__dx_serialize_root_signature(device, &description, "pipeline");
+}
+
+ID3D12RootSignature *zest__dx_root_signature(zest_device device, const zest_dx_root_layout_t *layout) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_key key = zest_Hash(layout, sizeof(*layout), ZEST_HASH_SEED);
+	ID3D12RootSignature *root_signature = NULL;
+	AcquireSRWLockExclusive(&backend->pipeline_cache_lock);
+	if (zest_map_valid_key(backend->root_signatures, key)) {
+		root_signature = *zest_map_at_key(backend->root_signatures, key);
+	} else {
+		root_signature = zest__dx_create_root_signature(device, layout);
+		if (root_signature) {
+			zest_map_insert_key(device->allocator, backend->root_signatures, key, root_signature);
+		}
+	}
+	ReleaseSRWLockExclusive(&backend->pipeline_cache_lock);
 	return root_signature;
 }
 
@@ -4084,8 +5123,8 @@ ID3D12PipelineState *zest__dx_blit_pipeline(zest_device device, DXGI_FORMAT form
 	pipeline = backend->blit_pipelines[format];
 	if (!pipeline) {
 		zest_size source_length = (zest_size)strlen(zest__dx_blit_shader);
-		zest_bool compiled = (backend->blit_vertex_shader || zest__dx_compile_hlsl(device, zest__dx_blit_shader, source_length, "zest_blit_vertex", "vertex_main", "vs_6_0", &backend->blit_vertex_shader)) &&
-			(backend->blit_pixel_shader || zest__dx_compile_hlsl(device, zest__dx_blit_shader, source_length, "zest_blit_pixel", "pixel_main", "ps_6_0", &backend->blit_pixel_shader));
+		zest_bool compiled = (backend->blit_vertex_shader || zest__dx_compile_hlsl(device, zest__dx_blit_shader, source_length, "zest_blit_vertex", "vertex_main", "vs_6_0", NULL, 0, NULL, &backend->blit_vertex_shader)) &&
+			(backend->blit_pixel_shader || zest__dx_compile_hlsl(device, zest__dx_blit_shader, source_length, "zest_blit_pixel", "pixel_main", "ps_6_0", NULL, 0, NULL, &backend->blit_pixel_shader));
 		pipeline = compiled ? zest__dx_create_utility_pipeline(device, backend->blit_vertex_shader, backend->blit_pixel_shader, format, D3D12_CULL_MODE_NONE, zest__dx_front_counter_clockwise(zest_front_face_counter_clockwise)) : NULL;
 		if (pipeline) WritePointerRelease((PVOID volatile *)&backend->blit_pipelines[format], pipeline);
 	}
@@ -5329,7 +6368,90 @@ void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_ex
 }
 
 void zest__dx_add_frame_graph_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
-	zest__dx_report_unavailable(resource->frame_graph->command_list.context->device, "Frame graph buffer barriers are not available on the D3D12 backend yet.");
+	zest_context context = resource->frame_graph->command_list.context;
+	if (src_family != ZEST_QUEUE_FAMILY_IGNORED && dst_family != ZEST_QUEUE_FAMILY_IGNORED && src_family != dst_family) {
+		zest__dx_report_unavailable(context->device, "Frame graph buffer barriers across queues are not available on the D3D12 backend yet.");
+		return;
+	}
+	zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, barriers);
+	zest_dx_frame_graph_buffer_barrier_t record;
+	record.resource = resource;
+	record.src_access = src_access;
+	record.dst_access = dst_access;
+	record.src_stage = src_stage;
+	record.dst_stage = dst_stage;
+	D3D12_BUFFER_BARRIER translated = ZEST__ZERO_INIT(D3D12_BUFFER_BARRIER);
+	if (acquire) {
+		zest_vec_linear_push(allocator, backend->acquire_buffers, record);
+		zest_vec_linear_push(allocator, backend->acquire_buffers_translated, translated);
+		zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
+	} else {
+		zest_vec_linear_push(allocator, backend->release_buffers, record);
+		zest_vec_linear_push(allocator, backend->release_buffers_translated, translated);
+		zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
+	}
+}
+
+D3D12_BARRIER_ACCESS zest__dx_merge_access(D3D12_BARRIER_ACCESS first, D3D12_BARRIER_ACCESS second) {
+	if (first == D3D12_BARRIER_ACCESS_NO_ACCESS) return second;
+	if (second == D3D12_BARRIER_ACCESS_NO_ACCESS) return first;
+	//Common already means every access
+	if (first == D3D12_BARRIER_ACCESS_COMMON || second == D3D12_BARRIER_ACCESS_COMMON) return D3D12_BARRIER_ACCESS_COMMON;
+	return (D3D12_BARRIER_ACCESS)((UINT)first | (UINT)second);
+}
+
+zest_uint zest__dx_translate_buffer_barriers(const zest_dx_frame_graph_buffer_barrier_t *records, zest_uint record_count, D3D12_BUFFER_BARRIER *out_barriers) {
+	zest_uint barrier_count = 0;
+	for (zest_uint record_index = 0; record_index != record_count; ++record_index) {
+		const zest_dx_frame_graph_buffer_barrier_t *record = &records[record_index];
+		//A zero size transient reaches execution with no backing buffer
+		if (!record->resource->storage_buffer) continue;
+		ID3D12Resource *resource = zest__dx_buffer_resource(record->resource->storage_buffer);
+		D3D12_BARRIER_ACCESS access_before = zest__dx_barrier_access(record->src_access, ZEST_FALSE, D3D12_BARRIER_LAYOUT_UNDEFINED);
+		D3D12_BARRIER_ACCESS access_after = zest__dx_barrier_access(record->dst_access, ZEST_FALSE, D3D12_BARRIER_LAYOUT_UNDEFINED);
+		UINT sync_before = (UINT)zest__dx_barrier_sync(record->src_stage, ZEST_TRUE);
+		UINT sync_after = (UINT)zest__dx_barrier_sync(record->dst_stage, ZEST_FALSE);
+		//A side with no access and no stage has nothing to order, and SYNC_NONE is invalid once anything has used the shared resource in the list
+		if ((access_before == D3D12_BARRIER_ACCESS_NO_ACCESS && !sync_before) || (access_after == D3D12_BARRIER_ACCESS_NO_ACCESS && !sync_after)) continue;
+		//Buffers of one pool, and transient buffers of one arena, share a resource, and a buffer barrier always covers all of it
+		D3D12_BUFFER_BARRIER *barrier = NULL;
+		for (zest_uint barrier_index = 0; barrier_index != barrier_count && !barrier; ++barrier_index) {
+			if (out_barriers[barrier_index].pResource == resource) barrier = &out_barriers[barrier_index];
+		}
+		if (!barrier) {
+			barrier = &out_barriers[barrier_count++];
+			*barrier = ZEST__ZERO_INIT(D3D12_BUFFER_BARRIER);
+			barrier->pResource = resource;
+			barrier->Offset = 0;
+			barrier->Size = UINT64_MAX;
+			barrier->AccessBefore = access_before;
+			barrier->AccessAfter = access_after;
+			barrier->SyncBefore = (D3D12_BARRIER_SYNC)sync_before;
+			barrier->SyncAfter = (D3D12_BARRIER_SYNC)sync_after;
+			continue;
+		}
+		barrier->AccessBefore = zest__dx_merge_access(barrier->AccessBefore, access_before);
+		barrier->AccessAfter = zest__dx_merge_access(barrier->AccessAfter, access_after);
+		barrier->SyncBefore = (D3D12_BARRIER_SYNC)((UINT)barrier->SyncBefore | sync_before);
+		barrier->SyncAfter = (D3D12_BARRIER_SYNC)((UINT)barrier->SyncAfter | sync_after);
+	}
+	for (zest_uint barrier_index = 0; barrier_index != barrier_count; ++barrier_index) {
+		D3D12_BUFFER_BARRIER *barrier = &out_barriers[barrier_index];
+		//All already covers every narrower scope
+		if (barrier->SyncBefore & D3D12_BARRIER_SYNC_ALL) barrier->SyncBefore = D3D12_BARRIER_SYNC_ALL;
+		if (barrier->SyncAfter & D3D12_BARRIER_SYNC_ALL) barrier->SyncAfter = D3D12_BARRIER_SYNC_ALL;
+		barrier->SyncBefore = zest__dx_normalise_buffer_sync(barrier->SyncBefore, barrier->AccessBefore);
+		barrier->SyncAfter = zest__dx_normalise_buffer_sync(barrier->SyncAfter, barrier->AccessAfter);
+	}
+	return barrier_count;
+}
+
+D3D12_BARRIER_SYNC zest__dx_normalise_buffer_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access) {
+	if (access != D3D12_BARRIER_ACCESS_NO_ACCESS) return zest__dx_normalise_sync(sync, access);
+	//A stage with no access is an execution dependency, such as a transient reusing memory that was only read
+	UINT trimmed = (UINT)sync & ~(UINT)D3D12_BARRIER_SYNC_RESOLVE;
+	return trimmed ? (D3D12_BARRIER_SYNC)trimmed : D3D12_BARRIER_SYNC_ALL;
 }
 
 zest_bool zest__dx_set_next_command_buffer(const zest_command_list command_list, zest_context_queue queue) {
@@ -5347,6 +6469,9 @@ zest_bool zest__dx_set_next_command_buffer(const zest_command_list command_list,
 			zest__dx_log_hresult(context->device, context_backend->last_result, __FILE__, __LINE__);
 			zest__dx_flag_device_lost(context, context_backend->last_result);
 			return ZEST_FALSE;
+		}
+		if (ZEST_DX_BACKEND(device, context->device)->support.dynamic_depth_bias && FAILED(ZEST_DX_CALL(queue_backend->command_list, QueryInterface, ZEST_DX_IID(ID3D12GraphicsCommandList9), (void **)&queue_backend->command_list9))) {
+			queue_backend->command_list9 = NULL;
 		}
 	}
 	backend->command_list = queue_backend->command_list;
@@ -5371,8 +6496,7 @@ zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list) {
 	}
 	backend->close_result = S_OK;
 	backend->render_pass_open = ZEST_FALSE;
-	backend->bound_sets = NULL;
-	backend->bound_set_count = 0;
+	memset(&backend->bind_state, 0, sizeof(backend->bind_state));
 	if (backend->queue_type != zest_queue_transfer && device->bindless_set) {
 		zest__dx_bind_bindless_heaps(device, backend->command_list);
 	}
@@ -5395,30 +6519,42 @@ D3D12_BARRIER_LAYOUT zest__dx_record_layout_before(const zest_dx_frame_graph_ima
 	return ZEST_DX_BACKEND(image, image)->layout;
 }
 
-//Translates a pass group's records into the arrays sized when the graph was compiled, then sends them in one group
-void zest__dx_send_image_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *records, D3D12_TEXTURE_BARRIER *translated) {
-	zest_uint barrier_count = zest_vec_size(records);
-	if (!barrier_count) return;
+//Translates a pass group's records into the arrays sized when the graph was compiled, then sends the images and buffers in one call
+void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers) {
+	zest_uint image_count = zest_vec_size(image_records);
+	zest_uint buffer_count = zest__dx_translate_buffer_barriers(buffer_records, zest_vec_size(buffer_records), buffer_barriers);
+	if (!image_count && !buffer_count) return;
 	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
-	for (zest_uint index = 0; index != barrier_count; ++index) {
-		const zest_dx_frame_graph_image_barrier_t *record = &records[index];
+	for (zest_uint index = 0; index != image_count; ++index) {
+		const zest_dx_frame_graph_image_barrier_t *record = &image_records[index];
 		zest_resource_node resource = record->resource;
 		zest_image image = resource->view->image;
 		ZEST_ASSERT(image && image->backend, "The resource has no image to transition. If it's not transient then set a resource provider callback for it.");
 		D3D12_BARRIER_LAYOUT layout_after = zest__dx_barrier_layout(record->new_layout, record->dst_access, backend->queue_type);
-		translated[index] = zest__dx_subresource_barrier(image, zest__dx_record_layout_before(record, image), layout_after, record->src_access, record->dst_access, record->src_stage, record->dst_stage,
+		image_barriers[index] = zest__dx_subresource_barrier(image, zest__dx_record_layout_before(record, image), layout_after, record->src_access, record->dst_access, record->src_stage, record->dst_stage,
 			0, resource->image.info.mip_levels, 0, resource->image.info.layer_count);
 	}
-	D3D12_BARRIER_GROUP group = ZEST__ZERO_INIT(D3D12_BARRIER_GROUP);
-	group.Type = D3D12_BARRIER_TYPE_TEXTURE;
-	group.NumBarriers = barrier_count;
-	group.pTextureBarriers = translated;
-	ZEST_DX_CALL(backend->command_list, Barrier, 1, &group);
-	for (zest_uint index = 0; index != barrier_count; ++index) {
-		const zest_dx_frame_graph_image_barrier_t *record = &records[index];
+	D3D12_BARRIER_GROUP groups[2];
+	memset(groups, 0, sizeof(groups));
+	zest_uint group_count = 0;
+	if (image_count) {
+		groups[group_count].Type = D3D12_BARRIER_TYPE_TEXTURE;
+		groups[group_count].NumBarriers = image_count;
+		groups[group_count].pTextureBarriers = image_barriers;
+		group_count++;
+	}
+	if (buffer_count) {
+		groups[group_count].Type = D3D12_BARRIER_TYPE_BUFFER;
+		groups[group_count].NumBarriers = buffer_count;
+		groups[group_count].pBufferBarriers = buffer_barriers;
+		group_count++;
+	}
+	ZEST_DX_CALL(backend->command_list, Barrier, group_count, groups);
+	for (zest_uint index = 0; index != image_count; ++index) {
+		const zest_dx_frame_graph_image_barrier_t *record = &image_records[index];
 		zest_resource_node resource = record->resource;
 		zest_image image = resource->view->image;
-		ZEST_DX_BACKEND(image, image)->layout = translated[index].LayoutAfter;
+		ZEST_DX_BACKEND(image, image)->layout = image_barriers[index].LayoutAfter;
 		image->layout = record->new_layout;
 		if (resource->linked_layout) {
 			*resource->linked_layout = record->new_layout;
@@ -5429,12 +6565,12 @@ void zest__dx_send_image_barriers(const zest_command_list command_list, const ze
 
 void zest__dx_acquire_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &exe_details->barriers);
-	zest__dx_send_image_barriers(command_list, backend->acquire_images, backend->acquire_translated);
+	zest__dx_send_frame_graph_barriers(command_list, backend->acquire_images, backend->acquire_translated, backend->acquire_buffers, backend->acquire_buffers_translated);
 }
 
 void zest__dx_release_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &exe_details->barriers);
-	zest__dx_send_image_barriers(command_list, backend->release_images, backend->release_translated);
+	zest__dx_send_frame_graph_barriers(command_list, backend->release_images, backend->release_translated, backend->release_buffers, backend->release_buffers_translated);
 }
 
 zest_bool zest__dx_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details) {
@@ -5628,12 +6764,150 @@ void zest__dx_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_subm
 // -- End Internal_Frame_graph_context_functions
 
 // -- Frame_graph_context_functions
-//Kept until the next draw or dispatch, which binds them once the pipeline's root signature is known
+//Records nothing: whenever a root signature is set, its tables point at the bindless heaps
 void zest__dx_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set) {
+	zest_device device = command_list->context->device;
+	for (zest_uint set_index = 0; set_index != set_count; ++set_index) {
+		if (descriptor_sets[set_index] != device->bindless_set) {
+			zest__log_validation_error(device, "Only the bindless descriptor set can be bound on the D3D12 backend, as custom descriptor sets aren't available there.");
+			return;
+		}
+	}
+}
+
+void zest__dx_invalidate_bind_state(zest_dx_bind_state_t *state) {
+	state->recorded_pipeline_state = NULL;
+	state->recorded_graphics_root_signature = NULL;
+	state->recorded_compute_root_signature = NULL;
+	state->recorded_topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+	memset(state->recorded_vertex_buffers, 0, sizeof(state->recorded_vertex_buffers));
+	memset(state->recorded_vertex_strides, 0, sizeof(state->recorded_vertex_strides));
+	state->recorded_index_buffer = NULL;
+	state->graphics_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+	state->depth_bias_dirty = ZEST_TRUE;
+}
+
+void zest__dx_set_bindless_tables(zest_device device, ID3D12GraphicsCommandList7 *native_list, const zest_dx_root_parameters_t *parameters, zest_bool compute) {
+	zest_dx_descriptor_pool_backend_t *pool_backend = ZEST_DX_BACKEND(descriptor_set, device->bindless_set)->pool;
+	if (parameters->resource_table != ZEST_INVALID) {
+		if (compute) ZEST_DX_CALL(native_list, SetComputeRootDescriptorTable, parameters->resource_table, pool_backend->resource_gpu_start);
+		else ZEST_DX_CALL(native_list, SetGraphicsRootDescriptorTable, parameters->resource_table, pool_backend->resource_gpu_start);
+	}
+	if (parameters->sampler_table != ZEST_INVALID) {
+		if (compute) ZEST_DX_CALL(native_list, SetComputeRootDescriptorTable, parameters->sampler_table, pool_backend->sampler_gpu_start);
+		else ZEST_DX_CALL(native_list, SetGraphicsRootDescriptorTable, parameters->sampler_table, pool_backend->sampler_gpu_start);
+	}
+}
+
+zest_bool zest__dx_flush_compute_state(zest_device device, ID3D12GraphicsCommandList7 *native_list, zest_dx_bind_state_t *state, zest_dx_push_upload_t *push_upload) {
+	if (!state->compute || !state->compute->backend) {
+		zest__dx_report_unavailable(device, "A dispatch was recorded with no compute pipeline bound. Call zest_cmd_BindComputePipeline before dispatching.");
+		return ZEST_FALSE;
+	}
+	zest_dx_compute_backend_t *compute_backend = ZEST_DX_BACKEND(compute, state->compute);
+	const zest_dx_root_parameters_t *parameters = &compute_backend->root_parameters;
+	if (state->recorded_pipeline_state != compute_backend->pipeline_state) {
+		ZEST_DX_CALL(native_list, SetPipelineState, compute_backend->pipeline_state);
+		state->recorded_pipeline_state = compute_backend->pipeline_state;
+		state->depth_bias_dirty = ZEST_TRUE;
+	}
+	if (state->recorded_compute_root_signature != compute_backend->root_signature) {
+		ZEST_DX_CALL(native_list, SetComputeRootSignature, compute_backend->root_signature);
+		zest__dx_set_bindless_tables(device, native_list, parameters, ZEST_TRUE);
+		state->recorded_compute_root_signature = compute_backend->root_signature;
+		state->compute_push_dirty = ZEST_TRUE;
+	}
+	if (state->compute_push_dirty && parameters->push_count) {
+		if (parameters->push_as_cbv) {
+			D3D12_GPU_VIRTUAL_ADDRESS address = 0;
+			if (!zest__dx_allocate_push_upload(device, push_upload, state->push_data, &address)) return ZEST_FALSE;
+			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+				ZEST_DX_CALL(native_list, SetComputeRootConstantBufferView, parameter, address);
+			}
+		} else {
+			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+				ZEST_DX_CALL(native_list, SetComputeRoot32BitConstants, parameter, parameters->push_dword_count, state->push_data, 0);
+			}
+		}
+	}
+	state->compute_push_dirty = ZEST_FALSE;
+	return ZEST_TRUE;
+}
+
+zest_bool zest__dx_flush_graphics_state(const zest_command_list command_list) {
+	zest_context context = command_list->context;
+	zest_device device = context->device;
 	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
-	backend->bound_sets = descriptor_sets;
-	backend->bound_set_count = set_count;
-	backend->bound_point = bind_point;
+	zest_dx_bind_state_t *state = &backend->bind_state;
+	ID3D12GraphicsCommandList7 *native_list = backend->command_list;
+	if (backend->queue_type != zest_queue_graphics || !state->pipeline) {
+		if (!state->reported_missing_pipeline) {
+			state->reported_missing_pipeline = ZEST_TRUE;
+			zest__dx_report_unavailable(device, backend->queue_type != zest_queue_graphics ? "A draw was recorded on a list that isn't on the graphics queue. Record draws in a render pass." : "A draw was recorded with no pipeline bound. Call zest_cmd_BindPipeline before drawing.");
+		}
+		return ZEST_FALSE;
+	}
+	zest_dx_pipeline_backend_t *pipeline_backend = ZEST_DX_BACKEND(pipeline, state->pipeline);
+	const zest_dx_root_parameters_t *parameters = &pipeline_backend->root_parameters;
+	if (state->recorded_pipeline_state != pipeline_backend->pipeline_state) {
+		ZEST_DX_CALL(native_list, SetPipelineState, pipeline_backend->pipeline_state);
+		state->recorded_pipeline_state = pipeline_backend->pipeline_state;
+		//D3D12 resets a dynamic depth bias to the pipeline's own when the pipeline state is set
+		state->depth_bias_dirty = ZEST_TRUE;
+	}
+	if (state->recorded_graphics_root_signature != pipeline_backend->root_signature) {
+		ZEST_DX_CALL(native_list, SetGraphicsRootSignature, pipeline_backend->root_signature);
+		zest__dx_set_bindless_tables(device, native_list, parameters, ZEST_FALSE);
+		state->recorded_graphics_root_signature = pipeline_backend->root_signature;
+		state->graphics_push_dirty = ZEST_TRUE;
+	}
+	if (state->recorded_topology != pipeline_backend->topology) {
+		ZEST_DX_CALL(native_list, IASetPrimitiveTopology, pipeline_backend->topology);
+		state->recorded_topology = pipeline_backend->topology;
+	}
+	if (state->graphics_push_dirty && parameters->push_count) {
+		if (parameters->push_as_cbv) {
+			D3D12_GPU_VIRTUAL_ADDRESS address = 0;
+			zest_dx_push_upload_t *upload = &ZEST_DX_BACKEND(context_queue, backend->context_queue)->push_uploads[context->current_fif];
+			if (!zest__dx_allocate_push_upload(device, upload, state->push_data, &address)) return ZEST_FALSE;
+			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+				ZEST_DX_CALL(native_list, SetGraphicsRootConstantBufferView, parameter, address);
+			}
+		} else {
+			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+				ZEST_DX_CALL(native_list, SetGraphicsRoot32BitConstants, parameter, parameters->push_dword_count, state->push_data, 0);
+			}
+		}
+	}
+	state->graphics_push_dirty = ZEST_FALSE;
+	for (zest_uint binding = 0; binding != pipeline_backend->vertex_binding_count; ++binding) {
+		zest_buffer buffer = state->vertex_buffers[binding];
+		zest_uint stride = pipeline_backend->vertex_strides[binding];
+		if (!buffer || !stride) continue;
+		if (state->recorded_vertex_buffers[binding] == buffer && state->recorded_vertex_strides[binding] == stride) continue;
+		D3D12_VERTEX_BUFFER_VIEW view;
+		view.BufferLocation = zest__dx_buffer_address(buffer);
+		view.SizeInBytes = (UINT)buffer->size;
+		view.StrideInBytes = stride;
+		ZEST_DX_CALL(native_list, IASetVertexBuffers, binding, 1, &view);
+		state->recorded_vertex_buffers[binding] = buffer;
+		state->recorded_vertex_strides[binding] = stride;
+	}
+	if (state->index_buffer && state->recorded_index_buffer != state->index_buffer) {
+		D3D12_INDEX_BUFFER_VIEW view;
+		view.BufferLocation = zest__dx_buffer_address(state->index_buffer);
+		view.SizeInBytes = (UINT)state->index_buffer->size;
+		view.Format = DXGI_FORMAT_R32_UINT;
+		ZEST_DX_CALL(native_list, IASetIndexBuffer, &view);
+		state->recorded_index_buffer = state->index_buffer;
+	}
+	ID3D12GraphicsCommandList9 *command_list9 = ZEST_DX_BACKEND(context_queue, backend->context_queue)->command_list9;
+	if (state->depth_bias_dirty && state->depth_bias_set && pipeline_backend->dynamic_depth_bias && command_list9) {
+		ZEST_DX_CALL(command_list9, RSSetDepthBias, state->depth_bias[0], state->depth_bias[1], state->depth_bias[2]);
+		state->depth_bias_dirty = ZEST_FALSE;
+	}
+	return ZEST_TRUE;
 }
 
 void zest__dx_set_screensized_viewport(const zest_command_list command_list, float min_depth, float max_depth) {
@@ -5682,6 +6956,10 @@ D3D12_TEXTURE_BARRIER zest__dx_node_mip_barrier(zest_resource_node node, zest_ui
 //CopyTextureRegion works on every queue type, and on the copy queue COMMON stands in for both copy layouts
 void zest__dx_record_mip_copy(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip) {
 	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	if (backend->render_pass_open) {
+		zest__dx_report_unavailable(command_list->context->device, "Mip copies can't be recorded inside a render pass on the D3D12 backend. Copy in a transfer pass.");
+		return;
+	}
 	D3D12_BARRIER_LAYOUT source_layout = zest__dx_barrier_layout(zest_image_layout_transfer_src_optimal, zest_access_transfer_read_bit, backend->queue_type);
 	D3D12_BARRIER_LAYOUT destination_layout = zest__dx_barrier_layout(zest_image_layout_transfer_dst_optimal, zest_access_transfer_write_bit, backend->queue_type);
 	D3D12_TEXTURE_BARRIER barriers[2];
@@ -5738,6 +7016,8 @@ void zest__dx_blit_image_mip(const zest_command_list command_list, zest_resource
 	const float full_rect[4] = { 0.f, 0.f, 1.f, 1.f };
 	zest_dx_transient_descriptors_t *descriptors = &ZEST_DX_BACKEND(context_queue, backend->context_queue)->transient_descriptors[context->current_fif];
 	zest__dx_record_blit(device, backend->command_list, descriptors, source, mip_to_blit, 0, full_rect, destination, mip_to_blit, 0, &viewport, &scissor, 0);
+	//The blit set its own root signature and pipeline state
+	zest__dx_invalidate_bind_state(&backend->bind_state);
 	barriers[0] = zest__dx_node_mip_barrier(src, mip_to_blit, D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, read_access, read_stage, ZEST_FALSE);
 	barriers[1] = zest__dx_node_mip_barrier(dst, mip_to_blit, D3D12_BARRIER_LAYOUT_RENDER_TARGET, target_access, target_stage, ZEST_FALSE);
 	zest__dx_send_changing_barriers(backend->command_list, barriers, 2);
@@ -5752,8 +7032,21 @@ void zest__dx_copy_image_mip(const zest_command_list command_list, zest_resource
 }
 
 void zest__dx_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_InsertComputeImageBarrier is not available on the D3D12 backend yet."); }
-void zest__dx_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindPipeline is not available on the D3D12 backend yet."); }
-void zest__dx_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindComputePipeline is not available on the D3D12 backend yet."); }
+void zest__dx_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) {
+	if (!pipeline || !pipeline->backend) {
+		zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindPipeline was given no pipeline, or one that failed to build. Check the result of zest_GetPipeline.");
+		return;
+	}
+	ZEST_DX_BACKEND(command_list, command_list)->bind_state.pipeline = pipeline;
+}
+void zest__dx_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute) {
+	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	if (backend->queue_type == zest_queue_transfer) {
+		zest__dx_report_unavailable(command_list->context->device, "A compute pipeline can't be bound on a transfer queue list on the D3D12 backend, as the descriptor heaps aren't bound there. Use a compute pass.");
+		return;
+	}
+	backend->bind_state.compute = compute;
+}
 void zest__dx_copy_buffer(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size) {
 	zest__dx_record_buffer_copy(ZEST_DX_BACKEND(command_list, command_list)->command_list, staging_buffer, staging_buffer->memory_offset, device_buffer, device_buffer->memory_offset, size);
 }
@@ -5772,8 +7065,16 @@ zest_bool zest__dx_upload_buffer(const zest_command_list command_list, zest_buff
 	uploader->target_buffer = 0;
 	return ZEST_TRUE;
 }
-void zest__dx_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindVertexBuffer is not available on the D3D12 backend yet."); }
-void zest__dx_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindIndexBuffer is not available on the D3D12 backend yet."); }
+void zest__dx_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
+	if (first_binding >= ZEST_DX_MAX_VERTEX_BINDINGS) {
+		zest__log_validation_error(command_list->context->device, "zest_cmd_BindVertexBuffer was given a binding past the D3D12 backend's limit of " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_VERTEX_BINDINGS) " vertex bindings.");
+		return;
+	}
+	ZEST_DX_BACKEND(command_list, command_list)->bind_state.vertex_buffers[first_binding] = buffer;
+}
+void zest__dx_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer) {
+	ZEST_DX_BACKEND(command_list, command_list)->bind_state.index_buffer = buffer;
+}
 
 //Clears mip 0 of layer 0 to zero
 zest_bool zest__dx_image_clear(const zest_command_list command_list, zest_image image) {
@@ -5805,21 +7106,123 @@ zest_bool zest__dx_image_clear(const zest_command_list command_list, zest_image 
 	return zest__dx_record_clear(device, backend->command_list, descriptors, image, clear_layout, tracked_access, tracked_stage, zero_value, 1, 1);
 }
 
-void zest__dx_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindMeshVertexBuffer is not available on the D3D12 backend yet."); }
-void zest__dx_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindMeshIndexBuffer is not available on the D3D12 backend yet."); }
-void zest__dx_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DispatchCompute is not available on the D3D12 backend yet."); }
-void zest__dx_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_SendPushConstants is not available on the D3D12 backend yet."); }
-void zest__dx_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_Draw is not available on the D3D12 backend yet."); }
-void zest__dx_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawLayerInstruction is not available on the D3D12 backend yet."); }
-void zest__dx_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawIndexed is not available on the D3D12 backend yet."); }
+void zest__dx_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
+	ZEST_DX_BACKEND(command_list, command_list)->bind_state.vertex_buffers[0] = layer->vertex_data;
+}
+void zest__dx_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
+	ZEST_DX_BACKEND(command_list, command_list)->bind_state.index_buffer = layer->index_data;
+}
+void zest__dx_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	zest_context context = command_list->context;
+	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	if (backend->queue_type == zest_queue_transfer) {
+		zest__dx_report_unavailable(context->device, "A dispatch can't be recorded on a transfer queue list on the D3D12 backend, as the descriptor heaps aren't bound there. Use a compute pass.");
+		return;
+	}
+	zest_dx_push_upload_t *push_upload = &ZEST_DX_BACKEND(context_queue, backend->context_queue)->push_uploads[context->current_fif];
+	if (!zest__dx_flush_compute_state(context->device, backend->command_list, &backend->bind_state, push_upload)) return;
+	ZEST_DX_CALL(backend->command_list, Dispatch, group_count_x, group_count_y, group_count_z);
+}
+//One block serves graphics and compute, and the next root signature used gets all of it
+void zest__dx_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size) {
+	zest_dx_bind_state_t *state = &ZEST_DX_BACKEND(command_list, command_list)->bind_state;
+	memcpy(state->push_data, data, ZEST__MIN(size, (zest_uint)ZEST_MAX_PUSH_SIZE));
+	state->graphics_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+}
+void zest__dx_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
+	if (!zest__dx_flush_graphics_state(command_list)) return;
+	ZEST_DX_CALL(ZEST_DX_BACKEND(command_list, command_list)->command_list, DrawInstanced, vertex_count, instance_count, first_vertex, first_instance);
+}
+void zest__dx_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+	if (!zest__dx_flush_graphics_state(command_list)) return;
+	ZEST_DX_CALL(ZEST_DX_BACKEND(command_list, command_list)->command_list, DrawInstanced, vertex_count, instruction->total_instances, 0, instruction->start_index);
+}
+void zest__dx_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
+	if (!zest__dx_flush_graphics_state(command_list)) return;
+	ZEST_DX_CALL(ZEST_DX_BACKEND(command_list, command_list)->command_list, DrawIndexedInstanced, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
 void zest__dx_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawIndexedIndirect is not available on the D3D12 backend yet."); }
 void zest__dx_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawIndirect is not available on the D3D12 backend yet."); }
-void zest__dx_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_SetDepthBias is not available on the D3D12 backend yet."); }
+void zest__dx_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) {
+	zest_device device = command_list->context->device;
+	zest_dx_bind_state_t *state = &ZEST_DX_BACKEND(command_list, command_list)->bind_state;
+	state->depth_bias[0] = factor;
+	state->depth_bias[1] = clamp;
+	state->depth_bias[2] = slope;
+	state->depth_bias_set = ZEST_TRUE;
+	state->depth_bias_dirty = ZEST_TRUE;
+	if (!ZEST_DX_BACKEND(device, device)->support.dynamic_depth_bias && !state->reported_depth_bias) {
+		state->reported_depth_bias = ZEST_TRUE;
+		zest__log_validation_error(device, "zest_cmd_SetDepthBias needs a D3D12 driver with dynamic depth bias, so the pipeline's own depth bias is used. Update the graphics driver.");
+	}
+}
 // -- End Frame_graph_context_functions
 
 // -- Shader_compiling
-zest_bool zest__dx_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) { return zest__dx_report_unavailable(device, "Shader validation is not available on the D3D12 backend yet."); }
-zest_bool zest__dx_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options) { return zest__dx_report_unavailable((zest_device)shader->handle.store->origin, "Shader compilation is not available on the D3D12 backend yet."); }
+zest_bool zest__dx_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) {
+	ID3DBlob *dxil = NULL;
+	if (!zest__dx_compile_shader_source(device, shader_code, strlen(shader_code), type, name, NULL, NULL, &dxil)) return ZEST_FALSE;
+	ZEST_DX_RELEASE(dxil);
+	return ZEST_TRUE;
+}
+
+zest_bool zest__dx_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options) {
+	zest_device device = (zest_device)shader->handle.store->origin;
+	ID3DBlob *dxil = NULL;
+	if (!zest__dx_compile_shader_source(device, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, name, options, &shader->last_error, &dxil)) {
+		return ZEST_FALSE;
+	}
+	zest_FreeText(device->allocator, &shader->last_error);
+	zest_uint size = (zest_uint)ZEST_DX_CALL0(dxil, GetBufferSize);
+	zest_vec_resize(device->allocator, shader->binary, size);
+	memcpy(shader->binary, ZEST_DX_CALL0(dxil, GetBufferPointer), size);
+	shader->binary_size = size;
+	ZEST_DX_RELEASE(dxil);
+	return ZEST_TRUE;
+}
+
+zest_bool zest__dx_compile_shader_source(zest_device device, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options, zest_text_t *out_error_text, ID3DBlob **out_dxil) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	const char *stage_prefix = type == zest_vertex_shader ? "vs" : type == zest_fragment_shader ? "ps" : "cs";
+	//D3D_SHADER_MODEL_6_x is 0x6x
+	zest_uint minor_version = backend->support.shader_model >= D3D_SHADER_MODEL_6_0 ? (zest_uint)backend->support.shader_model & 0xF : 0;
+	char profile[8];
+	snprintf(profile, sizeof(profile), "%s_6_%u", stage_prefix, minor_version);
+	zest_uint macro_count = options ? zest_vec_size(options->macro_definitions) : 0;
+	zest_uint argument_count = 2 + macro_count * 2;
+	zest_size character_count = 0;
+	for (zest_uint macro_index = 0; macro_index != macro_count; ++macro_index) {
+		zest_macro_definition_t *definition = &options->macro_definitions[macro_index];
+		character_count += zest_TextLength(&definition->name) + zest_TextLength(&definition->value) + 2;
+	}
+	//The pointers, then the name=value strings they point to
+	const char **arguments = (const char **)ZEST__ALLOCATE(device->allocator, argument_count * sizeof(const char *) + character_count);
+	char *characters = (char *)(arguments + argument_count);
+	arguments[0] = "-D";
+	arguments[1] = "ZEST_D3D12=1";
+	for (zest_uint macro_index = 0; macro_index != macro_count; ++macro_index) {
+		zest_macro_definition_t *definition = &options->macro_definitions[macro_index];
+		zest_uint name_length = zest_TextLength(&definition->name);
+		zest_uint value_length = zest_TextLength(&definition->value);
+		arguments[2 + macro_index * 2] = "-D";
+		arguments[3 + macro_index * 2] = characters;
+		memcpy(characters, definition->name.str, name_length);
+		characters += name_length;
+		if (value_length) {
+			*characters++ = '=';
+			memcpy(characters, definition->value.str, value_length);
+			characters += value_length;
+		}
+		*characters++ = 0;
+	}
+	zest_bool compiled = zest__dx_compile_hlsl(device, source, source_length, name, "main", profile, arguments, argument_count, out_error_text, out_dxil);
+	ZEST__FREE(device->allocator, arguments);
+	return compiled;
+}
+
 zest_bool zest__dx_load_dxc(zest_device device) {
 	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
 	if (ReadPointerAcquire((PVOID const volatile *)&backend->dxc_compiler)) return ZEST_TRUE;
@@ -5863,48 +7266,63 @@ zest_bool zest__dx_load_dxc(zest_device device) {
 	return ZEST_TRUE;
 }
 
-static zest_bool zest__dx_widen_ascii(const char *text, wchar_t *output, zest_uint capacity) {
+//Writes text and its terminator at *cursor and moves the cursor past them
+const wchar_t *zest__dx_widen_ascii(const char *text, wchar_t **cursor) {
+	wchar_t *start = *cursor;
 	zest_uint length = 0;
-	while (text[length]) {
-		if (length + 1 >= capacity) return ZEST_FALSE;
-		output[length] = (wchar_t)(unsigned char)text[length];
-		length++;
+	for (; text[length]; ++length) {
+		start[length] = (wchar_t)(unsigned char)text[length];
 	}
-	output[length] = 0;
-	return ZEST_TRUE;
+	start[length] = 0;
+	*cursor = start + length + 1;
+	return start;
 }
 
-zest_bool zest__dx_compile_hlsl(zest_device device, const char *source, zest_size source_length, const char *name, const char *entry_point, const char *profile, ID3DBlob **dxil) {
-	*dxil = NULL;
-	if (!zest__dx_load_dxc(device)) return ZEST_FALSE;
-	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
-	wchar_t wide_entry_point[ZEST__DX_DXC_ARGUMENT_LENGTH];
-	wchar_t wide_profile[ZEST__DX_DXC_ARGUMENT_LENGTH];
-	if (!zest__dx_widen_ascii(entry_point, wide_entry_point, ZEST__DX_DXC_ARGUMENT_LENGTH) || !zest__dx_widen_ascii(profile, wide_profile, ZEST__DX_DXC_ARGUMENT_LENGTH)) {
-		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, the entry point or profile is too long", name);
-		ZEST_ALERT("Shader compilation failed: %s, the entry point or profile is too long", name);
+zest_bool zest__dx_compile_hlsl(zest_device device, const char *source, zest_size source_length, const char *name, const char *entry_point, const char *profile, const char **arguments, zest_uint argument_count, zest_text_t *out_error_text, ID3DBlob **out_dxil) {
+	*out_dxil = NULL;
+	if (!zest__dx_load_dxc(device)) {
+		if (out_error_text) zest_SetText(device->allocator, out_error_text, "Shader compiler unavailable");
 		return ZEST_FALSE;
 	}
-	LPCWSTR arguments[6] = { L"-E", wide_entry_point, L"-T", wide_profile };
-	UINT32 argument_count = 4;
-	if (ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers)) {
-		arguments[argument_count++] = L"-Zi";
-		arguments[argument_count++] = L"-Qembed_debug";
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_bool debug_info = ZEST__FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers);
+	zest_uint wide_count = 4 + (debug_info ? 2 : 0) + argument_count;
+	zest_size character_count = strlen(entry_point) + strlen(profile) + 2;
+	for (zest_uint argument_index = 0; argument_index != argument_count; ++argument_index) {
+		character_count += strlen(arguments[argument_index]) + 1;
+	}
+	//The pointers, then the wide characters they point to
+	LPCWSTR *wide_arguments = (LPCWSTR *)ZEST__ALLOCATE(device->allocator, wide_count * sizeof(LPCWSTR) + character_count * sizeof(wchar_t));
+	wchar_t *characters = (wchar_t *)(wide_arguments + wide_count);
+	zest_uint wide_index = 0;
+	wide_arguments[wide_index++] = L"-E";
+	wide_arguments[wide_index++] = zest__dx_widen_ascii(entry_point, &characters);
+	wide_arguments[wide_index++] = L"-T";
+	wide_arguments[wide_index++] = zest__dx_widen_ascii(profile, &characters);
+	if (debug_info) {
+		wide_arguments[wide_index++] = L"-Zi";
+		wide_arguments[wide_index++] = L"-Qembed_debug";
+	}
+	for (zest_uint argument_index = 0; argument_index != argument_count; ++argument_index) {
+		wide_arguments[wide_index++] = zest__dx_widen_ascii(arguments[argument_index], &characters);
 	}
 	zest_dxc_buffer_t source_buffer;
 	source_buffer.Ptr = source;
 	source_buffer.Size = (SIZE_T)source_length;
 	source_buffer.Encoding = ZEST__DX_DXC_UTF8;
 	zest_dxc_result_t *result = NULL;
-	HRESULT status = ZEST_DXC_CALL(backend->dxc_compiler, Compile, &source_buffer, arguments, argument_count, NULL, &zest__dx_iid_IDxcResult, (void **)&result);
+	AcquireSRWLockExclusive(&backend->dxc_lock);
+	HRESULT status = ZEST_DXC_CALL(backend->dxc_compiler, Compile, &source_buffer, wide_arguments, (UINT32)wide_count, NULL, &zest__dx_iid_IDxcResult, (void **)&result);
 	if (SUCCEEDED(status) && result) {
 		status = E_FAIL;
 		HRESULT compile_status = E_FAIL;
 		if (SUCCEEDED(ZEST_DXC_CALL(result, GetStatus, &compile_status)) && SUCCEEDED(compile_status)) {
 			ID3DBlob *blob = NULL;
-			if (SUCCEEDED(ZEST_DXC_CALL(result, GetResult, &blob)) && blob) {
-				*dxil = blob;
+			if (SUCCEEDED(ZEST_DXC_CALL(result, GetResult, &blob)) && blob && ZEST_DX_CALL0(blob, GetBufferSize) > 0) {
+				*out_dxil = blob;
 				status = S_OK;
+			} else {
+				ZEST_DX_RELEASE(blob);
 			}
 		}
 	}
@@ -5918,10 +7336,149 @@ zest_bool zest__dx_compile_hlsl(zest_device device, const char *source, zest_siz
 		}
 		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %.*s", name, error_length, error_text);
 		ZEST_ALERT("Shader compilation failed: %s, %.*s", name, error_length, error_text);
+		if (out_error_text) zest_SetTextf(device->allocator, out_error_text, "%.*s", error_length, error_text);
 		ZEST_DX_RELEASE(errors);
 	}
 	ZEST_DXC_RELEASE(result);
+	ReleaseSRWLockExclusive(&backend->dxc_lock);
+	ZEST__FREE(device->allocator, wide_arguments);
 	return SUCCEEDED(status);
+}
+
+zest_uint zest__dx_read_u32(const unsigned char *bytes) {
+	zest_uint value;
+	memcpy(&value, bytes, sizeof(value));
+	return value;
+}
+
+zest_bool zest__dx_reflect_shader(const void *container, zest_size size, zest_dx_shader_reflection_t *out_reflection, const char **out_error) {
+	const unsigned char *bytes = (const unsigned char *)container;
+	memset(out_reflection, 0, sizeof(*out_reflection));
+	*out_error = NULL;
+	if (!bytes || size < 32 || zest__dx_read_u32(bytes) != ZEST__DX_FOURCC_DXBC) {
+		*out_error = "The shader isn't a DXIL container. Compile it for D3D12 with DXC, or Slang's DXIL target.";
+		return ZEST_FALSE;
+	}
+	if (zest__dx_read_u32(bytes + 24) != size) {
+		*out_error = "The shader's DXIL container is truncated or corrupt: its size field doesn't match its byte count.";
+		return ZEST_FALSE;
+	}
+	//Every part is bounds checked, not only the three that are read
+	zest_uint part_count = zest__dx_read_u32(bytes + 28);
+	if ((zest_size)part_count * 4 > size - 32) {
+		*out_error = "The shader's DXIL container is truncated or corrupt: its part table runs past its end.";
+		return ZEST_FALSE;
+	}
+	const unsigned char *psv = NULL;
+	const unsigned char *signature = NULL;
+	const unsigned char *program = NULL;
+	zest_size psv_size = 0;
+	zest_size signature_size = 0;
+	zest_size program_size = 0;
+	for (zest_uint part_index = 0; part_index != part_count; ++part_index) {
+		zest_size part_offset = zest__dx_read_u32(bytes + 32 + part_index * 4);
+		if (part_offset > size || size - part_offset < 8 || zest__dx_read_u32(bytes + part_offset + 4) > size - part_offset - 8) {
+			*out_error = "The shader's DXIL container is truncated or corrupt: a part runs past its end.";
+			return ZEST_FALSE;
+		}
+		const unsigned char *part_data = bytes + part_offset + 8;
+		zest_size part_size = zest__dx_read_u32(bytes + part_offset + 4);
+		switch (zest__dx_read_u32(bytes + part_offset)) {
+		case ZEST__DX_FOURCC_PSV0: psv = part_data; psv_size = part_size; break;
+		case ZEST__DX_FOURCC_ISG1: signature = part_data; signature_size = part_size; break;
+		case ZEST__DX_FOURCC_DXIL: program = part_data; program_size = part_size; break;
+		default: break;
+		}
+	}
+	if (!program) {
+		*out_error = "The shader's container has no DXIL part, so it was compiled by FXC. Compile it with DXC.";
+		return ZEST_FALSE;
+	}
+	if (!psv) {
+		*out_error = "The shader's DXIL container has no PSV0 part. Compile it for a vertex, pixel or compute profile, not a library.";
+		return ZEST_FALSE;
+	}
+	if (!signature) {
+		*out_error = "The shader's DXIL container has no ISG1 input signature part.";
+		return ZEST_FALSE;
+	}
+	if (program_size < 4) {
+		*out_error = "The shader's DXIL part is truncated or corrupt.";
+		return ZEST_FALSE;
+	}
+	out_reflection->stage = zest__dx_read_u32(program) >> 16;
+
+	//PSV0: runtime info size, runtime info, resource count, then the record size and records when there are any
+	if (psv_size < 4 || zest__dx_read_u32(psv) > psv_size - 4 || psv_size - 4 - zest__dx_read_u32(psv) < 4) {
+		*out_error = "The shader's PSV0 part is truncated or corrupt.";
+		return ZEST_FALSE;
+	}
+	zest_size psv_cursor = 4 + (zest_size)zest__dx_read_u32(psv);
+	zest_uint resource_count = zest__dx_read_u32(psv + psv_cursor);
+	psv_cursor += 4;
+	if (resource_count) {
+		if (resource_count > ZEST_DX_MAX_SHADER_RESOURCES) {
+			*out_error = "The shader declares more than " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_SHADER_RESOURCES) " resources, the most the D3D12 backend reflects.";
+			return ZEST_FALSE;
+		}
+		if (psv_size - psv_cursor < 4) {
+			*out_error = "The shader's PSV0 part is truncated or corrupt.";
+			return ZEST_FALSE;
+		}
+		zest_size record_size = zest__dx_read_u32(psv + psv_cursor);
+		psv_cursor += 4;
+		if (record_size < 16 || record_size * resource_count > psv_size - psv_cursor) {
+			*out_error = "The shader's PSV0 part is truncated or corrupt.";
+			return ZEST_FALSE;
+		}
+		if (record_size < 24) {
+			*out_error = "The shader's PSV0 part has no resource kinds. Compile it with a DXIL validator of version 1.6 or later (dxcompiler.dll and dxil.dll from 2021 or newer).";
+			return ZEST_FALSE;
+		}
+		for (zest_uint resource_index = 0; resource_index != resource_count; ++resource_index) {
+			const unsigned char *record = psv + psv_cursor + resource_index * record_size;
+			zest_dx_shader_resource_t *resource = &out_reflection->resources[resource_index];
+			resource->type = zest__dx_read_u32(record);
+			resource->space = zest__dx_read_u32(record + 4);
+			resource->lower_bound = zest__dx_read_u32(record + 8);
+			resource->upper_bound = zest__dx_read_u32(record + 12);
+			resource->kind = zest__dx_read_u32(record + 16);
+		}
+		out_reflection->resource_count = resource_count;
+	}
+
+	//ISG1: element count and offset, then 32 byte elements whose names are offsets from the start of the part
+	if (signature_size < 8) {
+		*out_error = "The shader's ISG1 part is truncated or corrupt.";
+		return ZEST_FALSE;
+	}
+	zest_uint input_count = zest__dx_read_u32(signature);
+	zest_size element_offset = zest__dx_read_u32(signature + 4);
+	if (input_count > ZEST_DX_MAX_SHADER_INPUTS) {
+		*out_error = "The shader has more than " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_SHADER_INPUTS) " inputs, the most the D3D12 backend reflects.";
+		return ZEST_FALSE;
+	}
+	if (element_offset > signature_size || (zest_size)input_count * 32 > signature_size - element_offset) {
+		*out_error = "The shader's ISG1 part is truncated or corrupt.";
+		return ZEST_FALSE;
+	}
+	for (zest_uint input_index = 0; input_index != input_count; ++input_index) {
+		const unsigned char *element = signature + element_offset + input_index * 32;
+		zest_size name_offset = zest__dx_read_u32(element + 4);
+		if (name_offset >= signature_size || !memchr(signature + name_offset, 0, signature_size - name_offset)) {
+			*out_error = "The shader's ISG1 part is truncated or corrupt.";
+			return ZEST_FALSE;
+		}
+		zest_dx_shader_input_t *input = &out_reflection->inputs[input_index];
+		input->semantic_name = (const char *)(signature + name_offset);
+		input->semantic_index = zest__dx_read_u32(element + 8);
+		input->system_value = zest__dx_read_u32(element + 12);
+		input->component_type = zest__dx_read_u32(element + 16);
+		input->register_index = zest__dx_read_u32(element + 20);
+		input->mask = element[24];
+	}
+	out_reflection->input_count = input_count;
+	return ZEST_TRUE;
 }
 // -- End Shader_compiling
 

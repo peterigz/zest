@@ -7,7 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
 
-#define TEST_COUNT 128
+#define TEST_COUNT 160
 #define MAX_TEST_RESOURCES 500
 
 struct ZestTests;
@@ -84,6 +84,15 @@ void ResetTests(ZestTests *tests);
 int RunTests(ZestTests *tests, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass);
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);
 int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
+
+//Shader files load from shaders/hlsl/<file name>.hlsl on D3D12, and from glsl_path everywhere else
+static const char *TestShaderPath(zest_device device, const char *glsl_path, char *buffer, size_t buffer_size) {
+	if (zest_GetDevicePlatform(device) != zest_platform_d3d12) return glsl_path;
+	const char *file_name = strrchr(glsl_path, '/');
+	file_name = file_name ? file_name + 1 : glsl_path;
+	snprintf(buffer, buffer_size, "examples/SDL2/zest-tests/shaders/hlsl/%s.hlsl", file_name);
+	return buffer;
+}
 
 int test__blank_screen(ZestTests *tests, Test *test);
 int test__shader_cache_invalidation(ZestTests *tests, Test *test);

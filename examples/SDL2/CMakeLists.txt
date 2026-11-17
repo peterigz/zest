@@ -243,6 +243,7 @@ if(ZEST_D3D12_ENABLED)
 	target_include_directories(zest-tests PRIVATE ${ZEST_D3D12_DXC_INCLUDE_DIR})
 endif()
 zest_copy_d3d12_runtime(zest-clear-screen)
+zest_copy_d3d12_runtime(zest-minimal-template)
 
 # Compiles zest.h as C11 so C regressions fail the build. Never linked.
 add_library(zest-c-compile-check OBJECT zest-tests/zest-c-compile-check.c)

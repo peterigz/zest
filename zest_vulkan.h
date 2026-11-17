@@ -230,7 +230,7 @@ ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_device device, zest_conte
 ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
 ZEST_PRIVATE zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout);
 ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
-ZEST_PRIVATE void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+ZEST_PRIVATE void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_uint stride, zest_descriptor_set set);
 ZEST_PRIVATE void zest__vk_update_bindless_uniform_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 
 //General renderer
@@ -3743,7 +3743,7 @@ void zest__vk_update_bindless_image_descriptor(zest_device device, zest_uint bin
     vkUpdateDescriptorSets(device->backend->logical_device, 1, &write, 0, 0);
 }
 
-void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
+void zest__vk_update_bindless_storage_buffer_descriptor(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_uint stride, zest_descriptor_set set) {
     VkDescriptorBufferInfo buffer_info = zest__vk_get_buffer_info(buffer);
 
     VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
@@ -7132,14 +7132,23 @@ zest_bool zest__vk_validate_shader(zest_device device, const char *shader_code, 
 	shaderc_compiler_t compiler = device->backend->shaderc_compiler;
 	if (!compiler) {
 		device->backend->shaderc_compiler = shaderc_compiler_initialize();
+		compiler = device->backend->shaderc_compiler;
 	}
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader_code, strlen(shader_code), zest__to_shaderc_shader_kind(type), name, "main", NULL);
+	if (!compiler) {
+		ZEST_APPEND_LOG(device->log_path.str, "Shader validation failed: %s, the shader compiler is unavailable", name);
+		return ZEST_FALSE;
+	}
+    shaderc_compile_options_t shaderc_options = shaderc_compile_options_initialize();
+	shaderc_compile_options_add_macro_definition(shaderc_options, "ZEST_VULKAN", 11, "1", 1);
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader_code, strlen(shader_code), zest__to_shaderc_shader_kind(type), name, "main", shaderc_options);
+	shaderc_compile_options_release(shaderc_options);
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
 		ZEST_ALERT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
 		return ZEST_FALSE;
     }
+	shaderc_result_release(result);
 	return ZEST_TRUE;
 }
 
@@ -7159,6 +7168,7 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
     }
 
     shaderc_compile_options_t shaderc_options = shaderc_compile_options_initialize();
+	shaderc_compile_options_add_macro_definition(shaderc_options, "ZEST_VULKAN", 11, "1", 1);
 	if (options) {
 		zest_vec_foreach(i, options->macro_definitions) {
 			zest_macro_definition_t *definition = &options->macro_definitions[i];

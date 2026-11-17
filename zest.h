@@ -1966,7 +1966,8 @@ typedef enum {
 	ZEST_ALL_MIPS = 0xffffffff,
 	ZEST_QUEUE_COUNT = 3,
 	ZEST_BITS_PER_WORD = (sizeof(zest_size) * 8),
-	ZEST_MAX_PUSH_SIZE = 128
+	ZEST_MAX_PUSH_SIZE = 128,
+	ZEST_MAX_STRUCTURED_STRIDE = 2048		//D3D12's largest structured buffer element, in bytes
 } zest_constants;
 
 typedef enum {
@@ -4707,7 +4708,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*create_set_pool)(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
 	zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
 	void                       (*update_bindless_image_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
-	void                       (*update_bindless_storage_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+	void                       (*update_bindless_storage_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_uint stride, zest_descriptor_set set);	//A stride of 0 is a raw view
 	void                       (*update_bindless_uniform_buffer_descriptor)(zest_device device, zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
 	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue, zest_bool release_resources);
@@ -5024,7 +5025,9 @@ ZEST_PRIVATE void zest__cleanup_execution_timeline(zest_execution_timeline timel
 ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type);
 //Hash everything the compiled binary depends on. The shader cache is keyed on this, not on the shader name,
 //so an edited source or a changed macro set can never be served a stale binary.
-ZEST_PRIVATE zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options);
+ZEST_PRIVATE zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options, zest_uint backend_salt);
+//Checks the binary starts with the magic of the format the device's platform loads: SPIR-V on Vulkan, a DXIL container on D3D12
+ZEST_PRIVATE zest_bool zest__shader_binary_matches_platform(zest_device device, const void *binary, zest_size size);
 //Build "<cached_shaders_path><name>.<key>" into out. Pass a key of 0 for shaders with no source to hash.
 ZEST_PRIVATE void zest__build_shader_cache_path(zest_device device, zest_text_t *out, const char *name, zest_key key);
 ZEST_API void zest__cache_shader(zest_device device, zest_shader shader);
@@ -5038,7 +5041,7 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_device device, zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_buffer buffer, zest_uint stride, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_device device, zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
 // --End Descriptor set functions
 
@@ -5261,6 +5264,11 @@ ZEST_API zest_uint zest_AcquireSampledImageIndex(zest_device device, zest_image 
 ZEST_API zest_uint zest_AcquireStorageImageIndex(zest_device device, zest_image image, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_AcquireSamplerIndex(zest_device device, zest_sampler sampler);
 ZEST_API zest_uint zest_AcquireStorageBufferIndex(zest_device device, zest_buffer buffer);
+//Acquires a storage buffer index whose D3D12 view is structured with stride, for HLSL StructuredBuffer; on Vulkan it's the same
+//as zest_AcquireStorageBufferIndex. The buffer's offset must be a multiple of stride, so create it with element_alignment set
+//to the stride. The stride is 1 to ZEST_MAX_STRUCTURED_STRIDE bytes and no larger than the buffer. Release it with
+//zest_ReleaseStorageBufferIndex. Same threading rule as zest_AcquireStorageBufferIndex.
+ZEST_API zest_uint zest_AcquireStructuredBufferIndex(zest_device device, zest_buffer buffer, zest_uint stride);
 ZEST_API zest_uint zest_AcquireUniformBufferIndex(zest_device device, zest_buffer buffer);
 ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_device device, zest_image image, zest_image_view_array image_view_array, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer);
@@ -5307,11 +5315,13 @@ ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Recompiles the shader's source. options become the ones hot reload uses; NULL reuses the shader's current options.
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
 //Add a shader straight from a precompiled binary file and return a handle to the shader. The binary format is
-//defined by the device's backend (SPIR-V for the Vulkan backend). Note that no prefix is added to the filename here
+//defined by the device's backend (SPIR-V for Vulkan, a DXIL container for D3D12); a binary in another format is reported
+//as a validation error and gives a zero handle. Note that no prefix is added to the filename here
 //so pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device, const char *filename, zest_shader_type type);
 //Add a precompiled shader binary straight from memory and return a handle to the shader. The binary format is
-//defined by the device's backend (SPIR-V for the Vulkan backend). Note that the name should just be the name of the
+//defined by the device's backend (SPIR-V for Vulkan, a DXIL container for D3D12); a binary in another format is reported
+//as a validation error and gives a zero handle. Note that the name should just be the name of the
 //shader; if a shader cache path is set on the device builder (zest_SetDeviceBuilderCacheShaderPath or the platform
 //default) then that prefix will be prepended to the name you pass in here.
 ZEST_API zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
@@ -7333,6 +7343,7 @@ typedef struct zest_device_t {
   
 	//Where to save/load cached shaders
 	zest_text_t cached_shaders_path;
+	zest_uint shader_cache_salt;						//Hashed into shader cache keys when not 0. D3D12 sets it from the shader model
 
 	//Resource storage
 	zest_resource_store_t resource_stores[zest_max_device_handle_type];
@@ -13185,7 +13196,7 @@ ZEST_PRIVATE void zest__copy_shader_options(zest_device device, zest_shader shad
 
 //Keyed on a hash of the source and options rather than the name, so an edited shader lands on a different cache file
 ZEST_PRIVATE void zest__rekey_shader(zest_device device, zest_shader shader) {
-	shader->cache_key = zest__shader_cache_key(shader->shader_code.str, shader->type, "main", &shader->options);
+	shader->cache_key = zest__shader_cache_key(shader->shader_code.str, shader->type, "main", &shader->options, device->shader_cache_salt);
 	zest__build_shader_cache_path(device, &shader->cache_path, shader->name.str, shader->cache_key);
 }
 
@@ -13252,7 +13263,7 @@ zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
     return 1;
 }
 
-zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options) {
+zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, const char *entry_point, zest_shader_options options, zest_uint backend_salt) {
     zest_hasher_t hasher;
     zest__hash_initialise(&hasher, ZEST_HASH_SEED);
     zest_uint version = ZEST__SHADER_CACHE_VERSION;
@@ -13278,7 +13289,30 @@ zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, 
             zest__hasher_add(&hasher, ";", 1);
         }
     }
+    //Vulkan's salt is 0 and isn't hashed, so its existing cache files keep their keys
+    if (backend_salt) {
+        zest__hasher_add(&hasher, &backend_salt, sizeof(backend_salt));
+    }
     return (zest_key)zest__get_hash(&hasher);
+}
+
+zest_bool zest__shader_binary_matches_platform(zest_device device, const void *binary, zest_size size) {
+	zest_uint magic = 0;
+	if (binary && size >= sizeof(magic)) {
+		memcpy(&magic, binary, sizeof(magic));
+	}
+	switch (device->setup_info.platform) {
+		case zest_platform_vulkan: return magic == 0x07230203;		//SPIR-V
+		case zest_platform_d3d12: return magic == 0x43425844;		//DXBC, the DXIL container
+		default: return ZEST_TRUE;
+	}
+}
+
+//Reports a binary that the device's platform can't load
+ZEST_PRIVATE void zest__report_shader_binary_mismatch(zest_device device, const char *name) {
+	char message[512];
+	snprintf(message, sizeof(message), "Shader %s isn't %s, which this device needs. Compile it for the device's platform.", name, device->setup_info.platform == zest_platform_d3d12 ? "a DXIL container" : "SPIR-V");
+	zest__log_validation_error(device, message);
 }
 
 void zest__build_shader_cache_path(zest_device device, zest_text_t *out, const char *name, zest_key key) {
@@ -13302,6 +13336,11 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
     zest__rekey_shader(device, shader);
     if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
         shader->binary = zest_ReadEntireFile(device, shader->cache_path.str, ZEST_FALSE);
+        //A cache file written by another platform compiles fresh as though it were missing
+        if (shader->binary && !zest__shader_binary_matches_platform(device, shader->binary, zest_vec_size(shader->binary))) {
+            ZEST_APPEND_LOG(device->log_path.str, "Cached shader %s isn't in this platform's format, so it's compiled again (%s).", name, shader->cache_path.str);
+            zest_vec_free(device->allocator, shader->binary);
+        }
         if (shader->binary) {
             shader->binary_size = zest_vec_size(shader->binary);
 			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache (%s).", name, shader->cache_path.str);
@@ -13366,10 +13405,16 @@ zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
 zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device, const char *filename, zest_shader_type type) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(filename);     //You must give the shader a name
+    char *binary = zest_ReadEntireFile(device, filename, ZEST_FALSE);
+    ZEST_ASSERT(binary);   //File not found, could not load this shader!
+    if (!zest__shader_binary_matches_platform(device, binary, zest_vec_size(binary))) {
+        zest__report_shader_binary_mismatch(device, filename);
+        zest_vec_free(device->allocator, binary);
+        return ZEST__ZERO_INIT(zest_shader_handle);
+    }
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
-    shader->binary = zest_ReadEntireFile(device, filename, ZEST_FALSE);
-    ZEST_ASSERT(shader->binary);   //File not found, could not load this shader!
+    shader->binary = binary;
     shader->binary_size = zest_vec_size(shader->binary);
 	zest_SetText(device->allocator, &shader->name, filename);
 	ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
@@ -13381,6 +13426,10 @@ zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *n
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
+    if (buffer && size && !zest__shader_binary_matches_platform(device, buffer, size)) {
+        zest__report_shader_binary_mismatch(device, name);
+        return ZEST__ZERO_INIT(zest_shader_handle);
+    }
     if (buffer && size) {
 		zest_shader_handle shader_handle = zest__new_shader(device, type);
 		zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
@@ -18279,7 +18328,7 @@ zest_uint zest__acquire_bindless_sampler_index(zest_device device, zest_sampler 
     return array_index;
 }
 
-zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
+zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_buffer buffer, zest_uint stride, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
     zest_uint binding_number = ZEST_INVALID;
     zest_vec_foreach(i, layout->bindings) {
         zest_descriptor_binding_desc_t *layout_binding = &layout->bindings[i];
@@ -18296,7 +18345,7 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_device device, zest_b
         ZEST_REPORT(device, zest_report_bindless_indexes, "Ran out of space in the descriptor pool when trying to acquire an index for a storage buffer, binding number %i.", binding_number);
         return ZEST_INVALID;
     }
-    device->platform->update_bindless_storage_buffer_descriptor(device, binding_number, array_index, buffer, set);
+    device->platform->update_bindless_storage_buffer_descriptor(device, binding_number, array_index, buffer, stride, set);
 
     return array_index;
 }
@@ -18383,8 +18432,30 @@ zest_uint *zest_AcquireImageMipIndexes(zest_device device, zest_image image, zes
 
 zest_uint zest_AcquireStorageBufferIndex(zest_device device, zest_buffer buffer) {
 	ZEST_ASSERT(buffer);	//Not a valid buffer handle
-    zest_uint index = zest__acquire_bindless_storage_buffer_index(device, buffer, device->bindless_set_layout, device->bindless_set, zest_storage_buffer_binding);
+    zest_uint index = zest__acquire_bindless_storage_buffer_index(device, buffer, 0, device->bindless_set_layout, device->bindless_set, zest_storage_buffer_binding);
 	return index;
+}
+
+zest_uint zest_AcquireStructuredBufferIndex(zest_device device, zest_buffer buffer, zest_uint stride) {
+	ZEST_ASSERT(buffer);	//Not a valid buffer handle
+	if (!stride) {
+		zest__log_validation_error(device, "zest_AcquireStructuredBufferIndex needs a stride, the size of the struct the shader reads. Use zest_AcquireStorageBufferIndex for a raw buffer.");
+		return ZEST_INVALID;
+	}
+	//D3D12 removes the device for a view past either limit, so both backends reject it
+	if (stride > ZEST_MAX_STRUCTURED_STRIDE) {
+		zest__log_validation_error(device, "zest_AcquireStructuredBufferIndex was given a stride over 2048 bytes, the largest structured buffer element D3D12 allows. Split the struct or use a raw buffer.");
+		return ZEST_INVALID;
+	}
+	if (stride > buffer->size) {
+		zest__log_validation_error(device, "zest_AcquireStructuredBufferIndex was given a buffer smaller than its stride, so its view would hold no element. Create the buffer with room for at least one.");
+		return ZEST_INVALID;
+	}
+	if (buffer->memory_offset % stride) {
+		zest__log_validation_error(device, "zest_AcquireStructuredBufferIndex needs a buffer whose offset is a multiple of the stride. Create the buffer with element_alignment in its zest_buffer_info_t set to the stride.");
+		return ZEST_INVALID;
+	}
+	return zest__acquire_bindless_storage_buffer_index(device, buffer, stride, device->bindless_set_layout, device->bindless_set, zest_storage_buffer_binding);
 }
 
 zest_uint zest_AcquireUniformBufferIndex(zest_device device, zest_buffer buffer) {
@@ -18396,7 +18467,7 @@ void zest_AcquireInstanceLayerBufferIndex(zest_device device, zest_layer layer) 
 	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //Layer must have been created with a persistant vertex buffer
     zest_ForEachFrameInFlight(fif) {
-		layer->memory_refs[fif].descriptor_array_index = zest_AcquireStorageBufferIndex(device, layer->memory_refs[fif].device_vertex_data);
+		layer->memory_refs[fif].descriptor_array_index = zest_AcquireStructuredBufferIndex(device, layer->memory_refs[fif].device_vertex_data, (zest_uint)layer->instance_struct_size);
     }
     layer->bindless_set = device->bindless_set;
     ZEST__FLAG(layer->flags, zest_layer_flag_using_global_bindless_layout);
@@ -19024,7 +19095,7 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_l
 	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
 	if (bindless_index == ZEST_INVALID) return bindless_index;
 
-    device->platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, frame_graph->bindless_set);
+    device->platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, 0, frame_graph->bindless_set);
 
 	zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, zest_storage_buffer_binding };
 	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif], binding_index);
@@ -20610,7 +20681,7 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
             zest_uint array_index = layer->memory_refs[layer->fif].descriptor_array_index;
             if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
                 zest_context context = (zest_context)layer->handle.store->origin;
-                context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, layer->bindless_set);
+                context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, (zest_uint)layer->instance_struct_size, layer->bindless_set);
             }
         }
     }
@@ -20672,7 +20743,7 @@ void zest_ReserveInstanceLayerDeviceCapacity(zest_layer layer, zest_uint instanc
         zest_uint array_index = layer->memory_refs[layer->fif].descriptor_array_index;
         if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && array_index != ZEST_INVALID) {
             zest_context context = (zest_context)layer->handle.store->origin;
-            context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, layer->bindless_set);
+            context->device->platform->update_bindless_storage_buffer_descriptor(layer->context->device, zest_storage_buffer_binding, array_index, *device_buffer, (zest_uint)layer->instance_struct_size, layer->bindless_set);
         }
     }
 }
@@ -21096,6 +21167,8 @@ zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* 
     zest_ForEachFrameInFlight(fif) {
 		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 		buffer_info.frame_in_flight = fif;
+		//The D3D12 structured view of the buffer starts at a whole instance
+		buffer_info.element_alignment = type_size;
         layer->memory_refs[fif].device_vertex_data = zest_CreateBuffer(context->device, layer->memory_refs[fif].staging_instance_data->size, &buffer_info);
     }
     ZEST__FLAG(layer->flags, zest_layer_flag_manual_fif);

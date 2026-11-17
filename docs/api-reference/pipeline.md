@@ -370,7 +370,9 @@ zest_SetPipelineDepthTest(ui_pipeline, ZEST_FALSE, ZEST_FALSE);
 
 ### `zest_SetPipelineDepthBias`
 
-Enable or disable depth bias (polygon offset).
+Enable or disable depth bias (polygon offset). On Vulkan the bias values are dynamic, so call
+`zest_cmd_SetDepthBias` after binding the pipeline. D3D12 also bakes the template's `rasterization.depth_bias_*`
+values, which a command list uses until it calls `zest_cmd_SetDepthBias`.
 
 ```cpp
 void zest_SetPipelineDepthBias(zest_pipeline_template pipeline_template, zest_bool enabled);
@@ -536,7 +538,8 @@ void zest_AddPipelineLayoutDescriptorLayout(zest_pipeline_layout_info_t *info, z
 
 ### `zest_SetPipelineLayoutPushConstantRange`
 
-Configure push constants for the pipeline layout. 
+Configure push constants for the pipeline layout. The D3D12 backend holds up to 128 bytes (`ZEST_MAX_PUSH_SIZE`),
+and a pipeline whose shaders read push constants through a larger range fails to build there.
 
 ```cpp
 void zest_SetPipelineLayoutPushConstantRange(zest_pipeline_layout_info_t *info,
@@ -593,7 +596,9 @@ zest_pipeline_layout zest_GetDefaultPipelineLayout(zest_device device);
 
 ### `zest_CreateShaderFromFile`
 
-Create a shader from a source file. As Zest current only has a platform layer for Vulkan this will need a glsl shader which gets compiled using shaderc.
+Create a shader from a source file. The source is in the device's shader language: GLSL compiled with shaderc on
+Vulkan, or HLSL compiled with DXC for the device's shader model on D3D12. The entry point is `main`, and the backend
+defines `ZEST_VULKAN` or `ZEST_D3D12` as 1, so a shader can test which backend compiled it.
 
 ```cpp
 zest_shader_handle zest_CreateShaderFromFile(zest_device device,
@@ -635,7 +640,7 @@ zest_shader_handle frag = zest_CreateShaderFromFile(
 
 ### `zest_CreateShader`
 
-Create a shader from source code string. As Zest current only has a platform layer for Vulkan this will need a glsl shader which gets compiled using shaderc. 
+Create a shader from source code string, in the device's shader language as for `zest_CreateShaderFromFile`.
 
 ```cpp
 zest_shader_handle zest_CreateShader(zest_device device,
@@ -670,8 +675,9 @@ zest_device device = zest_EndDeviceBuilder(builder);
 `zest_SetDeviceBuilderCacheShaderPath` only chooses the folder — on its own it does not enable caching.
 
 Each cache file is named `<cache path><shader name>.<key>`, where the key is a hash of the shader source,
-its type, its entry point and any macro definitions passed via `zest_shader_options`. Because the key follows
-the source, editing a shader always recompiles rather than reusing the previous binary. Superseded files are
+its type, its entry point and any macro definitions passed via `zest_shader_options`, and on D3D12 the device's
+shader model. Because the key follows the source, editing a shader always recompiles rather than reusing the
+previous binary. A cache file in another platform's binary format is compiled over. Superseded files are
 left behind in the cache folder, which is fully regenerable and safe to delete at any time.
 
 Pass `disable_caching = ZEST_TRUE` to keep an individual shader out of the cache regardless of the device
@@ -710,7 +716,8 @@ callback is called with `user_data` when the shader is freed. Slang session shad
 ### `zest_CreateShaderFromBinary`
 
 Create a shader from a pre-compiled binary in memory. The binary format is defined by the
-device's backend (SPIR-V for the Vulkan backend).
+device's backend: SPIR-V for Vulkan, a DXIL container for D3D12. A binary in another format is reported as a
+validation error and gives a zero handle.
 
 ```cpp
 zest_shader_handle zest_CreateShaderFromBinary(zest_device device,
@@ -739,7 +746,8 @@ zest_shader_handle shader = zest_CreateShaderFromBinary(
 ### `zest_CreateShaderFromBinaryFile`
 
 Load a pre-compiled shader binary from a file. The binary format is defined by the device's
-backend (SPIR-V for the Vulkan backend).
+backend: SPIR-V for Vulkan, a DXIL container for D3D12. A binary in another format is reported as a validation
+error and gives a zero handle.
 
 ```cpp
 zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device,

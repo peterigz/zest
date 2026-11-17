@@ -413,6 +413,7 @@ examples/assets/vaders/vadereffects.tfx_r
 test.png
 zest_log.txt
 spv/
+dxil/
 /build
 /.vscode
 /.gemini

@@ -69,7 +69,8 @@ deals in slot numbers (`zest_binding_number_type`) and the indexes returned by t
 functions, so it is identical on every backend. Only the shader-side declaration is per-language:
 
 - **GLSL/SPIR-V (Vulkan, today):** `layout(set = 0, binding = <slot>)` as shown in the examples below.
-- **HLSL (D3D12, future):** the backend maps each slot to a register/space (one space per slot).
+- **HLSL (D3D12):** each slot is an unbounded array in a register space of its own, as shown in
+  [HLSL Descriptor Layout](#hlsl-descriptor-layout) below.
 - **MSL (Metal, future):** the backend maps each slot to an argument buffer id (`[[id(<slot>)]]`).
 
 Writing shaders in [Slang](../../implementations/impl_slang.hpp) lets you declare bindings once and target
@@ -169,6 +170,68 @@ void main() {
     mat4 vp = uniforms[push.ubo_index].view * uniforms[push.ubo_index].projection;
 }
 ```
+
+### HLSL Descriptor Layout
+
+The D3D12 backend reads each pipeline's bindings from its compiled shader, so a bindless array can sit
+in any free register space: its type decides which slot it reads. The recommended layout puts each
+array at register 0 of space `100 + binding number`, and the push constants in a constant buffer at
+`b0` in space 0:
+
+```hlsl
+cbuffer zest_push : register(b0, space0) {
+    uint texture_index;
+    uint sampler_index;
+    uint buffer_index;
+};
+
+SamplerState zest_samplers[] : register(s0, space100);              // zest_sampler_binding
+Texture2D zest_textures[] : register(t0, space101);                 // zest_texture_2d_binding
+TextureCube zest_cubemaps[] : register(t0, space102);               // zest_texture_cube_binding
+Texture2DArray zest_texture_arrays[] : register(t0, space103);      // zest_texture_array_binding
+Texture3D zest_textures_3d[] : register(t0, space104);              // zest_texture_3d_binding
+ByteAddressBuffer zest_buffers[] : register(t0, space105);          // zest_storage_buffer_binding, read only
+RWByteAddressBuffer zest_rw_buffers[] : register(u0, space105);     // zest_storage_buffer_binding, read and write
+RWTexture2D<float4> zest_images[] : register(u0, space106);         // zest_storage_image_binding
+ConstantBuffer<camera_t> zest_uniforms[] : register(b0, space107);  // zest_uniform_buffer_binding
+TextureCubeArray zest_cube_arrays[] : register(t0, space108);       // zest_texture_cube_array_binding
+
+float4 main(float2 uv : TEXCOORD0) : SV_Target0 {
+    return zest_textures[NonUniformResourceIndex(texture_index)].Sample(zest_samplers[NonUniformResourceIndex(sampler_index)], uv);
+}
+```
+
+- Every resource is an unbounded array (`name[]`), one per register class per space. The only
+  resource that isn't an array is the push block, a constant buffer in space 0. Anything else fails
+  pipeline creation with a message naming its register and space.
+- Read-only and read-write storage buffer views are different register classes (`t` and `u`), so
+  both can use space 105.
+- Spaces below 100 are left for custom descriptor sets, which the D3D12 backend doesn't support yet.
+- `NonUniformResourceIndex` costs nothing on a uniform index and is required on one that varies
+  within a draw.
+- The push block holds up to 128 bytes (`ZEST_MAX_PUSH_SIZE`). A pipeline layout with a larger push
+  constant range fails pipeline creation.
+- `SV_InstanceID` starts at 0 whatever `first_instance` the draw was given, and in an indexed draw
+  `SV_VertexID` doesn't include `vertex_offset`. GLSL's `gl_InstanceIndex` and `gl_VertexIndex`
+  include both. A shader that indexes a buffer by instance, such as one reading an instance layer
+  drawn with `zest_cmd_DrawLayerInstruction` (which passes the instruction's `start_index` as
+  `first_instance`), needs the first instance in its push constants. Per-instance vertex attributes
+  are offset by `first_instance` on both backends.
+
+**Raw and structured storage buffers.** `zest_AcquireStorageBufferIndex` gives a raw view: read it as
+`ByteAddressBuffer` or `RWByteAddressBuffer` with byte offsets. `zest_AcquireStructuredBufferIndex(device,
+buffer, stride)` gives a structured view for `StructuredBuffer<T>` and `RWStructuredBuffer<T>`; the
+buffer's offset must be a multiple of the stride, so create it with `element_alignment` set to the
+stride. The stride is at most 2048 bytes (`ZEST_MAX_STRUCTURED_STRIDE`) and no larger than the buffer,
+on both backends. Instance layer buffers get structured views with the instance size as the stride. On
+Vulkan both functions give the same index. Structured buffers that use their hidden counter (append,
+consume and `IncrementCounter`) aren't supported.
+
+**Depth bias.** Every D3D12 pipeline bakes its `rasterization.depth_bias_*` values, and a command list
+uses them until it calls `zest_cmd_SetDepthBias`. That call needs a driver with dynamic depth bias
+(`D3D12_FEATURE_DATA_D3D12_OPTIONS16::DynamicDepthBiasSupported`); without one it reports once per
+command list and the pipeline's own values stay. On Vulkan a pipeline with `depth_bias_enable` has a
+dynamic bias that ignores the template's values, so call `zest_cmd_SetDepthBias` after binding it.
 
 ### Slang Descriptor Layout
 

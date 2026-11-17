@@ -169,6 +169,51 @@ zest_uint zest_GetUniformBufferDescriptorIndex(zest_uniform_buffer ubo);
 
 ---
 
+## Bindless Indexes
+
+### zest_AcquireStorageBufferIndex
+
+Get a bindless index for a storage buffer, to pass to your shaders. On D3D12 the view is raw: read it as
+`ByteAddressBuffer` or `RWByteAddressBuffer` with byte offsets. Returns `ZEST_INVALID` when the bindless set has no
+free index.
+
+```cpp
+zest_uint zest_AcquireStorageBufferIndex(zest_device device, zest_buffer buffer);
+```
+
+---
+
+### zest_AcquireStructuredBufferIndex
+
+Get a bindless index whose D3D12 view is structured, for `StructuredBuffer<T>` and `RWStructuredBuffer<T>`, with
+`stride` the size of `T` in bytes. On Vulkan it's the same as `zest_AcquireStorageBufferIndex`. The stride is 1 to
+2048 bytes (`ZEST_MAX_STRUCTURED_STRIDE`, D3D12's limit) and no larger than the buffer, and the buffer's offset must
+be a multiple of it, so create the buffer with `element_alignment` set to the stride. Anything else is a validation
+error that returns `ZEST_INVALID`, on both backends.
+
+```cpp
+zest_uint zest_AcquireStructuredBufferIndex(zest_device device, zest_buffer buffer, zest_uint stride);
+```
+
+```cpp
+zest_buffer_info_t info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+info.element_alignment = sizeof(particle_t);
+app->particle_buffer = zest_CreateBuffer(device, sizeof(particle_t) * particle_count, &info);
+app->particle_index = zest_AcquireStructuredBufferIndex(device, app->particle_buffer, sizeof(particle_t));
+```
+
+---
+
+### zest_ReleaseStorageBufferIndex
+
+Release an index from either acquire function.
+
+```cpp
+void zest_ReleaseStorageBufferIndex(zest_device device, zest_uint array_index);
+```
+
+---
+
 ## Data Access
 
 ### zest_BufferData / zest_BufferDataEnd
