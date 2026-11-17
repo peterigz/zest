@@ -761,6 +761,11 @@ int test__headless_flush_and_wait(ZestTests *tests, Test *test) {
 	if (zest_GetContextTransientArenaCount(tests->context) > ZEST_MAX_FIF) {
 		test->result |= 1;
 	}
+	//Each waited flush resets the queue's command pool for the next, so the loop reuses one command buffer rather than one per flush
+	zest_map_frame_graph_queues loop_queues = tests->context->cached_frame_graph_queues[tests->context->graphics_queue_index];
+	if (!zest_map_valid_name(loop_queues, "Flush And Wait Loop") || (*zest_map_at(loop_queues, "Flush And Wait Loop"))->next_buffer != 1) {
+		test->result |= 1;
+	}
 
 	//Now the pathological pattern on purpose: a flush with no signal timeline cannot recycle its
 	//arena checkout, so it must be left checked out (and reported once per context), and

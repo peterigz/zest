@@ -16991,6 +16991,9 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 					//is serialized through waited flushes, so with the wait proven everything queued
 					//on this FIF slot is safe to release now.
 					zest__do_context_scheduled_tasks(context);
+					//zest_BeginFrame moves this on for windowed contexts. Without it the next graph never resets its queue's command pool,
+					//so every flush records into a new command buffer (Vulkan) or grows the allocator (D3D12) until submits fail
+					context->device_frame_counter++;
 				}
 			}
 		} else if (ZEST__FLAGGED(context->flags, zest_context_flag_headless) && ZEST__NOT_FLAGGED(context->flags, zest_context_flag_warned_headless_flush)) {
