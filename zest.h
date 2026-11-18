@@ -4330,6 +4330,16 @@ typedef struct zest_pass_queue_info_t {
 	zest_device_queue_type queue_type;
 }zest_pass_queue_info_t;
 
+//The source of an imported image's first barrier in a graph, taken from the image's tracked state when the graph executes
+typedef struct zest_first_use_source_t {
+	zest_image_layout old_layout;
+	zest_access_flags src_access;
+	zest_pipeline_stage_flags src_stage;
+	zest_uint src_family;
+	zest_uint dst_family;
+	zest_bool crossed_queues;			//The image was last used on another queue, so the source is left to the backend's wait
+} zest_first_use_source_t;
+
 #ifdef ZEST_DEBUGGING
 typedef struct zest_image_barrier_t {
 	zest_access_flags src_access_mask;
@@ -4650,7 +4660,7 @@ typedef struct zest_platform_t {
 		zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
 		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage,
 		zest_pipeline_stage_flags dst_stage);
-	void                       (*add_frame_graph_image_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire,
+	void                       (*add_frame_graph_image_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_bool first_use,
 		zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
 		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 	zest_bool                  (*present_frame)(zest_context context, zest_context_queue present_queue);
@@ -5116,6 +5126,10 @@ ZEST_PRIVATE void zest__cleanup_frame_graph_builder();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
 										zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
+ZEST_PRIVATE zest_bool zest__image_barrier_needed(zest_image_layout old_layout, zest_image_layout new_layout, zest_access_flags src_access, zest_access_flags dst_access);
+//Fills an imported image's first barrier from the image's tracked state. Returns ZEST_FALSE when that barrier would change nothing
+ZEST_PRIVATE zest_bool zest__refresh_first_use(zest_image image, zest_uint queue_family_index, zest_image_layout new_layout, zest_access_flags dst_access, zest_uint recorded_src_family, zest_uint recorded_dst_family, zest_first_use_source_t *out_source);
+ZEST_PRIVATE void zest__track_imported_images(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
 ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
@@ -7603,6 +7617,7 @@ typedef struct zest_frame_graph_t {
 #endif
 	zest_map_resource_versions resource_versions;
 	zest_resource_node *resources_to_update;
+	zest_resource_node *imported_images;			//Imported images with a journey, whose last use is tracked on the image after each execution
 	zest_pass_group_t **pass_execution_order;
 
 	//Transient placement schedule, built at compile time in first-use order (see
@@ -7757,6 +7772,10 @@ typedef struct zest_image_t {
 	zest_uint bindless_index[zest_max_global_binding_number];
 	zest_image_info_t info;
 	zest_image_layout layout;     //Internal tracking of the image's current layout/state, maintained by the backend
+	zest_access_flags last_access_mask;	//Access of the image's last use in a frame graph, for the next graph's first barrier
+	zest_pipeline_stage_flags last_stage_mask;	//Stages of that last use
+	zest_uint queue_family_index;	//Family of that last use, ZEST_QUEUE_FAMILY_IGNORED before any
+	zest_uint released_to_family;	//Family the last graph released the image to, ZEST_QUEUE_FAMILY_IGNORED when no release is waiting
 	zest_image_view default_view;
 } zest_image_t;
 
@@ -15589,27 +15608,68 @@ void zest__add_buffer_barrier(zest_resource_node resource, zest_execution_barrie
 }
 #endif
 
+zest_bool zest__image_barrier_needed(zest_image_layout old_layout, zest_image_layout new_layout, zest_access_flags src_access, zest_access_flags dst_access) {
+	return old_layout != new_layout || ((src_access & zest_access_write_bits_general) && (dst_access & zest_access_read_bits_general));
+}
+
+zest_bool zest__refresh_first_use(zest_image image, zest_uint queue_family_index, zest_image_layout new_layout, zest_access_flags dst_access, zest_uint recorded_src_family, zest_uint recorded_dst_family, zest_first_use_source_t *out_source) {
+	out_source->old_layout = image->layout;
+	//Another queue's stages may not exist on this one, and the wait on the previous execution is what orders the two
+	out_source->crossed_queues = image->queue_family_index != ZEST_QUEUE_FAMILY_IGNORED && image->queue_family_index != queue_family_index;
+	//A handback the previous execution released is acquired as recorded, so the acquire matches the release
+	if (recorded_src_family != recorded_dst_family && image->released_to_family == recorded_dst_family && image->queue_family_index == recorded_src_family) {
+		out_source->src_access = 0;
+		out_source->src_stage = 0;
+		out_source->src_family = recorded_src_family;
+		out_source->dst_family = recorded_dst_family;
+		return ZEST_TRUE;
+	}
+	out_source->src_family = ZEST_QUEUE_FAMILY_IGNORED;
+	out_source->dst_family = ZEST_QUEUE_FAMILY_IGNORED;
+	out_source->src_access = out_source->crossed_queues ? 0 : image->last_access_mask;
+	out_source->src_stage = out_source->crossed_queues ? 0 : image->last_stage_mask;
+	return zest__image_barrier_needed(image->layout, new_layout, out_source->src_access, dst_access);
+}
+
 void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                               zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state) {
 	zest_resource_usage_t *current_usage = &current_state->usage;
 	zest_image_layout current_usage_layout = current_usage->image_layout;
 	zest_context context = zest__frame_graph_builder->context;
+	zest_bool imported_image = (resource->type & zest_resource_type_image) && ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported);
+	zest_resource_state_t *first_state = &resource->journey[0];
+	zest_resource_state_t *last_state = &zest_vec_back(resource->journey);
+	//An imported image whose graph ends on another queue than it starts is handed back for the next execution's first use
+	zest_bool hands_back = imported_image && first_state->queue_family_index != last_state->queue_family_index;
     if (!prev_state) {
         //This is the first state of the resource
         //If there's no previous state then we need to see if a barrier is needed to transition from the resource
         //start state. We put this in the acquire barrier as it needs to be put in place before the pass is executed.
         zest_uint src_queue_family_index = resource->current_queue_family_index;
         zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
-        if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
+        if (hands_back) {
+			//Acquires what the previous execution's last use released. All commands chains it to whichever wait orders that execution
+            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE, ZEST_TRUE,
+																	 zest_access_none, current_usage->access_mask,
+																	 last_state->usage.image_layout, current_usage_layout,
+																	 last_state->queue_family_index, current_state->queue_family_index,
+																	 zest_pipeline_stage_all_commands_bit, current_usage->stage_mask);
+			#ifdef ZEST_DEBUGGING
+            zest__add_image_barrier(resource, barriers, ZEST_TRUE,
+									zest_access_none, current_usage->access_mask,
+									last_state->usage.image_layout, current_usage_layout,
+									last_state->queue_family_index, current_state->queue_family_index,
+									zest_pipeline_stage_all_commands_bit, current_usage->stage_mask);
+			#endif
+        } else if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
 			//Fold in the conservative aliasing scope (see Plan_transient_aliasing): if this is a
 			//transient whose memory may reuse a previously freed transient's block, the src scope
 			//must cover the previous owner's last use.
 			zest_access_flags src_access = resource->access_mask | resource->aliasing_src_access_mask;
 			zest_pipeline_stage_flags src_stage = resource->last_stage_mask | resource->aliasing_src_stage_mask;
-            if (resource->image_layout != current_usage_layout ||
-                (src_access & zest_access_write_bits_general) &&
-                (current_usage->access_mask & zest_access_read_bits_general)) {
-                context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
+			//An imported image may be in another state by the time a cached graph replays, so its first barrier is always recorded and refreshed at execution
+            if (imported_image || zest__image_barrier_needed(resource->image_layout, current_usage_layout, src_access, current_usage->access_mask)) {
+                context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE, imported_image,
 																		 src_access, current_usage->access_mask,
 																		 resource->image_layout, current_usage_layout,
 																		 src_queue_family_index, dst_queue_family_index,
@@ -15620,25 +15680,6 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 										resource->image_layout, current_usage_layout,
 										src_queue_family_index, dst_queue_family_index,
 										src_stage, current_usage->stage_mask);
-				#endif
-            }
-        } else {
-            //This resource already belongs to a queue which means that it's an imported resource
-            //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
-            ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
-            dst_queue_family_index = current_state->queue_family_index;
-            if (src_queue_family_index != ZEST_QUEUE_FAMILY_IGNORED) {
-                context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
-																		 resource->access_mask, current_usage->access_mask,
-																		 resource->image_layout, current_usage_layout,
-																		 src_queue_family_index, dst_queue_family_index,
-																		 resource->last_stage_mask, current_usage->stage_mask);
-				#ifdef ZEST_DEBUGGING
-                zest__add_image_barrier(resource, barriers, ZEST_TRUE,
-										resource->access_mask, current_usage->access_mask,
-										resource->image_layout, current_usage_layout,
-										src_queue_family_index, dst_queue_family_index,
-										resource->last_stage_mask, current_usage->stage_mask);
 				#endif
             }
         }
@@ -15657,7 +15698,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
         if (needs_acquiring) {
             zest_resource_usage_t *prev_usage = &prev_state->usage;
             //Acquire the resource. No transitioning is done here, acquire only if needed
-            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
+            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE, ZEST_FALSE,
 																	 zest_access_none, current_usage->access_mask,
 																	 prev_usage->image_layout, current_usage_layout,
 																	 src_queue_family_index, dst_queue_family_index,
@@ -15699,7 +15740,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
                 dst_stage = next_state->usage.stage_mask;
                 current_state->was_released = ZEST_FALSE;
             }
-            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_FALSE,
+            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_FALSE, ZEST_FALSE,
 																	 current_usage->access_mask, next_usage->access_mask,
 																	 current_usage->image_layout, next_usage_layout,
 																	 src_queue_family_index, dst_queue_family_index,
@@ -15712,9 +15753,21 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 									current_usage->stage_mask, dst_stage);
 			#endif
         }
-    } else if (resource->flags & zest_resource_node_flag_imported
-        && current_state->queue_family_index != context->transfer_family_index) {
-        //Maybe we add something for images here if it's needed.
+    } else if (hands_back) {
+		//The release half of the handback, in the same layouts and families as the first use's acquire
+		zest_image_layout first_usage_layout = first_state->usage.image_layout;
+        context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_FALSE, ZEST_FALSE,
+																 current_usage->access_mask, zest_access_none,
+																 current_usage_layout, first_usage_layout,
+																 current_state->queue_family_index, first_state->queue_family_index,
+																 current_usage->stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+		#ifdef ZEST_DEBUGGING
+        zest__add_image_barrier(resource, barriers, ZEST_FALSE,
+								current_usage->access_mask, zest_access_none,
+								current_usage_layout, first_usage_layout,
+								current_state->queue_family_index, first_state->queue_family_index,
+								current_usage->stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
+		#endif
     }
 }
 
@@ -16646,6 +16699,9 @@ zest_frame_graph zest__compile_frame_graph() {
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
         zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
         if (resource->aliased_resource) continue;
+		if ((resource->type & zest_resource_type_image) && ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) && zest_vec_size(resource->journey)) {
+			zest_vec_linear_push(allocator, frame_graph->imported_images, resource);
+		}
         zest_resource_state_t *prev_state = NULL;
         int starting_state_index = 0;
         zest_vec_foreach(state_index, resource->journey) {
@@ -16925,7 +16981,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					if (resource->type == zest_resource_type_swap_chain_image) {
 						color.is_swapchain_image = ZEST_TRUE;
 						context->device->platform->add_frame_graph_image_barrier(
-							resource, &exe_details->barriers, ZEST_FALSE,
+							resource, &exe_details->barriers, ZEST_FALSE, ZEST_FALSE,
 							output_usage->access_mask, zest_access_none,
 							output_usage->image_layout, zest_image_layout_present,
 							resource->current_queue_family_index, resource->current_queue_family_index,
@@ -17296,6 +17352,20 @@ void zest__cleanup_frame_graph_builder() {
 	}
 }
 
+void zest__track_imported_images(zest_frame_graph frame_graph) {
+	zest_vec_foreach(resource_index, frame_graph->imported_images) {
+		zest_resource_node resource = frame_graph->imported_images[resource_index];
+		zest_image image = resource->view->image;
+		zest_resource_state_t *last_state = &zest_vec_back(resource->journey);
+		zest_uint first_family = resource->journey[0].queue_family_index;
+		image->last_access_mask = last_state->usage.access_mask;
+		image->last_stage_mask = last_state->usage.stage_mask;
+		image->queue_family_index = last_state->queue_family_index;
+		//The graph released the image back to its first queue, see zest__add_image_barriers
+		image->released_to_family = first_family != last_state->queue_family_index ? first_family : ZEST_QUEUE_FAMILY_IGNORED;
+	}
+}
+
 zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	ZEST_CPU_PROFILE_BEGIN(context, "Run %s", frame_graph->name);
@@ -17604,6 +17674,8 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
         queue->fif = (queue->fif + 1) % ZEST_MAX_FIF;
     }
 
+	zest__track_imported_images(frame_graph);
+
 	ZEST_CPU_PROFILE_BEGIN(context, "Reset Resources");
 	zest_bucket_array_foreach(index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, index);
@@ -17663,6 +17735,14 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 			//(they can't wait on a signal that never comes) and makes it safe for the caller to free
 			//this frame's transient resources.
 			zest_WaitForIdleDevice(device);
+			//The drain finished every earlier use, so the next graph's first barriers need no source scope
+			zest_vec_foreach(resource_index, frame_graph->imported_images) {
+				zest_image image = frame_graph->imported_images[resource_index]->view->image;
+				image->last_access_mask = 0;
+				image->last_stage_mask = 0;
+				image->queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
+				image->released_to_family = ZEST_QUEUE_FAMILY_IGNORED;
+			}
 		}
 		//The graph placed transients this execution: return the arena checkouts (deferred) so
 		//they don't stay pinned, and retire the images of a graph that will never run again.
@@ -19845,6 +19925,8 @@ zest_image_handle zest__new_image(zest_device device) {
     zest_image image = (zest_image)zest__get_store_resource_unsafe(store, handle.value);
     *image = ZEST__ZERO_INIT(zest_image_t);
     image->magic = zest_INIT_MAGIC(zest_struct_type_image);
+    image->queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
+    image->released_to_family = ZEST_QUEUE_FAMILY_IGNORED;
     image->backend = (zest_image_backend)device->platform->new_image_backend(device);
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         image->bindless_index[i] = ZEST_INVALID;

@@ -135,7 +135,13 @@ void InitialiseTests(ZestTests *tests) {
 	small_frame_graph_memory_info.frame_graph_allocator_size = zloc__KILOBYTE(1);
 	RegisterTest(tests, { "Transient Mip Views Across Allocator Growth", test__transient_mip_views_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, small_frame_graph_memory_info });
 	RegisterTest(tests, { "Frame Graph Transfer Image Output", test__transfer_image_output, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Frame Graph Transfer Queue Mip Copy", test__transfer_queue_mip_copy, 0, 1, 0, 0, tests->simple_create_info });
+	//Not on the D3D12 suite list: D3D12 blits the same format on the copy queue
+	RegisterTest(tests, { "Frame Graph Transfer Queue Blit Report", test__transfer_queue_blit_report, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Multi Queue Cached Handoff", test__multi_queue_cached_handoff, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Cached Imported Image", test__cached_imported_image, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Cached Imported Image Async", test__cached_imported_image_async, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Multi Queue Imported Handback", test__multi_queue_imported_handback, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.
 	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
@@ -220,8 +226,8 @@ static const char *d3d12_suite_tests[] = {
 	"Compute Test Multiple Timeline Signals", "Compute Test Read Modify Write", "Compute Test Only Graph", "Compute Test Immediate Execute No Wait",
 	"Cached Transient Placement", "Unbacked Transient Barrier", "Intraframe Two Graphs",
 	"Stress Test Pass Dependencies", "Stress Test Pass Dependency Chain", "Stress Test Transient Buffers", "Stress Test All Transients",
-	"Frame Graph Transfer Image Output",
-	"Multi Queue Sync", "Stress Test Multi Queue", "Multi Queue Cached Handoff",
+	"Frame Graph Transfer Image Output", "Frame Graph Transfer Queue Mip Copy",
+	"Multi Queue Sync", "Stress Test Multi Queue", "Multi Queue Cached Handoff", "Cached Imported Image", "Cached Imported Image Async", "Multi Queue Imported Handback",
 	"Compute Test Mipmap Chain",
 	"Resource Test Transient Aliasing Dependency",
 	"Pipeline Test Indirect Draw",

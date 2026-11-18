@@ -5218,6 +5218,9 @@ int test_d3d12_cross_queue_barriers(void) {
 	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON, zest_queue_graphics) != ZEST_FALSE;
 	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ, zest_queue_compute) != ZEST_FALSE;
 	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMMON, zest_queue_transfer) != ZEST_TRUE;
+	//A copy list can only start a barrier from COMMON, or UNDEFINED for a fresh image
+	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_UNDEFINED, zest_queue_transfer) != ZEST_TRUE;
+	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_SHADER_RESOURCE, zest_queue_transfer) != ZEST_FALSE;
 	failed |= zest__dx_crosses_queues(ZEST_QUEUE_FAMILY_IGNORED, ZEST_QUEUE_FAMILY_IGNORED) || zest__dx_crosses_queues(1, 1) || !zest__dx_crosses_queues(1, 0);
 	if (task.staging_buffer) zest_FreeBufferNow(task.staging_buffer);
 	if (target_handle.value) zest_FreeImageNow(target_handle);
@@ -5595,6 +5598,245 @@ int test_d3d12_view_instancing(void) {
 	return failed | finish_device(device);
 }
 
+//Finds the named image's first-use record in the graph. out_barrier is the translated barrier sent for it, or NULL when the send dropped it
+static zest_bool imported_first_barrier(zest_frame_graph frame_graph, const char *name, const D3D12_TEXTURE_BARRIER **out_barrier) {
+	*out_barrier = NULL;
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		for (zest_uint index = 0; index != zest_vec_size(backend->acquire_images); ++index) {
+			const zest_dx_frame_graph_image_barrier_t *record = &backend->acquire_images[index];
+			if (!record->first_use || strcmp(record->resource->name, name) != 0) continue;
+			//A dropped barrier is cleared and the kept ones are compacted over it, so none is left for its image
+			ID3D12Resource *resource = ZEST_DX_BACKEND(image, record->resource->view->image)->resource;
+			for (zest_uint translated = 0; translated != zest_vec_size(backend->acquire_translated); ++translated) {
+				if (backend->acquire_translated[translated].pResource == resource) {
+					*out_barrier = &backend->acquire_translated[translated];
+					break;
+				}
+			}
+			return ZEST_TRUE;
+		}
+	}
+	return ZEST_FALSE;
+}
+
+static zest_frame_graph build_imported_first_use_graph(zest_context context, zest_frame_graph_cache_key_t *cache_key, zest_image storage_image, zest_image texture) {
+	if (!zest_BeginFrameGraph(context, "Imported First Use", cache_key)) return NULL;
+	zest_ImportSwapchainResource();
+	zest_resource_node storage_node = zest_ImportImageResource("First Use Storage", storage_image, 0);
+	zest_resource_node texture_node = zest_ImportImageResource("First Use Texture", texture, 0);
+
+	zest_BeginComputePass("First Use Compute");
+	zest_ConnectOutput(storage_node);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("First Use Render");
+	zest_ConnectInput(storage_node);
+	zest_ConnectInput(texture_node);
+	zest_ConnectSwapChainOutput();
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+	return zest_EndFrameGraph();
+}
+
+//A cached graph's first barrier for an imported image starts from the state the previous execution left: refreshed when the layout changed, dropped when nothing did
+int test_d3d12_imported_first_use(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Imported First Use")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.flags = zest_image_preset_storage;
+	zest_image_handle storage_handle = zest_CreateImage(device, &storage_info);
+	zest_image_info_t texture_info = zest_CreateImageInfo(16, 16);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture;
+	zest_image_handle texture_handle = zest_CreateImage(device, &texture_info);
+	zest_image storage_image = zest_GetImage(storage_handle);
+	zest_image texture = zest_GetImage(texture_handle);
+	int failed = context == NULL || !storage_image || !texture;
+	if (!failed) {
+		const int frame_count = ZEST_MAX_FIF + 2;
+		int cached_count = 0;
+		for (int frame = 0; frame != frame_count && !failed; ++frame) {
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {}
+			zest_UpdateDevice(device);
+			if (!zest_BeginFrame(context)) {
+				failed = 1;
+				break;
+			}
+			zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+			cached_count += frame_graph != NULL;
+			if (!frame_graph) frame_graph = build_imported_first_use_graph(context, &cache_key, storage_image, texture);
+			zest_EndFrame(context, frame_graph);
+			failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+			if (failed || frame == 0) continue;
+			//The previous execution's render pass left the storage image in SHADER_RESOURCE, so its read is the source
+			const D3D12_TEXTURE_BARRIER *storage_barrier = NULL;
+			failed |= !imported_first_barrier(frame_graph, "First Use Storage", &storage_barrier) || storage_barrier == NULL;
+			if (storage_barrier) {
+				failed |= storage_barrier->LayoutBefore != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE || storage_barrier->LayoutAfter != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+				failed |= !(storage_barrier->AccessBefore & D3D12_BARRIER_ACCESS_SHADER_RESOURCE) || !(storage_barrier->SyncBefore & D3D12_BARRIER_SYNC_PIXEL_SHADING);
+			}
+			//The texture is only sampled, so once the first execution has moved it out of UNDEFINED there's nothing to change
+			const D3D12_TEXTURE_BARRIER *texture_barrier = NULL;
+			failed |= !imported_first_barrier(frame_graph, "First Use Texture", &texture_barrier) || texture_barrier != NULL;
+		}
+		failed |= cached_count != frame_count - 1;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (context) zest_DestroyContext(context);
+	if (storage_image) zest_FreeImageNow(storage_handle);
+	if (texture) zest_FreeImageNow(texture_handle);
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
+//An imported image left in SHADER_RESOURCE can't be its graph's first use on the copy queue, so that barrier is reported and skipped
+int test_d3d12_copy_queue_first_use_report(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL;
+	if (image) {
+		zest_uint pixels[16 * 16];
+		memset(pixels, 0xFF, sizeof(pixels));
+		failed |= !zest_CopyBitmapToImage(device, pixels, sizeof(pixels), image, 16, 16);
+		failed |= ZEST_DX_BACKEND(image, image)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginCommandGraph(context, "Copy Queue First Use Report", 0)) {
+			zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
+			target_info.width = 16;
+			target_info.height = 16;
+			zest_resource_node target = zest_AddTransientImageResource("Copy Queue Target", &target_info);
+			zest_FlagResourceAsEssential(target);
+			zest_resource_node imported = zest_ImportImageResource("Copy Queue Image", image, 0);
+
+			zest_BeginRenderPass("Copy Queue Render");
+			zest_ConnectOutput(target);
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+			zest_EndPass();
+
+			//It shares the render pass's wave, so it runs on the copy queue. It records no copy, as the image stays in SHADER_RESOURCE
+			zest_BeginTransferPass("Copy Queue Transfer");
+			zest_ConnectOutput(imported);
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+		zest_bool transfer_on_copy_queue = ZEST_FALSE;
+		for (zest_uint pass_index = 0; frame_graph && pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+			if (strcmp(pass_group->passes[0]->name, "Copy Queue Transfer") == 0) transfer_on_copy_queue = pass_group->compiled_queue_info.queue_type == zest_queue_transfer;
+		}
+		failed |= !transfer_on_copy_queue;
+		failed |= zest_GetValidationErrorCount(device) != 1;
+		failed |= !validation_error_contains(device, "The image Copy Queue Image was left in a layout the copy queue can't start from");
+		//The skipped barrier left the image where the upload put it
+		failed |= ZEST_DX_BACKEND(image, image)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+	}
+	zest_ResetValidationErrors(device);
+	if (image) zest_FreeImageNow(image_handle);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+//Fails the signal of the batch it's recorded in when the flag it's given is set
+static void rescue_read_task(const zest_command_list command_list, void *user_data) {
+	zest__dx_forced_signal_failure = *(zest_bool *)user_data;
+}
+
+//The imported image's first use is on the copy queue and its last on the graphics queue, in a later submission, so it's handed back
+static zest_semaphore_status run_rescue_graph(zest_context context, zest_image image, zest_bool *fail_second_submission) {
+	if (!zest_BeginCommandGraph(context, "Rescue", 0)) return zest_semaphore_status_error;
+	zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
+	target_info.width = 16;
+	target_info.height = 16;
+	zest_resource_node side_target = zest_AddTransientImageResource("Rescue Side", &target_info);
+	zest_resource_node read_target = zest_AddTransientImageResource("Rescue Target", &target_info);
+	zest_FlagResourceAsEssential(side_target);
+	zest_FlagResourceAsEssential(read_target);
+	zest_resource_node imported = zest_ImportImageResource("Rescue Image", image, 0);
+
+	zest_BeginTransferPass("Rescue Transfer");
+	zest_ConnectOutput(imported);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Rescue Side Pass");
+	zest_ConnectOutput(side_target);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Rescue Read");
+	zest_ConnectInput(imported);
+	zest_ConnectOutput(read_target);
+	zest_SetPassTask(rescue_read_task, fail_second_submission);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
+	zest__dx_forced_signal_failure = ZEST_FALSE;
+	return status;
+}
+
+//An execution that fails after a submission went out drains the device, so it clears the imported image's tracked state rather than leave a handback the next execution would acquire
+int test_d3d12_rescue_clears_tracked_state(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.flags = zest_image_preset_texture;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL;
+	if (image) {
+		zest_bool fail_second_submission = ZEST_FALSE;
+		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_success;
+		failed |= image->last_access_mask == 0 || image->last_stage_mask == 0;
+		failed |= image->queue_family_index != context->graphics_family_index || image->released_to_family != context->transfer_family_index;
+
+		fail_second_submission = ZEST_TRUE;
+		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_error;
+		failed |= image->last_access_mask != 0 || image->last_stage_mask != 0;
+		failed |= image->queue_family_index != ZEST_QUEUE_FAMILY_IGNORED || image->released_to_family != ZEST_QUEUE_FAMILY_IGNORED;
+
+		//The next execution starts from the cleared state and hands the image back again
+		fail_second_submission = ZEST_FALSE;
+		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_success;
+		failed |= image->queue_family_index != context->graphics_family_index || image->released_to_family != context->transfer_family_index;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (image) zest_FreeImageNow(image_handle);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
 static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Builder", test_d3d12_builder },
 	{ "D3D12 Interface IDs", test_d3d12_interface_ids },
@@ -5691,6 +5933,9 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Cross Queue Barriers", test_d3d12_cross_queue_barriers },
 	{ "D3D12 Indirect Signatures", test_d3d12_indirect_signatures },
 	{ "D3D12 View Instancing", test_d3d12_view_instancing },
+	{ "D3D12 Imported First Use", test_d3d12_imported_first_use },
+	{ "D3D12 Copy Queue First Use Report", test_d3d12_copy_queue_first_use_report },
+	{ "D3D12 Rescue Clears Tracked State", test_d3d12_rescue_clears_tracked_state },
 	//Must stay last, see the test
 	{ "D3D12 Device Removed Mid Frame", test_d3d12_device_removed_mid_frame },
 };

@@ -661,6 +661,168 @@ int test__transfer_image_output(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+//Whether one of the device's logged validation errors contains the text
+static zest_bool validation_error_contains(zest_device device, const char *text) {
+	zest_map_foreach(error_index, device->validation_errors) {
+		if (strstr(device->validation_errors.data[error_index].str, text)) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+void zest_BlitImageTransfer(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Copy Source");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Write Buffer");
+	zest_cmd_BlitImageMip(command_list, source, destination, 0, zest_shader_compute_stage);
+}
+
+/*
+Transfer Queue Blit Report (Vulkan only, as D3D12 blits the same format on the copy queue):
+* Pass A(Graphics) : Clears a transient image, and a second transient that pass C reads.
+* Pass B(Transfer) : Blits mip 0 of the first image into a third transient with zest_cmd_BlitImageMip.
+* Pass C(Graphics) : Reads the second transient and draws to the swapchain.
+* Pass D(Graphics) : Reads the third transient.
+B and C share a wave, so the blit runs on the transfer queue, which has no graphics: the blit is reported once and skipped.
+*/
+int test__transfer_queue_blit_report(ZestTests *tests, Test *test) {
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Transfer Queue Blit Report", 0)) {
+			zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_copyable, 16, 16 };
+			zest_ImportSwapchainResource();
+			zest_resource_node source = zest_AddTransientImageResource("Copy Source", &image_info);
+			zest_resource_node side_target = zest_AddTransientImageResource("Side Target", &image_info);
+			//zest_BlitImageTransfer writes the image by this name
+			zest_resource_node destination = zest_AddTransientImageResource("Write Buffer", &image_info);
+			zest_resource_node read_target = zest_AddTransientImageResource("Read Target", &image_info);
+			zest_FlagResourceAsEssential(read_target);
+
+			zest_BeginRenderPass("Blit Report Clear");
+			zest_ConnectOutput(source);
+			zest_ConnectOutput(side_target);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginTransferPass("Blit Report Blit");
+			zest_ConnectInput(source);
+			zest_ConnectOutput(destination);
+			zest_SetPassTask(zest_BlitImageTransfer, NULL);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Blit Report Present");
+			zest_ConnectInput(side_target);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			//A reader gives the blit's destination a usage its view can be created for
+			zest_BeginRenderPass("Blit Report Read");
+			zest_ConnectInput(destination);
+			zest_ConnectOutput(read_target);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_bool blit_without_graphics = ZEST_FALSE;
+		for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+			if (strcmp(pass_group->passes[0]->name, "Blit Report Blit") != 0) continue;
+			blit_without_graphics = !(pass_group->compiled_queue_info.queue->queue_manager->type & zest_queue_graphics);
+		}
+		test->result |= blit_without_graphics ? 0 : 2;
+		zest_WaitForIdleDevice(tests->device);
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device) != 1 ? 4 : 0;
+	test->result |= !validation_error_contains(tests->device, "zest_cmd_BlitImageMip needs the graphics queue on Vulkan, and pass Blit Report Blit") ? 8 : 0;
+	test->frame_count++;
+	return test->result;
+}
+
+/*
+Transfer Queue Mip Copy:
+* Pass A(Graphics) : Clears a transient image to cyan, and a second transient that pass C reads.
+* Pass B(Transfer) : Copies mip 0 of the cyan image into a third transient with zest_cmd_CopyImageMip, read by the compute stage.
+* Pass C(Graphics) : Reads the second transient and draws to the swapchain.
+* Pass D(Compute) : Reads the copy and verifies it is cyan.
+B and C share a wave, so the copy runs on the transfer queue, which can't run the compute stage the copy names.
+*/
+int test__transfer_queue_mip_copy(ZestTests *tests, Test *test) {
+	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
+		char shader_path[256];
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
+		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
+			test->frame_count++;
+			test->result = 1;
+			return test->result;
+		}
+	}
+	if (!tests->cpu_buffer) {
+		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+		tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
+		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
+	}
+	memset(zest_BufferData(tests->cpu_buffer), 0, sizeof(TestResults));
+
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "Transfer Queue Mip Copy", 0)) {
+			zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_copyable };
+			zest_ImportSwapchainResource();
+			zest_resource_node source = zest_AddTransientImageResource("Copy Source", &image_info);
+			zest_resource_node side_target = zest_AddTransientImageResource("Side Target", &image_info);
+			//zest_CopyImageTransfer writes and zest_VerifyImageCompute reads the image by this name
+			zest_resource_node copy = zest_AddTransientImageResource("Write Buffer", &image_info);
+			zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
+			zest_SetResourceClearColor(source, 0.0f, 1.0f, 1.0f, 1.0f);
+
+			zest_BeginRenderPass("Mip Copy Clear");
+			zest_ConnectOutput(source);
+			zest_ConnectOutput(side_target);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginTransferPass("Mip Copy");
+			zest_ConnectInput(source);
+			zest_ConnectOutput(copy);
+			zest_SetPassTask(zest_CopyImageTransfer, NULL);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Mip Copy Present");
+			zest_ConnectInput(side_target);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginComputePass("Mip Copy Verify");
+			zest_ConnectInput(copy);
+			zest_ConnectOutput(verify_buffer);
+			zest_SetPassTask(zest_VerifyImageCompute, tests);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_bool copy_on_transfer_queue = ZEST_FALSE;
+		for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+			if (strcmp(pass_group->passes[0]->name, "Mip Copy") == 0) copy_on_transfer_queue = pass_group->compiled_queue_info.queue_type == zest_queue_transfer;
+		}
+		test->result |= copy_on_transfer_queue ? 0 : 2;
+		zest_WaitForIdleDevice(tests->device);
+		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
+		test->result |= test_data->vec.x != 1.f || test_data->vec.y != 0.f ? 4 : 0;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
 /*
 Depth Attachment Test:
 * Pass A: Renders geometry with depth testing/writing enabled to a transient depth buffer.
@@ -945,6 +1107,243 @@ int test__multi_queue_cached_handoff(ZestTests *tests, Test *test) {
 		}
 		if (handoff.staging_buffer) zest_FreeBufferNow(handoff.staging_buffer);
 		if (handoff.result_buffer) zest_FreeBufferNow(handoff.result_buffer);
+	}
+	return test->result;
+}
+
+struct CachedImportedImage {
+	MultiQueueHandoff handoff;
+	zest_image_handle write_image;
+};
+
+static zest_bool cached_image_pixels_are(zest_device device, zest_image image, zest_uint expected) {
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0, sizeof(pixels));
+	if (!zest_CopyImageToBitmap(device, image, pixels)) return ZEST_FALSE;
+	for (int pixel = 0; pixel != 16 * 16; ++pixel) {
+		if (pixels[pixel] != expected) {
+			ZEST_PRINT("\tPixel %i is 0x%08x, expected 0x%08x", pixel, pixels[pixel], expected);
+			return ZEST_FALSE;
+		}
+	}
+	return ZEST_TRUE;
+}
+
+/*
+Cached Imported Image:
+* Pass A(Compute) : Writes red into an imported storage image.
+* Pass B(Transfer) : Copies a word pattern into an imported buffer, only in the async version.
+* Pass C(Graphics) : Reads the image (and the buffer) and draws to the swapchain.
+Without the transfer pass every pass runs on the graphics queue. With it, A and B share a wave on the compute and transfer queues.
+The graph is cached and replayed for more frames than there are frames in flight, so from the second frame the compute pass's first
+use of the image starts from the layout the previous frame's render pass left it in.
+*/
+static int cached_imported_image_run(ZestTests *tests, Test *test, zest_bool async) {
+	static CachedImportedImage cached;
+	if (test->frame_count == 0) {
+		memset(&cached, 0, sizeof(cached));
+		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
+			char shader_path[256];
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
+			tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
+		}
+		zest_image_info_t write_info = zest_CreateImageInfo(16, 16);
+		write_info.format = zest_format_r8g8b8a8_unorm;
+		write_info.flags = zest_image_preset_storage | zest_image_flag_transfer_src;
+		cached.write_image = zest_CreateImage(tests->device, &write_info);
+		zest_uint words[HANDOFF_WORD_COUNT];
+		for (int word = 0; word != HANDOFF_WORD_COUNT; ++word) words[word] = 0xA5000000u | (zest_uint)word;
+		cached.handoff.staging_buffer = zest_CreateStagingBuffer(tests->device, sizeof(words), words);
+		zest_buffer_info_t result_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+		cached.handoff.result_buffer = zest_CreateBuffer(tests->device, sizeof(words), &result_info);
+		if (!zest_IsValidHandle((void*)&tests->compute_write) || !zest_GetImage(cached.write_image) || !cached.handoff.staging_buffer || !cached.handoff.result_buffer) {
+			test->result |= 1;
+		} else {
+			memset(zest_BufferData(cached.handoff.result_buffer), 0, sizeof(words));
+		}
+	}
+
+	if (!test->result) {
+		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+		zest_UpdateDevice(tests->device);
+		if (zest_BeginFrame(tests->context)) {
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+			if (frame_graph) {
+				cached.handoff.cache_hits++;
+			} else if (zest_BeginFrameGraph(tests->context, async ? "Cached Imported Image Async" : "Cached Imported Image", &cache_key)) {
+				zest_ImportSwapchainResource();
+				//zest_WriteImageCompute writes the image by this name
+				zest_resource_node write_node = zest_ImportImageResource("Output A", zest_GetImage(cached.write_image), 0);
+				zest_resource_node buffer_node = async ? zest_ImportBufferResource("Handoff Buffer", cached.handoff.result_buffer, 0) : NULL;
+
+				zest_BeginComputePass("Cached Image Compute");
+				zest_ConnectOutput(write_node);
+				zest_SetPassTask(zest_WriteImageCompute, tests);
+				zest_EndPass();
+
+				if (async) {
+					zest_BeginTransferPass("Cached Image Transfer");
+					zest_ConnectOutput(buffer_node);
+					zest_SetPassTask(handoff_transfer_task, &cached.handoff);
+					zest_EndPass();
+				}
+
+				zest_BeginRenderPass("Cached Image Render");
+				zest_ConnectInput(write_node);
+				if (async) zest_ConnectInput(buffer_node);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+		}
+		test->result |= zest_GetValidationErrorCount(tests->device);
+	}
+	test->frame_count++;
+
+	if (test->frame_count >= test->run_count || test->result) {
+		test->frame_count = test->run_count;
+		zest_WaitForIdleDevice(tests->device);
+		if (!test->result) {
+			test->result |= cached.handoff.cache_hits != test->run_count - 1 ? 2 : 0;
+			//image_write2 stores (1, 0, 0, 0)
+			test->result |= !cached_image_pixels_are(tests->device, zest_GetImage(cached.write_image), 0x000000FFu) ? 4 : 0;
+			if (async) {
+				const zest_uint *words = (const zest_uint *)zest_BufferData(cached.handoff.result_buffer);
+				for (int word = 0; word != HANDOFF_WORD_COUNT; ++word) {
+					if (words[word] != (0xA5000000u | (zest_uint)word)) {
+						test->result |= 8;
+						break;
+					}
+				}
+			}
+			test->result |= zest_GetValidationErrorCount(tests->device);
+		}
+		if (cached.write_image.value) zest_FreeImageNow(cached.write_image);
+		if (cached.handoff.staging_buffer) zest_FreeBufferNow(cached.handoff.staging_buffer);
+		if (cached.handoff.result_buffer) zest_FreeBufferNow(cached.handoff.result_buffer);
+	}
+	return test->result;
+}
+
+int test__cached_imported_image(ZestTests *tests, Test *test) {
+	return cached_imported_image_run(tests, test, ZEST_FALSE);
+}
+
+int test__cached_imported_image_async(ZestTests *tests, Test *test) {
+	return cached_imported_image_run(tests, test, ZEST_TRUE);
+}
+
+struct ImportedHandback {
+	zest_image_handle destination;
+	int cache_hits;
+};
+
+/*
+Multi Queue Imported Handback:
+* Pass A(Graphics) : Clears a transient image to cyan, and a second transient that pass C reads.
+* Pass B(Transfer) : Copies mip 0 of the cyan image into a freshly created imported image.
+* Pass C(Graphics) : Reads the second transient and draws to the swapchain.
+* Pass D(Compute) : Reads the imported image and verifies it is cyan.
+B and C share a wave, so the copy runs on the transfer queue, and D runs on the graphics queue in the next wave. The imported image's
+graph starts on the transfer queue and ends on the graphics queue, so every execution hands it back to the transfer queue for the next.
+*/
+int test__multi_queue_imported_handback(ZestTests *tests, Test *test) {
+	static ImportedHandback handback;
+	if (test->frame_count == 0) {
+		memset(&handback, 0, sizeof(handback));
+		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
+			char shader_path[256];
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+			tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
+		}
+		if (!tests->cpu_buffer) {
+			zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+			tests->cpu_buffer = zest_CreateBuffer(tests->device, sizeof(TestResults), &storage_buffer_info);
+			tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->device, tests->cpu_buffer);
+		}
+		zest_image_info_t destination_info = zest_CreateImageInfo(16, 16);
+		destination_info.format = zest_format_r8g8b8a8_unorm;
+		destination_info.flags = zest_image_preset_texture;
+		handback.destination = zest_CreateImage(tests->device, &destination_info);
+		if (!zest_IsValidHandle((void*)&tests->compute_verify) || !tests->cpu_buffer || !zest_GetImage(handback.destination)) {
+			test->result |= 1;
+		} else {
+			memset(zest_BufferData(tests->cpu_buffer), 0, sizeof(TestResults));
+		}
+	}
+
+	if (!test->result) {
+		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+		zest_UpdateDevice(tests->device);
+		if (zest_BeginFrame(tests->context)) {
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+			if (frame_graph) {
+				handback.cache_hits++;
+			} else if (zest_BeginFrameGraph(tests->context, "Multi Queue Imported Handback", &cache_key)) {
+				zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_copyable, 16, 16 };
+				zest_ImportSwapchainResource();
+				zest_resource_node source = zest_AddTransientImageResource("Copy Source", &image_info);
+				zest_resource_node side_target = zest_AddTransientImageResource("Side Target", &image_info);
+				//zest_CopyImageTransfer writes and zest_VerifyImageCompute reads the image by this name
+				zest_resource_node destination = zest_ImportImageResource("Write Buffer", zest_GetImage(handback.destination), 0);
+				zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
+				zest_SetResourceClearColor(source, 0.0f, 1.0f, 1.0f, 1.0f);
+
+				zest_BeginRenderPass("Handback Clear");
+				zest_ConnectOutput(source);
+				zest_ConnectOutput(side_target);
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginTransferPass("Handback Copy");
+				zest_ConnectInput(source);
+				zest_ConnectOutput(destination);
+				zest_SetPassTask(zest_CopyImageTransfer, NULL);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Handback Present");
+				zest_ConnectInput(side_target);
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+
+				zest_BeginComputePass("Handback Verify");
+				zest_ConnectInput(destination);
+				zest_ConnectOutput(verify_buffer);
+				zest_SetPassTask(zest_VerifyImageCompute, tests);
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+			//Without the transfer queue the image never changes queue, and there's no handback to test
+			zest_bool copy_on_transfer_queue = ZEST_FALSE;
+			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+				const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+				if (strcmp(pass_group->passes[0]->name, "Handback Copy") == 0) copy_on_transfer_queue = pass_group->compiled_queue_info.queue_type == zest_queue_transfer;
+			}
+			test->result |= copy_on_transfer_queue ? 0 : 8;
+		}
+		test->result |= zest_GetValidationErrorCount(tests->device);
+	}
+	test->frame_count++;
+
+	if (test->frame_count >= test->run_count || test->result) {
+		test->frame_count = test->run_count;
+		zest_WaitForIdleDevice(tests->device);
+		if (!test->result) {
+			test->result |= handback.cache_hits != test->run_count - 1 ? 2 : 0;
+			//image_verify.comp sets y when the image isn't cyan, so a failure in any frame stays visible
+			TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
+			test->result |= test_data->vec.x != 1.f || test_data->vec.y != 0.f ? 4 : 0;
+			test->result |= zest_GetValidationErrorCount(tests->device);
+		}
+		if (handback.destination.value) zest_FreeImageNow(handback.destination);
 	}
 	return test->result;
 }

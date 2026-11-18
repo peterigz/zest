@@ -554,6 +554,8 @@ void zest_cmd_BlitImageMip(
 
 **Description:** Blits a mip level from the source image resource to the same mip level in the destination image. Both images must have the same dimensions and mip count. The source image is sampled with linear filtering to produce the destination.
 
+On Vulkan a blit needs the graphics queue: in a pass that runs on a dedicated compute or transfer queue it's reported and skipped. Use `zest_cmd_CopyImageMip` between mips of the same format there. D3D12 reports a blit between different formats outside the graphics queue.
+
 **Parameters:**
 - `src`: Source image resource node from the frame graph
 - `dst`: Destination image resource node from the frame graph
@@ -584,7 +586,7 @@ void zest_cmd_CopyImageMip(
 - `src`: Source image resource node
 - `dst`: Destination image resource node
 - `mip_to_copy`: The mip level index to copy
-- `read_by_stages`: The shader stage(s) that will read the images after the copy (e.g. `zest_shader_compute_stage`), so the backend can synchronize correctly
+- `read_by_stages`: The shader stage(s) that will read the images after the copy (e.g. `zest_shader_compute_stage`), so the backend can synchronize correctly. In a transfer pass on a dedicated transfer queue, or a compute pass on a dedicated compute queue, only the stages that queue can run are synchronized here. Reads on another queue are covered by the frame graph's barriers between the passes.
 
 **Typical Usage:** Copying render results between images, or backing up image contents.
 

@@ -365,7 +365,7 @@ ZEST_PRIVATE zest_bool zest__vk_copy_buffer_to_image(zest_queue queue, zest_buff
 ZEST_PRIVATE zest_bool zest__vk_generate_mipmaps(zest_queue queue, zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_create_execution_timeline_backend(zest_device device, zest_execution_timeline timeline);
 ZEST_PRIVATE void zest__vk_cleanup_execution_timeline_backend(zest_execution_timeline timeline);
-ZEST_PRIVATE void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
+ZEST_PRIVATE void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_bool first_use,
 				zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
 				zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 ZEST_PRIVATE void zest__vk_add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, 
@@ -438,6 +438,8 @@ typedef struct zest_execution_backend_t {
 
 typedef struct zest_execution_barriers_backend_t {
     VkImageMemoryBarrier2 *acquire_image_barriers;
+    zest_uint *acquire_first_use_indexes;	//Entries in acquire_image_barriers that are an imported image's first use
+    VkImageMemoryBarrier2 *acquire_image_send;	//The acquires sent when a first use is dropped or leaves its recorded families, sized with acquire_image_barriers in a group with a first use
     VkBufferMemoryBarrier2 *acquire_buffer_barriers;
     VkImageMemoryBarrier2 *release_image_barriers;
     VkBufferMemoryBarrier2 *release_buffer_barriers;
@@ -529,6 +531,7 @@ typedef struct zest_context_backend_t {
 
 typedef struct zest_command_list_backend_t {
     VkCommandBuffer command_buffer;
+    zest_device_queue_type queue_types;	//What the list's queue family can run
 } zest_command_list_backend_t;
 
 typedef struct zest_gpu_profiler_backend_t {
@@ -4748,6 +4751,17 @@ VkImageLayout zest__vk_image_layout_from_resource_state(zest_resource_state stat
     return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
+//The stages in stages that a queue family can run. Unlike zest__vk_stages_from_shader_stages it never widens to all commands
+VkPipelineStageFlags2 zest__vk_queue_shader_stages(zest_supported_shader_stages stages, zest_device_queue_type queue_types) {
+    VkPipelineStageFlags2 flags = 0;
+    if (queue_types & zest_queue_graphics) {
+        if (stages & zest_shader_vertex_stage)   flags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+        if (stages & zest_shader_fragment_stage) flags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    }
+    if ((queue_types & (zest_queue_graphics | zest_queue_compute)) && (stages & zest_shader_compute_stage)) flags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    return flags;
+}
+
 //Map backend-agnostic shader stage bits to Vulkan pipeline stages.
 VkPipelineStageFlags2 zest__vk_stages_from_shader_stages(zest_supported_shader_stages stages) {
     VkPipelineStageFlags2 flags = 0;
@@ -5379,6 +5393,7 @@ zest_bool zest__vk_begin_command_buffer(const zest_command_list command_list) {
 
 zest_bool zest__vk_set_next_command_buffer(zest_command_list command_list, zest_context_queue queue) {
 	zest_context context = command_list->context;
+	command_list->backend->queue_types = queue->queue_manager->type;
     if (zest_vec_size(queue->backend->command_buffers[context->current_fif]) > queue->next_buffer) {
         VkCommandBuffer command_buffer = queue->backend->command_buffers[context->current_fif][queue->next_buffer];
         queue->next_buffer++;
@@ -5452,28 +5467,71 @@ void zest__vk_submit_buffer_barrier_runs(zest_command_list command_list, VkBuffe
 }
 
 void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details) {
-	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers);
-	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->acquire_image_barriers);
+	zest_execution_barriers_backend backend = exe_details->barriers.backend;
+	zest_uint buffer_count = zest_vec_size(backend->acquire_buffer_barriers);
+	zest_uint image_count = zest_vec_size(backend->acquire_image_barriers);
 	if (buffer_count > 0 || image_count > 0) {
-		zest_vec_foreach(resource_index, exe_details->barriers.backend->acquire_image_barriers) {
-			VkImageMemoryBarrier2 *barrier = &exe_details->barriers.backend->acquire_image_barriers[resource_index];
+		zest_uint first_use_count = zest_vec_size(backend->acquire_first_use_indexes);
+		zest_uint next_first_use = 0;
+		zest_uint kept_count = 0;
+		//Set once a first use is dropped or leaves its recorded families, after which the kept barriers go out from the send array
+		zest_bool sending_copy = ZEST_FALSE;
+		zest_vec_foreach(resource_index, backend->acquire_image_barriers) {
+			VkImageMemoryBarrier2 *barrier = &backend->acquire_image_barriers[resource_index];
 			zest_resource_node resource = exe_details->barriers.acquire_image_barrier_nodes[resource_index];
-			barrier->image = resource->view->image->backend->vk_image;
+			zest_image image = resource->view->image;
+			barrier->image = image->backend->vk_image;
 			ZEST_ASSERT(barrier->image);    //The image handle in the resource is null, if the resource is not
 											//transient then can resource provider callback must be set in the resource.
 			barrier->subresourceRange.levelCount = resource->image.info.mip_levels;
+			VkImageMemoryBarrier2 *sent = barrier;
+			if (next_first_use != first_use_count && backend->acquire_first_use_indexes[next_first_use] == (zest_uint)resource_index) {
+				next_first_use++;
+				zest_first_use_source_t source;
+				zest_bool needed = zest__refresh_first_use(image, resource->journey[0].queue_family_index, (zest_image_layout)barrier->newLayout, (zest_access_flags)barrier->dstAccessMask, barrier->srcQueueFamilyIndex, barrier->dstQueueFamilyIndex, &source);
+				//The refresh reads the recorded families on every replay, so a barrier that leaves them is sent from a copy
+				zest_bool families_changed = source.src_family != barrier->srcQueueFamilyIndex || source.dst_family != barrier->dstQueueFamilyIndex;
+				if ((!needed || families_changed) && !sending_copy) {
+					memcpy(backend->acquire_image_send, backend->acquire_image_barriers, sizeof(VkImageMemoryBarrier2) * kept_count);
+					sending_copy = ZEST_TRUE;
+				}
+				if (!needed) continue;
+				if (families_changed) {
+					sent = &backend->acquire_image_send[kept_count];
+					*sent = *barrier;
+					sent->srcQueueFamilyIndex = source.src_family;
+					sent->dstQueueFamilyIndex = source.dst_family;
+				}
+				//A handback the previous execution released keeps its recorded source, so its acquire matches the release
+				if (source.src_family == ZEST_QUEUE_FAMILY_IGNORED) {
+					sent->oldLayout = zest__to_vk_image_layout(source.old_layout);
+					sent->srcAccessMask = zest__to_vk_access_flags(source.src_access);
+					//All commands chains the transition to whichever wait orders the other queue's last use
+					sent->srcStageMask = source.crossed_queues ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : zest__to_vk_pipeline_stage(source.src_stage);
+				}
+			}
 			if (resource->linked_layout) {
 				//Update the layout in the texture
 				*resource->linked_layout = (zest_image_layout)barrier->newLayout;
                 resource->image.backend->vk_current_layout = barrier->newLayout;
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
+				image->layout = (zest_image_layout)barrier->newLayout;
+				image->backend->vk_current_layout = barrier->newLayout;
 			}
+			if (sending_copy && sent == barrier) backend->acquire_image_send[kept_count] = *barrier;
+			kept_count++;
+		}
+		VkImageMemoryBarrier2 *image_barriers = backend->acquire_image_barriers;
+		if (sending_copy) {
+			image_barriers = backend->acquire_image_send;
+			image_count = kept_count;
+			if (!image_count && !buffer_count) return;
 		}
 		zest__vk_submit_buffer_barrier_runs(command_list,
-			exe_details->barriers.backend->acquire_buffer_barriers,
+			backend->acquire_buffer_barriers,
 			exe_details->barriers.acquire_buffer_barrier_nodes,
 			buffer_count,
-			exe_details->barriers.backend->acquire_image_barriers,
+			image_barriers,
 			image_count);
 	}
 }
@@ -5485,13 +5543,17 @@ void zest__vk_release_barrier(zest_command_list command_list, zest_execution_det
 		zest_vec_foreach(resource_index, exe_details->barriers.backend->release_image_barriers) {
 			VkImageMemoryBarrier2 *barrier = &exe_details->barriers.backend->release_image_barriers[resource_index];
 			zest_resource_node resource = exe_details->barriers.release_image_barrier_nodes[resource_index];
-			barrier->image = resource->view->image->backend->vk_image;
+			zest_image image = resource->view->image;
+			barrier->image = image->backend->vk_image;
 			barrier->subresourceRange.levelCount = resource->image.info.mip_levels;
-			if (resource->linked_layout) {
+			//A release to another family changes the layout at the matching acquire, which is where the validation layer applies it too
+			if (resource->linked_layout && barrier->srcQueueFamilyIndex == barrier->dstQueueFamilyIndex) {
 				//Update the layout in the texture
 				*resource->linked_layout = (zest_image_layout)barrier->newLayout;
                 resource->image.backend->vk_current_layout = barrier->newLayout;
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
+				image->layout = (zest_image_layout)barrier->newLayout;
+				image->backend->vk_current_layout = barrier->newLayout;
 			}
 		}
 		//See zest__vk_submit_buffer_barrier_runs: unbacked (zero-size) transient buffers are skipped.
@@ -6089,7 +6151,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     return ZEST_TRUE;
 }
 
-void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
+void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_bool first_use,
         zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
         zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
 	zest_context context = resource->frame_graph->command_list.context;
@@ -6106,8 +6168,15 @@ void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barr
     image_barrier.srcQueueFamilyIndex = src_family;
     image_barrier.dstQueueFamilyIndex = dst_family;
     if (acquire) {
+        if (first_use) {
+            zest_uint barrier_index = zest_vec_size(barriers->backend->acquire_image_barriers);
+            zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->acquire_first_use_indexes, barrier_index);
+        }
         zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->acquire_image_barriers, image_barrier);
         zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->acquire_image_barrier_nodes, resource);
+        if (barriers->backend->acquire_first_use_indexes) {
+            zest_vec_linear_resize(&context->frame_graph_allocator[context->current_fif], barriers->backend->acquire_image_send, zest_vec_size(barriers->backend->acquire_image_barriers));
+        }
     } else {
         zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->backend->release_image_barriers, image_barrier);
         zest_vec_linear_push(&context->frame_graph_allocator[context->current_fif], barriers->release_image_barrier_nodes, resource);
@@ -6268,6 +6337,12 @@ void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *v
 void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_shader_stages read_by_stages) {
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
+    if (!(command_list->backend->queue_types & zest_queue_graphics)) {
+        char error[512];
+        snprintf(error, sizeof(error), "zest_cmd_BlitImageMip needs the graphics queue on Vulkan, and pass %s runs on a compute or transfer queue. Use zest_cmd_CopyImageMip between mips of the same format.", command_list->pass_node ? command_list->pass_node->name : "(unknown)");
+        zest__log_validation_error(command_list->context->device, error);
+        return;
+    }
     VkImage src_image = src->image.backend->vk_image;
     VkImage dst_image = dst->image.backend->vk_image;
 
@@ -6419,13 +6494,15 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         dst_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);
 
-	VkPipelineStageFlags2 vk_pipeline_stage_flags = zest__vk_stages_from_shader_stages(read_by_stages);
+	//A dedicated compute or transfer family can't name the other shader stages, and a later pass's acquire covers the reads there
+	VkPipelineStageFlags2 vk_pipeline_stage_flags = zest__vk_queue_shader_stages(read_by_stages, command_list->backend->queue_types);
+	VkAccessFlags2 read_access = vk_pipeline_stage_flags ? VK_ACCESS_2_SHADER_READ_BIT : 0;
 
     //Back to this pass's stages as well, so the frame graph's release barrier at the end of the pass chains after the copy
     copy_barriers[0] = zest__vk_create_image_memory_barrier(src_image,
         VK_ACCESS_2_TRANSFER_READ_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT | src_current_access,
+        read_access | src_current_access,
 		vk_pipeline_stage_flags | src_current_stages,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
@@ -6434,7 +6511,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
     copy_barriers[1] = zest__vk_create_image_memory_barrier(dst_image,
         VK_ACCESS_2_TRANSFER_WRITE_BIT,
 		VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT | dst_current_access,
+        read_access | dst_current_access,
 		vk_pipeline_stage_flags | dst_current_stages,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,

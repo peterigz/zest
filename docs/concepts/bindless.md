@@ -231,12 +231,14 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0 {
 - **Images used on another queue type in the next frame.** D3D12 has layouts that only one queue type
   can use. A frame graph leaves an image read in `zest_image_layout_general` on the queue that read it
   in `DIRECT_QUEUE_COMMON` or `COMPUTE_QUEUE_COMMON`, and a depth image that was both depth tested and
-  sampled on the graphics queue in `DIRECT_QUEUE_GENERIC_READ`. If the next frame's first use of that
-  image is on another queue type, its barrier is reported and skipped. A copy queue can only start a
-  barrier from `COMMON`, so a transfer pass that runs on the copy queue can't be the first use in a
-  frame of an image another queue left in a different layout: the debug layer rejects the barrier
-  (message 1334), and nothing reports it. Inside one frame, images hand over between queues through
-  `COMMON` and need nothing from the app.
+  sampled on the graphics queue in `DIRECT_QUEUE_GENERIC_READ`. A copy queue can only start a barrier
+  from `COMMON`. When an imported image's graph starts on one queue and ends on another, the graph
+  hands the image back to its first queue through `COMMON` at the end of each execution, so the next
+  execution starts it there. Otherwise, if the next frame's first use of an image is on a queue type
+  that can't start from the layout another queue left it in, its barrier is reported and skipped. On
+  the copy queue that's any layout but `COMMON`, so a transfer pass there can only be an image's first
+  use in a frame when the image is fresh or was handed back by the same graph. Inside one frame, images
+  hand over between queues through `COMMON` and need nothing from the app.
 
 **Raw and structured storage buffers.** `zest_AcquireStorageBufferIndex` gives a raw view: read it as
 `ByteAddressBuffer` or `RWByteAddressBuffer` with byte offsets. `zest_AcquireStructuredBufferIndex(device,

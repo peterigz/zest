@@ -418,6 +418,7 @@ typedef struct zest_dx_frame_graph_image_barrier_t {
 	zest_pipeline_stage_flags dst_stage;
 	zest_uint src_family;
 	zest_uint dst_family;
+	zest_bool first_use;				//An imported image's first use, refreshed from the image's tracked state when sent
 } zest_dx_frame_graph_image_barrier_t;
 
 //Recorded when the graph is compiled, before the buffer behind a transient is known
@@ -908,7 +909,7 @@ ZEST_PRIVATE void *zest__dx_new_execution_barriers_backend(zloc_linear_allocator
 ZEST_PRIVATE void *zest__dx_new_submission_batch_backend(zest_context context);
 ZEST_PRIVATE void *zest__dx_new_execution_backend(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE zest_frame_graph_semaphores zest__dx_get_frame_graph_semaphores(zest_context context, const char *name);
-ZEST_PRIVATE void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
+ZEST_PRIVATE void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_bool first_use, zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 ZEST_PRIVATE void zest__dx_add_frame_graph_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 ZEST_PRIVATE zest_bool zest__dx_set_next_command_buffer(const zest_command_list command_list, zest_context_queue queue);
 ZEST_PRIVATE zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list);
@@ -6456,7 +6457,7 @@ zest_frame_graph_semaphores zest__dx_get_frame_graph_semaphores(zest_context con
 	return semaphores;
 }
 
-void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
+void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_bool first_use, zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
 	zest_context context = resource->frame_graph->command_list.context;
 	zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, barriers);
@@ -6470,6 +6471,7 @@ void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_ex
 	record.dst_stage = dst_stage;
 	record.src_family = src_family;
 	record.dst_family = dst_family;
+	record.first_use = first_use;
 	D3D12_TEXTURE_BARRIER translated = ZEST__ZERO_INIT(D3D12_TEXTURE_BARRIER);
 	if (acquire) {
 		zest_vec_linear_push(allocator, backend->acquire_images, record);
@@ -6644,6 +6646,8 @@ zest_bool zest__dx_crosses_queues(zest_uint src_family, zest_uint dst_family) {
 }
 
 zest_bool zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT layout, zest_device_queue_type queue_type) {
+	//A copy list can only start a barrier from COMMON, or UNDEFINED for a fresh image
+	if (queue_type == zest_queue_transfer) return layout == D3D12_BARRIER_LAYOUT_COMMON || layout == D3D12_BARRIER_LAYOUT_UNDEFINED;
 	switch (layout) {
 		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
 		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
@@ -6674,19 +6678,43 @@ void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, ze
 		zest_image image = resource->view->image;
 		ZEST_ASSERT(image && image->backend, "The resource has no image to transition. If it's not transient then set a resource provider callback for it.");
 		D3D12_BARRIER_LAYOUT layout_before = zest__dx_record_layout_before(record, image);
+		zest_access_flags src_access = record->src_access;
+		zest_pipeline_stage_flags src_stage = record->src_stage;
+		zest_uint src_family = record->src_family;
+		zest_uint dst_family = record->dst_family;
+		if (record->first_use) {
+			zest_first_use_source_t source;
+			zest_bool needed = zest__refresh_first_use(image, resource->journey[0].queue_family_index, record->new_layout, record->dst_access, record->src_family, record->dst_family, &source);
+			//D3D12 splits some layouts by access and queue, so a first use is only dropped when its translated layout is already in place
+			if (!needed && layout_before == zest__dx_barrier_layout(record->new_layout, record->dst_access, backend->queue_type)) {
+				image_barriers[index] = ZEST__ZERO_INIT(D3D12_TEXTURE_BARRIER);
+				skipped_count++;
+				continue;
+			}
+			src_access = source.src_access;
+			src_stage = source.src_stage;
+			src_family = source.src_family;
+			dst_family = source.dst_family;
+		}
 		if (!zest__dx_layout_fits_queue(layout_before, backend->queue_type)) {
 			char error[512];
-			snprintf(error, sizeof(error), "The image %s is in a layout only the queue type that last used it can use, so its barrier on another queue type was skipped. On D3D12, use an image that was read in general layout, or sampled as depth, on the same queue type first in the next frame.", resource->name);
+			if (backend->queue_type == zest_queue_transfer) {
+				snprintf(error, sizeof(error), "The image %s was left in a layout the copy queue can't start from, so its first barrier on the copy queue was skipped. On D3D12, a transfer pass on the copy queue can only be an image's first use when the image arrives in COMMON: fresh, or handed back by the same graph's previous execution.", resource->name);
+			} else {
+				snprintf(error, sizeof(error), "The image %s is in a layout only the queue type that last used it can use, so its barrier on another queue type was skipped. On D3D12, use an image that was read in general layout, or sampled as depth, on the same queue type first in the next frame.", resource->name);
+			}
 			zest__log_validation_error(command_list->context->device, error);
 			image_barriers[index] = ZEST__ZERO_INIT(D3D12_TEXTURE_BARRIER);
 			skipped_count++;
 			continue;
 		}
-		zest_bool crossing = zest__dx_crosses_queues(record->src_family, record->dst_family);
+		zest_bool crossing = zest__dx_crosses_queues(src_family, dst_family);
 		//Images cross queues through COMMON: the producer's list releases to it with nothing after, and the consumer's list acquires from it with nothing before
 		zest_bool crossing_release = crossing && !acquire;
-		zest_access_flags src_access = crossing && acquire ? 0 : record->src_access;
-		zest_pipeline_stage_flags src_stage = crossing && acquire ? 0 : record->src_stage;
+		if (crossing && acquire) {
+			src_access = 0;
+			src_stage = 0;
+		}
 		zest_access_flags dst_access = crossing_release ? 0 : record->dst_access;
 		zest_pipeline_stage_flags dst_stage = crossing_release ? 0 : record->dst_stage;
 		D3D12_BARRIER_LAYOUT layout_after = crossing_release ? D3D12_BARRIER_LAYOUT_COMMON : zest__dx_barrier_layout(record->new_layout, dst_access, backend->queue_type);

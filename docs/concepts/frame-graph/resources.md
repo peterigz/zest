@@ -34,6 +34,10 @@ zest_resource_node tex = zest_ImportImageResource("Texture", image, zest_texture
 
 The `provider` parameter specifies a callback that get's the correct image view to use specifically when the frame graph is cached. For example the swapchain uses a provider to get the correct image frame that was acquired. In most cases you can just pass NULL or 0 as the image will just have it's one default view.
 
+**Imported images across executions.** The frame graph tracks each imported image's layout, last access and last queue, and refreshes the image's first barrier from them every time the graph runs. A cached graph is therefore correct even when the image changed state after the graph was compiled, and a first barrier that would change nothing is skipped. If an image's graph starts on one queue and ends on another, each execution ends by handing the image back to its first queue, so the next execution can acquire it there.
+
+> **On Vulkan, an image handed back belongs to its graph's first queue until the graph runs again, so don't use it with immediate commands in between. Reading it back passes validation, because the readback leaves its layout as it was, but the Vulkan spec leaves its contents undefined. An upload, or anything else that changes its layout, fails validation at the next execution's first use.**
+
 ### Buffers
 
 Import existing buffers:
