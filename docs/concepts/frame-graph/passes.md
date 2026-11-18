@@ -57,6 +57,7 @@ Transfer passes:
 - Handle CPU-to-GPU data transfers
 - Can run on dedicated transfer queue if available
 - Used for staging buffer uploads
+- Treat an image connected with `zest_ConnectOutput` as an output that the copy writes. Passes that read the image are ordered after the transfer pass, and the pass is only culled when nothing reads the image and it isn't imported. An image connected with `zest_ConnectInput` is a copy source.
 
 ## Resource Connections
 

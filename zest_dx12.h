@@ -98,6 +98,7 @@ ZEST__DX_DEFINE_IID(IDXGIInfoQueue, 0xd67441c7, 0x672a, 0x476f, 0x9e, 0x82, 0xcd
 ZEST__DX_DEFINE_IID(ID3D12Device5, 0x8b4f173b, 0x2fea, 0x4b80, 0x8f, 0x58, 0x43, 0x07, 0x19, 0x1a, 0xb9, 0x5d);
 ZEST__DX_DEFINE_IID(ID3D12RootSignature, 0xc54a6b66, 0x72df, 0x4ee8, 0x8b, 0xe5, 0xa9, 0x46, 0xa1, 0x42, 0x92, 0x14);
 ZEST__DX_DEFINE_IID(ID3D12PipelineState, 0x765a30f3, 0xf624, 0x4c6f, 0xa8, 0x28, 0xac, 0xe9, 0x48, 0x62, 0x24, 0x45);
+ZEST__DX_DEFINE_IID(ID3D12CommandSignature, 0xc36a797c, 0xec80, 0x4f0a, 0x89, 0x85, 0xa7, 0xb2, 0x47, 0x50, 0x82, 0xd1);
 ZEST__DX_DEFINE_IID(IDxcCompiler3, 0x228b4687, 0x5a6a, 0x4730, 0x90, 0x0c, 0x97, 0x02, 0xb2, 0x20, 0x3f, 0x54);
 ZEST__DX_DEFINE_IID(IDxcResult, 0x58346cda, 0xdde7, 0x4497, 0x94, 0x61, 0x6f, 0x87, 0xaf, 0x5e, 0x06, 0x59);
 ZEST__DX_DEFINE_CLSID(DxcCompiler, 0x73e22d93, 0xe6ce, 0x47f3, 0xb5, 0xbf, 0xf0, 0x66, 0x4f, 0x39, 0xc1, 0xb0);
@@ -234,6 +235,7 @@ typedef struct zest_dxc_compiler3_t zest_dxc_compiler3_t;
 #define ZEST_DX_TRANSIENT_DESCRIPTOR_COUNT 8192
 #define ZEST_DX_TRANSIENT_DESCRIPTOR_CHUNK 64
 #define ZEST_DX_MAX_VERTEX_BINDINGS 8
+#define ZEST_DX_MAX_INDIRECT_STRIDES 8
 
 //Chunks are indexes into the transient region of the bindless resource heap
 typedef struct zest_dx_transient_descriptors_t {
@@ -286,6 +288,33 @@ zest_hash_map(ID3D12RootSignature *) zest_dx_root_signature_map;
 //Keyed by a hash of the description's contents, the shader bytes and the root signature
 zest_hash_map(ID3D12PipelineState *) zest_dx_pipeline_state_map;
 
+//A stream subobject is its type then its value, and each one starts on a pointer boundary
+#define ZEST_DX_STREAM_SUBOBJECT(value_type, name) union { struct { D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type; value_type value; } subobject; void *alignment; } name
+
+//View instancing is last, so a stream with no view mask ends before it
+typedef struct zest_dx_graphics_stream_t {
+	ZEST_DX_STREAM_SUBOBJECT(ID3D12RootSignature *, root_signature);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_SHADER_BYTECODE, vertex_shader);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_SHADER_BYTECODE, pixel_shader);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_BLEND_DESC, blend);
+	ZEST_DX_STREAM_SUBOBJECT(UINT, sample_mask);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_RASTERIZER_DESC, rasterizer);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_DEPTH_STENCIL_DESC, depth_stencil);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_INPUT_LAYOUT_DESC, input_layout);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_INDEX_BUFFER_STRIP_CUT_VALUE, strip_cut);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_PRIMITIVE_TOPOLOGY_TYPE, primitive_topology_type);
+	ZEST_DX_STREAM_SUBOBJECT(struct D3D12_RT_FORMAT_ARRAY, render_target_formats);	//Only a struct tag in C
+	ZEST_DX_STREAM_SUBOBJECT(DXGI_FORMAT, depth_stencil_format);
+	ZEST_DX_STREAM_SUBOBJECT(DXGI_SAMPLE_DESC, sample_desc);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_PIPELINE_STATE_FLAGS, flags);
+	ZEST_DX_STREAM_SUBOBJECT(D3D12_VIEW_INSTANCING_DESC, view_instancing);
+} zest_dx_graphics_stream_t;
+
+typedef struct zest_dx_indirect_signature_t {
+	zest_uint stride;							//Written before the signature is published
+	ID3D12CommandSignature *signature;
+} zest_dx_indirect_signature_t;
+
 typedef struct zest_dx_device_backend_t {
 	IDXGIFactory6 *factory;
 	IDXGIAdapter4 *adapter;
@@ -312,12 +341,14 @@ typedef struct zest_dx_device_backend_t {
 	ID3D12PipelineState *blit_pipelines[ZEST_DX_BLIT_FORMAT_COUNT];
 	zest_dx_root_signature_map root_signatures;
 	zest_dx_pipeline_state_map pipeline_states;
+	zest_dx_indirect_signature_t indirect_signatures[2][ZEST_DX_MAX_INDIRECT_STRIDES];	//[0] draws, [1] indexed draws
 	//Guard the lazily created objects above, and blit_lock is held while taking either of the others but never the reverse
 	SRWLOCK dxc_lock;				//Also serialises compiles, as DXC compiler objects aren't thread safe
 	SRWLOCK root_signature_lock;
 	SRWLOCK blit_lock;
 	SRWLOCK overlay_lock;			//Held while taking dxc_lock but never the reverse
 	SRWLOCK pipeline_cache_lock;	//Guards root_signatures and pipeline_states, and is never held while taking another Zest lock
+	SRWLOCK indirect_signature_lock;	//Guards creating indirect_signatures, and is never held while taking another Zest lock
 	HRESULT last_result;
 	zest_bool counted_as_live;
 } zest_dx_device_backend_t;
@@ -883,12 +914,16 @@ ZEST_PRIVATE zest_bool zest__dx_set_next_command_buffer(const zest_command_list 
 ZEST_PRIVATE zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__dx_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE D3D12_BARRIER_LAYOUT zest__dx_record_layout_before(const zest_dx_frame_graph_image_barrier_t *record, zest_image image);
-ZEST_PRIVATE void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers);
+//Both families real and different: a handoff between queues, not a transition on one
+ZEST_PRIVATE zest_bool zest__dx_crosses_queues(zest_uint src_family, zest_uint dst_family);
+//False for a DIRECT_QUEUE_ or COMPUTE_QUEUE_ layout on another queue type
+ZEST_PRIVATE zest_bool zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT layout, zest_device_queue_type queue_type);
+ZEST_PRIVATE void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, zest_bool acquire, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers);
 //Runs when the graph executes and returns how many barriers it wrote. Records on one D3D12 resource become one barrier
 ZEST_PRIVATE zest_uint zest__dx_translate_buffer_barriers(const zest_dx_frame_graph_buffer_barrier_t *records, zest_uint record_count, D3D12_BUFFER_BARRIER *out_barriers);
 ZEST_PRIVATE D3D12_BARRIER_ACCESS zest__dx_merge_access(D3D12_BARRIER_ACCESS first, D3D12_BARRIER_ACCESS second);
-//As zest__dx_normalise_sync, except that a sync with no access stays, as it does on a buffer
-ZEST_PRIVATE D3D12_BARRIER_SYNC zest__dx_normalise_buffer_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access);
+//As zest__dx_normalise_sync, except that a stage with no access stays as an execution dependency
+ZEST_PRIVATE D3D12_BARRIER_SYNC zest__dx_normalise_dependency_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access);
 ZEST_PRIVATE void zest__dx_acquire_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__dx_release_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE zest_bool zest__dx_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details);
@@ -968,10 +1003,13 @@ ZEST_PRIVATE void zest__dx_cleanup_pipeline_backend(zest_pipeline pipeline);
 //Fills everything but the root signature and the shader bytecode. The semantic names point into the vertex shader's container
 ZEST_PRIVATE zest_bool zest__dx_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_dx_shader_reflection_t *vertex_reflection, D3D12_GRAPHICS_PIPELINE_STATE_DESC *out_description, D3D12_INPUT_ELEMENT_DESC *out_input_elements, char *out_error, zest_size error_size);
 //Thread safe. The pointer is borrowed from the device's cache and valid until the device is reset or destroyed
-ZEST_PRIVATE ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description);
+ZEST_PRIVATE ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description, zest_uint view_mask);
+//View i of the mask renders to array slice i. out_locations holds D3D12_MAX_VIEW_INSTANCE_COUNT entries and must outlive the stream
+ZEST_PRIVATE void zest__dx_graphics_stream(const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description, zest_uint view_mask, D3D12_VIEW_INSTANCE_LOCATION *out_locations, zest_dx_graphics_stream_t *out_stream, zest_size *out_size);
 //Thread safe. The pointer is borrowed from the device's cache and valid until the device is reset or destroyed
 ZEST_PRIVATE ID3D12PipelineState *zest__dx_compute_pipeline_state(zest_device device, const void *bytecode, zest_size bytecode_size, ID3D12RootSignature *root_signature);
-ZEST_PRIVATE ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description);
+//A graphics state is created from a pipeline state stream, which carries the view mask
+ZEST_PRIVATE ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, zest_uint view_mask, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description);
 //Parses a pipeline's shader and checks its stage
 ZEST_PRIVATE zest_bool zest__dx_reflect_pipeline_shader(zest_shader_handle shader_handle, zest_uint expected_stage, const char *pipeline_name, zest_dx_shader_reflection_t *out_reflection, zest_shader *out_shader, char *out_error, zest_size error_size);
 ZEST_PRIVATE ID3D12RootSignature *zest__dx_utility_root_signature(zest_device device);
@@ -1015,6 +1053,10 @@ ZEST_PRIVATE void zest__dx_draw_layer_instruction(const zest_command_list comman
 ZEST_PRIVATE void zest__dx_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 ZEST_PRIVATE void zest__dx_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
 ZEST_PRIVATE void zest__dx_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride);
+//Lock free once a stride has been seen. NULL when the table is full, which is reported
+ZEST_PRIVATE ID3D12CommandSignature *zest__dx_indirect_signature(zest_device device, zest_bool indexed, zest_uint stride);
+//offset is a draw index, as on Vulkan
+ZEST_PRIVATE void zest__dx_execute_indirect_draws(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride, zest_bool indexed);
 ZEST_PRIVATE void zest__dx_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope);
 ZEST_PRIVATE zest_bool zest__dx_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 ZEST_PRIVATE zest_bool zest__dx_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options);
@@ -2996,6 +3038,12 @@ void zest__dx_release_device_objects(zest_device device) {
 		ZEST_DX_RELEASE(backend->blit_pipelines[format_index]);
 	}
 	ZEST_DX_RELEASE(backend->utility_root_signature);
+	for (zest_uint table = 0; table != 2; ++table) {
+		for (zest_uint slot = 0; slot != ZEST_DX_MAX_INDIRECT_STRIDES; ++slot) {
+			ZEST_DX_RELEASE(backend->indirect_signatures[table][slot].signature);
+			backend->indirect_signatures[table][slot].stride = 0;
+		}
+	}
 	zest_map_foreach(pipeline_state_index, backend->pipeline_states) {
 		ZEST_DX_RELEASE(backend->pipeline_states.data[zest_map_index(backend->pipeline_states, pipeline_state_index)]);
 	}
@@ -4414,13 +4462,20 @@ zest_bool zest__dx_pipeline_description(zest_device device, zest_pipeline_templa
 	else if (depth_stencil->stencil_test_enable) unsupported = "stencil_test_enable";
 	else if (depth_stencil->depth_bounds_test_enable) unsupported = "depth_bounds_test_enable";
 	else if (pipeline_template->primitive_topology == zest_topology_patch_list) unsupported = "zest_topology_patch_list";
-	else if (pipeline_template->view_mask) unsupported = "a non-zero view_mask";
 	if (unsupported) {
 		snprintf(out_error, error_size, "The pipeline %s uses %s, which the D3D12 backend doesn't support.", name, unsupported);
 		return ZEST_FALSE;
 	}
 	if (pipeline_template->primitive_topology == zest_topology_triangle_fan && !backend->support.triangle_fan) {
 		snprintf(out_error, error_size, "The pipeline %s uses zest_topology_triangle_fan, which this D3D12 driver doesn't support. Use a triangle list or strip instead.", name);
+		return ZEST_FALSE;
+	}
+	if (pipeline_template->view_mask && backend->support.view_instancing_tier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED) {
+		snprintf(out_error, error_size, "The pipeline %s has a view_mask, but this D3D12 driver doesn't support view instancing.", name);
+		return ZEST_FALSE;
+	}
+	if (pipeline_template->view_mask != rendering_info->view_mask) {
+		snprintf(out_error, error_size, "The pipeline %s draws %u views but its render pass has %u. They must match, as on Vulkan.", name, zloc__count_bits(pipeline_template->view_mask), zloc__count_bits(rendering_info->view_mask));
 		return ZEST_FALSE;
 	}
 
@@ -4541,7 +4596,54 @@ zest_bool zest__dx_pipeline_description(zest_device device, zest_pipeline_templa
 	return ZEST_TRUE;
 }
 
-ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description) {
+void zest__dx_graphics_stream(const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description, zest_uint view_mask, D3D12_VIEW_INSTANCE_LOCATION *out_locations, zest_dx_graphics_stream_t *out_stream, zest_size *out_size) {
+	memset(out_stream, 0, sizeof(*out_stream));
+	out_stream->root_signature.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE;
+	out_stream->root_signature.subobject.value = description->pRootSignature;
+	out_stream->vertex_shader.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS;
+	out_stream->vertex_shader.subobject.value = description->VS;
+	out_stream->pixel_shader.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS;
+	out_stream->pixel_shader.subobject.value = description->PS;
+	out_stream->blend.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND;
+	out_stream->blend.subobject.value = description->BlendState;
+	out_stream->sample_mask.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK;
+	out_stream->sample_mask.subobject.value = description->SampleMask;
+	out_stream->rasterizer.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER;
+	out_stream->rasterizer.subobject.value = description->RasterizerState;
+	out_stream->depth_stencil.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL;
+	out_stream->depth_stencil.subobject.value = description->DepthStencilState;
+	out_stream->input_layout.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_INPUT_LAYOUT;
+	out_stream->input_layout.subobject.value = description->InputLayout;
+	out_stream->strip_cut.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_IB_STRIP_CUT_VALUE;
+	out_stream->strip_cut.subobject.value = description->IBStripCutValue;
+	out_stream->primitive_topology_type.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY;
+	out_stream->primitive_topology_type.subobject.value = description->PrimitiveTopologyType;
+	out_stream->render_target_formats.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS;
+	out_stream->render_target_formats.subobject.value.NumRenderTargets = description->NumRenderTargets;
+	memcpy(out_stream->render_target_formats.subobject.value.RTFormats, description->RTVFormats, sizeof(description->RTVFormats));
+	out_stream->depth_stencil_format.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT;
+	out_stream->depth_stencil_format.subobject.value = description->DSVFormat;
+	out_stream->sample_desc.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC;
+	out_stream->sample_desc.subobject.value = description->SampleDesc;
+	out_stream->flags.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_FLAGS;
+	out_stream->flags.subobject.value = description->Flags;
+	*out_size = offsetof(zest_dx_graphics_stream_t, view_instancing);
+	if (!view_mask) return;
+	zest_uint view_count = 0;
+	for (zest_uint view = 0; view != 32 && view_count != D3D12_MAX_VIEW_INSTANCE_COUNT; ++view) {
+		if (!(view_mask & (1u << view))) continue;
+		out_locations[view_count].ViewportArrayIndex = 0;
+		out_locations[view_count].RenderTargetArrayIndex = view;
+		view_count++;
+	}
+	out_stream->view_instancing.subobject.type = D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING;
+	out_stream->view_instancing.subobject.value.ViewInstanceCount = view_count;
+	out_stream->view_instancing.subobject.value.pViewInstanceLocations = out_locations;
+	out_stream->view_instancing.subobject.value.Flags = D3D12_VIEW_INSTANCING_FLAG_NONE;
+	*out_size = sizeof(zest_dx_graphics_stream_t);
+}
+
+ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key key, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *graphics_description, zest_uint view_mask, const D3D12_COMPUTE_PIPELINE_STATE_DESC *compute_description) {
 	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
 	ID3D12PipelineState *pipeline_state = NULL;
 	AcquireSRWLockShared(&backend->pipeline_cache_lock);
@@ -4552,9 +4654,19 @@ ID3D12PipelineState *zest__dx_cached_pipeline_state(zest_device device, zest_key
 	if (pipeline_state) return pipeline_state;
 
 	//Created outside the lock, so a slow driver compile doesn't hold up other threads' lookups and builds
-	HRESULT result = graphics_description
-		? ZEST_DX_CALL(backend->device, CreateGraphicsPipelineState, graphics_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state)
-		: ZEST_DX_CALL(backend->device, CreateComputePipelineState, compute_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state);
+	HRESULT result;
+	if (graphics_description) {
+		zest_dx_graphics_stream_t stream;
+		D3D12_VIEW_INSTANCE_LOCATION locations[D3D12_MAX_VIEW_INSTANCE_COUNT];
+		zest_size stream_size = 0;
+		zest__dx_graphics_stream(graphics_description, view_mask, locations, &stream, &stream_size);
+		D3D12_PIPELINE_STATE_STREAM_DESC stream_description = ZEST__ZERO_INIT(D3D12_PIPELINE_STATE_STREAM_DESC);
+		stream_description.SizeInBytes = (SIZE_T)stream_size;
+		stream_description.pPipelineStateSubobjectStream = &stream;
+		result = ZEST_DX_CALL(backend->device10, CreatePipelineState, &stream_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state);
+	} else {
+		result = ZEST_DX_CALL(backend->device, CreateComputePipelineState, compute_description, ZEST_DX_IID(ID3D12PipelineState), (void **)&pipeline_state);
+	}
 	if (FAILED(result)) {
 		backend->last_result = result;
 		zest__dx_log_hresult(device, result, __FILE__, __LINE__);
@@ -4586,10 +4698,10 @@ ID3D12PipelineState *zest__dx_compute_pipeline_state(zest_device device, const v
 	zest__hasher_add(&hasher, "compute", 7);
 	zest__hasher_add(&hasher, &root_signature, sizeof(root_signature));
 	zest__hasher_add(&hasher, bytecode, bytecode_size);
-	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), NULL, &description);
+	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), NULL, 0, &description);
 }
 
-ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description) {
+ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *description, zest_uint view_mask) {
 	//Pointers are hashed by what they point to, apart from the root signature, which the device cache keeps alive
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC key_description = *description;
 	key_description.VS.pShaderBytecode = NULL;
@@ -4598,6 +4710,7 @@ ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const 
 	zest_hasher_t hasher;
 	zest__hash_initialise(&hasher, ZEST_HASH_SEED);
 	zest__hasher_add(&hasher, &key_description, sizeof(key_description));
+	zest__hasher_add(&hasher, &view_mask, sizeof(view_mask));
 	for (zest_uint element_index = 0; element_index != description->InputLayout.NumElements; ++element_index) {
 		D3D12_INPUT_ELEMENT_DESC element = description->InputLayout.pInputElementDescs[element_index];
 		zest__hasher_add(&hasher, element.SemanticName, strlen(element.SemanticName) + 1);
@@ -4606,7 +4719,7 @@ ID3D12PipelineState *zest__dx_graphics_pipeline_state(zest_device device, const 
 	}
 	if (description->VS.BytecodeLength) zest__hasher_add(&hasher, description->VS.pShaderBytecode, description->VS.BytecodeLength);
 	if (description->PS.BytecodeLength) zest__hasher_add(&hasher, description->PS.pShaderBytecode, description->PS.BytecodeLength);
-	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), description, NULL);
+	return zest__dx_cached_pipeline_state(device, (zest_key)zest__get_hash(&hasher), description, view_mask, NULL);
 }
 
 zest_bool zest__dx_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
@@ -4651,7 +4764,7 @@ zest_bool zest__dx_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 		description.PS.pShaderBytecode = shaders[1]->binary;
 		description.PS.BytecodeLength = shaders[1]->binary_size;
 	}
-	pipeline_state = zest__dx_graphics_pipeline_state(device, &description);
+	pipeline_state = zest__dx_graphics_pipeline_state(device, &description, pipeline_template->view_mask);
 	if (!pipeline_state) {
 		snprintf(error, sizeof(error), "The pipeline %s's pipeline state couldn't be created. The log has the D3D12 error.", name);
 		goto failed;
@@ -5766,11 +5879,13 @@ D3D12_TEXTURE_BARRIER zest__dx_subresource_barrier(zest_image image, D3D12_BARRI
 	D3D12_TEXTURE_BARRIER barrier = ZEST__ZERO_INIT(D3D12_TEXTURE_BARRIER);
 	barrier.LayoutBefore = layout_before;
 	barrier.LayoutAfter = layout_after;
-	//An UNDEFINED layout only pairs with no access, which normalises the sync to NONE, whatever an aliased transient's previous occupant did
-	barrier.AccessBefore = layout_before == D3D12_BARRIER_LAYOUT_UNDEFINED ? D3D12_BARRIER_ACCESS_NO_ACCESS
+	//An UNDEFINED layout only pairs with no access, and its sync carries an aliased transient's previous occupant's stages, so the reuse waits for them
+	zest_bool undefined = layout_before == D3D12_BARRIER_LAYOUT_UNDEFINED;
+	barrier.AccessBefore = undefined ? D3D12_BARRIER_ACCESS_NO_ACCESS
 		: zest__dx_common_layout_access(barrier.LayoutBefore, zest__dx_barrier_access(src_access, ZEST_TRUE, barrier.LayoutBefore));
 	barrier.AccessAfter = zest__dx_common_layout_access(barrier.LayoutAfter, zest__dx_barrier_access(dst_access, ZEST_TRUE, barrier.LayoutAfter));
-	barrier.SyncBefore = zest__dx_normalise_sync(zest__dx_barrier_sync(src_stage, ZEST_TRUE), barrier.AccessBefore);
+	barrier.SyncBefore = undefined ? zest__dx_normalise_dependency_sync(zest__dx_barrier_sync(src_stage, ZEST_TRUE), D3D12_BARRIER_ACCESS_NO_ACCESS)
+		: zest__dx_normalise_sync(zest__dx_barrier_sync(src_stage, ZEST_TRUE), barrier.AccessBefore);
 	barrier.SyncAfter = zest__dx_normalise_sync(zest__dx_barrier_sync(dst_stage, ZEST_FALSE), barrier.AccessAfter);
 	barrier.pResource = backend->resource;
 	barrier.Subresources.IndexOrFirstMipLevel = base_mip;
@@ -6369,11 +6484,15 @@ void zest__dx_add_frame_graph_image_barrier(zest_resource_node resource, zest_ex
 
 void zest__dx_add_frame_graph_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
 	zest_context context = resource->frame_graph->command_list.context;
-	if (src_family != ZEST_QUEUE_FAMILY_IGNORED && dst_family != ZEST_QUEUE_FAMILY_IGNORED && src_family != dst_family) {
-		zest__dx_report_unavailable(context->device, "Frame graph buffer barriers across queues are not available on the D3D12 backend yet.");
-		return;
-	}
 	zloc_linear_allocator_t *allocator = &context->frame_graph_allocator[context->current_fif];
+	//zest_PrintCompiledFrameGraph reads the nodes beside shared code's debug records, so a crossing keeps its node
+	if (acquire) {
+		zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
+	} else {
+		zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
+	}
+	//The wave fence orders a crossing and ExecuteCommandLists flushes the producer's list, so neither side needs a barrier. A flush with SYNC_NONE after would also lock the rest of the list out of the buffer's shared resource
+	if (zest__dx_crosses_queues(src_family, dst_family)) return;
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, barriers);
 	zest_dx_frame_graph_buffer_barrier_t record;
 	record.resource = resource;
@@ -6385,11 +6504,9 @@ void zest__dx_add_frame_graph_buffer_barrier(zest_resource_node resource, zest_e
 	if (acquire) {
 		zest_vec_linear_push(allocator, backend->acquire_buffers, record);
 		zest_vec_linear_push(allocator, backend->acquire_buffers_translated, translated);
-		zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
 	} else {
 		zest_vec_linear_push(allocator, backend->release_buffers, record);
 		zest_vec_linear_push(allocator, backend->release_buffers_translated, translated);
-		zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
 	}
 }
 
@@ -6441,14 +6558,15 @@ zest_uint zest__dx_translate_buffer_barriers(const zest_dx_frame_graph_buffer_ba
 		//All already covers every narrower scope
 		if (barrier->SyncBefore & D3D12_BARRIER_SYNC_ALL) barrier->SyncBefore = D3D12_BARRIER_SYNC_ALL;
 		if (barrier->SyncAfter & D3D12_BARRIER_SYNC_ALL) barrier->SyncAfter = D3D12_BARRIER_SYNC_ALL;
-		barrier->SyncBefore = zest__dx_normalise_buffer_sync(barrier->SyncBefore, barrier->AccessBefore);
-		barrier->SyncAfter = zest__dx_normalise_buffer_sync(barrier->SyncAfter, barrier->AccessAfter);
+		barrier->SyncBefore = zest__dx_normalise_dependency_sync(barrier->SyncBefore, barrier->AccessBefore);
+		barrier->SyncAfter = zest__dx_normalise_dependency_sync(barrier->SyncAfter, barrier->AccessAfter);
 	}
 	return barrier_count;
 }
 
-D3D12_BARRIER_SYNC zest__dx_normalise_buffer_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access) {
+D3D12_BARRIER_SYNC zest__dx_normalise_dependency_sync(D3D12_BARRIER_SYNC sync, D3D12_BARRIER_ACCESS access) {
 	if (access != D3D12_BARRIER_ACCESS_NO_ACCESS) return zest__dx_normalise_sync(sync, access);
+	if (sync == D3D12_BARRIER_SYNC_NONE) return D3D12_BARRIER_SYNC_NONE;
 	//A stage with no access is an execution dependency, such as a transient reusing memory that was only read
 	UINT trimmed = (UINT)sync & ~(UINT)D3D12_BARRIER_SYNC_RESOLVE;
 	return trimmed ? (D3D12_BARRIER_SYNC)trimmed : D3D12_BARRIER_SYNC_ALL;
@@ -6477,6 +6595,8 @@ zest_bool zest__dx_set_next_command_buffer(const zest_command_list command_list,
 	backend->command_list = queue_backend->command_list;
 	backend->context_queue = queue;
 	backend->queue_type = zest__dx_family_queue_type(family_index);
+	//Counts lists begun since the pool was reset, as on Vulkan
+	queue->next_buffer++;
 	return ZEST_TRUE;
 }
 
@@ -6519,20 +6639,80 @@ D3D12_BARRIER_LAYOUT zest__dx_record_layout_before(const zest_dx_frame_graph_ima
 	return ZEST_DX_BACKEND(image, image)->layout;
 }
 
+zest_bool zest__dx_crosses_queues(zest_uint src_family, zest_uint dst_family) {
+	return src_family != ZEST_QUEUE_FAMILY_IGNORED && dst_family != ZEST_QUEUE_FAMILY_IGNORED && src_family != dst_family;
+}
+
+zest_bool zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT layout, zest_device_queue_type queue_type) {
+	switch (layout) {
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS:
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE:
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE:
+		case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST: return queue_type == zest_queue_graphics;
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON:
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ:
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS:
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE:
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE:
+		case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST: return queue_type == zest_queue_compute;
+		default: return ZEST_TRUE;
+	}
+}
+
 //Translates a pass group's records into the arrays sized when the graph was compiled, then sends the images and buffers in one call
-void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers) {
+void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, zest_bool acquire, const zest_dx_frame_graph_image_barrier_t *image_records, D3D12_TEXTURE_BARRIER *image_barriers, const zest_dx_frame_graph_buffer_barrier_t *buffer_records, D3D12_BUFFER_BARRIER *buffer_barriers) {
 	zest_uint image_count = zest_vec_size(image_records);
 	zest_uint buffer_count = zest__dx_translate_buffer_barriers(buffer_records, zest_vec_size(buffer_records), buffer_barriers);
 	if (!image_count && !buffer_count) return;
 	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	zest_uint skipped_count = 0;
 	for (zest_uint index = 0; index != image_count; ++index) {
 		const zest_dx_frame_graph_image_barrier_t *record = &image_records[index];
 		zest_resource_node resource = record->resource;
 		zest_image image = resource->view->image;
 		ZEST_ASSERT(image && image->backend, "The resource has no image to transition. If it's not transient then set a resource provider callback for it.");
-		D3D12_BARRIER_LAYOUT layout_after = zest__dx_barrier_layout(record->new_layout, record->dst_access, backend->queue_type);
-		image_barriers[index] = zest__dx_subresource_barrier(image, zest__dx_record_layout_before(record, image), layout_after, record->src_access, record->dst_access, record->src_stage, record->dst_stage,
+		D3D12_BARRIER_LAYOUT layout_before = zest__dx_record_layout_before(record, image);
+		if (!zest__dx_layout_fits_queue(layout_before, backend->queue_type)) {
+			char error[512];
+			snprintf(error, sizeof(error), "The image %s is in a layout only the queue type that last used it can use, so its barrier on another queue type was skipped. On D3D12, use an image that was read in general layout, or sampled as depth, on the same queue type first in the next frame.", resource->name);
+			zest__log_validation_error(command_list->context->device, error);
+			image_barriers[index] = ZEST__ZERO_INIT(D3D12_TEXTURE_BARRIER);
+			skipped_count++;
+			continue;
+		}
+		zest_bool crossing = zest__dx_crosses_queues(record->src_family, record->dst_family);
+		//Images cross queues through COMMON: the producer's list releases to it with nothing after, and the consumer's list acquires from it with nothing before
+		zest_bool crossing_release = crossing && !acquire;
+		zest_access_flags src_access = crossing && acquire ? 0 : record->src_access;
+		zest_pipeline_stage_flags src_stage = crossing && acquire ? 0 : record->src_stage;
+		zest_access_flags dst_access = crossing_release ? 0 : record->dst_access;
+		zest_pipeline_stage_flags dst_stage = crossing_release ? 0 : record->dst_stage;
+		D3D12_BARRIER_LAYOUT layout_after = crossing_release ? D3D12_BARRIER_LAYOUT_COMMON : zest__dx_barrier_layout(record->new_layout, dst_access, backend->queue_type);
+		image_barriers[index] = zest__dx_subresource_barrier(image, layout_before, layout_after, src_access, dst_access, src_stage, dst_stage,
 			0, resource->image.info.mip_levels, 0, resource->image.info.layer_count);
+	}
+	for (zest_uint index = 0; index != image_count; ++index) {
+		if (!image_barriers[index].pResource) continue;
+		const zest_dx_frame_graph_image_barrier_t *record = &image_records[index];
+		zest_resource_node resource = record->resource;
+		zest_image image = resource->view->image;
+		ZEST_DX_BACKEND(image, image)->layout = image_barriers[index].LayoutAfter;
+		image->layout = record->new_layout;
+		if (resource->linked_layout) {
+			*resource->linked_layout = record->new_layout;
+			resource->image_layout = record->new_layout;
+		}
+	}
+	//Only after a skip, which leaves the translated array no longer one entry per record
+	if (skipped_count) {
+		zest_uint kept_count = 0;
+		for (zest_uint index = 0; index != image_count; ++index) {
+			if (image_barriers[index].pResource) image_barriers[kept_count++] = image_barriers[index];
+		}
+		image_count = kept_count;
+		if (!image_count && !buffer_count) return;
 	}
 	D3D12_BARRIER_GROUP groups[2];
 	memset(groups, 0, sizeof(groups));
@@ -6550,27 +6730,16 @@ void zest__dx_send_frame_graph_barriers(const zest_command_list command_list, co
 		group_count++;
 	}
 	ZEST_DX_CALL(backend->command_list, Barrier, group_count, groups);
-	for (zest_uint index = 0; index != image_count; ++index) {
-		const zest_dx_frame_graph_image_barrier_t *record = &image_records[index];
-		zest_resource_node resource = record->resource;
-		zest_image image = resource->view->image;
-		ZEST_DX_BACKEND(image, image)->layout = image_barriers[index].LayoutAfter;
-		image->layout = record->new_layout;
-		if (resource->linked_layout) {
-			*resource->linked_layout = record->new_layout;
-			resource->image_layout = record->new_layout;
-		}
-	}
 }
 
 void zest__dx_acquire_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &exe_details->barriers);
-	zest__dx_send_frame_graph_barriers(command_list, backend->acquire_images, backend->acquire_translated, backend->acquire_buffers, backend->acquire_buffers_translated);
+	zest__dx_send_frame_graph_barriers(command_list, ZEST_TRUE, backend->acquire_images, backend->acquire_translated, backend->acquire_buffers, backend->acquire_buffers_translated);
 }
 
 void zest__dx_release_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &exe_details->barriers);
-	zest__dx_send_frame_graph_barriers(command_list, backend->release_images, backend->release_translated, backend->release_buffers, backend->release_buffers_translated);
+	zest__dx_send_frame_graph_barriers(command_list, ZEST_FALSE, backend->release_images, backend->release_translated, backend->release_buffers, backend->release_buffers_translated);
 }
 
 zest_bool zest__dx_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details) {
@@ -7031,7 +7200,23 @@ void zest__dx_copy_image_mip(const zest_command_list command_list, zest_resource
 	zest__dx_record_mip_copy(command_list, src, dst, mip_to_copy);
 }
 
-void zest__dx_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_InsertComputeImageBarrier is not available on the D3D12 backend yet."); }
+//Orders the pass's own compute writes to one mip before the dispatches after it, across every layer, in the layout the frame graph left it in
+void zest__dx_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) {
+	zest_image image = &resource->image;
+	D3D12_BARRIER_LAYOUT layout = ZEST_DX_BACKEND(image, image)->layout;
+	if (layout != D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS && layout != D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON && layout != D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON) {
+		char message[256];
+		snprintf(message, sizeof(message), "zest_cmd_InsertComputeImageBarrier was given %s, which isn't in a storage layout, so no barrier was sent. Connect it to the pass as a storage image output.", resource->name);
+		zest__log_validation_error(command_list->context->device, message);
+		return;
+	}
+	D3D12_TEXTURE_BARRIER barrier = zest__dx_subresource_barrier(image, layout, layout, 0, 0, 0, 0, base_mip, 1, 0, image->info.layer_count);
+	barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+	barrier.AccessAfter = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
+	barrier.SyncBefore = D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+	barrier.SyncAfter = D3D12_BARRIER_SYNC_COMPUTE_SHADING;
+	zest__dx_send_texture_barriers(ZEST_DX_BACKEND(command_list, command_list)->command_list, &barrier, 1);
+}
 void zest__dx_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) {
 	if (!pipeline || !pipeline->backend) {
 		zest__dx_report_unavailable(command_list->context->device, "zest_cmd_BindPipeline was given no pipeline, or one that failed to build. Check the result of zest_GetPipeline.");
@@ -7144,8 +7329,68 @@ void zest__dx_draw_indexed(const zest_command_list command_list, zest_uint index
 	if (!zest__dx_flush_graphics_state(command_list)) return;
 	ZEST_DX_CALL(ZEST_DX_BACKEND(command_list, command_list)->command_list, DrawIndexedInstanced, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
-void zest__dx_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawIndexedIndirect is not available on the D3D12 backend yet."); }
-void zest__dx_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__dx_report_unavailable(command_list->context->device, "zest_cmd_DrawIndirect is not available on the D3D12 backend yet."); }
+//Slots fill in order and are only emptied with the device objects, so the first empty slot ends a lookup
+ID3D12CommandSignature *zest__dx_indirect_signature(zest_device device, zest_bool indexed, zest_uint stride) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_dx_indirect_signature_t *table = backend->indirect_signatures[indexed ? 1 : 0];
+	for (zest_uint slot = 0; slot != ZEST_DX_MAX_INDIRECT_STRIDES; ++slot) {
+		ID3D12CommandSignature *signature = (ID3D12CommandSignature *)ReadPointerAcquire((PVOID const volatile *)&table[slot].signature);
+		if (!signature) break;
+		if (table[slot].stride == stride) return signature;
+	}
+	ID3D12CommandSignature *signature = NULL;
+	zest_bool full = ZEST_TRUE;
+	AcquireSRWLockExclusive(&backend->indirect_signature_lock);
+	for (zest_uint slot = 0; slot != ZEST_DX_MAX_INDIRECT_STRIDES; ++slot) {
+		if (table[slot].signature && table[slot].stride != stride) continue;
+		full = ZEST_FALSE;
+		signature = table[slot].signature;
+		if (signature) break;
+		D3D12_INDIRECT_ARGUMENT_DESC argument = ZEST__ZERO_INIT(D3D12_INDIRECT_ARGUMENT_DESC);
+		argument.Type = indexed ? D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED : D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+		D3D12_COMMAND_SIGNATURE_DESC description = ZEST__ZERO_INIT(D3D12_COMMAND_SIGNATURE_DESC);
+		description.ByteStride = stride;
+		description.NumArgumentDescs = 1;
+		description.pArgumentDescs = &argument;
+		HRESULT result = ZEST_DX_CALL(backend->device, CreateCommandSignature, &description, NULL, ZEST_DX_IID(ID3D12CommandSignature), (void **)&signature);
+		if (FAILED(result)) {
+			signature = NULL;
+			backend->last_result = result;
+			zest__dx_log_hresult(device, result, __FILE__, __LINE__);
+			break;
+		}
+		table[slot].stride = stride;
+		WritePointerRelease((PVOID volatile *)&table[slot].signature, signature);
+		break;
+	}
+	ReleaseSRWLockExclusive(&backend->indirect_signature_lock);
+	if (full) {
+		zest__log_validation_error(device, "An indirect draw used a ninth stride, past the D3D12 backend's limit of " ZEST__DX_STRING_VALUE(ZEST_DX_MAX_INDIRECT_STRIDES) " strides for each draw type, so it was skipped. Use fewer strides.");
+	}
+	return signature;
+}
+
+void zest__dx_execute_indirect_draws(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride, zest_bool indexed) {
+	zest_device device = command_list->context->device;
+	zest_uint command_size = indexed ? (zest_uint)sizeof(zest_draw_indexed_indirect_command_t) : (zest_uint)sizeof(zest_draw_indirect_command_t);
+	if (stride < command_size || stride % 4 != 0) {
+		char message[256];
+		snprintf(message, sizeof(message), "%s was given a stride of %u bytes, so it was skipped. On D3D12 the stride must be a multiple of 4 and at least %u, the size of the command.", indexed ? "zest_cmd_DrawIndexedIndirect" : "zest_cmd_DrawIndirect", stride, command_size);
+		zest__log_validation_error(device, message);
+		return;
+	}
+	ID3D12CommandSignature *signature = zest__dx_indirect_signature(device, indexed, stride);
+	if (!signature) return;
+	if (!zest__dx_flush_graphics_state(command_list)) return;
+	ZEST_DX_CALL(ZEST_DX_BACKEND(command_list, command_list)->command_list, ExecuteIndirect, signature, draw_count, zest__dx_buffer_resource(buffer), buffer->memory_offset + offset * stride, NULL, 0);
+}
+
+void zest__dx_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest__dx_execute_indirect_draws(command_list, buffer, offset, draw_count, stride, ZEST_TRUE);
+}
+void zest__dx_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest__dx_execute_indirect_draws(command_list, buffer, offset, draw_count, stride, ZEST_FALSE);
+}
 void zest__dx_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) {
 	zest_device device = command_list->context->device;
 	zest_dx_bind_state_t *state = &ZEST_DX_BACKEND(command_list, command_list)->bind_state;

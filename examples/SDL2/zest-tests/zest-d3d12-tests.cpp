@@ -66,6 +66,7 @@ int test_d3d12_interface_ids(void) {
 	CHECK_INTERFACE_ID(ID3D12Device5);
 	CHECK_INTERFACE_ID(ID3D12RootSignature);
 	CHECK_INTERFACE_ID(ID3D12PipelineState);
+	CHECK_INTERFACE_ID(ID3D12CommandSignature);
 	failed |= memcmp(&zest__dx_iid_IDxcCompiler3, &__uuidof(IDxcCompiler3), sizeof(GUID)) != 0;
 	failed |= memcmp(&zest__dx_iid_IDxcResult, &__uuidof(IDxcResult), sizeof(GUID)) != 0;
 	failed |= memcmp(&zest__dx_clsid_DxcCompiler, &CLSID_DxcCompiler, sizeof(GUID)) != 0;
@@ -1677,16 +1678,18 @@ int test_d3d12_pipeline_state_translation(void) {
 		//Errors
 		const char *unsupported_states[8] = { "zest_cull_mode_front_and_back", "zest_polygon_mode_point", "zest_topology_triangle_fan", "zest_topology_patch_list", "view_mask", "stencil_test_enable", "depth_bounds_test_enable", "rasterizer_discard_enable" };
 		zest_bool saved_triangle_fan = backend->support.triangle_fan;
+		D3D12_VIEW_INSTANCING_TIER saved_view_instancing_tier = backend->support.view_instancing_tier;
 		for (int case_index = 0; case_index != 8; ++case_index) {
 			zest_pipeline_template error_template = zest_CreatePipelineTemplate(device, "Translation Error");
 			zest_SetPipelineDisableVertexInput(error_template);
 			backend->support.triangle_fan = ZEST_TRUE;
+			backend->support.view_instancing_tier = saved_view_instancing_tier;
 			switch (case_index) {
 				case 0: error_template->rasterization.cull_mode = zest_cull_mode_front_and_back; break;
 				case 1: error_template->rasterization.polygon_mode = zest_polygon_mode_point; break;
 				case 2: error_template->primitive_topology = zest_topology_triangle_fan; backend->support.triangle_fan = ZEST_FALSE; break;
 				case 3: error_template->primitive_topology = zest_topology_patch_list; break;
-				case 4: error_template->view_mask = 3; break;
+				case 4: error_template->view_mask = 3; backend->support.view_instancing_tier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED; break;
 				case 5: error_template->depth_stencil.stencil_test_enable = ZEST_TRUE; break;
 				case 6: error_template->depth_stencil.depth_bounds_test_enable = ZEST_TRUE; break;
 				case 7: error_template->rasterization.rasterizer_discard_enable = ZEST_TRUE; break;
@@ -1700,6 +1703,7 @@ int test_d3d12_pipeline_state_translation(void) {
 			zest_FreePipelineTemplate(error_template);
 		}
 		backend->support.triangle_fan = saved_triangle_fan;
+		backend->support.view_instancing_tier = saved_view_instancing_tier;
 	}
 	ZEST_DX_RELEASE(translation_dxil);
 	ZEST_DX_RELEASE(simple_dxil);
@@ -4379,9 +4383,8 @@ static void d3d12_image_mip_pass(const zest_command_list command_list, void *use
 	d3d12_mip_command_task_t *task = (d3d12_mip_command_task_t *)user_data;
 	task->run_count++;
 	task->queue_type = ZEST_DX_BACKEND(command_list, command_list)->queue_type;
-	//A transfer pass takes both images as transfer inputs
 	zest_resource_node source = zest_GetPassInputResource(command_list, "Mip Source");
-	zest_resource_node destination = zest_GetPassInputResource(command_list, "Mip Destination");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Mip Destination");
 	if (task->copy_mip) {
 		zest_cmd_CopyImageMip(command_list, source, destination, 1, zest_shader_fragment_stage);
 	}
@@ -4399,8 +4402,6 @@ static int run_mip_command_graph(zest_context context, const char *name, zest_im
 	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
 	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
 	zest_BeginTransferPass("Mip Pass");
-	//A transfer pass declares the destination as a transfer input too, so with no output the pass would be culled
-	zest_DoNotCull();
 	zest_ConnectInput(source_node);
 	zest_ConnectOutput(destination_node);
 	zest_SetPassTask(d3d12_image_mip_pass, &task);
@@ -4860,11 +4861,16 @@ int test_d3d12_transient_first_use_layout(void) {
 	int failed = layout_before != D3D12_BARRIER_LAYOUT_UNDEFINED;
 	D3D12_TEXTURE_BARRIER barrier = zest__dx_subresource_barrier(&node.image, layout_before, D3D12_BARRIER_LAYOUT_RENDER_TARGET, record.src_access, record.dst_access, record.src_stage, record.dst_stage, 0, 1, 0, 1);
 	failed |= barrier.LayoutBefore != D3D12_BARRIER_LAYOUT_UNDEFINED || !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
-	//An aliased transient's record carries the previous occupant's last write, which UNDEFINED can't be paired with
+	//A first use with no previous occupant waits on nothing
+	failed |= barrier.SyncBefore != D3D12_BARRIER_SYNC_NONE;
+	barrier = zest__dx_subresource_barrier(&node.image, layout_before, D3D12_BARRIER_LAYOUT_RENDER_TARGET, record.src_access, record.dst_access, 0, record.dst_stage, 0, 1, 0, 1);
+	failed |= barrier.SyncBefore != D3D12_BARRIER_SYNC_NONE;
+	//An aliased transient's record carries the previous occupant's last write: UNDEFINED drops the access, and the sync waits for its stages
 	record.src_access = zest_access_color_attachment_write_bit;
 	record.src_stage = zest_pipeline_stage_color_attachment_output_bit;
 	barrier = zest__dx_subresource_barrier(&node.image, zest__dx_record_layout_before(&record, &node.image), D3D12_BARRIER_LAYOUT_RENDER_TARGET, record.src_access, record.dst_access, record.src_stage, record.dst_stage, 0, 1, 0, 1);
-	failed |= barrier.AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || barrier.SyncBefore != D3D12_BARRIER_SYNC_NONE;
+	failed |= barrier.LayoutBefore != D3D12_BARRIER_LAYOUT_UNDEFINED;
+	failed |= barrier.AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || barrier.SyncBefore != D3D12_BARRIER_SYNC_RENDER_TARGET;
 	failed |= barrier.AccessAfter != D3D12_BARRIER_ACCESS_RENDER_TARGET || barrier.SyncAfter != D3D12_BARRIER_SYNC_RENDER_TARGET;
 	failed |= !(barrier.Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD);
 	//Only the first use starts over, later records follow the tracked layout
@@ -4958,7 +4964,7 @@ static zest_frame_graph build_transient_image_graph(zest_context context, zest_f
 	return zest_EndFrameGraph();
 }
 
-//The third target's first barrier was compiled with the depth target's last write, and must have been sent with none of it
+//The third target's first barrier was compiled with the depth target's last write, and must have been sent with its stages but none of its access
 static int third_target_barrier_is_clean(zest_frame_graph frame_graph) {
 	int found = 0;
 	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
@@ -4970,7 +4976,8 @@ static int third_target_barrier_is_clean(zest_frame_graph frame_graph) {
 			const D3D12_TEXTURE_BARRIER *barrier = &backend->acquire_translated[index];
 			found = ZEST__FLAGGED(record->src_access, zest_access_depth_stencil_attachment_write_bit);
 			found &= barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-			found &= barrier->AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && barrier->SyncBefore == D3D12_BARRIER_SYNC_NONE;
+			found &= barrier->AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && (barrier->SyncBefore & D3D12_BARRIER_SYNC_DEPTH_STENCIL) != 0;
+			found &= barrier->SyncBefore == zest__dx_normalise_dependency_sync(zest__dx_barrier_sync(record->src_stage, ZEST_TRUE), D3D12_BARRIER_ACCESS_NO_ACCESS);
 			found &= (barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD) != 0;
 		}
 	}
@@ -5073,6 +5080,149 @@ int test_d3d12_transient_images(void) {
 	}
 	failed |= finish_device(device);
 	return failed | run_cached_transient_frames();
+}
+
+typedef struct d3d12_cross_queue_task_t {
+	zest_compute compute;
+	zest_buffer staging_buffer;
+} d3d12_cross_queue_task_t;
+
+static void d3d12_cross_queue_write_image(const zest_command_list command_list, void *user_data) {
+	d3d12_cross_queue_task_t *task = (d3d12_cross_queue_task_t *)user_data;
+	zest_resource_node image = zest_GetPassOutputResource(command_list, "Cross Image");
+	TestPushConstants push = {};
+	push.index1 = (int)zest_GetTransientSampledImageBindlessIndex(command_list, image, zest_storage_image_binding);
+	zest_cmd_BindComputePipeline(command_list, task->compute);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, 2, 2, 1);
+}
+
+static void d3d12_cross_queue_copy_buffer(const zest_command_list command_list, void *user_data) {
+	d3d12_cross_queue_task_t *task = (d3d12_cross_queue_task_t *)user_data;
+	zest_resource_node buffer = zest_GetPassOutputResource(command_list, "Cross Buffer");
+	zest_cmd_CopyBuffer(command_list, task->staging_buffer, buffer->storage_buffer, task->staging_buffer->size);
+}
+
+//The translated barrier of the record that hands the named image between queues, from the release or the acquire side
+static const D3D12_TEXTURE_BARRIER *crossing_image_barrier(zest_frame_graph frame_graph, const char *name, zest_bool acquire) {
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		zest_dx_frame_graph_image_barrier_t *records = acquire ? backend->acquire_images : backend->release_images;
+		for (zest_uint index = 0; index != zest_vec_size(records); ++index) {
+			if (strcmp(records[index].resource->name, name) != 0 || !zest__dx_crosses_queues(records[index].src_family, records[index].dst_family)) continue;
+			return acquire ? &backend->acquire_translated[index] : &backend->release_translated[index];
+		}
+	}
+	return NULL;
+}
+
+//The pass group on the queue type that holds a record on the named buffer, or NULL
+static const zest_pass_group_t *buffer_record_group(zest_frame_graph frame_graph, const char *name, zest_bool acquire, zest_device_queue_type queue_type) {
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		if (pass_group->queue_info.queue_type != queue_type) continue;
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		zest_dx_frame_graph_buffer_barrier_t *records = acquire ? backend->acquire_buffers : backend->release_buffers;
+		for (zest_uint index = 0; index != zest_vec_size(records); ++index) {
+			if (strcmp(records[index].resource->name, name) == 0) return pass_group;
+		}
+	}
+	return NULL;
+}
+
+//A compute pass and a copy pass share the first wave, so they run on the compute and copy queues, and a render pass on the direct queue reads both
+int test_d3d12_cross_queue_barriers(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, D3D12_HLSL_SHADER_PATH "image_write2.comp.hlsl", "cross_queue_image_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Cross Queue Image Write", shader);
+	zest_uint words[256];
+	for (zest_uint index = 0; index != 256; ++index) words[index] = index * 7u + 3u;
+	d3d12_cross_queue_task_t task = {};
+	task.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	task.staging_buffer = zest_CreateStagingBuffer(device, sizeof(words), words);
+	zest_image_info_t target_info = zest_CreateImageInfo(16, 16);
+	target_info.format = zest_format_r8g8b8a8_unorm;
+	target_info.flags = zest_image_preset_color_attachment;
+	zest_image_handle target_handle = zest_CreateImage(device, &target_info);
+	int failed = context == NULL || task.compute == NULL || task.staging_buffer == NULL || !target_handle.value;
+	if (!failed) {
+		//The records outlive the flush only in a cached graph
+		zest_uint cache_state = 1;
+		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, &cache_state, sizeof(cache_state));
+		failed |= !zest_BeginCommandGraph(context, "Cross Queue Barriers", &cache_key);
+		zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm };
+		image_info.width = 16;
+		image_info.height = 16;
+		zest_buffer_resource_info_t buffer_info = {};
+		buffer_info.size = sizeof(words);
+		zest_resource_node image = zest_AddTransientImageResource("Cross Image", &image_info);
+		zest_resource_node buffer = zest_AddTransientBufferResource("Cross Buffer", &buffer_info);
+		zest_resource_node target = zest_ImportImageResource("Cross Target", zest_GetImage(target_handle), 0);
+
+		zest_BeginComputePass("Cross Compute");
+		zest_ConnectOutput(image);
+		zest_SetPassTask(d3d12_cross_queue_write_image, &task);
+		zest_EndPass();
+
+		zest_BeginTransferPass("Cross Transfer");
+		zest_ConnectOutput(buffer);
+		zest_SetPassTask(d3d12_cross_queue_copy_buffer, &task);
+		zest_EndPass();
+
+		zest_BeginRenderPass("Cross Render");
+		zest_ConnectInput(image);
+		zest_ConnectInput(buffer);
+		zest_ConnectOutput(target);
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		if (frame_graph) {
+			const D3D12_TEXTURE_BARRIER *release = crossing_image_barrier(frame_graph, "Cross Image", ZEST_FALSE);
+			failed |= release == NULL;
+			if (release) {
+				failed |= release->LayoutAfter != D3D12_BARRIER_LAYOUT_COMMON;
+				failed |= release->AccessAfter != D3D12_BARRIER_ACCESS_NO_ACCESS || release->SyncAfter != D3D12_BARRIER_SYNC_NONE;
+			}
+			const D3D12_TEXTURE_BARRIER *acquire = crossing_image_barrier(frame_graph, "Cross Image", ZEST_TRUE);
+			failed |= acquire == NULL;
+			if (acquire) {
+				failed |= acquire->LayoutBefore != D3D12_BARRIER_LAYOUT_COMMON || acquire->LayoutAfter != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+				failed |= acquire->AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || acquire->SyncBefore != D3D12_BARRIER_SYNC_NONE;
+			}
+			zest_bool has_copy_group = ZEST_FALSE;
+			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+				has_copy_group |= zest_GetFrameGraphFinalPass(frame_graph, pass_index)->queue_info.queue_type == zest_queue_transfer;
+			}
+			failed |= !has_copy_group;
+			//The wave fence orders the buffer's handoff and ExecuteCommandLists flushes the copy list, so neither side recorded a barrier
+			failed |= buffer_record_group(frame_graph, "Cross Buffer", ZEST_FALSE, zest_queue_transfer) != NULL;
+			failed |= buffer_record_group(frame_graph, "Cross Buffer", ZEST_TRUE, zest_queue_graphics) != NULL;
+			//zest_PrintCompiledFrameGraph reads the node lists beside shared code's debug records, crossings included
+			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+				const zest_execution_barriers_t *barriers = &zest_GetFrameGraphFinalPass(frame_graph, pass_index)->execution_details.barriers;
+				failed |= zest_vec_size(barriers->acquire_buffer_barrier_nodes) != zest_vec_size(barriers->acquire_buffer_barriers);
+				failed |= zest_vec_size(barriers->release_buffer_barrier_nodes) != zest_vec_size(barriers->release_buffer_barriers);
+				failed |= zest_vec_size(barriers->acquire_image_barrier_nodes) != zest_vec_size(barriers->acquire_image_barriers);
+				failed |= zest_vec_size(barriers->release_image_barrier_nodes) != zest_vec_size(barriers->release_image_barriers);
+			}
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON, zest_queue_graphics) != ZEST_FALSE;
+	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ, zest_queue_compute) != ZEST_FALSE;
+	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMMON, zest_queue_transfer) != ZEST_TRUE;
+	failed |= zest__dx_crosses_queues(ZEST_QUEUE_FAMILY_IGNORED, ZEST_QUEUE_FAMILY_IGNORED) || zest__dx_crosses_queues(1, 1) || !zest__dx_crosses_queues(1, 0);
+	if (task.staging_buffer) zest_FreeBufferNow(task.staging_buffer);
+	if (target_handle.value) zest_FreeImageNow(target_handle);
+	if (context) zest_DestroyContext(context);
+	return failed | finish_device(device);
 }
 
 typedef struct d3d12_stride_capture_t {
@@ -5281,6 +5431,170 @@ int test_d3d12_concurrent_descriptor_allocation(void) {
 	return failed | finish_device(device);
 }
 
+typedef struct d3d12_indirect_draws_t {
+	VertexDrawResources resources;
+	zest_buffer commands;
+	zest_uint stride;
+} d3d12_indirect_draws_t;
+
+static void d3d12_indirect_stride_task(const zest_command_list command_list, void *user_data) {
+	d3d12_indirect_draws_t *draws = (d3d12_indirect_draws_t *)user_data;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float tint[4] = { 1.f, 0.5f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, tint, sizeof(tint));
+	zest_cmd_DrawIndexedIndirect(command_list, draws->commands, 0, 2, draws->stride);
+}
+
+static zest_uint d3d12_indirect_signature_count(zest_device device, zest_uint table) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_uint count = 0;
+	for (zest_uint slot = 0; slot != ZEST_DX_MAX_INDIRECT_STRIDES; ++slot) {
+		count += backend->indirect_signatures[table][slot].signature != NULL || backend->indirect_signatures[table][slot].stride != 0;
+	}
+	return count;
+}
+
+//One command signature per stride, a stride shorter than the command is refused, and a reset releases them all
+int test_d3d12_indirect_signatures(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	d3d12_indirect_draws_t draws = {};
+	int failed = !create_vertex_draw_resources(device, &draws.resources);
+	zest_buffer_info_t indirect_info = zest_CreateBufferInfo(zest_buffer_type_indirect, zest_memory_usage_cpu_to_gpu);
+	draws.commands = zest_CreateBuffer(device, 64, &indirect_info);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image target = zest_GetImage(target_handle);
+	failed |= !draws.commands || !target;
+	if (!failed) {
+		const zest_draw_indexed_indirect_command_t left = { 6, 1, 0, 0, 0 };
+		const zest_draw_indexed_indirect_command_t right = { 6, 1, 0, 4, 0 };
+		//Packed, then padded to 32 bytes
+		const zest_uint strides[2] = { (zest_uint)sizeof(zest_draw_indexed_indirect_command_t), 32 };
+		zest_uint pixels[256];
+		for (int stride_index = 0; stride_index != 2; ++stride_index) {
+			char *commands = (char *)zest_BufferData(draws.commands);
+			memset(commands, 0, 64);
+			memcpy(commands, &left, sizeof(left));
+			memcpy(commands + strides[stride_index], &right, sizeof(right));
+			draws.stride = strides[stride_index];
+			failed |= render_draw_pass(context, "Indirect Stride", target, ZEST_FALSE, d3d12_indirect_stride_task, &draws, pixels);
+			failed |= !columns_hold(pixels, 0, 16, vertex_draw_left);
+		}
+		failed |= d3d12_indirect_signature_count(device, 1) != 2 || d3d12_indirect_signature_count(device, 0) != 0;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		draws.stride = 12;
+		failed |= render_draw_pass(context, "Indirect Short Stride", target, ZEST_FALSE, d3d12_indirect_stride_task, &draws, pixels);
+		const int black[4] = { 0, 0, 0, 255 };
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1 || !columns_hold(pixels, 0, 16, black);
+		failed |= d3d12_indirect_signature_count(device, 1) != 2;
+	}
+	if (target) zest_FreeImageNow(target_handle);
+	if (draws.commands) zest_FreeBufferNow(draws.commands);
+	free_vertex_draw_resources(&draws.resources);
+	zest_ResetValidationErrors(device);
+	zest_ResetDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+	failed |= d3d12_indirect_signature_count(device, 0) != 0 || d3d12_indirect_signature_count(device, 1) != 0;
+	return failed | finish_device(device);
+}
+
+//View 0 draws red and view 1 green
+static const char *view_instancing_pixel_source =
+	"float4 main(uint view : SV_ViewID) : SV_Target0 { return view == 0 ? float4(1.0, 0.0, 0.0, 1.0) : float4(0.0, 1.0, 0.0, 1.0); }\n";
+
+static void d3d12_view_instancing_task(const zest_command_list command_list, void *user_data) {
+	zest_pipeline_template pipeline_template = (zest_pipeline_template)user_data;
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static zest_image_handle create_layered_target(zest_device device, zest_uint layer_count) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.layer_count = layer_count;
+	image_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+//Draws into every layer of image in one render pass, and returns the graph's result
+static zest_frame_graph_result run_view_instancing_pass(zest_context context, zest_image image, zest_pipeline_template pipeline_template) {
+	if (!zest_BeginCommandGraph(context, "View Instancing", 0)) return zest_fgs_critical_error;
+	zest_resource_node target = zest_ImportImageResource("Layered Target", image, 0);
+	zest_SetResourceClearColor(target, 0.f, 0.f, 0.f, 1.f);
+	zest_BeginRenderPass("View Instancing");
+	zest_ConnectOutput(target);
+	zest_SetPassTask(d3d12_view_instancing_task, pipeline_template);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph) return zest_fgs_critical_error;
+	zest_FlushFrameGraphAndWait(frame_graph);
+	return zest_GetFrameGraphResult(frame_graph);
+}
+
+//Two views render to the two layers of one target, a pipeline whose view count differs from its pass is refused, and a pass with more views than the device allows fails its graph
+int test_d3d12_view_instancing(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	int failed = ZEST_DX_BACKEND(device, device)->support.view_instancing_tier == D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+	zest_shader_handle vertex_shader = zest_CreateShader(device, depth_bias_vertex_hlsl, zest_vertex_shader, "view_instancing_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle pixel_shader = zest_CreateShader(device, view_instancing_pixel_source, zest_fragment_shader, "view_instancing_pixel", NULL, ZEST_TRUE);
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, "View Instancing");
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, pixel_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	zest_SetPipelineViewCount(pipeline_template, 2);
+	failed |= pipeline_template->view_mask != 3;
+	zest_image_handle two_layer_handle = create_layered_target(device, 2);
+	zest_image_handle one_layer_handle = create_layered_target(device, 1);
+	zest_image_handle six_layer_handle = create_layered_target(device, 6);
+	zest_image two_layer = zest_GetImage(two_layer_handle);
+	zest_image one_layer = zest_GetImage(one_layer_handle);
+	zest_image six_layer = zest_GetImage(six_layer_handle);
+	failed |= !two_layer || !one_layer || !six_layer;
+	if (!failed) {
+		const int red[4] = { 255, 0, 0, 255 };
+		const int green[4] = { 0, 255, 0, 255 };
+		zest_uint pixels[256];
+		failed |= run_view_instancing_pass(context, two_layer, pipeline_template) != zest_fgs_success;
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest__dx_read_subresource(device, two_layer, 0, 0, pixels) || !columns_hold(pixels, 0, 16, red);
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest__dx_read_subresource(device, two_layer, 0, 1, pixels) || !columns_hold(pixels, 0, 16, green);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		failed |= run_view_instancing_pass(context, one_layer, pipeline_template) != zest_fgs_success;
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+
+		error_count = zest_GetValidationErrorCount(device);
+		failed |= !(run_view_instancing_pass(context, six_layer, pipeline_template) & zest_fgs_invalid_render_pass);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+	}
+	if (two_layer) zest_FreeImageNow(two_layer_handle);
+	if (one_layer) zest_FreeImageNow(one_layer_handle);
+	if (six_layer) zest_FreeImageNow(six_layer_handle);
+	zest_FreePipelineTemplate(pipeline_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(pixel_shader);
+	zest_ResetValidationErrors(device);
+	return failed | finish_device(device);
+}
+
 static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Builder", test_d3d12_builder },
 	{ "D3D12 Interface IDs", test_d3d12_interface_ids },
@@ -5374,6 +5688,9 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Transient Images", test_d3d12_transient_images },
 	{ "D3D12 Transient Buffer Stride", test_d3d12_transient_buffer_stride },
 	{ "D3D12 Concurrent Descriptor Allocation", test_d3d12_concurrent_descriptor_allocation },
+	{ "D3D12 Cross Queue Barriers", test_d3d12_cross_queue_barriers },
+	{ "D3D12 Indirect Signatures", test_d3d12_indirect_signatures },
+	{ "D3D12 View Instancing", test_d3d12_view_instancing },
 	//Must stay last, see the test
 	{ "D3D12 Device Removed Mid Frame", test_d3d12_device_removed_mid_frame },
 };

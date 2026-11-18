@@ -926,6 +926,82 @@ int test__pipeline_depth_bias(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+struct IndirectDraws {
+	VertexDrawResources resources;
+	zest_buffer indexed_commands;
+	zest_buffer commands;
+	zest_pipeline_template triangle_template;
+};
+
+static void indirect_indexed_task(const zest_command_list command_list, void *user_data) {
+	IndirectDraws *draws = (IndirectDraws *)user_data;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float tint[4] = { 1.f, 0.5f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, tint, sizeof(tint));
+	//The offset is a draw index, so this skips the empty first command
+	zest_cmd_DrawIndexedIndirect(command_list, draws->indexed_commands, 1, 2, sizeof(zest_draw_indexed_indirect_command_t));
+}
+
+static void indirect_triangle_task(const zest_command_list command_list, void *user_data) {
+	IndirectDraws *draws = (IndirectDraws *)user_data;
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->triangle_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float color[4] = { 1.f, 1.f, 0.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, color, sizeof(color));
+	zest_cmd_DrawIndirect(command_list, draws->commands, 1, 1, sizeof(zest_draw_indirect_command_t));
+}
+
+//Indexed and non-indexed indirect draws read from an offset given as a draw index
+int test__pipeline_indirect_draw(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	test->frame_count++;
+	IndirectDraws draws = {};
+	int failed = !create_vertex_draw_resources(device, &draws.resources);
+	zest_buffer_info_t indirect_info = zest_CreateBufferInfo(zest_buffer_type_indirect, zest_memory_usage_cpu_to_gpu);
+	draws.indexed_commands = zest_CreateBuffer(device, sizeof(zest_draw_indexed_indirect_command_t) * 3, &indirect_info);
+	draws.commands = zest_CreateBuffer(device, sizeof(zest_draw_indirect_command_t) * 2, &indirect_info);
+	failed |= !draws.indexed_commands || !draws.commands;
+	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	zest_shader_handle vertex_shader = zest_CreateShader(device, hlsl ? depth_bias_vertex_hlsl : depth_bias_vertex_glsl, zest_vertex_shader, "indirect_triangle_vert", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, hlsl ? depth_bias_fragment_hlsl : depth_bias_fragment_glsl, zest_fragment_shader, "indirect_triangle_frag", NULL, ZEST_TRUE);
+	draws.triangle_template = zest_CreatePipelineTemplate(device, "Indirect Triangle");
+	zest_SetPipelineShaders(draws.triangle_template, vertex_shader, fragment_shader);
+	zest_SetPipelineDisableVertexInput(draws.triangle_template);
+	zest_SetPipelineBlend(draws.triangle_template, zest_BlendStateOpaque());
+	zest_image_handle image_handle = create_draw_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	failed |= image == NULL;
+	if (!failed) {
+		zest_draw_indexed_indirect_command_t indexed_commands[3] = { { 0, 0, 0, 0, 0 }, { 6, 1, 0, 0, 0 }, { 6, 1, 0, 4, 0 } };
+		memcpy(zest_BufferData(draws.indexed_commands), indexed_commands, sizeof(indexed_commands));
+		zest_draw_indirect_command_t commands[2] = { { 0, 0, 0, 0 }, { 3, 1, 0, 0 } };
+		memcpy(zest_BufferData(draws.commands), commands, sizeof(commands));
+		zest_uint pixels[256];
+		failed |= render_draw_pass(tests->context, "Indirect Indexed", image, ZEST_FALSE, indirect_indexed_task, &draws, pixels);
+		failed |= !columns_hold(pixels, 0, 16, vertex_draw_left);
+		const int yellow[4] = { 255, 255, 0, 255 };
+		failed |= render_draw_pass(tests->context, "Indirect Triangle", image, ZEST_FALSE, indirect_triangle_task, &draws, pixels);
+		failed |= !columns_hold(pixels, 0, 16, yellow);
+	}
+	if (image) zest_FreeImageNow(image_handle);
+	if (draws.indexed_commands) zest_FreeBufferNow(draws.indexed_commands);
+	if (draws.commands) zest_FreeBufferNow(draws.commands);
+	zest_FreePipelineTemplate(draws.triangle_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+	free_vertex_draw_resources(&draws.resources);
+	test->result = failed;
+	test->result |= zest_GetValidationErrorCount(device);
+	return test->result;
+}
+
 //Helper for the shader cache test: does a file exist on disk?
 static bool cache_file_exists(const char *path) {
 	FILE *file = fopen(path, "rb");

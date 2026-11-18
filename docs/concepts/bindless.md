@@ -217,6 +217,26 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0 {
   drawn with `zest_cmd_DrawLayerInstruction` (which passes the instruction's `start_index` as
   `first_instance`), needs the first instance in its push constants. Per-instance vertex attributes
   are offset by `first_instance` on both backends.
+- **Multiview.** A pipeline whose template has a view count (`zest_SetPipelineViewCount`) reads the view
+  in `SV_ViewID`, which needs shader model 6.1. View i renders to layer i of the pass's layered
+  attachments. D3D12 draws at most 4 views (`D3D12_MAX_VIEW_INSTANCE_COUNT`), and a render pass whose
+  attachments have more layers than the device's view count fails its graph on both backends. The
+  template's view count must equal the pass's layer count, as Vulkan requires, and on D3D12 a pipeline
+  that doesn't match isn't built.
+- **Indirect draws.** The `offset` of `zest_cmd_DrawIndirect` and `zest_cmd_DrawIndexedIndirect` is a draw
+  index on both backends, so the commands are read from `offset * stride` bytes into the buffer. On
+  D3D12 the stride is a multiple of 4 and at least the size of the command, and each draw type takes at
+  most 8 different strides (`ZEST_DX_MAX_INDIRECT_STRIDES`). A draw outside those limits is reported and
+  skipped.
+- **Images used on another queue type in the next frame.** D3D12 has layouts that only one queue type
+  can use. A frame graph leaves an image read in `zest_image_layout_general` on the queue that read it
+  in `DIRECT_QUEUE_COMMON` or `COMPUTE_QUEUE_COMMON`, and a depth image that was both depth tested and
+  sampled on the graphics queue in `DIRECT_QUEUE_GENERIC_READ`. If the next frame's first use of that
+  image is on another queue type, its barrier is reported and skipped. A copy queue can only start a
+  barrier from `COMMON`, so a transfer pass that runs on the copy queue can't be the first use in a
+  frame of an image another queue left in a different layout: the debug layer rejects the barrier
+  (message 1334), and nothing reports it. Inside one frame, images hand over between queues through
+  `COMMON` and need nothing from the app.
 
 **Raw and structured storage buffers.** `zest_AcquireStorageBufferIndex` gives a raw view: read it as
 `ByteAddressBuffer` or `RWByteAddressBuffer` with byte offsets. `zest_AcquireStructuredBufferIndex(device,

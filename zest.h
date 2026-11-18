@@ -2555,6 +2555,7 @@ typedef enum zest_resource_purpose {
 	zest_purpose_input_attachment,                    // Needs shader stage (typically fragment)
 	zest_purpose_transfer_image,
 	zest_purpose_present_src,                         // For swapchain final layout
+	zest_purpose_transfer_image_write,                //A transfer pass writing an image
 } zest_resource_purpose;
 
 typedef enum zest_pass_flag_bits {
@@ -5109,6 +5110,8 @@ ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_reso
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, zest_bool is_command_graph);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
+//Fails the graph when an attachment has more layers than the device can draw views, as a layered attachment draws one view per layer
+ZEST_PRIVATE void zest__check_view_count(zest_context context, zest_resource_node resource, zest_uint layer_count);
 ZEST_PRIVATE void zest__cleanup_frame_graph_builder();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers,
@@ -16864,6 +16867,15 @@ zest_frame_graph zest__compile_frame_graph() {
     return frame_graph;
 }
 
+void zest__check_view_count(zest_context context, zest_resource_node resource, zest_uint layer_count) {
+	zest_uint view_limit = context->device->max_multiview_view_count;
+	if (layer_count <= view_limit) return;
+	char message[256];
+	snprintf(message, sizeof(message), "The attachment %s has %u layers, and a render pass draws one view per layer, but this device draws at most %u views. Use an image with fewer layers.", resource->name, layer_count, view_limit);
+	zest__log_validation_error(context->device, message);
+	zest__frame_graph_builder->frame_graph->error_status |= zest_fgs_invalid_render_pass;
+}
+
 void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
 	if (exe_details->requires_render_pass) {
 		zest_context context = zest__frame_graph_builder->context;
@@ -16907,6 +16919,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						zest_uint current_mask = exe_details->rendering_info.view_mask;
 						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
 						exe_details->rendering_info.view_mask = view_mask;
+						zest__check_view_count(context, resource, layer_count);
 					}
 					//zest_image_layout final_layout = zest__determine_final_layout(zest__determine_final_layout(current_pass_index, resource, output_usage));
 					if (resource->type == zest_resource_type_swap_chain_image) {
@@ -16960,6 +16973,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						zest_uint current_mask = exe_details->rendering_info.view_mask;
 						ZEST_ASSERT(current_mask == 0 || current_mask == view_mask, "If using multiviews, all output images/depth attachments must have the same number of layers.");
 						exe_details->rendering_info.view_mask = view_mask;
+						zest__check_view_count(context, resource, layer_count);
 					}
 					render_pass_key = zest_Hash(&depth->usage, sizeof(zest_attachment_usage_t), render_pass_key);
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
@@ -19404,6 +19418,14 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
 			usage.is_output = ZEST_FALSE;
 			break;
 
+		case zest_purpose_transfer_image_write:
+			usage.image_layout = zest_image_layout_transfer_dst_optimal;
+			usage.access_mask = zest_access_transfer_write_bit;
+			usage.stage_mask = zest_pipeline_stage_transfer_bit;
+			resource->image.info.flags |= zest_image_flag_transfer_dst;
+			usage.is_output = ZEST_TRUE;
+			break;
+
 		case zest_purpose_present_src:
 			usage.image_layout = zest_image_layout_present;
 			usage.access_mask = 0; // No specific GPU access by the pass itself for this state.
@@ -19581,8 +19603,8 @@ void zest_ConnectOutput(zest_resource_node resource) {
 				break;
 			}
 			case zest_pass_type_transfer: {
-				zest__add_pass_image_usage(pass, resource, zest_purpose_transfer_image, zest_pipeline_stage_compute_shader_bit,
-										   ZEST_FALSE, zest_load_op_dont_care, zest_store_op_dont_care,
+				zest__add_pass_image_usage(pass, resource, zest_purpose_transfer_image_write, zest_pipeline_stage_transfer_bit,
+										   ZEST_TRUE, zest_load_op_dont_care, zest_store_op_dont_care,
 										   zest_load_op_dont_care, zest_store_op_dont_care, ZEST__ZERO_INIT(zest_clear_value_t));
 				break;
 			}

@@ -57,6 +57,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test Winding Coverage", test__pipeline_winding_coverage, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test Vertex Draw", test__pipeline_vertex_draw, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test Depth Bias", test__pipeline_depth_bias, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test Indirect Draw", test__pipeline_indirect_draw, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Binary Platform Mismatch", test__shader_binary_platform_mismatch, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Platform Macro", test__shader_platform_macro, 0, 1, 0, 0, tests->simple_create_info });
@@ -133,6 +134,8 @@ void InitialiseTests(ZestTests *tests) {
 	zest_create_context_info_t small_frame_graph_memory_info = tests->simple_create_info;
 	small_frame_graph_memory_info.frame_graph_allocator_size = zloc__KILOBYTE(1);
 	RegisterTest(tests, { "Transient Mip Views Across Allocator Growth", test__transient_mip_views_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, small_frame_graph_memory_info });
+	RegisterTest(tests, { "Frame Graph Transfer Image Output", test__transfer_image_output, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Multi Queue Cached Handoff", test__multi_queue_cached_handoff, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.
 	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
@@ -217,6 +220,12 @@ static const char *d3d12_suite_tests[] = {
 	"Compute Test Multiple Timeline Signals", "Compute Test Read Modify Write", "Compute Test Only Graph", "Compute Test Immediate Execute No Wait",
 	"Cached Transient Placement", "Unbacked Transient Barrier", "Intraframe Two Graphs",
 	"Stress Test Pass Dependencies", "Stress Test Pass Dependency Chain", "Stress Test Transient Buffers", "Stress Test All Transients",
+	"Frame Graph Transfer Image Output",
+	"Multi Queue Sync", "Stress Test Multi Queue", "Multi Queue Cached Handoff",
+	"Compute Test Mipmap Chain",
+	"Resource Test Transient Aliasing Dependency",
+	"Pipeline Test Indirect Draw",
+	"Compute Test Headless Flush And Wait", "Device Reset Memory Stability",
 };
 
 static zest_bool IsD3D12SuiteTest(const char *name) {
