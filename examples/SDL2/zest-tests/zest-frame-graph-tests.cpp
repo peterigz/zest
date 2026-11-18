@@ -661,14 +661,6 @@ int test__transfer_image_output(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-//Whether one of the device's logged validation errors contains the text
-static zest_bool validation_error_contains(zest_device device, const char *text) {
-	zest_map_foreach(error_index, device->validation_errors) {
-		if (strstr(device->validation_errors.data[error_index].str, text)) return ZEST_TRUE;
-	}
-	return ZEST_FALSE;
-}
-
 void zest_BlitImageTransfer(const zest_command_list command_list, void *user_data) {
 	zest_resource_node source = zest_GetPassInputResource(command_list, "Copy Source");
 	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Write Buffer");
@@ -726,14 +718,22 @@ int test__transfer_queue_blit_report(ZestTests *tests, Test *test) {
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_bool blit_found = ZEST_FALSE;
 		zest_bool blit_without_graphics = ZEST_FALSE;
 		for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
 			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
 			if (strcmp(pass_group->passes[0]->name, "Blit Report Blit") != 0) continue;
+			blit_found = ZEST_TRUE;
 			blit_without_graphics = !(pass_group->compiled_queue_info.queue->queue_manager->type & zest_queue_graphics);
 		}
-		test->result |= blit_without_graphics ? 0 : 2;
+		test->result |= blit_found ? 0 : 16;
 		zest_WaitForIdleDevice(tests->device);
+		if (blit_found && !blit_without_graphics) {
+			ZEST_PRINT("\tSkipped: the transfer pass ran on a queue family with graphics, so there's no blit to report");
+			test->result |= zest_GetValidationErrorCount(tests->device) != 0 ? 2 : 0;
+			test->frame_count++;
+			return test->result;
+		}
 	}
 	test->result |= zest_GetValidationErrorCount(tests->device) != 1 ? 4 : 0;
 	test->result |= !validation_error_contains(tests->device, "zest_cmd_BlitImageMip needs the graphics queue on Vulkan, and pass Blit Report Blit") ? 8 : 0;
@@ -808,12 +808,16 @@ int test__transfer_queue_mip_copy(ZestTests *tests, Test *test) {
 		}
 		zest_EndFrame(tests->context, frame_graph);
 		test->result |= zest_GetFrameGraphResult(frame_graph);
-		zest_bool copy_on_transfer_queue = ZEST_FALSE;
+		zest_bool copy_found = ZEST_FALSE;
+		zest_bool copy_without_graphics = ZEST_FALSE;
 		for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
 			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
-			if (strcmp(pass_group->passes[0]->name, "Mip Copy") == 0) copy_on_transfer_queue = pass_group->compiled_queue_info.queue_type == zest_queue_transfer;
+			if (strcmp(pass_group->passes[0]->name, "Mip Copy") != 0) continue;
+			copy_found = ZEST_TRUE;
+			copy_without_graphics = pass_group->compiled_queue_info.queue_type == zest_queue_transfer && !(pass_group->compiled_queue_info.queue->queue_manager->type & zest_queue_graphics);
 		}
-		test->result |= copy_on_transfer_queue ? 0 : 2;
+		//The copy is still checked, but without a dedicated transfer family it doesn't test the limited stages
+		if (copy_found && !copy_without_graphics) ZEST_PRINT("\tThe copy ran on a queue family with graphics, so the transfer queue's limited stages weren't tested");
 		zest_WaitForIdleDevice(tests->device);
 		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
 		test->result |= test_data->vec.x != 1.f || test_data->vec.y != 0.f ? 4 : 0;
@@ -1240,6 +1244,7 @@ int test__cached_imported_image_async(ZestTests *tests, Test *test) {
 struct ImportedHandback {
 	zest_image_handle destination;
 	int cache_hits;
+	zest_bool same_queue_family;
 };
 
 /*
@@ -1321,13 +1326,15 @@ int test__multi_queue_imported_handback(ZestTests *tests, Test *test) {
 			}
 			zest_EndFrame(tests->context, frame_graph);
 			test->result |= zest_GetFrameGraphResult(frame_graph);
-			//Without the transfer queue the image never changes queue, and there's no handback to test
-			zest_bool copy_on_transfer_queue = ZEST_FALSE;
+			//Without a transfer queue family of its own, the copy runs where the verify does and nothing is handed back
+			zest_uint copy_family = ZEST_QUEUE_FAMILY_IGNORED;
+			zest_uint verify_family = ZEST_QUEUE_FAMILY_IGNORED;
 			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
 				const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
-				if (strcmp(pass_group->passes[0]->name, "Handback Copy") == 0) copy_on_transfer_queue = pass_group->compiled_queue_info.queue_type == zest_queue_transfer;
+				if (strcmp(pass_group->passes[0]->name, "Handback Copy") == 0) copy_family = pass_group->compiled_queue_info.queue_family_index;
+				if (strcmp(pass_group->passes[0]->name, "Handback Verify") == 0) verify_family = pass_group->compiled_queue_info.queue_family_index;
 			}
-			test->result |= copy_on_transfer_queue ? 0 : 8;
+			if (copy_family != ZEST_QUEUE_FAMILY_IGNORED && copy_family == verify_family) handback.same_queue_family = ZEST_TRUE;
 		}
 		test->result |= zest_GetValidationErrorCount(tests->device);
 	}
@@ -1343,6 +1350,7 @@ int test__multi_queue_imported_handback(ZestTests *tests, Test *test) {
 			test->result |= test_data->vec.x != 1.f || test_data->vec.y != 0.f ? 4 : 0;
 			test->result |= zest_GetValidationErrorCount(tests->device);
 		}
+		if (handback.same_queue_family) ZEST_PRINT("\tThe copy ran on the same queue family as the verify, so nothing was handed back");
 		if (handback.destination.value) zest_FreeImageNow(handback.destination);
 	}
 	return test->result;

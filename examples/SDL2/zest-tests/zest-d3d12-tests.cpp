@@ -5770,7 +5770,8 @@ static void rescue_read_task(const zest_command_list command_list, void *user_da
 }
 
 //The imported image's first use is on the copy queue and its last on the graphics queue, in a later submission, so it's handed back
-static zest_semaphore_status run_rescue_graph(zest_context context, zest_image image, zest_bool *fail_second_submission) {
+static zest_semaphore_status run_rescue_graph(zest_context context, zest_image image, zest_bool *fail_second_submission, zest_bool *out_read_in_second_submission) {
+	*out_read_in_second_submission = ZEST_FALSE;
 	if (!zest_BeginCommandGraph(context, "Rescue", 0)) return zest_semaphore_status_error;
 	zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
 	target_info.width = 16;
@@ -5799,6 +5800,11 @@ static zest_semaphore_status run_rescue_graph(zest_context context, zest_image i
 	zest_frame_graph frame_graph = zest_EndFrameGraph();
 	zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
 	zest__dx_forced_signal_failure = ZEST_FALSE;
+	//The failure only drains the device when a batch went out before it, so the pass that fails has to be in the second submission
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		if (strcmp(pass_group->passes[0]->name, "Rescue Read") == 0) *out_read_in_second_submission = ZEST__SUBMISSION_INDEX(pass_group->submission_id) == 1;
+	}
 	return status;
 }
 
@@ -5817,18 +5823,20 @@ int test_d3d12_rescue_clears_tracked_state(void) {
 	int failed = image == NULL;
 	if (image) {
 		zest_bool fail_second_submission = ZEST_FALSE;
-		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_success;
+		zest_bool read_in_second_submission = ZEST_FALSE;
+		failed |= run_rescue_graph(context, image, &fail_second_submission, &read_in_second_submission) != zest_semaphore_status_success;
+		failed |= !read_in_second_submission;
 		failed |= image->last_access_mask == 0 || image->last_stage_mask == 0;
 		failed |= image->queue_family_index != context->graphics_family_index || image->released_to_family != context->transfer_family_index;
 
 		fail_second_submission = ZEST_TRUE;
-		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_error;
+		failed |= run_rescue_graph(context, image, &fail_second_submission, &read_in_second_submission) != zest_semaphore_status_error;
 		failed |= image->last_access_mask != 0 || image->last_stage_mask != 0;
 		failed |= image->queue_family_index != ZEST_QUEUE_FAMILY_IGNORED || image->released_to_family != ZEST_QUEUE_FAMILY_IGNORED;
 
 		//The next execution starts from the cleared state and hands the image back again
 		fail_second_submission = ZEST_FALSE;
-		failed |= run_rescue_graph(context, image, &fail_second_submission) != zest_semaphore_status_success;
+		failed |= run_rescue_graph(context, image, &fail_second_submission, &read_in_second_submission) != zest_semaphore_status_success;
 		failed |= image->queue_family_index != context->graphics_family_index || image->released_to_family != context->transfer_family_index;
 		failed |= zest_GetValidationErrorCount(device) != 0;
 	}

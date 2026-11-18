@@ -94,6 +94,14 @@ static const char *TestShaderPath(zest_device device, const char *glsl_path, cha
 	return buffer;
 }
 
+//Whether one of the device's logged validation errors contains the text
+static zest_bool validation_error_contains(zest_device device, const char *text) {
+	zest_map_foreach(error_index, device->validation_errors) {
+		if (strstr(device->validation_errors.data[error_index].str, text)) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
 int test__blank_screen(ZestTests *tests, Test *test);
 int test__shader_cache_invalidation(ZestTests *tests, Test *test);
 
