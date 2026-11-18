@@ -268,3 +268,25 @@ cd /path/to/zest
 ```
 
 Or set the working directory in your IDE to the repository root.
+
+## Running on D3D12
+
+These examples run on Vulkan by default and on D3D12 with `--d3d12`, in a build with `ZEST_ENABLE_D3D12` (on by
+default on Windows):
+
+- `zest-clear-screen` and `zest-minimal-template`
+- `zest-imgui-template` and `zest-sdl2-imgui-template`
+- `zest-timelinefx` and `zest-timelinefx-particle-techniques`, which also need `ZEST_ENABLE_SLANG`
+
+They share these arguments, from `examples/Common/example_platform.h` (the clear screen and minimal templates parse
+their own):
+
+| Argument | Effect |
+|----------|--------|
+| `--d3d12` | Use the D3D12 backend |
+| `--validate` | Turn on the validation layers, print the validation error count at exit and exit with 1 if it isn't 0. On D3D12 also print the COM references the device left behind |
+| `--validate-sync` | `--validate` with Vulkan synchronisation validation or D3D12 GPU-based validation (not the clear screen and minimal templates) |
+| `--frames N` | Exit after N frames |
+
+`zest-timelinefx-particle-techniques` also takes `--effect-mode baked|cpu|gpu` to start with that technique, and on
+D3D12 its profile window shows CPU timings only, as the D3D12 backend has no GPU timestamps yet.

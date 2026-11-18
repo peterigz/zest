@@ -10,6 +10,15 @@ Sets up a complete ImGui environment with:
 - Custom font loading and texture rebuilding
 - ImGui demo window for reference
 
+## Running
+
+Run from the root of the Zest repository, as the font and image paths are relative to it.
+
+- `--d3d12` uses the D3D12 backend, in a build configured with `ZEST_ENABLE_D3D12`
+- `--validate` turns on the validation layers and exits with 1 on any validation error
+- `--validate-sync` adds Vulkan synchronisation validation, or D3D12 GPU-based validation, to `--validate`
+- `--frames N` exits after N frames
+
 ## Zest Features Used
 
 - **ImGui Integration**: `zest_imgui_Initialise`, `zest_imgui_DarkStyle`

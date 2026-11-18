@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include <SDL.h>
 #include <zest.h>
@@ -9,6 +12,7 @@
 #include "examples/Common/timelinefx_shaders.h"
 #include <imgui/backends/imgui_impl_sdl2.h>
 #include "examples/Common/sdl_events.cpp"
+#include "examples/Common/example_platform.h"
 
 /**
 	Example showing how to use the timelinefx library and implementation to render particle effects
@@ -56,6 +60,7 @@ struct TimelineFXExample {
 	zest_imgui_t imgui_layer_info;
 	bool request_graph_print;
 	bool sync_refresh;
+	example_options_t options;
 
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
@@ -144,7 +149,7 @@ void TimelineFXExample::Init() {
 	zest_SetShaderHotReload(tfx_rendering.ribbon_rendering.comp_shader, ZEST_TRUE);
 
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
+    InitImGuiSDL2ForDevice(zest_GetContextDevice(context), (SDL_Window *)zest_Window(context));
 
 	//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 	tfxEffectID effect_id = tfx_AddEffectTemplateToStage(pm, title_effect);
@@ -261,9 +266,11 @@ void MainLoop(TimelineFXExample *game) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&game->options, frame)) {
+		++frame;
 		running = PollSDLEvents(game->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -394,6 +401,8 @@ int main(int argc, char *argv[]) {
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	TimelineFXExample game = {0};
+	//--d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	game.options = ParseExampleOptions(argc, argv);
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_BeginTimelineFX(tfx_GetDefaultThreadCount(), zloc__MEGABYTE(128));
 
@@ -401,8 +410,12 @@ int main(int argc, char *argv[]) {
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "TimelineFX Example");
 
-	//Create the device that serves all vulkan based contexts
-	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device that serves all contexts, for the chosen backend
+	game.device = CreateExampleDevice(&window_data, &game.options, 0);
+	if (!game.device) {
+		tfx_EndTimelineFX();
+		return 1;
+	}
 
 	//Initialise Zest
 	game.context = zest_CreateContext(game.device, &window_data, &create_info);
@@ -414,8 +427,8 @@ int main(int argc, char *argv[]) {
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&game.imgui);
 	FreeTimelineFXShaderSession(game.device, game.shader_session);
-	zest_DestroyDevice(game.device);
+	int exit_code = FinishExample(game.device, &game.options);
 	tfx_EndTimelineFX();
 
-	return 0;
+	return exit_code;
 }

@@ -144,6 +144,62 @@ void main()
 
 );
 
+//----------------------
+//Imgui HLSL vert shader, for D3D12
+//----------------------
+static const char *zest_shader_imgui_vert_hlsl = ZEST_HLSL(
+cbuffer zest_imgui_push : register(b0, space0) {
+	float4 transform;
+	uint texture_index;
+	uint sampler_index;
+	uint image_layer;
+};
+
+struct zest_imgui_input {
+	float2 position : POSITION0;
+	float2 uv : TEXCOORD0;
+	float4 color : COLOR0;
+};
+
+struct zest_imgui_varyings {
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float3 uv : TEXCOORD0;
+};
+
+zest_imgui_varyings main(zest_imgui_input input) {
+	zest_imgui_varyings output;
+	output.position = float4(input.position * transform.xy + transform.zw, 0.0, 1.0);
+	output.color = input.color;
+	output.uv = float3(input.uv, (float)image_layer);
+	return output;
+}
+);
+
+//----------------------
+//Imgui HLSL fragment shader, for D3D12
+//----------------------
+static const char *zest_shader_imgui_frag_hlsl = ZEST_HLSL(
+cbuffer zest_imgui_push : register(b0, space0) {
+	float4 transform;
+	uint texture_index;
+	uint sampler_index;
+	uint image_layer;
+};
+SamplerState zest_samplers[] : register(s0, space100);
+Texture2DArray zest_texture_arrays[] : register(t0, space103);
+
+struct zest_imgui_varyings {
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float3 uv : TEXCOORD0;
+};
+
+float4 main(zest_imgui_varyings input) : SV_Target0 {
+	return input.color * zest_texture_arrays[NonUniformResourceIndex(texture_index)].Sample(zest_samplers[NonUniformResourceIndex(sampler_index)], input.uv);
+}
+);
+
 static unsigned char zest_imgui_frag_spv[] = {
   0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00, 0x0b, 0x00, 0x0d, 0x00,
   0x1c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x02, 0x00,

@@ -6,6 +6,15 @@ Demonstrates integrating the TimelineFX particle effects library with Zest.
 
 Shows how to load and play real-time particle effects created with the [TimelineFX Editor](https://www.rigzsoft.co.uk/). Effects are updated each frame by the particle manager and rendered as billboards/sprites. Click to spawn explosion effects at the mouse position using screen-to-world ray casting.
 
+## Running
+
+Run from the root of the Zest repository, as the library and shader paths are relative to it.
+
+- `--d3d12` uses the D3D12 backend, in a build configured with `ZEST_ENABLE_D3D12`
+- `--validate` turns on the validation layers and exits with 1 on any validation error
+- `--validate-sync` adds Vulkan synchronisation validation, or D3D12 GPU-based validation, to `--validate`
+- `--frames N` exits after N frames
+
 ## Zest Features Used
 
 - **TimelineFX Integration**: `zest_tfx_InitTimelineFXRenderResources`, `zest_tfx_ShapeLoader`

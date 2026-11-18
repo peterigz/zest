@@ -1053,6 +1053,10 @@ static const unsigned char zest_debug_font[96 * 8] = {
 #define ZEST_MAX_FIF 2
 #endif
 
+#ifndef ZEST_MAX_TRANSIENT_BUFFER_VIEWS
+#define ZEST_MAX_TRANSIENT_BUFFER_VIEWS 4		//Structured views of one transient buffer in one execution, one per stride
+#endif
+
 #ifndef ZEST_ASSERT
 
 #ifndef NDEBUG
@@ -1246,7 +1250,7 @@ Other color possibilities
 
 #define ZEST_NL u8"\n"
 #define ZEST_TAB u8"\t"
-#define ZEST_APPEND_LOG(log_path, message, ...) if (log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message ZEST_NL, ##__VA_ARGS__); fclose(log_file); }
+#define ZEST_APPEND_LOG(log_path, message, ...) if (log_path) { FILE *log_file = zest__open_file(log_path, "a"); if (log_file) { fprintf(log_file, message ZEST_NL, ##__VA_ARGS__); fclose(log_file); } }
 
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
@@ -1385,6 +1389,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #endif
 #include <windows.h>
 #include <direct.h>	//For creating a directory when caching shaders
+#include <share.h>	//For _SH_DENYNO, so threads can open the log at the same time
 #include <sys/types.h>
 #include <sys/stat.h>
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
@@ -2763,6 +2768,8 @@ device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (mem_contex
 
 //For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
 #define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
+//Variadic so that commas outside brackets stay in the shader. New lines are lost, so no preprocessor lines or line comments.
+#define ZEST_HLSL(...) #__VA_ARGS__
 
 // --Forward_declarations
 typedef struct zest_context_t zest_context_t;
@@ -5111,6 +5118,8 @@ ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *
 ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
+//Acquires a bindless index for a transient buffer, writes its view (stride 0 for raw) and queues the index for release with the frame
+ZEST_PRIVATE zest_uint zest__write_transient_buffer_view(const zest_command_list command_list, zest_resource_node resource, zest_uint stride);
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
@@ -5675,6 +5684,11 @@ ZEST_API void zest_FlushCachedFrameGraphs(zest_context context);
 ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
+//Bindless index of a structured view of a transient buffer, for a shader that declares StructuredBuffer<T> or RWStructuredBuffer<T>
+//with sizeof(T) == stride. A buffer read as several types takes one view per stride, up to ZEST_MAX_TRANSIENT_BUFFER_VIEWS, and the same
+//stride gives back the same index. Create the resource with element_alignment a common multiple of the strides. Same rules as
+//zest_GetTransientBufferBindlessIndex otherwise. On Vulkan every view is the same bytes as the raw one.
+ZEST_API zest_uint zest_GetTransientStructuredBufferIndex(const zest_command_list command_list, zest_resource_node resource, zest_uint stride);
 
 // --- Special flags for passes and resource
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
@@ -8019,6 +8033,11 @@ typedef struct zest_compute_t {
 	zest_compute_flags flags;
 } zest_compute_t;
 
+typedef struct zest_buffer_view_index_t {
+	zest_uint stride;
+	zest_uint index;
+} zest_buffer_view_index_t;
+
 typedef struct zest_resource_node_t {
 	int magic;
 	const char *name;
@@ -8043,6 +8062,8 @@ typedef struct zest_resource_node_t {
 	#endif
 	zest_uint bindless_index[zest_max_global_binding_number];   		   //The index to use in the shader
 	zest_uint *mip_level_bindless_indexes[zest_max_global_binding_number]; //The mip indexes to use in the shader
+	zest_buffer_view_index_t buffer_views[ZEST_MAX_TRANSIENT_BUFFER_VIEWS];	//Structured views this execution, from zest_GetTransientStructuredBufferIndex
+	zest_uint buffer_view_count;
 
 	zest_uint reference_count;
 
@@ -8136,13 +8157,9 @@ zest_microsecs zest_Microsecs(void) {
 #endif
 
 #ifdef _WIN32
+//Shared, as fopen_s opens a file no other handle can, and threads append to the log at the same time
 FILE* zest__open_file(const char* file_name, const char* mode) {
-    FILE* file = NULL;
-    errno_t err = fopen_s(&file, file_name, mode);
-    if (err != 0 || file == NULL) {
-        return NULL;
-    }
-    return file;
+    return _fsopen(file_name, mode, _SH_DENYNO);
 }
 
 #else
@@ -17687,6 +17704,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
             resource->current_state_index = 0;
         }
 		memset(resource->bindless_index, 0xFF, sizeof(zest_uint) * zest_max_global_binding_number);
+		resource->buffer_view_count = 0;
 	}
 	ZEST_CPU_PROFILE_END(context);
 
@@ -18979,6 +18997,7 @@ zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource) {
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         node->bindless_index[i] = ZEST_INVALID;
     }
+    node->buffer_view_count = 0;
     zest_resource_versions_t resource_version = ZEST__ZERO_INIT(zest_resource_versions_t);
     node->version = 0;
     node->original_id = node->id;
@@ -19164,7 +19183,6 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
 }
 
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource) {
-    zest_set_layout bindless_layout = command_list->frame_graph->bindless_layout;
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle. Things to Check:
 	//When calling zest_GetPass[Input/Ouput]Resource use the correct resource name as defined in the frame graph
 	//Use the correct call depending on whether the resource was used as input or ouput ie:
@@ -19172,29 +19190,74 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_l
 	//	zest_GetPassOutputResource if it was used as output
 									
     ZEST_ASSERT(resource->type & zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
-	zest_context context = zest__frame_graph_builder->context;
-	zest_device device = context->device;
 	//A transient buffer can resolve to zero size for this execution (e.g. an instance/dynamic layer
 	//with nothing to draw) and so have no backing buffer. Guard the descriptor update against that:
 	//the caller is expected to check zest_ResourceBufferIsValid() and skip the work that uses this
 	//buffer. Checked before the cached-index early-out so a stale index from a previous (non-empty)
 	//execution is not handed back.
-	ZEST_ASSERT_OR_VALIDATE(resource->storage_buffer, device,
+	ZEST_ASSERT_OR_VALIDATE(resource->storage_buffer, zest__frame_graph_builder->context->device,
 		"zest_GetTransientBufferBindlessIndex called on a buffer resource with no backing buffer this execution. "
 		"Most likely is that you're using a resource provider callback to update the size and this frame the size was set to zero."
 		"Call zest_ResourceBufferIsValid() at the top of the pass and skip the work that uses this buffer when it returns false.",
 		ZEST_INVALID);
+	if (!resource->storage_buffer) return ZEST_INVALID;	//Release builds, where the check above compiles away
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
-    zest_frame_graph frame_graph = command_list->frame_graph;
-	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
+	zest_uint bindless_index = zest__write_transient_buffer_view(command_list, resource, 0);
+	if (bindless_index == ZEST_INVALID) return bindless_index;
+    resource->bindless_index[0] = bindless_index;
+    return bindless_index;
+}
+
+zest_uint zest__write_transient_buffer_view(const zest_command_list command_list, zest_resource_node resource, zest_uint stride) {
+	zest_context context = zest__frame_graph_builder->context;
+	zest_device device = context->device;
+	zest_frame_graph frame_graph = command_list->frame_graph;
+	zest_uint bindless_index = zest__acquire_bindless_index(frame_graph->bindless_layout, zest_storage_buffer_binding);
 	if (bindless_index == ZEST_INVALID) return bindless_index;
 
-    device->platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, 0, frame_graph->bindless_set);
+	device->platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, bindless_index, resource->storage_buffer, stride, frame_graph->bindless_set);
 
 	zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, zest_storage_buffer_binding };
 	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif], binding_index);
-    resource->bindless_index[0] = bindless_index;
-    return bindless_index;
+	return bindless_index;
+}
+
+zest_uint zest_GetTransientStructuredBufferIndex(const zest_command_list command_list, zest_resource_node resource, zest_uint stride) {
+	ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle. Use the resource's frame graph name with zest_GetPassInputResource or zest_GetPassOutputResource
+	ZEST_ASSERT(resource->type & zest_resource_type_buffer);	//Must be a buffer resource
+	zest_device device = zest__frame_graph_builder->context->device;
+	ZEST_ASSERT_OR_VALIDATE(resource->storage_buffer, device,
+		"zest_GetTransientStructuredBufferIndex called on a buffer resource with no backing buffer this execution. "
+		"Call zest_ResourceBufferIsValid() at the top of the pass and skip the work that uses this buffer when it returns false.",
+		ZEST_INVALID);
+	if (!resource->storage_buffer) return ZEST_INVALID;	//Release builds, where the check above compiles away
+	for (zest_uint view = 0; view != resource->buffer_view_count; ++view) {
+		if (resource->buffer_views[view].stride == stride) return resource->buffer_views[view].index;
+	}
+	//Validation errors are deduplicated by text, so each message names the resource and the stride
+	char message[512];
+	message[0] = 0;
+	if (!stride) {
+		snprintf(message, sizeof(message), "zest_GetTransientStructuredBufferIndex needs a stride for resource [%s], the size of the struct the shader reads. Use zest_GetTransientBufferBindlessIndex for a raw view.", resource->name);
+	} else if (stride > ZEST_MAX_STRUCTURED_STRIDE) {
+		//D3D12 removes the device for a view past either limit, so both backends reject it
+		snprintf(message, sizeof(message), "zest_GetTransientStructuredBufferIndex was given stride %u for resource [%s], over the 2048 bytes D3D12 allows for a structured buffer element. Split the struct or use a raw view.", stride, resource->name);
+	} else if (stride > resource->storage_buffer->size) {
+		snprintf(message, sizeof(message), "zest_GetTransientStructuredBufferIndex was given resource [%s], which is smaller than stride %u, so its view would hold no element. Make the resource at least one element in size.", resource->name, stride);
+	} else if (resource->storage_buffer->memory_offset % stride) {
+		snprintf(message, sizeof(message), "zest_GetTransientStructuredBufferIndex needs resource [%s] at an offset that is a multiple of stride %u. Set element_alignment in its zest_buffer_resource_info_t to a common multiple of every stride it's read with.", resource->name, stride);
+	} else if (resource->buffer_view_count == ZEST_MAX_TRANSIENT_BUFFER_VIEWS) {
+		snprintf(message, sizeof(message), "Resource [%s] already has %u structured views this execution, the most ZEST_MAX_TRANSIENT_BUFFER_VIEWS allows, so stride %u has none. Raise ZEST_MAX_TRANSIENT_BUFFER_VIEWS or read the buffer through fewer strides.", resource->name, ZEST_MAX_TRANSIENT_BUFFER_VIEWS, stride);
+	}
+	if (message[0]) {
+		zest__log_validation_error(device, message);
+		return ZEST_INVALID;
+	}
+	zest_uint bindless_index = zest__write_transient_buffer_view(command_list, resource, stride);
+	if (bindless_index == ZEST_INVALID) return bindless_index;
+	zest_buffer_view_index_t buffer_view = { stride, bindless_index };
+	resource->buffer_views[resource->buffer_view_count++] = buffer_view;
+	return bindless_index;
 }
 
 zest_uint zest_GetResourceMipLevels(zest_resource_node resource) {

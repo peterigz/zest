@@ -85,6 +85,7 @@ Optional CMake flags:
 | Flag | Description |
 |------|-------------|
 | `-DZEST_ENABLE_SLANG=ON` | Enable the Slang shader compiler (requires `VULKAN_SDK` env var) |
+| `-DZEST_ENABLE_D3D12=OFF` | Build without the D3D12 backend. It's on by default on Windows, and the first configure downloads the Agility SDK and DXC packages |
 
 ### Frame Graph Example
 

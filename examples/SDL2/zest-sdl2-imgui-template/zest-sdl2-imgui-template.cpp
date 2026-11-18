@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-sdl2-imgui-template.h"
 #include <zest.h>
@@ -26,7 +29,8 @@ void LoadSprite(ImGuiApp *app, const char *filename) {
         int size = width * height * 4;
         zest_image_info_t image_info = zest_CreateImageInfo(width, height);
         image_info.format = zest_format_r8g8b8a8_unorm;
-        image_info.flags = zest_image_preset_texture;
+        //ImGui's shaders sample a texture array
+        image_info.flags = zest_image_preset_texture | zest_image_flag_force_image_array;
         zest_image_handle image_handle = zest_CreateImageWithPixels(app->device, pixels, size, &image_info);
         STBI_FREE(pixels);
         zest_image image = zest_GetImage(image_handle);
@@ -47,7 +51,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+    InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 
 	//Implement a dark style
 	zest_imgui_DarkStyle(&app->imgui);
@@ -71,7 +75,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_sampler sampler = zest_GetSampler(sampler_handle);
 	app->sampler_index = zest_AcquireSamplerIndex(app->device, sampler);
 
-	app->imgui_sprite_shader = zest_CreateShader(app->device, zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", NULL, ZEST_TRUE);
+	zest_bool hlsl = zest_GetDevicePlatform(app->device) == zest_platform_d3d12;
+	app->imgui_sprite_shader = zest_CreateShader(app->device, hlsl ? zest_shader_imgui_r8g8_frag_hlsl : zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", NULL, ZEST_TRUE);
 
 	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate("ImGui Sprite Pipeline", app->imgui.pipeline);
 	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);
@@ -91,9 +96,11 @@ void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd
 
 void MainLoop(ImGuiApp *app) {
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		while (SDL_PollEvent(&event)) {
 			ImGui_ImplSDL2_ProcessEvent(&event);
 			if (event.type == SDL_QUIT) {
@@ -249,14 +256,18 @@ int main(int argc, char *argv[]) {
 	 }
 
 	ImGuiApp imgui_app = {};
+	//--d3d12, --validate and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
-	//Create the device that serves all vulkan based contexts
-	//Get the required instance extensions from SDL
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, zest_device_init_flag_output_memory_pool_info);
+	//Create the device that serves all contexts, for the chosen backend
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, zest_device_init_flag_output_memory_pool_info);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	//Create new config struct for Zest
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -273,7 +284,5 @@ int main(int argc, char *argv[]) {
 	if(imgui_app.loader_thread.joinable()) imgui_app.loader_thread.join();
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyDevice(imgui_app.device);
-
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

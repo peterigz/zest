@@ -8,6 +8,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -40,6 +41,7 @@ struct ImGuiApp {
 	bool request_graph_print;
 	bool reset;
 	int load_image_index;
+	example_options_t options;
 };
 
 void InitImGuiApp(ImGuiApp *app);
@@ -72,4 +74,28 @@ static const char *zest_shader_imgui_r8g8_frag = ZEST_GLSL(450 core,
 		out_color = vec4(out_color.r, out_color.g, out_color.b, out_color.a);
 	}
 
+);
+
+//----------------------
+//Imgui HLSL fragment shader for 2 channel images, for D3D12
+//----------------------
+static const char *zest_shader_imgui_r8g8_frag_hlsl = ZEST_HLSL(
+cbuffer zest_imgui_push : register(b0, space0) {
+	float4 transform;
+	uint texture_index;
+	uint sampler_index;
+	uint image_layer;
+};
+SamplerState zest_samplers[] : register(s0, space100);
+Texture2D zest_textures[] : register(t0, space101);
+
+struct zest_imgui_varyings {
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+	float3 uv : TEXCOORD0;
+};
+
+float4 main(zest_imgui_varyings input) : SV_Target0 {
+	return input.color * zest_textures[NonUniformResourceIndex(texture_index)].Sample(zest_samplers[NonUniformResourceIndex(sampler_index)], input.uv.xy);
+}
 );

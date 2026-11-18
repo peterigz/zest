@@ -12,6 +12,18 @@ Pick a technique from the **Effects** dropdown:
 
 The GPU stats show particle slots rather than live particles. A dead GPU particle keeps its slot until the longest-lived particle spawned on the same tick dies, so the slot count runs higher than the CPU particle count for the same effects.
 
+## Running
+
+Run from the root of the Zest repository, as the library and shader paths are relative to it.
+
+- `--d3d12` uses the D3D12 backend, in a build configured with `ZEST_ENABLE_D3D12`
+- `--validate` turns on the validation layers and exits with 1 on any validation error
+- `--validate-sync` adds Vulkan synchronisation validation, or D3D12 GPU-based validation, to `--validate`
+- `--frames N` exits after N frames
+- `--effect-mode baked|cpu|gpu` starts with that technique selected
+
+On D3D12 the profile window shows CPU timings only, as the D3D12 backend has no GPU timestamps yet.
+
 ## Zest Features Used
 
 - **Compute Shaders**: `zest_CreateCompute` for sprite data playback and GPU particle simulation

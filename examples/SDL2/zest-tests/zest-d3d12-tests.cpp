@@ -950,68 +950,50 @@ static const D3D12SlangEntry d3d12_slang_entries[] = {
 };
 #define D3D12_SLANG_ENTRY_COUNT (sizeof(d3d12_slang_entries) / sizeof(d3d12_slang_entries[0]))
 
-static void print_slang_diagnostics(slang::IBlob *diagnostics, const char *entry_point) {
-	if (diagnostics && diagnostics->getBufferSize()) {
-		ZEST_PRINT("\t%s: %.*s", entry_point, (int)diagnostics->getBufferSize(), (const char *)diagnostics->getBufferPointer());
+static zest_shader_type d3d12_slang_entry_type(zest_uint stage) {
+	switch (stage) {
+	case 0: return zest_fragment_shader;
+	case 1: return zest_vertex_shader;
+	default: return zest_compute_shader;
 	}
-	if (diagnostics) diagnostics->release();
 }
 
-//Compiles the entries above to DXIL through the Slang API, as shared code has no DXIL target yet. A failed entry is left NULL
-static int compile_slang_dxil_set(slang::IBlob **out_blobs) {
-	memset(out_blobs, 0, sizeof(slang::IBlob *) * D3D12_SLANG_ENTRY_COUNT);
-	slang::IGlobalSession *global_session = NULL;
-	if (SLANG_FAILED(slang::createGlobalSession(&global_session)) || !global_session) return 1;
-	slang::TargetDesc target_description = {};
-	target_description.format = SLANG_DXIL;
-	target_description.profile = global_session->findProfile("sm_6_0");
+//Compiles the entries above to DXIL through impl_slang. A failed entry is left empty. Free the blobs with release_slang_dxil_set
+static int compile_slang_dxil_set(zest_device device, zest_slang_blob_t *out_blobs) {
+	memset(out_blobs, 0, sizeof(zest_slang_blob_t) * D3D12_SLANG_ENTRY_COUNT);
+	if (!device->slang_info) {
+		zest_slang_InitialiseSession(device);
+	}
 	const char *search_paths[2] = { "submodules/timelinefxlib/Shaders", "examples/SDL2/zest-compute-example/shaders" };
-	slang::SessionDesc session_description = {};
-	session_description.targets = &target_description;
-	session_description.targetCount = 1;
-	session_description.searchPaths = search_paths;
-	session_description.searchPathCount = 2;
-	session_description.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
-	slang::ISession *session = NULL;
-	int failed = SLANG_FAILED(global_session->createSession(session_description, &session)) || !session;
-	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT && !failed; ++entry_index) {
+	zest_slang_session_info_t info = zest_slang_DefaultSessionInfo();
+	info.search_paths = search_paths;
+	info.search_path_count = 2;
+	zest_slang_session session = zest_slang_CreateSession(device, &info);
+	if (!session) {
+		ZEST_PRINT("\tNo Slang session: %s", zest_slang_GetCreateSessionError(device));
+		return 1;
+	}
+	int failed = 0;
+	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
 		const D3D12SlangEntry *entry = &d3d12_slang_entries[entry_index];
-		slang::IBlob *diagnostics = NULL;
-		slang::IModule *module = session->loadModule(entry->module, &diagnostics);
-		print_slang_diagnostics(diagnostics, entry->module);
-		slang::IEntryPoint *entry_point = NULL;
-		if (!module || SLANG_FAILED(module->findEntryPointByName(entry->entry_point, &entry_point)) || !entry_point) {
-			ZEST_PRINT("\tSlang couldn't find %s in %s", entry->entry_point, entry->module);
-			failed = 1;
-			break;
-		}
-		slang::IComponentType *components[2] = { module, entry_point };
-		slang::IComponentType *program = NULL;
-		diagnostics = NULL;
-		session->createCompositeComponentType(components, 2, &program, &diagnostics);
-		print_slang_diagnostics(diagnostics, entry->entry_point);
-		diagnostics = NULL;
-		if (program) {
-			program->getEntryPointCode(0, 0, &out_blobs[entry_index], &diagnostics);
-			print_slang_diagnostics(diagnostics, entry->entry_point);
-			program->release();
-		}
-		entry_point->release();
-		if (!out_blobs[entry_index]) {
-			ZEST_PRINT("\tSlang couldn't compile %s to DXIL", entry->entry_point);
+		zest_slang_entry_point_info_t entry_info = {};
+		entry_info.module = entry->module;
+		entry_info.entry_point = entry->entry_point;
+		entry_info.type = d3d12_slang_entry_type(entry->stage);
+		if (!zest_slang_CompileToBinary(session, &entry_info, &out_blobs[entry_index])) {
+			ZEST_PRINT("\tSlang couldn't compile %s to DXIL: %s", entry->entry_point, zest_slang_GetLastError(session));
 			failed = 1;
 		}
 	}
-	if (session) session->release();
-	global_session->release();
+	zest_slang_FreeSession(session);
 	return failed;
 }
 
-static void release_slang_dxil_set(slang::IBlob **blobs) {
+static void release_slang_dxil_set(zest_device device, zest_slang_blob_t *blobs) {
 	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
-		if (blobs[entry_index]) blobs[entry_index]->release();
-		blobs[entry_index] = NULL;
+		zest_slang_FreeBlob(&blobs[entry_index]);
 	}
+	zest_slang_Shutdown(device);
 }
 #endif
 
@@ -1047,22 +1029,22 @@ int test_d3d12_shader_reflection_cross_check(void) {
 	ZEST_DX_RELEASE(blit_vertex);
 	ZEST_DX_RELEASE(blit_pixel);
 #ifdef ZEST_ENABLE_SLANG
-	slang::IBlob *slang_blobs[D3D12_SLANG_ENTRY_COUNT];
-	failed |= compile_slang_dxil_set(slang_blobs);
+	zest_slang_blob_t slang_blobs[D3D12_SLANG_ENTRY_COUNT];
+	failed |= compile_slang_dxil_set(device, slang_blobs);
 	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
-		slang::IBlob *blob = slang_blobs[entry_index];
+		zest_slang_blob_t *blob = &slang_blobs[entry_index];
 		const D3D12SlangEntry *entry = &d3d12_slang_entries[entry_index];
-		if (!blob) continue;
+		if (!blob->data) continue;
 		zest_dx_shader_reflection_t reflection;
 		const char *error = NULL;
-		failed |= cross_check_reflection(utils, blob->getBufferPointer(), blob->getBufferSize(), entry->entry_point);
-		if (zest__dx_reflect_shader(blob->getBufferPointer(), blob->getBufferSize(), &reflection, &error) && reflection.stage != entry->stage) {
+		failed |= cross_check_reflection(utils, blob->data, (size_t)blob->size, entry->entry_point);
+		if (zest__dx_reflect_shader(blob->data, blob->size, &reflection, &error) && reflection.stage != entry->stage) {
 			ZEST_PRINT("\t%s: stage %u, expected %u", entry->entry_point, reflection.stage, entry->stage);
 			failed = 1;
 		}
 		checked_count++;
 	}
-	release_slang_dxil_set(slang_blobs);
+	release_slang_dxil_set(device, slang_blobs);
 #else
 	ZEST_PRINT("\tThe Slang set was skipped, as ZEST_ENABLE_SLANG isn't defined");
 #endif
@@ -1397,23 +1379,23 @@ int test_d3d12_root_signatures_from_shaders(void) {
 	}
 
 #ifdef ZEST_ENABLE_SLANG
-	slang::IBlob *slang_blobs[D3D12_SLANG_ENTRY_COUNT];
-	failed |= compile_slang_dxil_set(slang_blobs);
+	zest_slang_blob_t slang_blobs[D3D12_SLANG_ENTRY_COUNT];
+	failed |= compile_slang_dxil_set(device, slang_blobs);
 	zest_uint baked_vertex = ZEST_INVALID;
 	zest_uint billboard_fragment = ZEST_INVALID;
 	for (zest_uint entry_index = 0; entry_index != D3D12_SLANG_ENTRY_COUNT; ++entry_index) {
-		slang::IBlob *blob = slang_blobs[entry_index];
+		zest_slang_blob_t *blob = &slang_blobs[entry_index];
 		if (!strcmp(d3d12_slang_entries[entry_index].entry_point, "tfx_billboard_baked_vertex")) baked_vertex = entry_index;
 		if (!strcmp(d3d12_slang_entries[entry_index].entry_point, "tfx_billboard_fragment")) billboard_fragment = entry_index;
-		if (!blob) continue;
-		const void *data = blob->getBufferPointer();
-		size_t size = blob->getBufferSize();
+		if (!blob->data) continue;
+		const void *data = blob->data;
+		size_t size = (size_t)blob->size;
 		failed |= create_root_signature_from_blobs(device, &data, &size, 1, d3d12_slang_entries[entry_index].entry_point, &layout);
 		created_count++;
 	}
-	if (baked_vertex != ZEST_INVALID && billboard_fragment != ZEST_INVALID && slang_blobs[baked_vertex] && slang_blobs[billboard_fragment]) {
-		const void *datas[2] = { slang_blobs[baked_vertex]->getBufferPointer(), slang_blobs[billboard_fragment]->getBufferPointer() };
-		size_t sizes[2] = { slang_blobs[baked_vertex]->getBufferSize(), slang_blobs[billboard_fragment]->getBufferSize() };
+	if (baked_vertex != ZEST_INVALID && billboard_fragment != ZEST_INVALID && slang_blobs[baked_vertex].data && slang_blobs[billboard_fragment].data) {
+		const void *datas[2] = { slang_blobs[baked_vertex].data, slang_blobs[billboard_fragment].data };
+		size_t sizes[2] = { (size_t)slang_blobs[baked_vertex].size, (size_t)slang_blobs[billboard_fragment].size };
 		failed |= create_root_signature_from_blobs(device, datas, sizes, 2, "tfx_billboard_baked_vertex + tfx_billboard_fragment", &layout);
 		created_count++;
 		zest_bool baked_shape = layout.push_count == 2 && layout.pushes[0].shader_register == 2 && layout.pushes[0].visibility == D3D12_SHADER_VISIBILITY_VERTEX &&
@@ -1424,7 +1406,7 @@ int test_d3d12_root_signatures_from_shaders(void) {
 	} else {
 		failed = 1;
 	}
-	release_slang_dxil_set(slang_blobs);
+	release_slang_dxil_set(device, slang_blobs);
 #else
 	ZEST_PRINT("\tThe Slang set was skipped, as ZEST_ENABLE_SLANG isn't defined");
 #endif

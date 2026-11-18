@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include <SDL.h>
 #include "zest-timelinefx-particle-techniques.h"
@@ -13,6 +16,7 @@
 #define MAX_SPRITES	250000
 #define EFFECT_SPAWN_INTERVAL 25.f		//Milliseconds
 #define TFX_LIBRARY_PATH "examples/assets/instanced_effects.tfx"
+#define ANIMATION_INSTANCE_ROW_BYTES 64		//tfx_animation_instance_t, which timelinefx.h only declares. tfx_animation_instance in timelinefx.slang
 
 //Both the baked sprite data and the library contain these effects
 static const char *effect_names[EFFECT_COUNT] = { "Big Explosion", "Star Burst Flash", "EmissionSingleShot", "Firework" };
@@ -92,9 +96,9 @@ void SpriteComputeFunction(zest_command_list command_list, void *user_data) {
 	//Set the total number of instance_data that need to be processed by the shader
 	push.billboards_total = metrics.total_sprites_to_draw;
 
-	push.offsets_index = zest_GetTransientBufferBindlessIndex(command_list, offsets_node);
-	push.animation_instances_index = zest_GetTransientBufferBindlessIndex(command_list, animation_instances_node);
-	push.billboards_index = zest_GetTransientBufferBindlessIndex(command_list, billboard_instances_node);
+	push.offsets_index = zest_GetTransientStructuredBufferIndex(command_list, offsets_node, sizeof(tfxU32));
+	push.animation_instances_index = zest_GetTransientStructuredBufferIndex(command_list, animation_instances_node, ANIMATION_INSTANCE_ROW_BYTES);
+	push.billboards_index = zest_GetTransientStructuredBufferIndex(command_list, billboard_instances_node, sizeof(tfx_instance_t));
 	push.image_data_index = example->tfx_rendering.image_data_index;
 	push.sprite_data_index = example->tfx_rendering.sprite_data_index;
 	push.emitter_properties_index = example->tfx_rendering.emitter_properties_index;
@@ -218,9 +222,11 @@ void InitExample(tfxParticleTechniquesExample *example) {
 	example->tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->tfx_rendering.camera, 60.f);
 	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
-	//The baked vertex shader has no captured_index input to declare
-	zest_ClearVertexAttributeDescriptions(example->tfx_rendering.particles.pipeline);
-	zest_tfx_AddBillboardVertexAttributes(example->tfx_rendering.particles.pipeline, ZEST_FALSE);
+	//The baked vertex shader never reads captured_index: SPIR-V drops the input, so Vulkan wants no attribute for it, and DXIL keeps it, so D3D12 needs one
+	if (zest_GetDevicePlatform(example->device) == zest_platform_vulkan) {
+		zest_ClearVertexAttributeDescriptions(example->tfx_rendering.particles.pipeline);
+		zest_tfx_AddBillboardVertexAttributes(example->tfx_rendering.particles.pipeline, ZEST_FALSE);
+	}
 
 	zest_sampler_info_t sampler = zest_CreateSamplerInfo();
 	example->sampler = zest_CreateSampler(example->device, &sampler);
@@ -266,7 +272,7 @@ void InitExample(tfxParticleTechniquesExample *example) {
 
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(example->context, &example->imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(example->context));
+    InitImGuiSDL2ForDevice(example->device, (SDL_Window *)zest_Window(example->context));
 
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
 	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
@@ -394,9 +400,9 @@ void AddEffect(tfxParticleTechniquesExample *example, int effect_index, zest_vec
 }
 
 void AddBakedPasses(tfxParticleTechniquesExample *example) {
-	zest_buffer_resource_info_t offsets_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d) };
-	zest_buffer_resource_info_t animation_instances_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d) };
-	zest_buffer_resource_info_t billboard_instance_buffer_info = { zest_resource_usage_hint_none, tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d) * sizeof(tfx_instance_t) };
+	zest_buffer_resource_info_t offsets_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), sizeof(tfxU32) };
+	zest_buffer_resource_info_t animation_instances_buffer_info = { zest_resource_usage_hint_copy_dst, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), ANIMATION_INSTANCE_ROW_BYTES };
+	zest_buffer_resource_info_t billboard_instance_buffer_info = { zest_resource_usage_hint_none, tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d) * sizeof(tfx_instance_t), sizeof(tfx_instance_t) };
 
 	zest_resource_node offsets_buffer = zest_AddTransientBufferResource("Buffer Offsets", &offsets_buffer_info);
 	zest_resource_node animation_instances = zest_AddTransientBufferResource("Animation Instances", &animation_instances_buffer_info);
@@ -440,9 +446,11 @@ void MainLoop(tfxParticleTechniquesExample *example) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&example->options, frame)) {
+		++frame;
 		running = PollSDLEvents(example->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -546,12 +554,33 @@ void MainLoop(tfxParticleTechniquesExample *example) {
 int main(int argc, char *argv[]) {
 	if (!TimelineFXShadersAvailable("zest-timelinefx-particle-techniques")) return 0;
 
+	tfxParticleTechniquesExample example{};
+	//--d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	example.options = ParseExampleOptions(argc, argv);
+	//--effect-mode baked|cpu|gpu starts in that mode, so an automated run can reach each one
+	for (int argument_index = 1; argument_index < argc; ++argument_index) {
+		if (strcmp(argv[argument_index], "--effect-mode") != 0 || argument_index + 1 >= argc) continue;
+		const char *mode = argv[++argument_index];
+		if (strcmp(mode, "baked") == 0) {
+			example.requested_effect_mode = EffectMode_baked;
+		} else if (strcmp(mode, "cpu") == 0) {
+			example.requested_effect_mode = EffectMode_stage_cpu;
+		} else if (strcmp(mode, "gpu") == 0) {
+			example.requested_effect_mode = EffectMode_stage_gpu;
+		} else {
+			printf("Unknown effect mode %s, expected baked, cpu or gpu\n", mode);
+			return 1;
+		}
+	}
+
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	if (!example.options.use_d3d12) {
+		//D3D12 has no GPU timestamps yet, and asking for them asserts
+		ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
+	}
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
-	tfxParticleTechniquesExample example{};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_BeginTimelineFX(tfx_GetDefaultThreadCount(), zloc__MEGABYTE(128));
 
@@ -559,8 +588,12 @@ int main(int argc, char *argv[]) {
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "TimelineFX Particle Techniques");
 
-	//Create the device that serves all vulkan based contexts
-	example.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device that serves all contexts, for the chosen backend
+	example.device = CreateExampleDevice(&window_data, &example.options, 0);
+	if (!example.device) {
+		tfx_EndTimelineFX();
+		return 1;
+	}
 
 	//Initialise Zest
 	example.context = zest_CreateContext(example.device, &window_data, &create_info);
@@ -572,8 +605,8 @@ int main(int argc, char *argv[]) {
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&example.imgui);
 	FreeTimelineFXShaderSession(example.device, example.shader_session);
-	zest_DestroyDevice(example.device);
+	int exit_code = FinishExample(example.device, &example.options);
 	tfx_EndTimelineFX();
 
-	return 0;
+	return exit_code;
 }

@@ -244,6 +244,12 @@ if(ZEST_D3D12_ENABLED)
 endif()
 zest_copy_d3d12_runtime(zest-clear-screen)
 zest_copy_d3d12_runtime(zest-minimal-template)
+zest_copy_d3d12_runtime(zest-imgui-template)
+zest_copy_d3d12_runtime(zest-sdl2-imgui-template)
+if(ZEST_ENABLE_SLANG)
+	zest_copy_d3d12_runtime(zest-timelinefx)
+	zest_copy_d3d12_runtime(zest-timelinefx-particle-techniques)
+endif()
 
 # Compiles zest.h as C11 so C regressions fail the build. Never linked.
 add_library(zest-c-compile-check OBJECT zest-tests/zest-c-compile-check.c)

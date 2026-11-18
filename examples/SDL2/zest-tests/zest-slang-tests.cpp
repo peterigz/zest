@@ -54,13 +54,30 @@ static zest_bool slang_test__entry_point_is_main(const void *data, zest_size siz
 	return entry_point_count > 0;
 }
 
+//SPIR-V with every entry point named main, or a signed DXIL container (non-zero digest) whose PSV0 part says compute
+static zest_bool slang_test__binary_is_compute(zest_device device, const void *data, zest_size size) {
+	if (zest_GetDevicePlatform(device) != zest_platform_d3d12) return slang_test__entry_point_is_main(data, size);
+#ifdef ZEST_ENABLE_D3D12
+	const unsigned char *bytes = (const unsigned char *)data;
+	if (size < 32 || memcmp(bytes, "DXBC", 4) != 0) return ZEST_FALSE;
+	zest_bool signed_container = ZEST_FALSE;
+	for (int byte_index = 4; byte_index != 20; ++byte_index) signed_container |= bytes[byte_index] != 0;
+	zest_dx_shader_reflection_t reflection;
+	const char *error = NULL;
+	return signed_container && zest__dx_reflect_shader(data, size, &reflection, &error) && reflection.stage == 5;
+#else
+	return ZEST_FALSE;
+#endif
+}
+
 static zest_bool slang_test__dispatch(ZestTests *tests, zest_compute_handle compute_handle, SlangTestParticle *out_particles) {
 	zest_size size = sizeof(SlangTestParticle) * SLANG_TEST_PARTICLE_COUNT;
 	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	buffer_info.element_alignment = sizeof(SlangTestParticle);
 	zest_buffer buffer = zest_CreateBuffer(tests->device, size, &buffer_info);
 	if (!buffer) return ZEST_FALSE;
 	memset(zest_BufferData(buffer), 0, size);
-	zest_uint buffer_index = zest_AcquireStorageBufferIndex(tests->device, buffer);
+	zest_uint buffer_index = zest_AcquireStructuredBufferIndex(tests->device, buffer, sizeof(SlangTestParticle));
 	zest_uint push[4] = { buffer_index, SLANG_TEST_PARTICLE_COUNT, 0, 0 };
 	zest_bool dispatched = ZEST_FALSE;
 	zest_queue queue = zest_imm_BeginCommandBuffer(tests->device, zest_queue_compute);
@@ -142,8 +159,8 @@ int test__slang_variants_and_linking(ZestTests *tests, Test *test) {
 		zest_shader_handle shaders[] = { shader_a, shader_b, shader_generic, shader_user };
 		for (int index = 0; index != 4; ++index) {
 			zest_shader shader = zest_GetShader(shaders[index]);
-			if (!slang_test__entry_point_is_main(zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader))) {
-				ZEST_PRINT("\tEntry point of shader %i is not named main", index);
+			if (!slang_test__binary_is_compute(device, zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader))) {
+				ZEST_PRINT("\tShader %i is not a compute shader for this device, or its entry point is not named main", index);
 				test->result |= 1;
 			}
 		}
@@ -261,9 +278,10 @@ int test__slang_compile_failures(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-//StructuredBuffer strides, std430 by default and scalar when the session asks for it
+//StructuredBuffer strides as the device's target lays them out (std430, scalar or D3D packing), the platform macro, and profiles for the other backend
 int test__slang_type_size(ZestTests *tests, Test *test) {
 	zest_device device = tests->device;
+	zest_bool is_d3d12 = zest_GetDevicePlatform(device) == zest_platform_d3d12;
 	zest_slang_session session = slang_test__create_session(device, SLANG_TEST_SHADER_PATH, ZEST_FALSE);
 	if (!session) {
 		test->result = 1;
@@ -274,8 +292,14 @@ int test__slang_type_size(ZestTests *tests, Test *test) {
 		ZEST_PRINT("\tTestParticle size %zu, expected 32", (size_t)zest_slang_GetTypeSize(session, "common", "TestParticle"));
 		test->result |= 1;
 	}
-	if (zest_slang_GetTypeSize(session, "common", "PackedPair") != 32) {
-		ZEST_PRINT("\tPackedPair std430 size %zu, expected 32", (size_t)zest_slang_GetTypeSize(session, "common", "PackedPair"));
+	zest_size packed_pair_size = is_d3d12 ? 24 : 32;
+	if (zest_slang_GetTypeSize(session, "common", "PackedPair") != packed_pair_size) {
+		ZEST_PRINT("\tPackedPair size %zu, expected %zu", (size_t)zest_slang_GetTypeSize(session, "common", "PackedPair"), (size_t)packed_pair_size);
+		test->result |= 1;
+	}
+	zest_size platform_macro_size = is_d3d12 ? 8 : 4;
+	if (zest_slang_GetTypeSize(session, "common", "PlatformMacro") != platform_macro_size) {
+		ZEST_PRINT("\tPlatformMacro size %zu, expected %zu, so the session didn't define the platform macro", (size_t)zest_slang_GetTypeSize(session, "common", "PlatformMacro"), (size_t)platform_macro_size);
 		test->result |= 1;
 	}
 	if (zest_slang_GetTypeSize(session, "common", "NoSuchType") != 0 || zest_slang_GetLastResult(session) != zest_slang_result_type_not_found || !strstr(zest_slang_GetLastError(session), "NoSuchType")) {
@@ -310,12 +334,88 @@ int test__slang_type_size(ZestTests *tests, Test *test) {
 	}
 	zest_slang_FreeSession(refused_session);
 
+	//A profile for the other backend is refused rather than failing later at the binary format check
+	const char *search_path = SLANG_TEST_SHADER_PATH;
+	zest_slang_session_info_t other_backend_info = zest_slang_DefaultSessionInfo();
+	other_backend_info.search_paths = &search_path;
+	other_backend_info.search_path_count = 1;
+	other_backend_info.profile = is_d3d12 ? "spirv_1_5" : "sm_6_0";
+	zest_slang_session other_backend_session = zest_slang_CreateSession(device, &other_backend_info);
+	if (other_backend_session || !strstr(zest_slang_GetCreateSessionError(device), "other backend")) {
+		ZEST_PRINT("\tProfile %s was not refused: '%s'", other_backend_info.profile, zest_slang_GetCreateSessionError(device));
+		test->result |= 1;
+	}
+	zest_slang_FreeSession(other_backend_session);
+
 	zest_slang_Shutdown(device);
 	test->frame_count++;
 	return test->result;
 }
 
-//Debug SPIR-V only: Slang 2025.23.2 debug info crashes pipeline creation on AMD driver 32.0.21045.5002
+struct SlangTimelineFXStride {
+	const char *type;
+	zest_size stride;
+};
+
+//Every struct impl_timelinefx.c gives a structured view, at the row size it uses for that view
+static const SlangTimelineFXStride slang_timelinefx_strides[] = {
+	{ "tfx_image_data", 48 },					//tfx_gpu_image_data_t
+	{ "tfx_emitter_properties", 32 },			//tfx_gpu_particle_properties_t
+	{ "tfx_gpu_graph_data", 48 },				//tfx_gpu_graph_data_t
+	{ "tfx_instance", 48 },						//tfx_instance_t
+	{ "tfx_ribbon_emitter", 96 },				//tfx_gpu_ribbon_emitter_t, ZEST__TFX_RIBBON_EMITTER_ROW_BYTES
+	{ "tfx_ribbon", 48 },						//tfx_ribbon_t, tfxRIBBON_SIZE
+	{ "tfx_ribbon_vertex_row", 32 },			//tfx_ribbon_vertex_t
+	{ "tfx_gpu_particle_hot", 32 },				//tfx_gpu_particle_hot_t
+	{ "tfx_gpu_particle_cold", 64 },			//tfx_gpu_particle_cold_t
+	{ "tfx_gpu_particle_noise", 16 },			//tfx_gpu_particle_noise_t
+	{ "tfx_gpu_particle_dispatch", 128 },		//tfx_gpu_particle_dispatch_t
+	{ "tfx_gpu_particle_tick", 64 },			//tfx_gpu_particle_tick_t
+	{ "tfx_gpu_spawn_location", 32 },			//tfx_gpu_spawn_location_t
+	{ "tfx_gpu_particle_spawn", 112 },			//tfx_gpu_particle_spawn_t
+	{ "tfx_animation_instance", 64 },			//tfx_animation_instance_t, ANIMATION_INSTANCE_ROW_BYTES in particle techniques
+};
+
+//TimelineFX's structs keep the stride of their C rows on the device's target, so one stride serves both backends
+int test__slang_timelinefx_strides(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	zest_slang_session session = slang_test__create_session(device, "submodules/timelinefxlib/Shaders", ZEST_FALSE);
+	if (!session) {
+		test->result = 1;
+		test->frame_count++;
+		return test->result;
+	}
+	for (size_t type_index = 0; type_index != sizeof(slang_timelinefx_strides) / sizeof(slang_timelinefx_strides[0]); ++type_index) {
+		const SlangTimelineFXStride *expected = &slang_timelinefx_strides[type_index];
+		zest_size stride = zest_slang_GetTypeSize(session, "timelinefx", expected->type);
+		if (stride != expected->stride) {
+			ZEST_PRINT("\t%s has a stride of %zu, expected %zu: %s", expected->type, (size_t)stride, (size_t)expected->stride, zest_slang_GetLastError(session));
+			test->result |= 1;
+		}
+	}
+	slang_test__shutdown(device, session);
+	test->result |= zest_GetValidationErrorCount(device);
+	test->frame_count++;
+	return test->result;
+}
+
+//DXIL container parts: a uint32 count at byte 28, then the offsets, each pointing at a fourcc and a size
+static zest_bool slang_test__container_has_part(const void *data, zest_size size, const char *fourcc) {
+	const unsigned char *bytes = (const unsigned char *)data;
+	if (size < 32 || memcmp(bytes, "DXBC", 4) != 0) return ZEST_FALSE;
+	zest_uint part_count = 0;
+	memcpy(&part_count, bytes + 28, 4);
+	if (32 + (zest_size)part_count * 4 > size) return ZEST_FALSE;
+	for (zest_uint part = 0; part != part_count; ++part) {
+		zest_uint offset = 0;
+		memcpy(&offset, bytes + 32 + part * 4, 4);
+		if ((zest_size)offset + 8 > size) return ZEST_FALSE;
+		if (memcmp(bytes + offset, fourcc, 4) == 0) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+//Inspects the binary only: Slang 2025.23.2 debug SPIR-V crashes pipeline creation on AMD driver 32.0.21045.5002
 int test__slang_debug_info(ZestTests *tests, Test *test) {
 	zest_device device = tests->device;
 	if (!device->slang_info) {
@@ -335,10 +435,17 @@ int test__slang_debug_info(ZestTests *tests, Test *test) {
 		test->result |= 1;
 	} else {
 		zest_shader shader = zest_GetShader(shader_handle);
-		std::string binary((const char *)zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader));
-		if (binary.find("NonSemantic.Shader.DebugInfo") == std::string::npos || binary.find("kernel.slang") == std::string::npos) {
-			ZEST_PRINT("\tSPIR-V has no source level debug info");
-			test->result |= 1;
+		if (zest_GetDevicePlatform(device) == zest_platform_d3d12) {
+			if (!slang_test__container_has_part(zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader), "ILDB")) {
+				ZEST_PRINT("\tDXIL has no ILDB debug part");
+				test->result |= 1;
+			}
+		} else {
+			std::string binary((const char *)zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader));
+			if (binary.find("NonSemantic.Shader.DebugInfo") == std::string::npos || binary.find("kernel.slang") == std::string::npos) {
+				ZEST_PRINT("\tSPIR-V has no source level debug info");
+				test->result |= 1;
+			}
 		}
 		zest_FreeShader(shader_handle);
 	}

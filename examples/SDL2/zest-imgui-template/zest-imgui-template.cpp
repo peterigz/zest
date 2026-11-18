@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-imgui-template.h"
 #include "zest.h"
@@ -50,8 +53,8 @@ void InitImGui(ImGuiApp *app, zest_context context, zest_imgui_t *imgui) {
 	//and configures the rendering pipeline. The third parameter is the window destroy callback
 	//used when closing additional viewports.
 	zest_imgui_Initialise(context, imgui, zest_implsdl2_DestroyWindow);
-	//Also initialise the GLFW backend for ImGui input handling
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
+	//Also initialise the SDL2 backend for ImGui input handling, for the device's backend
+	InitImGuiSDL2ForDevice(zest_GetContextDevice(context), (SDL_Window *)zest_Window(context));
 	ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
 	platform_io.Renderer_CreateWindow = CreateSDLViewport;
 
@@ -87,9 +90,11 @@ void InitImGui(ImGuiApp *app, zest_context context, zest_imgui_t *imgui) {
 void MainLoop(ImGuiApp *app) {
 
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 
 		//This must be called every frame before any rendering. It handles resource cleanup,
@@ -137,16 +142,19 @@ void MainLoop(ImGuiApp *app) {
 int main(int argc, char *argv[]) {
 
 	ImGuiApp imgui_app = {};
+	//--d3d12, --validate and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Imgui With Docking");
 
-	//Create the Vulkan device. This is a one-time setup that creates the Vulkan instance,
-	//selects a physical device, and sets up the logical device with required queues.
-	//The false parameter indicates we don't want a debug/validation layer.
-	//One device can serve multiple windows/contexts.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend. This is a one-time setup that selects a physical device
+	//and sets up the logical device with the queues it needs. One device can serve multiple windows/contexts.
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, 0);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	//Create a context info struct with default settings. You can modify this to change
 	//things like the number of frames in flight, MSAA settings, etc.
@@ -167,9 +175,7 @@ int main(int argc, char *argv[]) {
 	ImGui_ImplSDL2_Shutdown();
 	//Destroy the Zest ImGui resources (font texture, pipeline, etc)
 	zest_imgui_Destroy(&imgui_app.imgui);
-	//Finally destroy the device which also cleans up all contexts and Vulkan resources.
+	//Finally destroy the device which also cleans up all contexts and GPU resources.
 	//Zest will warn of potential memory leaks if it finds un-freed blocks.
-	zest_DestroyDevice(imgui_app.device);
-
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

@@ -58,6 +58,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test Vertex Draw", test__pipeline_vertex_draw, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test Depth Bias", test__pipeline_depth_bias, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Pipeline Test Indirect Draw", test__pipeline_indirect_draw, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Pipeline Test ImGui Shaders", test__pipeline_imgui_shaders, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Binary Platform Mismatch", test__shader_binary_platform_mismatch, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Platform Macro", test__shader_platform_macro, 0, 1, 0, 0, tests->simple_create_info });
@@ -136,12 +137,13 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Transient Mip Views Across Allocator Growth", test__transient_mip_views_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, small_frame_graph_memory_info });
 	RegisterTest(tests, { "Frame Graph Transfer Image Output", test__transfer_image_output, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Frame Graph Transfer Queue Mip Copy", test__transfer_queue_mip_copy, 0, 1, 0, 0, tests->simple_create_info });
-	//Not on the D3D12 suite list: D3D12 blits the same format on the copy queue
+	//Vulkan only: D3D12 blits the same format on the copy queue
 	RegisterTest(tests, { "Frame Graph Transfer Queue Blit Report", test__transfer_queue_blit_report, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Multi Queue Cached Handoff", test__multi_queue_cached_handoff, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Imported Image", test__cached_imported_image, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Imported Image Async", test__cached_imported_image_async, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Multi Queue Imported Handback", test__multi_queue_imported_handback, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Frame Graph Transient Structured Buffer", test__transient_structured_buffer, 0, 1, 0, 0, tests->simple_create_info });
 	//Layer tests also create transient buffers/images so they stay after the bindless-index
 	//sensitive tests above for the same reason.
 	RegisterTest(tests, { "Layer Test Instance Upload", test__instance_layer_upload, 0, 1, 0, 0, tests->simple_create_info });
@@ -156,6 +158,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Slang Debug Info", test__slang_debug_info, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Slang Hot Reload", test__slang_hot_reload, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Slang Shadowing Module", test__slang_shadowing_module, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Slang TimelineFX Strides", test__slang_timelinefx_strides, 0, 1, 0, 0, tests->headless_create_info });
 #endif
 	RegisterTest(tests, { "Shader Hot Reload Keeps Macros", test__shader_hot_reload_keeps_macros, 0, 1, 0, 0, tests->simple_create_info });
 	//Device reset tests run their own reset cycles internally, which rebuilds the bindless index
@@ -185,64 +188,27 @@ void InitialiseSpecificTests(ZestTests *tests) {
     zest_ResetValidationErrors(tests->device);
 }
 
-//The shared tests the D3D12 suite run registers
-static const char *d3d12_suite_tests[] = {
-	"Empty Graph", "Single Pass", "Blank Screen", "Pass Culling", "Resource Culling", "Chained Pass Culling",
-	"Import Image", "Pass Grouping", "Cyclic Dependency", "Simple Graph Cache",
-	"Resource Test Image Format Support", "Resource Test Image Creation Destruction",
-	"Resource Test Buffer Creation Destruction", "Resource Test Buffer Edge Cases", "Resource Test Sampler Creation",
-	"User Test No Update Device", "User Test No End Frame", "User Test No Swapchain Import", "User Test Missing End Pass",
-	"User Test Bad Frame Graph Ordering", "User Test Frame Graph State Errors", "User Test Pass Without Task",
-	"User Test Unused Imported Resource", "User Test Multiple Swapchain Imports", "User Test Resources Named the Same",
-	"User Test Add the same resource twice",
-	"Compute Test Timeline Timeout",
-	"Resource Test Buffer Offset Alignment", "Resource Test Dedicated Buffer", "Resource Test Buffer Grow Contract", "Resource Test Concurrent Pool Growth",
-	"User Test Device Platform Query", "User Test Descriptor Pool Failure", "User Test Swapchain Resize",
-	"Resource Test Image Format Edge Cases", "Resource Test Image View Creation",
-	"Resource Test Uniform Buffer Descriptor Management", "Resource Test Uniform Buffer Edge Cases",
-	"Resource Test Staging Buffer Operations", "Resource Test Image With Pixels Creation",
-	"Resource Test Image Array Descriptor Indexes", "Resource Test Image Allocator Memory Type Keying",
-	"Resource Test Large Readback Buffer", "Resource Test Pooled Image Allocations",
-	"Transient Image", "Image Barriers", "Multi Reader Barrier", "Depth Attachment", "Compute Test WAW Barrier",
-	"Essential Unused Transient", "Versioned Transient", "Cached Transient Persistence",
-	"Transient Placement Failure", "Transient Placement Failure Retry",
-	"Arena Memory Bound", "Arena Alternation", "Arena Trim", "Transient Report", "Transient Mip Views Across Allocator Growth",
-	"Stress Test Simple",
-	"User Test Unused Swapchain", "User Test Buffer Output In Render Pass", "User Test Transient Dependency Ordering",
-	"User Test Acquire/Release Indexes",
-	"Device Reset Deferred Frees", "Device Reset Bindless Indexes",
-	"Shader Cache Invalidation", "Shader Hot Reload Keeps Macros", "Shader Binary Platform Mismatch", "Shader Platform Macro",
-	"Resource Test Structured Buffer Index",
-	"Pipeline Test State Depth", "Pipeline Test State Blending", "Pipeline Test State Culling", "Pipeline Test State Topology",
-	"Pipeline Test State Polygon Mode", "Pipeline Test State Front Face", "Pipeline Test State Vertex Input", "Pipeline Test State MultiBlend",
-	"Pipeline Test State Rasterization",
-	"Pipeline Test Winding Coverage", "Pipeline Test Vertex Draw", "Pipeline Test Depth Bias",
-	"Image Write/Read", "Resource Test Compute Shader Resources", "Compute Test Frame Graph and Execute", "Compute Test Timeline Wait External",
-	"Compute Test Immediate Execute Cached", "Compute Test Flush Compile Failure No Hang", "Stress Test Transient Images",
-	"Layer Test Instance Upload", "Layer Test Instruction Batching", "Layer Test Buffer Growth", "Layer Test Instance Draw",
-	"Layer Test Frame In Flight", "Resource Test Stride Aligned Buffers",
-	"Device Reset Pool Sizing",
-	"Buffer Read/Write",
-	"Compute Test Multiple Timeline Signals", "Compute Test Read Modify Write", "Compute Test Only Graph", "Compute Test Immediate Execute No Wait",
-	"Cached Transient Placement", "Unbacked Transient Barrier", "Intraframe Two Graphs",
-	"Stress Test Pass Dependencies", "Stress Test Pass Dependency Chain", "Stress Test Transient Buffers", "Stress Test All Transients",
-	"Frame Graph Transfer Image Output", "Frame Graph Transfer Queue Mip Copy",
-	"Multi Queue Sync", "Stress Test Multi Queue", "Multi Queue Cached Handoff", "Cached Imported Image", "Cached Imported Image Async", "Multi Queue Imported Handback",
-	"Compute Test Mipmap Chain",
-	"Resource Test Transient Aliasing Dependency",
-	"Pipeline Test Indirect Draw",
-	"Compute Test Headless Flush And Wait", "Device Reset Memory Stability",
+//The shared tests the D3D12 suite run leaves out
+static const char *vulkan_only_tests[] = {
+	//Builds Vulkan devices; "D3D12 Pool Failure Rejected" covers D3D12
+	"User Test Device Creation Pool Failure",
+	//Tests a Vulkan helper
+	"User Test Sync Validation Flag",
+	//Builds a Vulkan device
+	"User Test Device Builder Freed",
+	//Expects a blit report D3D12 never gives, as it copies a matching format on the copy queue
+	"Frame Graph Transfer Queue Blit Report",
 };
 
-static zest_bool IsD3D12SuiteTest(const char *name) {
-	for (size_t index = 0; index != sizeof(d3d12_suite_tests) / sizeof(d3d12_suite_tests[0]); ++index) {
-		if (strcmp(d3d12_suite_tests[index], name) == 0) return ZEST_TRUE;
+static zest_bool IsVulkanOnlyTest(const char *name) {
+	for (size_t index = 0; index != sizeof(vulkan_only_tests) / sizeof(vulkan_only_tests[0]); ++index) {
+		if (strcmp(vulkan_only_tests[index], name) == 0) return ZEST_TRUE;
 	}
 	return ZEST_FALSE;
 }
 
 void RegisterTest(ZestTests *tests, Test test) {
-	if (tests->platform == zest_platform_d3d12 && !IsD3D12SuiteTest(test.name)) return;
+	if (tests->platform == zest_platform_d3d12 && IsVulkanOnlyTest(test.name)) return;
 	//Overflowing the fixed test array silently corrupts the fields after it in ZestTests
 	ZEST_ASSERT(tests->test_count < TEST_COUNT);
 	tests->tests[tests->test_count] = test;

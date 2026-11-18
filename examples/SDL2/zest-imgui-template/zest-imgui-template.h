@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -19,6 +20,7 @@ struct ImGuiApp {
 	RenderCacheInfo cache_info;
 	zest_imgui_t imgui;
 	zest_timer_t timer;
+	example_options_t options;
 };
 
 void InitImGui(ImGuiApp *app, zest_context context, zest_imgui_t &imgui);

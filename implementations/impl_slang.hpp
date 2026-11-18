@@ -81,8 +81,8 @@ typedef struct zest_slang_session_info_s {
     zest_uint search_path_count;
     const zest_slang_macro_t *macros;
     zest_uint macro_count;
-    const char *profile;                             //Defaults to "spirv_1_5"
-    zest_bool debug_info;                            //Emit SPIR-V source-level debug info (RenderDoc / Nsight). Best with zest_slang_optimization_none.
+    const char *profile;                             //NULL for the platform's default, spirv_1_5 on Vulkan and sm_6_0 on D3D12
+    zest_bool debug_info;                            //SPIR-V source-level debug info on Vulkan, embedded ILDB debug info on D3D12. Best with zest_slang_optimization_none.
     zest_slang_optimization optimization_level;
     zest_bool scalar_block_layout;                   //Scalar (C-like) buffer layout. Needs zest_capability_scalar_block_layout on the device.
 } zest_slang_session_info_t;
@@ -403,6 +403,29 @@ inline void zest_slang_Shutdown(zest_device device) {
     }
 }
 
+inline zest_bool zest__slang_is_d3d12(zest_device device) {
+    return zest_GetDevicePlatform(device) == zest_platform_d3d12;
+}
+
+//spirv_1_5 on Vulkan, sm_6_0 on D3D12
+inline const char *zest__slang_default_profile(zest_device device) {
+    return zest__slang_is_d3d12(device) ? "sm_6_0" : "spirv_1_5";
+}
+
+inline SlangCompileTarget zest__slang_target(zest_device device) {
+    return zest__slang_is_d3d12(device) ? SLANG_DXIL : SLANG_SPIRV;
+}
+
+//False for a SPIR-V profile on D3D12 or a shader model profile on Vulkan
+inline zest_bool zest__slang_profile_fits(zest_device device, const char *profile) {
+    if (zest__slang_is_d3d12(device)) return strncmp(profile, "spirv", 5) != 0;
+    return strncmp(profile, "sm_", 3) != 0;
+}
+
+inline const char *zest__slang_platform_macro(zest_device device) {
+    return zest__slang_is_d3d12(device) ? "ZEST_D3D12" : "ZEST_VULKAN";
+}
+
 //Compiles one entry point in a fresh ISession. Kept for back compatibility, prefer zest_slang_CreateSession and zest_slang_CompileToBinary.
 inline int zest_slang_Compile(zest_device device, const char *shader_path, const char *entry_point_name, SlangStage stage, zest_slang_compiled_shader &out_compiled_shader, slang::ShaderReflection *&out_reflection) {
     zest_slang_info_t *slang_info = zest_slang_Session(device);
@@ -412,17 +435,23 @@ inline int zest_slang_Compile(zest_device device, const char *shader_path, const
     slang::SessionDesc sessionDesc = {};
     slang::TargetDesc targetDesc = {};
 
-    targetDesc.format = SLANG_SPIRV;
-    targetDesc.profile = global_session->findProfile("spirv_1_5");
+    const char *profile = zest__slang_default_profile(device);
+    targetDesc.format = zest__slang_target(device);
+    targetDesc.profile = global_session->findProfile(profile);
     if (targetDesc.profile == SLANG_PROFILE_UNKNOWN) {
-        ZEST_APPEND_LOG(device->log_path.str, "Slang error: Could not find spirv_1_5 profile.");
+        ZEST_APPEND_LOG(device->log_path.str, "Slang error: Could not find the %s profile.", profile);
         return -1;
     }
-    // This flag is recommended for modern Slang versions when targeting Vulkan
-    targetDesc.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+    if (targetDesc.format == SLANG_SPIRV) {
+        // This flag is recommended for modern Slang versions when targeting Vulkan
+        targetDesc.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+    }
+    slang::PreprocessorMacroDesc platform_macro = { zest__slang_platform_macro(device), "1" };
 
     sessionDesc.targets = &targetDesc;
     sessionDesc.targetCount = 1;
+    sessionDesc.preprocessorMacros = &platform_macro;
+    sessionDesc.preprocessorMacroCount = 1;
     sessionDesc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
     global_session->createSession(sessionDesc, session.writeRef());
 
@@ -456,11 +485,11 @@ inline int zest_slang_Compile(zest_device device, const char *shader_path, const
         SLANG_RETURN_ON_FAIL(result);
     }
 
-    // Now, get the compiled code (SPIR-V)
+    // Now, get the compiled code (SPIR-V or DXIL)
     {
         Slang::ComPtr<slang::IBlob> diagnostics;
         SlangResult result = composedProgram->getEntryPointCode(0, 0, out_compiled_shader.writeRef(), diagnostics.writeRef());
-        diagnoseIfNeeded(device, diagnostics, "SPIR-V Generation");
+        diagnoseIfNeeded(device, diagnostics, "Code Generation");
         SLANG_RETURN_ON_FAIL(result);
     }
 
@@ -577,7 +606,6 @@ inline zest_shader_handle zest_slang_CreateShader(zest_device device, const char
 
 inline zest_slang_session_info_t zest_slang_DefaultSessionInfo(void) {
     zest_slang_session_info_t info = {};
-    info.profile = "spirv_1_5";
     return info;
 }
 
@@ -691,15 +719,17 @@ inline zest_bool zest__slang_create_isession(zest_slang_session session) {
     zest_slang_info_t *slang_info = zest_slang_Session(device);
 
     slang::TargetDesc target_description = {};
-    target_description.format = SLANG_SPIRV;
+    target_description.format = zest__slang_target(device);
     target_description.profile = slang_info->global_session->findProfile(session->profile.str);
     if (target_description.profile == SLANG_PROFILE_UNKNOWN) {
         zest_SetTextf(device->allocator, &session->last_error, "Slang could not find the profile '%s'.", session->profile.str);
         ZEST_APPEND_LOG(device->log_path.str, "%s", session->last_error.str);
         return ZEST_FALSE;
     }
-    target_description.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
-    target_description.forceGLSLScalarBufferLayout = session->scalar_block_layout ? true : false;
+    if (target_description.format == SLANG_SPIRV) {
+        target_description.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+        target_description.forceGLSLScalarBufferLayout = session->scalar_block_layout ? true : false;
+    }
 
     slang::CompilerOptionEntry options[2] = {};
     uint32_t option_count = 0;
@@ -741,7 +771,7 @@ inline zest_bool zest__slang_create_isession(zest_slang_session session) {
     return ZEST_TRUE;
 }
 
-//Returns NULL if the profile isn't known or the session couldn't be created, see zest_slang_GetCreateSessionError.
+//Returns NULL if the profile isn't known or is for the other backend, or the session couldn't be created, see zest_slang_GetCreateSessionError.
 inline zest_slang_session zest_slang_CreateSession(zest_device device, const zest_slang_session_info_t *info) {
     zest_slang_info_t *slang_info = zest_slang_Session(device);
     zest_slang_session_info_t default_info = zest_slang_DefaultSessionInfo();
@@ -769,18 +799,26 @@ inline zest_slang_session zest_slang_CreateSession(zest_device device, const zes
         macro_description.value = session->macro_values[index].str;
         zest_vec_push(device->allocator, session->macro_descriptions, macro_description);
     }
-    zest_SetText(device->allocator, &session->profile, info->profile ? info->profile : "spirv_1_5");
+    slang::PreprocessorMacroDesc platform_macro = { zest__slang_platform_macro(device), "1" };
+    zest_vec_push(device->allocator, session->macro_descriptions, platform_macro);
+    zest_SetText(device->allocator, &session->profile, info->profile ? info->profile : zest__slang_default_profile(device));
     session->debug_info = info->debug_info;
     session->optimization_level = info->optimization_level;
     session->scalar_block_layout = info->scalar_block_layout;
 
     zest_vec_push(device->allocator, slang_info->sessions, session);
-    zest_bool scalar_layout_missing = session->scalar_block_layout && !zest_DeviceFeatureEnabled(device, zest_capability_scalar_block_layout);
-    if (scalar_layout_missing) {
+    zest_bool refused = ZEST_FALSE;
+    if (!zest__slang_profile_fits(device, session->profile.str)) {
+        zest_SetTextf(device->allocator, &session->last_error, "The Slang profile '%s' is for the other backend. Leave profile NULL for this device's default.", session->profile.str);
+        refused = ZEST_TRUE;
+    } else if (session->scalar_block_layout && !zest_DeviceFeatureEnabled(device, zest_capability_scalar_block_layout)) {
         zest_SetText(device->allocator, &session->last_error, "Slang session asked for scalar_block_layout but the device doesn't have zest_capability_scalar_block_layout enabled.");
+        refused = ZEST_TRUE;
+    }
+    if (refused) {
         ZEST_APPEND_LOG(device->log_path.str, "%s", session->last_error.str);
     }
-    if (scalar_layout_missing || !zest__slang_create_isession(session)) {
+    if (refused || !zest__slang_create_isession(session)) {
         zest_SetText(device->allocator, &slang_info->create_session_error, zest_TextLength(&session->last_error) ? session->last_error.str : "Slang failed to create a session.");
         zest_slang_FreeSession(session);
         return nullptr;
@@ -1050,7 +1088,7 @@ inline zest_slang_result zest__slang_compile(zest_slang_session session, const z
     return result;
 }
 
-//Compile one entry point to SPIR-V. Free the blob with zest_slang_FreeBlob.
+//Compile one entry point to SPIR-V or DXIL, whichever the session's device takes. Free the blob with zest_slang_FreeBlob.
 inline zest_bool zest_slang_CompileToBinary(zest_slang_session session, const zest_slang_entry_point_info_t *info, zest_slang_blob_t *out_blob) {
     if (!out_blob) return ZEST_FALSE;
     *out_blob = {};
@@ -1204,7 +1242,7 @@ inline zest_size zest__slang_type_size(zest_slang_session session, const char *m
     return (zest_size)container_layout->getElementTypeLayout()->getStride();
 }
 
-//Stride of a struct in a StructuredBuffer (std430, or scalar with scalar_block_layout), or 0 if the type isn't found
+//Stride of a struct in a StructuredBuffer as the device's target lays it out (std430, scalar with scalar_block_layout, or D3D packing on D3D12), or 0
 inline zest_size zest_slang_GetTypeSize(zest_slang_session session, const char *module_name, const char *type_name) {
     if (!ZEST__SLANG_VALID_SESSION(session)) return 0;
     zest__slang_clear_error(session);

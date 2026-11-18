@@ -4,9 +4,15 @@
 get_property(_zest_d3d12_included GLOBAL PROPERTY ZEST_D3D12_MODULE_INCLUDED)
 set_property(GLOBAL PROPERTY ZEST_D3D12_MODULE_INCLUDED TRUE)
 
-# Guarded so a host's set() before the include isn't discarded by option()/set(CACHE) under old policies
+# Guarded so a host's set() before the include isn't discarded by option()/set(CACHE) under old policies.
+# On by default on Windows, which downloads the Agility SDK and DXC packages on the first configure.
 if(NOT DEFINED ZEST_ENABLE_D3D12)
-    option(ZEST_ENABLE_D3D12 "Enable the D3D12 backend (Windows only)" OFF)
+    if(WIN32)
+        set(_zest_d3d12_default ON)
+    else()
+        set(_zest_d3d12_default OFF)
+    endif()
+    option(ZEST_ENABLE_D3D12 "Enable the D3D12 backend (Windows only)" ${_zest_d3d12_default})
 endif()
 if(NOT DEFINED ZEST_D3D12_AGILITY_VERSION)
     set(ZEST_D3D12_AGILITY_VERSION "1.615.1" CACHE STRING "Microsoft.Direct3D.D3D12 NuGet package version")
@@ -85,7 +91,7 @@ if(ZEST_ENABLE_D3D12)
         list(GET _zest_d3d12_download_status 0 _zest_d3d12_download_code)
         if(NOT _zest_d3d12_download_code EQUAL 0)
             file(REMOVE "${_zest_d3d12_package_file}")
-            message(FATAL_ERROR "Couldn't download the Agility SDK ${ZEST_D3D12_AGILITY_VERSION}: ${_zest_d3d12_download_status}")
+            message(FATAL_ERROR "Couldn't download the Agility SDK ${ZEST_D3D12_AGILITY_VERSION}: ${_zest_d3d12_download_status}. Configure with -DZEST_ENABLE_D3D12=OFF to build without D3D12.")
         endif()
         file(MAKE_DIRECTORY "${_zest_d3d12_package_dir}")
         execute_process(
@@ -139,7 +145,7 @@ if(ZEST_ENABLE_D3D12)
         list(GET _zest_d3d12_dxc_download_status 0 _zest_d3d12_dxc_download_code)
         if(NOT _zest_d3d12_dxc_download_code EQUAL 0)
             file(REMOVE "${_zest_d3d12_dxc_package_file}")
-            message(FATAL_ERROR "Couldn't download DXC ${ZEST_D3D12_DXC_VERSION}: ${_zest_d3d12_dxc_download_status}")
+            message(FATAL_ERROR "Couldn't download DXC ${ZEST_D3D12_DXC_VERSION}: ${_zest_d3d12_dxc_download_status}. Configure with -DZEST_ENABLE_D3D12=OFF to build without D3D12.")
         endif()
         file(MAKE_DIRECTORY "${_zest_d3d12_dxc_package_dir}")
         execute_process(

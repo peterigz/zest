@@ -249,6 +249,26 @@ on both backends. Instance layer buffers get structured views with the instance 
 Vulkan both functions give the same index. Structured buffers that use their hidden counter (append,
 consume and `IncrementCounter`) aren't supported.
 
+Acquire a structured index for every buffer a shader declares as `StructuredBuffer<T>` or
+`RWStructuredBuffer<T>`, with `sizeof(T)` as the stride. A raw view behind a structured declaration reads the
+wrong bytes on D3D12 without any debug layer error. Only GPU-based validation reports it, as a structured buffer
+byte stride mismatch. Slang's `StructuredBuffer<T>` is a structured declaration on the DXIL target.
+
+**Transient buffers.** `zest_GetTransientBufferBindlessIndex(command_list, resource)` gives a raw view of a
+transient, and `zest_GetTransientStructuredBufferIndex(command_list, resource, stride)` a structured one. A
+transient read as several types takes one view per stride, up to `ZEST_MAX_TRANSIENT_BUFFER_VIEWS` (4) in one
+execution, and asking for the same stride again gives back the same index. Each view starts at the buffer's
+first byte, so a section of the buffer read as `T` must start on a multiple of `sizeof(T)` and is indexed in
+rows of `T` from the start. Create the resource with `element_alignment` in its `zest_buffer_resource_info_t`
+set to a common multiple of every stride. A fifth stride, or a stride the buffer's offset isn't a multiple of,
+is a validation error and gives `ZEST_INVALID`. The indexes are released with the frame.
+
+**Strides per target.** A struct's stride in a `StructuredBuffer` follows the shader's target: std430 on
+Vulkan, D3D packing on D3D12. They differ for a `float3` followed by anything but a scalar, which std430
+rounds up to 16 bytes, so a struct of two `float3` is 32 bytes on Vulkan and 24 on D3D12. Pad such members
+explicitly so that one C struct matches both, and check with `zest_slang_GetTypeSize`, which gives the
+stride for the session's device.
+
 **Depth bias.** Every D3D12 pipeline bakes its `rasterization.depth_bias_*` values, and a command list
 uses them until it calls `zest_cmd_SetDepthBias`. That call needs a driver with dynamic depth bias
 (`D3D12_FEATURE_DATA_D3D12_OPTIONS16::DynamicDepthBiasSupported`); without one it reports once per

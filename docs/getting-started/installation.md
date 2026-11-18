@@ -85,6 +85,25 @@ After building, you'll find the executables in the build directory:
 !!! tip "Working Directory"
     Run examples from the repository root directory so they can find the `examples/assets/` folder.
 
+## The D3D12 Backend
+
+On Windows the D3D12 backend is built by default. The first configure downloads two NuGet packages into the build
+folder: the D3D12 Agility SDK (`ZEST_D3D12_AGILITY_VERSION`, 1.615.1) and DXC (`ZEST_D3D12_DXC_VERSION`, 1.9.2609.5),
+each checked against a pinned SHA512. Without a network connection the configure stops with an error that says how to
+build without D3D12:
+
+```bash
+cmake -B build -DZEST_ENABLE_D3D12=OFF
+```
+
+With it on, `ZEST_ENABLE_D3D12` is defined for everything that links zest. Define `ZEST_D3D12_IMPLEMENTATION` next to
+`ZEST_IMPLEMENTATION` under `#ifdef ZEST_ENABLE_D3D12`, and create the device with `zest_BeginD3D12DeviceBuilder` or
+`zest_implsdl2_CreateD3D12Device`. `zest_copy_d3d12_runtime(<target>)` copies the Agility SDK runtime into a `D3D12`
+folder next to the target, and `dxcompiler.dll` and `dxil.dll` beside it, which the target needs to run. Projects that
+compile zest into their own target can include `cmake/ZestD3D12.cmake` for the same function.
+
+The examples that run on both backends take `--d3d12`. See [Examples](../examples/index.md).
+
 ## Optional: Enable Slang Shader Compiler
 
 If you want to use the [Slang](https://shader-slang.com/) shader compiler for runtime shader compilation:

@@ -195,7 +195,9 @@ typedef struct tfx_gpu_particle_renderer_t {
 	tfx_stage stage;
 	zest_compute_handle compute;
 	zest_buffer pool;									//Holds the particles between frames. Created zeroed and never cleared after that
-	zest_uint pool_index;
+	zest_uint pool_hot_index;							//One view per row type, so D3D12 reads each section at its own stride
+	zest_uint pool_cold_index;
+	zest_uint pool_noise_index;
 	zest_buffer upload_staging_buffer[ZEST_MAX_FIF];
 	tfx_gpu_particle_frame_t frame;
 	tfx_gpu_particle_push_t push;

@@ -33,8 +33,9 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
     //imgui->vertex_shader = zest_CreateShaderFromBinary(imgui->spv", shaderc_vertex_shader);
     //imgui->fragment_shader = zest_CreateShaderFromBinary(imgui->spv", shaderc_fragment_shader);
 
-	imgui->vertex_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", NULL, ZEST_TRUE);
-	imgui->fragment_shader = zest_CreateShader(zest_GetContextDevice(imgui->context), zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", NULL, ZEST_TRUE);
+	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	imgui->vertex_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_vert_hlsl : zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", NULL, ZEST_TRUE);
+	imgui->fragment_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_frag_hlsl : zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", NULL, ZEST_TRUE);
 
 	zest_pipeline_layout_info_t layout_info = zest_NewPipelineLayoutInfoWithGlobalBindless(device);
 	imgui->pipeline_layout = zest_CreatePipelineLayout(&layout_info);

@@ -994,6 +994,46 @@ void ComputePass(const zest_command_list cmd_list, void *user_data) {
 }
 ```
 
+This is a raw view, for `ByteAddressBuffer` in HLSL and any buffer block in GLSL. A shader that declares `StructuredBuffer<T>` needs `zest_GetTransientStructuredBufferIndex` on D3D12.
+
+---
+
+### zest_GetTransientStructuredBufferIndex
+
+Get the bindless index of a structured view of a transient buffer, for a shader that declares `StructuredBuffer<T>` or `RWStructuredBuffer<T>` with `sizeof(T) == stride`.
+
+```cpp
+zest_uint zest_GetTransientStructuredBufferIndex(
+    const zest_command_list command_list,
+    zest_resource_node resource,
+    zest_uint stride
+);
+```
+
+- A buffer read as several types takes one view per stride, up to `ZEST_MAX_TRANSIENT_BUFFER_VIEWS` (4) in one execution. The same stride gives back the same index.
+- Every view starts at the buffer's first byte, so a section read as `T` must start on a multiple of `sizeof(T)` and is indexed in rows of `T`.
+- Create the resource with `element_alignment` in its `zest_buffer_resource_info_t` set to a common multiple of the strides.
+- A fifth stride, a stride over 2048 bytes (`ZEST_MAX_STRUCTURED_STRIDE`) or larger than the buffer, or one the buffer's offset isn't a multiple of, is a validation error and returns `ZEST_INVALID`.
+- On Vulkan every view is the same bytes as the raw one. The indexes are released with the frame.
+
+**Typical usage:** A transient that a compute shader reads as rows of a struct.
+
+```cpp
+//When building the graph
+zest_buffer_resource_info_t info = {};
+info.size = sizeof(particle_t) * particle_count;
+info.element_alignment = sizeof(particle_t);
+zest_resource_node particles = zest_AddTransientBufferResource("Particles", &info);
+
+//In the pass task
+void SimulatePass(const zest_command_list cmd_list, void *user_data) {
+    zest_resource_node particles = zest_GetPassOutputResource(cmd_list, "Particles");
+    MyPushConstants push;
+    push.particle_buffer = zest_GetTransientStructuredBufferIndex(cmd_list, particles, sizeof(particle_t));
+    zest_cmd_SendPushConstants(cmd_list, &push, sizeof(push));
+}
+```
+
 ---
 
 ## Resource Groups

@@ -2675,4 +2675,191 @@ int test__intraframe_two_graphs(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+#define TRANSIENT_VIEW_ROWS 64
+#define TRANSIENT_VIEW_ROW_WORDS 12
+#define TRANSIENT_VIEW_ROW_BYTES 48
+
+//Mode 0 writes row r, word k as r * 12 + k + 7 through 48 byte rows. Mode 1 checks every word through the rows and through uvec4s
+static const char *transient_view_glsl =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(local_size_x = 64) in;\n"
+	"layout(push_constant) uniform push_block { uint rows_index; uint quads_index; uint result_index; uint row_count; uint mode; } push;\n"
+	"struct transient_row { uint values[12]; };\n"
+	"layout(std430, set = 0, binding = 5) buffer row_buffer { transient_row rows[]; } row_buffers[];\n"
+	"layout(std430, set = 0, binding = 5) buffer quad_buffer { uvec4 quads[]; } quad_buffers[];\n"
+	"layout(std430, set = 0, binding = 5) buffer result_buffer { uint checked; uint mismatches; } result_buffers[];\n"
+	"void main() {\n"
+	"	uint row = gl_GlobalInvocationID.x;\n"
+	"	if (row >= push.row_count) return;\n"
+	"	if (push.mode == 0) {\n"
+	"		for (uint word = 0; word != 12; ++word) row_buffers[push.rows_index].rows[row].values[word] = row * 12 + word + 7;\n"
+	"		return;\n"
+	"	}\n"
+	"	uint mismatches = 0;\n"
+	"	for (uint word = 0; word != 12; ++word) {\n"
+	"		if (row_buffers[push.rows_index].rows[row].values[word] != row * 12 + word + 7) mismatches++;\n"
+	"	}\n"
+	"	for (uint quad = 0; quad != 3; ++quad) {\n"
+	"		uvec4 values = quad_buffers[push.quads_index].quads[row * 3 + quad];\n"
+	"		for (uint lane = 0; lane != 4; ++lane) {\n"
+	"			if (values[lane] != row * 12 + quad * 4 + lane + 7) mismatches++;\n"
+	"		}\n"
+	"	}\n"
+	"	atomicAdd(result_buffers[push.result_index].checked, 24);\n"
+	"	if (mismatches != 0) atomicAdd(result_buffers[push.result_index].mismatches, mismatches);\n"
+	"}\n";
+
+static const char *transient_view_hlsl =
+	"cbuffer zest_push : register(b0, space0) { uint rows_index; uint quads_index; uint result_index; uint row_count; uint mode; };\n"
+	"struct transient_row { uint values[12]; };\n"
+	"RWStructuredBuffer<transient_row> zest_write_rows[] : register(u0, space105);\n"
+	"StructuredBuffer<transient_row> zest_rows[] : register(t0, space105);\n"
+	"StructuredBuffer<uint4> zest_quads[] : register(t0, space109);\n"
+	"RWByteAddressBuffer zest_results[] : register(u0, space110);\n"
+	"[numthreads(64, 1, 1)]\n"
+	"void main(uint3 thread_id : SV_DispatchThreadID) {\n"
+	"	uint row = thread_id.x;\n"
+	"	if (row >= row_count) return;\n"
+	"	if (mode == 0) {\n"
+	"		for (uint word = 0; word != 12; ++word) zest_write_rows[NonUniformResourceIndex(rows_index)][row].values[word] = row * 12 + word + 7;\n"
+	"		return;\n"
+	"	}\n"
+	"	uint mismatches = 0;\n"
+	"	for (uint word = 0; word != 12; ++word) {\n"
+	"		if (zest_rows[NonUniformResourceIndex(rows_index)][row].values[word] != row * 12 + word + 7) mismatches++;\n"
+	"	}\n"
+	"	for (uint quad = 0; quad != 3; ++quad) {\n"
+	"		uint4 values = zest_quads[NonUniformResourceIndex(quads_index)][row * 3 + quad];\n"
+	"		for (uint lane = 0; lane != 4; ++lane) {\n"
+	"			if (values[lane] != row * 12 + quad * 4 + lane + 7) mismatches++;\n"
+	"		}\n"
+	"	}\n"
+	"	zest_results[NonUniformResourceIndex(result_index)].InterlockedAdd(0, 24);\n"
+	"	if (mismatches != 0) zest_results[NonUniformResourceIndex(result_index)].InterlockedAdd(4, mismatches);\n"
+	"}\n";
+
+struct TransientViewPush {
+	zest_uint rows_index;
+	zest_uint quads_index;
+	zest_uint result_index;
+	zest_uint row_count;
+	zest_uint mode;
+};
+
+struct TransientViewState {
+	zest_compute_handle compute;
+	zest_uint result_index;
+	zest_uint write_index;			//Stride 48 in the writing pass
+	zest_uint read_index;			//Stride 48 again in the reading pass
+	zest_uint quads_index;			//Stride 16
+	zest_uint extra_indexes[2];		//Strides 32 and 64, which fill the table
+	zest_uint overflow_index;		//Stride 96, one more than the table holds
+	zest_size offset_remainder;		//The buffer's offset modulo 48
+};
+
+static void transient_view_write_task(const zest_command_list command_list, void *user_data) {
+	TransientViewState *state = (TransientViewState *)user_data;
+	zest_resource_node rows = zest_GetPassOutputResource(command_list, "Structured Rows");
+	state->write_index = zest_GetTransientStructuredBufferIndex(command_list, rows, TRANSIENT_VIEW_ROW_BYTES);
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->compute));
+	TransientViewPush push = { state->write_index, 0, 0, TRANSIENT_VIEW_ROWS, 0 };
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+}
+
+static void transient_view_read_task(const zest_command_list command_list, void *user_data) {
+	TransientViewState *state = (TransientViewState *)user_data;
+	zest_resource_node rows = zest_GetPassInputResource(command_list, "Structured Rows");
+	state->offset_remainder = rows->storage_buffer->memory_offset % TRANSIENT_VIEW_ROW_BYTES;
+	state->read_index = zest_GetTransientStructuredBufferIndex(command_list, rows, TRANSIENT_VIEW_ROW_BYTES);
+	state->quads_index = zest_GetTransientStructuredBufferIndex(command_list, rows, 16);
+	state->extra_indexes[0] = zest_GetTransientStructuredBufferIndex(command_list, rows, 32);
+	state->extra_indexes[1] = zest_GetTransientStructuredBufferIndex(command_list, rows, 64);
+	state->overflow_index = zest_GetTransientStructuredBufferIndex(command_list, rows, 96);
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->compute));
+	TransientViewPush push = { state->read_index, state->quads_index, state->result_index, TRANSIENT_VIEW_ROWS, 1 };
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+}
+
+//Four structured views of one transient, one per stride, each reading the rows where the raw bytes put them, and a fifth refused
+int test__transient_structured_buffer(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	test->frame_count++;
+	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	zest_shader_handle shader = zest_CreateShader(device, hlsl ? transient_view_hlsl : transient_view_glsl, zest_compute_shader, "transient_view_comp", NULL, ZEST_TRUE);
+	TransientViewState state = {};
+	state.compute = zest_CreateCompute(device, "Transient Structured Buffer", shader);
+	zest_buffer_info_t result_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer result_buffer = zest_CreateBuffer(device, sizeof(zest_uint) * 2, &result_info);
+	int failed = !state.compute.value || !result_buffer;
+	if (!failed) {
+		memset(zest_BufferData(result_buffer), 0, sizeof(zest_uint) * 2);
+		state.result_index = zest_AcquireStorageBufferIndex(device, result_buffer);
+		if (zest_BeginCommandGraph(tests->context, "Transient Structured Buffer", 0)) {
+			zest_buffer_resource_info_t rows_info = {};
+			rows_info.size = TRANSIENT_VIEW_ROW_BYTES * TRANSIENT_VIEW_ROWS;
+			//A common multiple of 16, 32, 48, 64 and 96
+			rows_info.element_alignment = 192;
+			zest_resource_node rows = zest_AddTransientBufferResource("Structured Rows", &rows_info);
+			zest_resource_node result = zest_ImportBufferResource("Structured Result", result_buffer, 0);
+			zest_BeginComputePass("Write Rows");
+			zest_ConnectOutput(rows);
+			zest_SetPassTask(transient_view_write_task, &state);
+			zest_EndPass();
+			zest_BeginComputePass("Read Rows");
+			zest_ConnectInput(rows);
+			zest_ConnectOutput(result);
+			zest_SetPassTask(transient_view_read_task, &state);
+			zest_EndPass();
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
+			failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		} else {
+			failed = 1;
+		}
+		zest_uint *counts = (zest_uint *)zest_BufferData(result_buffer);
+		if (counts[0] != TRANSIENT_VIEW_ROWS * TRANSIENT_VIEW_ROW_WORDS * 2 || counts[1] != 0) {
+			ZEST_PRINT("\t%u values checked, %u mismatches, expected %u and 0", counts[0], counts[1], TRANSIENT_VIEW_ROWS * TRANSIENT_VIEW_ROW_WORDS * 2);
+			failed = 1;
+		}
+		if (state.offset_remainder != 0) {
+			ZEST_PRINT("\tThe transient's offset isn't a multiple of 48");
+			failed = 1;
+		}
+		if (state.write_index == ZEST_INVALID || state.read_index != state.write_index) {
+			ZEST_PRINT("\tStride 48 gave %u in the writing pass and %u in the reading pass", state.write_index, state.read_index);
+			failed = 1;
+		}
+		zest_uint indexes[4] = { state.read_index, state.quads_index, state.extra_indexes[0], state.extra_indexes[1] };
+		zest_bool distinct = ZEST_TRUE;
+		for (int first = 0; first != 4; ++first) {
+			distinct &= indexes[first] != ZEST_INVALID;
+			for (int second = first + 1; second != 4; ++second) {
+				distinct &= indexes[first] != indexes[second];
+			}
+		}
+		if (!distinct) {
+			ZEST_PRINT("\tThe views for strides 48, 16, 32 and 64 aren't four distinct indexes: %u, %u, %u, %u", indexes[0], indexes[1], indexes[2], indexes[3]);
+			failed = 1;
+		}
+		if (state.overflow_index != ZEST_INVALID) {
+			ZEST_PRINT("\tA fifth stride gave index %u rather than ZEST_INVALID", state.overflow_index);
+			failed = 1;
+		}
+		if (zest_GetValidationErrorCount(device) != 1) {
+			ZEST_PRINT("\t%u validation errors, expected the one for the fifth stride", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+		zest_ReleaseStorageBufferIndex(device, state.result_index);
+	}
+	if (result_buffer) zest_FreeBufferNow(result_buffer);
+	if (state.compute.value) zest_FreeCompute(state.compute);
+	zest_FreeShader(shader);
+	test->result = failed;
+	test->result |= zest_GetValidationErrorCount(device);
+	return test->result;
+}
+
 

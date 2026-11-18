@@ -17,6 +17,8 @@
 #define ZEST__TFX_BLOCK_IMAGE_FLAGS (zest_image_preset_texture | zest_image_flag_force_image_array)
 //The most global color ramp layers TimelineFX hands out
 #define ZEST__TFX_MAX_COLOR_RAMP_LAYERS 256
+#define ZEST__TFX_RIBBON_EMITTER_ROW_BYTES 96		//tfx_gpu_ribbon_emitter_t, which is internal to TimelineFX. tfx_ribbon_emitter in timelinefx.slang
+#define ZEST__TFX_RIBBON_SEGMENT_ROW_BYTES 16		//tfx_ribbon_segment_t, which is internal to TimelineFX. uint4 in timelinefx.slang
 
 static const unsigned char zest__tfx_ktx2_identifier[12] = { 0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A };
 
@@ -39,6 +41,18 @@ typedef struct zest__tfx_ktx2_t {
 	zest_size stored_sizes[ZEST__TFX_KTX2_MAX_LEVELS];
 	zest_size level_sizes[ZEST__TFX_KTX2_MAX_LEVELS];
 } zest__tfx_ktx2_t;
+
+//For a buffer read through one view per row size
+static zest_size zest__tfx_least_common_multiple(zest_size first, zest_size second) {
+	zest_size larger = first;
+	zest_size smaller = second;
+	while (smaller) {
+		zest_size next = larger % smaller;
+		larger = smaller;
+		smaller = next;
+	}
+	return first / larger * second;
+}
 
 static zest_component_mapping_t zest__tfx_swizzle(zest_component_swizzle r, zest_component_swizzle g, zest_component_swizzle b, zest_component_swizzle a) {
 	zest_component_mapping_t mapping = { r, g, b, a };
@@ -784,9 +798,12 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	zest_tfx_UpdateTimelineFXImageData(context, resources, gpu_image_data);
 
 	//Create GPU storage buffers for sprite data and emitter properties
-	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
-	resources->sprite_data_buffer = zest_CreateBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), &storage_buffer_info);
-	resources->emitter_properties_buffer = zest_CreateBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), &storage_buffer_info);
+	zest_buffer_info_t sprite_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	sprite_buffer_info.element_alignment = sizeof(tfx_instance_t);
+	zest_buffer_info_t properties_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	properties_buffer_info.element_alignment = sizeof(tfx_gpu_particle_properties_t);
+	resources->sprite_data_buffer = zest_CreateBuffer(device, tfx_GetSpriteDataSizeInBytes(animation_manager), &sprite_buffer_info);
+	resources->emitter_properties_buffer = zest_CreateBuffer(device, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), &properties_buffer_info);
 
 	//Upload sprite data and emitter properties to the GPU
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
@@ -798,8 +815,8 @@ void zest_tfx_FinaliseSpriteData(zest_context context, tfx_library_render_resour
 	zest_FreeBufferNow(sprite_staging);
 	zest_FreeBufferNow(emitter_staging);
 
-	resources->sprite_data_index = zest_AcquireStorageBufferIndex(device, resources->sprite_data_buffer);
-	resources->emitter_properties_index = zest_AcquireStorageBufferIndex(device, resources->emitter_properties_buffer);
+	resources->sprite_data_index = zest_AcquireStructuredBufferIndex(device, resources->sprite_data_buffer, (zest_uint)sizeof(tfx_instance_t));
+	resources->emitter_properties_index = zest_AcquireStructuredBufferIndex(device, resources->emitter_properties_buffer, (zest_uint)sizeof(tfx_gpu_particle_properties_t));
 }
 
 void zest_tfx_AddBillboardVertexAttributes(zest_pipeline_template pipeline, zest_bool reads_previous_instances) {
@@ -874,11 +891,13 @@ void zest_tfx_InitTimelineFXRenderResources(zest_context context, tfx_library_re
 
 	//Create a buffer to store the image data on the gpu.
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	storage_buffer_info.element_alignment = sizeof(tfx_gpu_image_data_t);
 	resources->image_data = zest_CreateBuffer(device, sizeof(tfx_gpu_image_data_t) * 1000, &storage_buffer_info);
-	resources->image_data_index = zest_AcquireStorageBufferIndex(device, resources->image_data);
+	resources->image_data_index = zest_AcquireStructuredBufferIndex(device, resources->image_data, (zest_uint)sizeof(tfx_gpu_image_data_t));
 
+	storage_buffer_info.element_alignment = sizeof(tfx_gpu_particle_properties_t);
 	resources->particle_properties = zest_CreateBuffer(device, sizeof(tfx_gpu_particle_properties_t) * 1000, &storage_buffer_info);
-	resources->particle_properties_index = zest_AcquireStorageBufferIndex(device, resources->particle_properties);
+	resources->particle_properties_index = zest_AcquireStructuredBufferIndex(device, resources->particle_properties, (zest_uint)sizeof(tfx_gpu_particle_properties_t));
 
 	//Don't actually need this, can remove?
 	resources->timeline = zest_CreateExecutionTimeline(device);
@@ -1143,10 +1162,11 @@ static zest_buffer zest__tfx_ribbon_index_size(zest_context context, zest_resour
 
 void zest_tfx_CreateGlobalBuffers(zest_context context, tfx_global_library_buffers_t *buffers) {
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	storage_buffer_info.element_alignment = sizeof(tfx_gpu_graph_data_t);
 	zest_device device = zest_GetContextDevice(context);
     zest_ForEachFrameInFlight(i) {
 		buffers->lookup_buffer[i] = zest_CreateBuffer(device, sizeof(tfx_gpu_graph_data_t) * 1000, &storage_buffer_info);
-		buffers->lookup_index[i] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[i]);
+		buffers->lookup_index[i] = zest_AcquireStructuredBufferIndex(device, buffers->lookup_buffer[i], (zest_uint)sizeof(tfx_gpu_graph_data_t));
     }
 }
 
@@ -1231,7 +1251,7 @@ static zest_bool zest__tfx_grow_storage_buffer(zest_context context, zest_buffer
 		return ZEST_TRUE;
 	}
 	zest_uint previous_index = *descriptor_index;
-	*descriptor_index = zest_AcquireStorageBufferIndex(zest_GetContextDevice(context), *buffer);
+	*descriptor_index = zest_AcquireStructuredBufferIndex(zest_GetContextDevice(context), *buffer, (zest_uint)unit_size);
 	zest_ReleaseStorageBufferIndexDeferred(context, previous_index);
 	return ZEST_TRUE;
 }
@@ -1241,9 +1261,10 @@ static zest_bool zest__tfx_upload_storage_buffer(zest_context context, zest_buff
 	zest_device device = zest_GetContextDevice(context);
 	if (!*buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+		storage_buffer_info.element_alignment = unit_size;
 		*buffer = zest_CreateBuffer(device, upload_size, &storage_buffer_info);
 		if (*buffer) {
-			*descriptor_index = zest_AcquireStorageBufferIndex(device, *buffer);
+			*descriptor_index = zest_AcquireStructuredBufferIndex(device, *buffer, (zest_uint)unit_size);
 		}
 	}
 	if (!*buffer || !zest__tfx_grow_storage_buffer(context, buffer, descriptor_index, unit_size, upload_size)) {
@@ -1520,15 +1541,17 @@ void zest_tfx_UploadRibbonData(const zest_command_list command_list, void *user_
 
 void zest_tfx_InitialiseGlobalData(zest_context context, tfx_global_library_buffers_t *buffers) {
 	buffers->uploaded_lookups_version = tfx_GetGPUGraphLookupsVersion();
+	zest_size lookups_size = tfx_GetGPUGraphLookupsBufferSizeInBytes();
 	zest_ForEachFrameInFlight(fif) {
 		zest_device device = zest_GetContextDevice(context);
-		zest_buffer staging = zest_CreateDedicatedStagingBuffer(device, tfx_GetGPUGraphLookupsBufferSizeInBytes(), tfx_GetGPUGraphLookupsBuffer());
-		if (zest_ResizeBuffer(&buffers->lookup_buffer[fif], tfx_GetGPUGraphLookupsBufferSizeInBytes())) {
+		zest_buffer staging = zest_CreateDedicatedStagingBuffer(device, lookups_size, tfx_GetGPUGraphLookupsBuffer());
+		if (zest_ResizeBuffer(&buffers->lookup_buffer[fif], lookups_size)) {
 			zest_ReleaseStorageBufferIndex(device, buffers->lookup_index[fif]);
-			buffers->lookup_index[fif] = zest_AcquireStorageBufferIndex(device, buffers->lookup_buffer[fif]);
+			buffers->lookup_index[fif] = zest_AcquireStructuredBufferIndex(device, buffers->lookup_buffer[fif], (zest_uint)sizeof(tfx_gpu_graph_data_t));
 		}
 		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
-		zest_imm_CopyBuffer(queue, staging, buffers->lookup_buffer[fif], zest_BufferSize(staging));
+		//The staging buffer's size is rounded up, and padding to the row size can leave the lookup buffer short of that rounding
+		zest_imm_CopyBuffer(queue, staging, buffers->lookup_buffer[fif], lookups_size);
 		zest_imm_EndCommandBuffer(queue);
 		zest_FreeBufferNow(staging);
 	}
@@ -1545,11 +1568,11 @@ void zest_tfx_RibbonComputeFunction(const zest_command_list command_list, void *
 
 	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(render_resources->ribbon_rendering.ribbon_compute));
 
-	zest_uint emitters_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_EMITTER_BUFFER_NAME));
-	zest_uint ribbon_segments_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_SEGMENT_BUFFER_NAME));
-	zest_uint ribbons_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_INSTANCE_BUFFER_NAME));
-	zest_uint vertexes_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME));
-	zest_uint indexes_index = zest_GetTransientBufferBindlessIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_INDEX_BUFFER_NAME));
+	zest_uint emitters_index = zest_GetTransientStructuredBufferIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_EMITTER_BUFFER_NAME), ZEST__TFX_RIBBON_EMITTER_ROW_BYTES);
+	zest_uint ribbon_segments_index = zest_GetTransientStructuredBufferIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_SEGMENT_BUFFER_NAME), ZEST__TFX_RIBBON_SEGMENT_ROW_BYTES);
+	zest_uint ribbons_index = zest_GetTransientStructuredBufferIndex(command_list, zest_GetPassInputResource(command_list, TFX_RIBBON_INSTANCE_BUFFER_NAME), tfxRIBBON_SIZE);
+	zest_uint vertexes_index = zest_GetTransientStructuredBufferIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_VERTEX_BUFFER_NAME), (zest_uint)sizeof(tfx_ribbon_vertex_t));
+	zest_uint indexes_index = zest_GetTransientStructuredBufferIndex(command_list, zest_GetPassOutputResource(command_list, TFX_RIBBON_INDEX_BUFFER_NAME), (zest_uint)sizeof(tfxU32));
 
 	zest_uint uniform_index = zest_GetUniformBufferDescriptorIndex(zest_GetUniformBuffer(render_resources->uniform_buffer));
 	float time = (float)render_resources->timer.seconds_passed;
@@ -1625,8 +1648,8 @@ void zest_tfx_RenderRibbons(const zest_command_list command_list, void *user_dat
 	}
 }
 
-static zest_resource_node zest__tfx_add_ribbon_buffer(tfx_ribbon_renderer_t *renderer, const char *name, zest_resource_usage_hint usage_hint, zest_size size, zest_resource_buffer_provider provider) {
-	zest_buffer_resource_info_t info = { usage_hint, size };
+static zest_resource_node zest__tfx_add_ribbon_buffer(tfx_ribbon_renderer_t *renderer, const char *name, zest_resource_usage_hint usage_hint, zest_size size, zest_size row_bytes, zest_resource_buffer_provider provider) {
+	zest_buffer_resource_info_t info = { usage_hint, size, row_bytes };
 	zest_resource_node node = zest_AddTransientBufferResource(name, &info);
 	zest_SetResourceUserData(node, renderer);
 	zest_SetResourceBufferProvider(node, provider);
@@ -1641,27 +1664,27 @@ static void zest__tfx_connect_draw_output(zest_resource_node output_resource) {
 	}
 }
 
-//The upload and compute passes, giving back the vertex and index buffers the draw reads
-static void zest__tfx_add_ribbon_passes(tfx_ribbon_renderer_t *renderer, zest_resource_node *vertex_buffer, zest_resource_node *index_buffer) {
+//The upload and compute passes, giving back the vertex and index buffers the draw reads, and the ribbons and emitters its vertex shader reads
+static void zest__tfx_add_ribbon_passes(tfx_ribbon_renderer_t *renderer, zest_resource_node *vertex_buffer, zest_resource_node *index_buffer, zest_resource_node *ribbon_instance_buffer, zest_resource_node *emitter_buffer) {
 	tfx_ribbon_batch_sizes_t sizes = tfx_GetRibbonBatchSizes(&renderer->batch, 0);
-	zest_resource_node segment_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_SEGMENT_BUFFER_NAME, 0, sizes.segment_buffer_size_in_bytes, zest__tfx_ribbon_segment_size);
-	zest_resource_node ribbon_instance_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INSTANCE_BUFFER_NAME, 0, sizes.ribbon_buffer_size_in_bytes, zest__tfx_ribbon_instance_size);
-	zest_resource_node emitter_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_EMITTER_BUFFER_NAME, 0, sizes.emitter_buffer_size_in_bytes, zest__tfx_ribbon_emitter_size);
-	*vertex_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_VERTEX_BUFFER_NAME, zest_resource_usage_hint_vertex_buffer, sizes.vertex_buffer_size_in_bytes, zest__tfx_ribbon_vertex_size);
-	*index_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INDEX_BUFFER_NAME, zest_resource_usage_hint_index_buffer, sizes.index_buffer_size_in_bytes, zest__tfx_ribbon_index_size);
+	zest_resource_node segment_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_SEGMENT_BUFFER_NAME, 0, sizes.segment_buffer_size_in_bytes, ZEST__TFX_RIBBON_SEGMENT_ROW_BYTES, zest__tfx_ribbon_segment_size);
+	*ribbon_instance_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INSTANCE_BUFFER_NAME, 0, sizes.ribbon_buffer_size_in_bytes, tfxRIBBON_SIZE, zest__tfx_ribbon_instance_size);
+	*emitter_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_EMITTER_BUFFER_NAME, 0, sizes.emitter_buffer_size_in_bytes, ZEST__TFX_RIBBON_EMITTER_ROW_BYTES, zest__tfx_ribbon_emitter_size);
+	*vertex_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_VERTEX_BUFFER_NAME, zest_resource_usage_hint_vertex_buffer, sizes.vertex_buffer_size_in_bytes, sizeof(tfx_ribbon_vertex_t), zest__tfx_ribbon_vertex_size);
+	*index_buffer = zest__tfx_add_ribbon_buffer(renderer, TFX_RIBBON_INDEX_BUFFER_NAME, zest_resource_usage_hint_index_buffer, sizes.index_buffer_size_in_bytes, sizeof(tfxU32), zest__tfx_ribbon_index_size);
 
 	zest_BeginTransferPass("Transfer Ribbon Data"); {
 		zest_ConnectOutput(segment_buffer);
-		zest_ConnectOutput(ribbon_instance_buffer);
-		zest_ConnectOutput(emitter_buffer);
+		zest_ConnectOutput(*ribbon_instance_buffer);
+		zest_ConnectOutput(*emitter_buffer);
 		zest_SetPassTask(zest_tfx_UploadRibbonData, renderer);
 		zest_EndPass();
 	}
 
 	zest_BeginComputePass("Compute Ribbons"); {
 		zest_ConnectInput(segment_buffer);
-		zest_ConnectInput(ribbon_instance_buffer);
-		zest_ConnectInput(emitter_buffer);
+		zest_ConnectInput(*ribbon_instance_buffer);
+		zest_ConnectInput(*emitter_buffer);
 		zest_ConnectOutput(*vertex_buffer);
 		zest_ConnectOutput(*index_buffer);
 		zest_SetPassTask(zest_tfx_RibbonComputeFunction, renderer);
@@ -1672,10 +1695,15 @@ static void zest__tfx_add_ribbon_passes(tfx_ribbon_renderer_t *renderer, zest_re
 void zest_tfx_AddRibbonsToFrameGraph(tfx_ribbon_renderer_t *renderer, zest_resource_node output_resource) {
 	zest_resource_node vertex_buffer;
 	zest_resource_node index_buffer;
-	zest__tfx_add_ribbon_passes(renderer, &vertex_buffer, &index_buffer);
+	zest_resource_node ribbon_instance_buffer;
+	zest_resource_node emitter_buffer;
+	zest__tfx_add_ribbon_passes(renderer, &vertex_buffer, &index_buffer, &ribbon_instance_buffer, &emitter_buffer);
 	zest_BeginRenderPass("Draw Ribbons Pass"); {
 		zest_ConnectInput(vertex_buffer);
 		zest_ConnectInput(index_buffer);
+		//The ribbon vertex shaders read the ribbons and their emitters through the indexes the compute pass pushed
+		zest_ConnectInput(ribbon_instance_buffer);
+		zest_ConnectInput(emitter_buffer);
 		zest__tfx_connect_draw_output(output_resource);
 		zest_SetPassTask(zest_tfx_RenderRibbons, renderer);
 		zest_EndPass();
@@ -1698,6 +1726,7 @@ void zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_r
 
 	//The compute shader relies on the pool starting zeroed
 	zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	storage_buffer_info.element_alignment = zest__tfx_least_common_multiple(zest__tfx_least_common_multiple(sizeof(tfx_gpu_particle_hot_t), sizeof(tfx_gpu_particle_cold_t)), sizeof(tfx_gpu_particle_noise_t));
 	renderer->pool = zest_CreateBuffer(device, pool_sizes.pool_bytes, &storage_buffer_info);
 	void *zeroes = calloc(1, pool_sizes.pool_bytes);
 	zest_buffer zeroes_staging_buffer = zest_CreateDedicatedStagingBuffer(device, pool_sizes.pool_bytes, zeroes);
@@ -1706,12 +1735,13 @@ void zest_tfx_CreateGPUParticleRenderer(zest_context context, tfx_gpu_particle_r
 	zest_imm_EndCommandBuffer(queue);
 	zest_FreeBufferNow(zeroes_staging_buffer);
 	free(zeroes);
-	renderer->pool_index = zest_AcquireStorageBufferIndex(device, renderer->pool);
-
-	//The hot, cold and noise sections all live in the one pool buffer, so they share an index and the bases say where each starts
-	renderer->push.hot_buffer_index = renderer->pool_index;
-	renderer->push.cold_buffer_index = renderer->pool_index;
-	renderer->push.noise_buffer_index = renderer->pool_index;
+	//Each section of the pool starts on a multiple of its row size, so a view per row size from the buffer's start reads it at its base
+	renderer->pool_hot_index = zest_AcquireStructuredBufferIndex(device, renderer->pool, (zest_uint)sizeof(tfx_gpu_particle_hot_t));
+	renderer->pool_cold_index = zest_AcquireStructuredBufferIndex(device, renderer->pool, (zest_uint)sizeof(tfx_gpu_particle_cold_t));
+	renderer->pool_noise_index = zest_AcquireStructuredBufferIndex(device, renderer->pool, (zest_uint)sizeof(tfx_gpu_particle_noise_t));
+	renderer->push.hot_buffer_index = renderer->pool_hot_index;
+	renderer->push.cold_buffer_index = renderer->pool_cold_index;
+	renderer->push.noise_buffer_index = renderer->pool_noise_index;
 	renderer->push.cold_base = pool_sizes.cold_base;
 	renderer->push.noise_base = pool_sizes.noise_base;
 }
@@ -1729,7 +1759,9 @@ void zest_tfx_FreeGPUParticleRenderer(tfx_gpu_particle_renderer_t *renderer) {
 		zest_FreeBuffer(renderer->upload_staging_buffer[fif]);
 	}
 	if (renderer->pool) {
-		zest_ReleaseStorageBufferIndexDeferred(renderer->context, renderer->pool_index);
+		zest_ReleaseStorageBufferIndexDeferred(renderer->context, renderer->pool_hot_index);
+		zest_ReleaseStorageBufferIndexDeferred(renderer->context, renderer->pool_cold_index);
+		zest_ReleaseStorageBufferIndexDeferred(renderer->context, renderer->pool_noise_index);
 		zest_FreeBuffer(renderer->pool);
 		zest_FreeCompute(renderer->compute);
 	}
@@ -1839,16 +1871,15 @@ void zest_tfx_SimulateGPUParticles(const zest_command_list command_list, void *u
 		zest_MarkProfileIdle(command_list);
 		return;
 	}
-	zest_uint upload_index = zest_GetTransientBufferBindlessIndex(command_list, upload_node);
-
-	//Every array of the frame is in the one upload buffer, at the bases set in zest_tfx_RenderGPUParticleStage
+	//Every array of the frame is in the one upload buffer on a multiple of its row size, so each reads through a view of that row size
 	tfx_gpu_particle_push_t push = renderer->push;
 	push.instance_buffer_index = zest_GetLayerVertexDescriptorIndex(zest_GetLayer(renderer->render_resources->layer), ZEST_FALSE);
 	push.graph_buffer_index = renderer->global_buffers->lookup_index[zest_CurrentFIF(zest_GetContext(command_list))];
-	push.dispatch_buffer_index = upload_index;
-	push.tick_buffer_index = upload_index;
-	push.spawn_buffer_index = upload_index;
-	push.location_buffer_index = upload_index;
+	push.dispatch_buffer_index = zest_GetTransientStructuredBufferIndex(command_list, upload_node, (zest_uint)sizeof(tfx_gpu_particle_dispatch_t));
+	//Every 64 byte row type in the tick section reads through this view
+	push.tick_buffer_index = zest_GetTransientStructuredBufferIndex(command_list, upload_node, (zest_uint)sizeof(tfx_gpu_particle_tick_t));
+	push.spawn_buffer_index = zest_GetTransientStructuredBufferIndex(command_list, upload_node, (zest_uint)sizeof(tfx_gpu_particle_spawn_t));
+	push.location_buffer_index = zest_GetTransientStructuredBufferIndex(command_list, upload_node, (zest_uint)sizeof(tfx_gpu_spawn_location_t));
 
 	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(renderer->compute));
 	//Each dispatch loops over its own ticks so there's no need for barriers between them
@@ -1944,7 +1975,10 @@ static void zest__tfx_add_gpu_particle_passes(tfx_gpu_particle_renderer_t *rende
 	zest_resource_node upload = 0;
 	if (renderer->pool) {
 		pool = zest_ImportBufferResource(TFX_GPU_PARTICLE_POOL_NAME, renderer->pool, 0);
-		zest_buffer_resource_info_t upload_info = { zest_resource_usage_hint_copy_dst, renderer->frame.upload_bytes };
+		zest_size upload_alignment = zest__tfx_least_common_multiple(sizeof(tfx_gpu_particle_dispatch_t), sizeof(tfx_gpu_particle_tick_t));
+		upload_alignment = zest__tfx_least_common_multiple(upload_alignment, sizeof(tfx_gpu_particle_spawn_t));
+		upload_alignment = zest__tfx_least_common_multiple(upload_alignment, sizeof(tfx_gpu_spawn_location_t));
+		zest_buffer_resource_info_t upload_info = { zest_resource_usage_hint_copy_dst, renderer->frame.upload_bytes, upload_alignment };
 		upload = zest_AddTransientBufferResource(TFX_GPU_PARTICLE_UPLOAD_BUFFER_NAME, &upload_info);
 		zest_SetResourceBufferProvider(upload, zest__tfx_gpu_particle_upload_size);
 		zest_SetResourceUserData(upload, renderer);
@@ -2006,8 +2040,10 @@ void zest_tfx_AddParticlesAndRibbonsToFrameGraph(tfx_ribbon_renderer_t *ribbon_r
 	}
 	zest_resource_node vertex_buffer = NULL;
 	zest_resource_node index_buffer = NULL;
+	zest_resource_node ribbon_instance_buffer = NULL;
+	zest_resource_node emitter_buffer = NULL;
 	if (zest_tfx_HasRibbonsToDraw(ribbon_renderer)) {
-		zest__tfx_add_ribbon_passes(ribbon_renderer, &vertex_buffer, &index_buffer);
+		zest__tfx_add_ribbon_passes(ribbon_renderer, &vertex_buffer, &index_buffer, &ribbon_instance_buffer, &emitter_buffer);
 	}
 	zest_BeginRenderPass("Draw TFX Particles and Ribbons"); {
 		zest_ConnectInput(write_layer);
@@ -2015,6 +2051,9 @@ void zest_tfx_AddParticlesAndRibbonsToFrameGraph(tfx_ribbon_renderer_t *ribbon_r
 		if (vertex_buffer) {
 			zest_ConnectInput(vertex_buffer);
 			zest_ConnectInput(index_buffer);
+			//The ribbon vertex shaders read the ribbons and their emitters through the indexes the compute pass pushed
+			zest_ConnectInput(ribbon_instance_buffer);
+			zest_ConnectInput(emitter_buffer);
 		}
 		zest__tfx_connect_draw_output(output_resource);
 		zest_SetPassTask(zest_tfx_DrawParticlesAndRibbons, ribbon_renderer);

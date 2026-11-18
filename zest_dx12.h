@@ -107,9 +107,6 @@ static const GUID zest__dx_debug_dxgi = { 0x25cddaa4, 0xb1c6, 0x47e1, { 0xac, 0x
 // -- End Interface IDs
 
 // -- Shader_code
-//Variadic so that commas outside brackets stay in the shader. New lines are lost, so no preprocessor lines or line comments.
-#define ZEST_HLSL(...) #__VA_ARGS__
-
 //A full screen triangle that samples one slice of the source, with the point sampler when filter is 0
 static const char *zest__dx_blit_shader = ZEST_HLSL(
 cbuffer zest_blit_constants : register(b0) {

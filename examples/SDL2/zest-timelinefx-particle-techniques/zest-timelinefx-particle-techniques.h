@@ -8,6 +8,7 @@
 #include "impl_timelinefx.h"
 #include "examples/Common/timelinefx_shaders.h"
 #include <imgui/backends/imgui_impl_glfw.h>
+#include "examples/Common/example_platform.h"
 
 struct AnimationComputeConstants {
 	tfxU32 total_sprites;
@@ -112,6 +113,7 @@ struct tfxParticleTechniquesExample {
 	tfx_library_render_resources_t stage_rendering;
 	tfx_global_library_buffers_t global_buffers;
 	tfx_gpu_particle_renderer_t gpu_particles;
+	example_options_t options;
 };
 
 void SpriteComputeFunction(zest_command_list command_list, void *user_data);

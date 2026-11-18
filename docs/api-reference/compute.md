@@ -243,9 +243,9 @@ void UpdateParticlesCallback(zest_command_list command_list, void *user_data) {
 
 ## Slang Sessions
 
-`implementations/impl_slang.hpp` compiles Slang modules to SPIR-V. A session wraps one Slang `ISession`, so compiling
-several entry points from one module parses it, and everything it imports, once. Use a session and the shaders made
-from it on one thread at a time.
+`implementations/impl_slang.hpp` compiles Slang modules to SPIR-V on a Vulkan device and to DXIL on a D3D12 device. A
+session wraps one Slang `ISession`, so compiling several entry points from one module parses it, and everything it
+imports, once. Use a session and the shaders made from it on one thread at a time.
 
 ```cpp
 zest_slang_InitialiseSession(device);
@@ -254,7 +254,7 @@ const char *search_paths[] = { "shaders/slang" };
 zest_slang_session_info_t session_info = zest_slang_DefaultSessionInfo();
 session_info.search_paths = search_paths;   // Resolves import statements
 session_info.search_path_count = 1;
-session_info.debug_info = ZEST_TRUE;         // Source level debugging
+session_info.debug_info = ZEST_TRUE;         // Source level debugging, SPIR-V debug info or embedded ILDB parts
 session_info.optimization_level = zest_slang_optimization_none;   // 0 (zest_slang_optimization_default) is Slang's default
 zest_slang_session session = zest_slang_CreateSession(device, &session_info);  // NULL on failure, see zest_slang_GetCreateSessionError
 
@@ -277,13 +277,26 @@ if (!shader.value) {
 zest_SetShaderHotReload(shader, ZEST_TRUE);     // Reloads when kernel.slang, the link modules or any import changes
 ```
 
+- The target follows the session's device. `profile` NULL, as `zest_slang_DefaultSessionInfo` leaves it, means
+  `spirv_1_5` on Vulkan and `sm_6_0` on D3D12. A profile for the other backend (`spirv_*` on D3D12, `sm_*` on Vulkan)
+  is refused when the session is created. Set `sm_6_1` or higher for a shader that needs it, such as one reading
+  `SV_ViewID`.
+- Every session defines `ZEST_VULKAN` or `ZEST_D3D12` as 1, after your own macros, as `zest_CreateShader` does.
+- With `debug_info` on D3D12 the DXIL container carries `ILDB` and `ILDN` parts, which PIX reads.
+- DXIL is signed by the `dxcompiler.dll` Slang loads, the one `zest_copy_d3d12_runtime` puts next to the executable.
 - Every entry point is emitted into SPIR-V as `main`, which is what zest pipelines expect.
 - `zest_slang_CompileToBinary` / `zest_slang_FreeBlob` compile without creating a shader, and
   `zest_GetCompiledShader` returns the same bytes for a session shader, ready to write into a resource package.
 - Session shaders never use the shader cache, since their output depends on every imported file.
 - `zest_slang_GetTypeSize(session, "common", "TestParticle")` returns a struct's size as laid out in a
-  `StructuredBuffer` (std430, or scalar when `scalar_block_layout` is set), to check host structs against.
-  `scalar_block_layout` needs `zest_capability_scalar_block_layout`, which is enabled whenever the GPU supports it.
+  `StructuredBuffer` on the session's target (std430, scalar when `scalar_block_layout` is set, or D3D packing on
+  D3D12), to check host structs against. The targets can differ: a struct of two `float3` is 32 bytes in std430 and 24
+  on D3D12, because std430 rounds a `float3` followed by anything but a scalar up to 16 bytes. A host struct only matches
+  both when it pads such members itself, as TimelineFX's GPU structs do. `scalar_block_layout` needs
+  `zest_capability_scalar_block_layout`, which is enabled whenever the GPU supports it, and D3D12 doesn't report it.
+- On D3D12 every `StructuredBuffer<T>` a shader reads needs a structured index with `sizeof(T)` as its stride:
+  `zest_AcquireStructuredBufferIndex` for a buffer and `zest_GetTransientStructuredBufferIndex` for a transient. See
+  [Bindless Descriptors](../concepts/bindless.md).
 - Free sessions with `zest_slang_FreeSession` before `zest_slang_Shutdown` and `zest_DestroyDevice`. Shaders from a
   freed session keep their binary but stop hot reloading.
 - Hot reload works like it does for GLSL: an edit to any dependency recompiles the shader, a failure keeps the previous

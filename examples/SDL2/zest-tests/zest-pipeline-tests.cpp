@@ -1002,6 +1002,99 @@ int test__pipeline_indirect_draw(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+struct ImGuiShaderDraw {
+	zest_buffer vertex_buffer;
+	zest_buffer index_buffer;
+	zest_pipeline_template pipeline_template;
+	zest_imgui_push_t push;
+};
+
+static void imgui_shader_task(const zest_command_list command_list, void *user_data) {
+	ImGuiShaderDraw *draw = (ImGuiShaderDraw *)user_data;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draw->vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draw->index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draw->pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, &draw->push, sizeof(draw->push));
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 0, 0);
+}
+
+//ImGui's shader pair in a pipeline built as zest_imgui_Initialise builds its own: a texture array slice times the vertex colour
+int test__pipeline_imgui_shaders(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	test->frame_count++;
+	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	zest_shader_handle vertex_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_vert_hlsl : zest_shader_imgui_vert, zest_vertex_shader, "imgui_test_vert", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_frag_hlsl : zest_shader_imgui_frag, zest_fragment_shader, "imgui_test_frag", NULL, ZEST_TRUE);
+	ImGuiShaderDraw draw = {};
+	draw.pipeline_template = zest_CreatePipelineTemplate(device, "ImGui Shaders");
+	zest_AddVertexInputBindingDescription(draw.pipeline_template, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
+	zest_AddVertexAttribute(draw.pipeline_template, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));
+	zest_AddVertexAttribute(draw.pipeline_template, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, uv));
+	zest_AddVertexAttribute(draw.pipeline_template, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_ImDrawVert_t, col));
+	zest_SetPipelineShaders(draw.pipeline_template, vertex_shader, fragment_shader);
+	zest_SetPipelineFrontFace(draw.pipeline_template, zest_front_face_counter_clockwise);
+	zest_SetPipelineCullMode(draw.pipeline_template, zest_cull_mode_none);
+	zest_SetPipelineTopology(draw.pipeline_template, zest_topology_triangle_list);
+	zest_SetPipelineBlend(draw.pipeline_template, zest_ImGuiBlendState());
+	zest_SetPipelineDepthTest(draw.pipeline_template, ZEST_FALSE, ZEST_FALSE);
+
+	zest_uint texels[16];
+	for (int texel = 0; texel != 16; ++texel) texels[texel] = 255u | (128u << 8) | (255u << 16) | (255u << 24);
+	zest_image_info_t texture_info = zest_CreateImageInfo(4, 4);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture | zest_image_flag_force_image_array;
+	zest_image_handle texture_handle = zest_CreateImageWithPixels(device, texels, sizeof(texels), &texture_info);
+	zest_image texture = zest_GetImage(texture_handle);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	zest_sampler_handle sampler_handle = zest_CreateSampler(device, &sampler_info);
+	zest_sampler sampler = zest_GetSampler(sampler_handle);
+	int failed = texture == NULL || sampler == NULL;
+	if (!failed) {
+		draw.push.font_texture_index = zest_AcquireSampledImageIndex(device, texture, zest_texture_array_binding);
+		draw.push.font_sampler_index = zest_AcquireSamplerIndex(device, sampler);
+	}
+	//The transform zest_imgui_UploadImGuiPass sends for a 16x16 display at the origin
+	draw.push.transform = zest_Vec4Set(2.f / 16.f, 2.f / 16.f, -1.f, -1.f);
+
+	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_cpu_to_gpu);
+	draw.vertex_buffer = zest_CreateBuffer(device, sizeof(zest_ImDrawVert_t) * 4, &vertex_info);
+	draw.index_buffer = zest_CreateBuffer(device, sizeof(zest_uint) * 6, &index_info);
+	failed |= !draw.vertex_buffer || !draw.index_buffer;
+	zest_image_handle image_handle = create_draw_target(device);
+	zest_image image = zest_GetImage(image_handle);
+	failed |= image == NULL;
+	if (!failed) {
+		zest_uint yellow = 255u | (255u << 8) | (255u << 24);
+		zest_ImDrawVert_t vertices[4] = {
+			{ { 0.f, 0.f }, { 0.f, 0.f }, yellow }, { { 16.f, 0.f }, { 1.f, 0.f }, yellow },
+			{ { 16.f, 16.f }, { 1.f, 1.f }, yellow }, { { 0.f, 16.f }, { 0.f, 1.f }, yellow },
+		};
+		zest_uint indices[6] = { 0, 1, 2, 2, 3, 0 };
+		memcpy(zest_BufferData(draw.vertex_buffer), vertices, sizeof(vertices));
+		memcpy(zest_BufferData(draw.index_buffer), indices, sizeof(indices));
+		zest_uint pixels[256];
+		failed |= render_draw_pass(tests->context, "ImGui Shaders", image, ZEST_FALSE, imgui_shader_task, &draw, pixels);
+		//ImGui's blend writes alpha as source alpha times one minus source alpha, so an opaque draw leaves 0
+		const int expected[4] = { 255, 128, 0, 0 };
+		failed |= !columns_hold(pixels, 0, 16, expected);
+	}
+	if (image) zest_FreeImageNow(image_handle);
+	if (texture) zest_FreeImageNow(texture_handle);
+	if (sampler) zest_FreeSamplerNow(sampler_handle);
+	if (draw.vertex_buffer) zest_FreeBufferNow(draw.vertex_buffer);
+	if (draw.index_buffer) zest_FreeBufferNow(draw.index_buffer);
+	zest_FreePipelineTemplate(draw.pipeline_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+	test->result = failed;
+	test->result |= zest_GetValidationErrorCount(device);
+	return test->result;
+}
+
 //Helper for the shader cache test: does a file exist on disk?
 static bool cache_file_exists(const char *path) {
 	FILE *file = fopen(path, "rb");
