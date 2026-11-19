@@ -17140,6 +17140,10 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 					//zest_BeginFrame moves this on for windowed contexts. Without it the next graph never resets its queue's command pool,
 					//so every flush records into a new command buffer (Vulkan) or grows the allocator (D3D12) until submits fail
 					context->device_frame_counter++;
+					//zest_BeginFrame reads back and resets the waited FIF's timestamp queries for windowed contexts. The wait proves this graph's are written
+					if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
+						zest__gpu_profiler_begin_frame(context);
+					}
 				}
 			}
 		} else if (ZEST__FLAGGED(context->flags, zest_context_flag_headless) && ZEST__NOT_FLAGGED(context->flags, zest_context_flag_warned_headless_flush)) {
