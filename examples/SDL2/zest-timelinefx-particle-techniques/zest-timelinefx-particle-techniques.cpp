@@ -218,9 +218,16 @@ void InitExample(tfxParticleTechniquesExample *example) {
 	zest_shader_handle ribbon_rendering_vert_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_vertex", zest_vertex_shader);
 	zest_shader_handle ribbon_rendering_comp_shader = CreateTimelineFXShader(example->shader_session, "tfx_ribbon_compute", zest_compute_shader);
 	zest_tfx_InitTimelineFXRenderResources(example->context, &example->tfx_rendering, particles_vert_shader, particles_frag_shader, ribbon_rendering_vert_shader, ribbon_rendering_frag_shader, ribbon_rendering_comp_shader);
-	//The scene is laid out for a camera at the origin looking down +X rather than the editor's default camera
+	//The scene is laid out for a camera looking down +X rather than the editor's default camera
 	example->tfx_rendering.camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->tfx_rendering.camera, 60.f);
+	//Back from the spawn area and looking up at it, so the effects start on screen
+	float camera_position[3] = { -28.f, 4.f, 0.f };
+	zest_CameraPosition(&example->tfx_rendering.camera, camera_position);
+	zest_CameraSetPitch(&example->tfx_rendering.camera, 15.f);
+	zest_CameraUpdateFront(&example->tfx_rendering.camera);
+	example->new_camera_position = example->tfx_rendering.camera.position;
+	example->old_camera_position = example->tfx_rendering.camera.position;
 	zest_tfx_UpdateUniformBuffer(example->context, &example->tfx_rendering, NULL);
 	//The baked vertex shader never reads captured_index: SPIR-V drops the input, so Vulkan wants no attribute for it, and DXIL keeps it, so D3D12 needs one
 	if (zest_GetDevicePlatform(example->device) == zest_platform_vulkan) {
