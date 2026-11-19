@@ -288,5 +288,4 @@ their own):
 | `--validate-sync` | `--validate` with Vulkan synchronisation validation or D3D12 GPU-based validation (not the clear screen and minimal templates) |
 | `--frames N` | Exit after N frames |
 
-`zest-timelinefx-particle-techniques` also takes `--effect-mode baked|cpu|gpu` to start with that technique, and on
-D3D12 its profile window shows CPU timings only, as the D3D12 backend has no GPU timestamps yet.
+`zest-timelinefx-particle-techniques` also takes `--effect-mode baked|cpu|gpu` to start with that technique.

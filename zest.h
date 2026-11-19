@@ -4795,6 +4795,8 @@ typedef struct zest_platform_t {
 	void                       (*set_object_name)(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
 	void                       (*set_image_name)(zest_device device, zest_image image, const char *name);
 	void                       (*set_buffer_pool_name)(zest_device device, zest_device_memory_pool pool, const char *name);
+	void                       (*begin_debug_marker)(const zest_command_list command_list, const char *name);
+	void                       (*end_debug_marker)(const zest_command_list command_list);
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_resource_ptr)(zest_resource_node resource);
@@ -5964,6 +5966,8 @@ ZEST_API void zest_FreeImageView(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewNow(zest_image_view_handle view_handle);
 ZEST_API void zest_FreeImageViewArray(zest_image_view_array_handle view_handle);
 ZEST_API void zest_FreeImageViewArrayNow(zest_image_view_array_handle view_handle);
+//Names a native object for validation messages and capture tools. The handle is a Vulkan handle on Vulkan, and an ID3D12Object pointer on D3D12, which ignores object_type
+//The naming functions always work on D3D12, and on Vulkan only with validation
 ZEST_API void zest_SetObjectName(zest_device device, zest_object_type object_type, zest_u64 object_handle, const char *name);
 ZEST_API void zest_SetImageName(zest_device device, zest_image image, const char *name);
 ZEST_API void zest_SetBufferPoolName(zest_device device, zest_device_memory_pool pool, const char *name);
@@ -6390,6 +6394,7 @@ ZEST_API void zest_BeginGPUProfile(zest_command_list command_list, const char *f
 ZEST_API void zest_EndGPUProfile(zest_command_list command_list);
 // Excludes the innermost open GPU and CPU profile regions (or the current pass) from the averages this frame
 ZEST_API void zest_MarkProfileIdle(zest_command_list command_list);
+//Results are read back in zest_BeginFrame from the frame in flight it waited for, so they are ZEST_MAX_FIF frames old. Valid until the next zest_BeginFrame
 ZEST_API zest_gpu_profile_result_t* zest_GetGPUProfileResults(zest_context context, zest_uint *count);
 ZEST_API zest_gpu_profile_smoothed_t* zest_GetGPUProfileSmoothedResults(zest_context context, zest_uint *count);
 ZEST_API double zest_GetGPUProfileTotalTime(zest_context context);
@@ -17533,6 +17538,11 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					break;
 				}
 
+				const char *pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
+				if (device->platform->begin_debug_marker) {
+					device->platform->begin_debug_marker(&frame_graph->command_list, pass_name);
+				}
+
                 //Transient resources were placed and materialised before recording started (see
                 //zest__place_transient_resources), so there is nothing to create per pass here.
 
@@ -17550,7 +17560,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 					if (gpu_profile_query_index + 2 <= gpu_profiler->max_queries) {
 						device->platform->write_timestamp(&frame_graph->command_list, gpu_profiler, fif, gpu_profile_query_index, ZEST_FALSE);
 						zest_uint pair_index = gpu_profile_query_index / 2;
-						const char *pass_name = zest_vec_size(grouped_pass->passes) > 0 ? grouped_pass->passes[0]->name : "unknown";
 						snprintf(gpu_profiler->query_map[fif][pair_index].name, ZEST_GPU_PROFILE_NAME_LENGTH, "%s", pass_name);
 						gpu_profiler->query_map[fif][pair_index].queue_type = batch->queue_type;
 						gpu_profiler->query_map[fif][pair_index].depth = 0;
@@ -17658,6 +17667,10 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //Batch execute release barriers for images and buffers
 
 				device->platform->release_barrier(&frame_graph->command_list, exe_details);
+
+				if (device->platform->end_debug_marker) {
+					device->platform->end_debug_marker(&frame_graph->command_list);
+				}
 
                 //End pass
 				ZEST_CPU_PROFILE_END(context); //Pass profile
@@ -22247,15 +22260,15 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 	zest_gpu_profiler_t *profiler = &context->gpu_profiler;
 	if (!profiler->enabled || !profiler->backend) return;
 
-	// Read back results from the previous frame's FIF
-	zest_uint prev_fif = (context->current_fif + ZEST_MAX_FIF - 1) % ZEST_MAX_FIF;
-	zest_uint prev_query_count = profiler->query_count[prev_fif];
+	//The frame in flight zest_BeginFrame just waited for, so the GPU has finished writing its queries
+	zest_uint current_fif = context->current_fif;
+	zest_uint current_query_count = profiler->query_count[current_fif];
 
-	if (prev_query_count > 0) {
-		context->device->platform->readback_gpu_timestamps(profiler, prev_fif, prev_query_count);
+	if (current_query_count > 0) {
+		context->device->platform->readback_gpu_timestamps(profiler, current_fif, current_query_count);
 
-		zest_u64 *raw = profiler->raw_timestamps[prev_fif];
-		zest_uint pair_count = prev_query_count / 2;
+		zest_u64 *raw = profiler->raw_timestamps[current_fif];
+		zest_uint pair_count = current_query_count / 2;
 		profiler->result_count = pair_count;
 
 		// Find earliest begin and latest end across all queries for true total time
@@ -22267,7 +22280,7 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 			if (begin_tick < earliest_tick) earliest_tick = begin_tick;
 			if (end_tick > latest_tick) latest_tick = end_tick;
 			zest_u64 ticks = end_tick - begin_tick;
-			profiler->results[i] = profiler->query_map[prev_fif][i];
+			profiler->results[i] = profiler->query_map[current_fif][i];
 			profiler->results[i].microseconds = (double)ticks * (double)profiler->timestamp_period_ns / 1000.0;
 		}
 		profiler->total_microseconds = (double)(latest_tick - earliest_tick) * (double)profiler->timestamp_period_ns / 1000.0;
@@ -22374,7 +22387,6 @@ void zest__gpu_profiler_begin_frame(zest_context context) {
 	}
 
 	// Reset current FIF's query pool and counter
-	zest_uint current_fif = context->current_fif;
 	context->device->platform->reset_gpu_query_pool(profiler, current_fif);
 	profiler->query_count[current_fif] = 0;
 	profiler->profile_stack_depth = 0;

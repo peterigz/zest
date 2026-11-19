@@ -3439,6 +3439,115 @@ int test_d3d12_debug_overlay(void) {
 	return failed;
 }
 
+//WKPDID_D3DDebugObjectNameW from d3dcommon.h, as Zest doesn't link dxguid.lib
+static const GUID d3d12_test_debug_object_name = { 0x4cca5fd8, 0x921f, 0x42c8, { 0x85, 0x66, 0x70, 0xca, 0xf2, 0xa9, 0xb7, 0x41 } };
+
+//The name SetName gave object, as UTF-8. Empty when it has none
+static void read_object_name(ID3D12Object *object, char *out_name, int name_size) {
+	out_name[0] = 0;
+	if (!object) return;
+	wchar_t wide_name[ZEST__DX_MARKER_NAME_LENGTH + 1] = {};
+	UINT size = ZEST__DX_MARKER_NAME_LENGTH * sizeof(wchar_t);
+	if (FAILED(object->GetPrivateData(d3d12_test_debug_object_name, &size, wide_name))) return;
+	if (!WideCharToMultiByte(CP_UTF8, 0, wide_name, -1, out_name, name_size, NULL, NULL)) out_name[0] = 0;
+}
+
+static int check_object_name(ID3D12Object *object, const char *expected_name) {
+	char name[ZEST__DX_MARKER_NAME_LENGTH];
+	read_object_name(object, name, (int)sizeof(name));
+	int failed = strcmp(name, expected_name) != 0;
+	if (failed) ZEST_PRINT("\tExpected the name \"%s\", read \"%s\"", expected_name, name);
+	return failed;
+}
+
+typedef struct d3d12_object_names_task_t {
+	char transient_name[ZEST__DX_MARKER_NAME_LENGTH];
+	int run_count;
+} d3d12_object_names_task_t;
+
+static void d3d12_object_names_pass(const zest_command_list command_list, void *user_data) {
+	d3d12_object_names_task_t *task = (d3d12_object_names_task_t *)user_data;
+	zest_image image = zest_GetResourceImage(zest_GetPassOutputResource(command_list, "Named Transient"));
+	read_object_name((ID3D12Object *)ZEST_DX_BACKEND(image, image)->resource, task->transient_name, (int)sizeof(task->transient_name));
+	task->run_count++;
+}
+
+//One frame that renders to a transient image named "Named Transient" and clears the swapchain
+static void run_object_names_frame(zest_context context, d3d12_object_names_task_t *task) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {}
+	zest_UpdateDevice(context->device);
+	if (!zest_BeginFrame(context)) return;
+	zest_frame_graph frame_graph = NULL;
+	if (zest_BeginFrameGraph(context, "Object Names Frame", NULL)) {
+		zest_ImportSwapchainResource();
+		zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm };
+		image_info.width = 16;
+		image_info.height = 16;
+		zest_resource_node transient = zest_AddTransientImageResource("Named Transient", &image_info);
+		zest_FlagResourceAsEssential(transient);
+		zest_SetResourceClearColor(transient, 0.f, 0.f, 0.f, 1.f);
+		zest_BeginRenderPass("Named Transient Pass");
+		zest_ConnectOutput(transient);
+		zest_SetPassTask(d3d12_object_names_pass, task);
+		zest_EndPass();
+		zest_BeginRenderPass("Clear Swapchain");
+		zest_ConnectSwapChainOutput();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+	}
+	zest_EndFrame(context, frame_graph);
+}
+
+//Names given through the naming functions and the frame graph, and the backend's own, read back from the D3D12 objects
+int test_d3d12_object_names(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Object Names")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		d3d12_object_names_task_t task = {};
+		for (int frame = 0; frame != 2; ++frame) {
+			run_object_names_frame(context, &task);
+		}
+		failed |= task.run_count != 2;
+		if (strcmp(task.transient_name, "Named Transient") != 0) {
+			ZEST_PRINT("\tExpected the transient image to be named \"Named Transient\", read \"%s\"", task.transient_name);
+			failed = 1;
+		}
+		failed |= check_object_name((ID3D12Object *)zest_GetD3D12CommandQueue(context), "Zest Direct Queue");
+		zest_image_handle image_handle = create_draw_target(device);
+		zest_image image = image_handle.value ? zest_GetImage(image_handle) : NULL;
+		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+		zest_buffer buffer = zest_CreateBuffer(device, 256, &buffer_info);
+		failed |= image == NULL || buffer == NULL;
+		if (image && buffer) {
+			zest_SetImageName(device, image, "Named Image");
+			zest_SetBufferPoolName(device, buffer->memory_pool, "Named Buffer Pool");
+			failed |= check_object_name((ID3D12Object *)ZEST_DX_BACKEND(image, image)->resource, "Named Image");
+			failed |= check_object_name((ID3D12Object *)ZEST_DX_BACKEND(device_memory_pool, buffer->memory_pool)->buffer, "Named Buffer Pool");
+		}
+		if (buffer) zest_FreeBufferNow(buffer);
+		if (image_handle.value) zest_FreeImageNow(image_handle);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_DestroyContext(context);
+	}
+	failed |= finish_device(device);
+	close_test_window(&window);
+	return failed;
+}
+
 //One frame that draws the fallback pushes into target and clears the swapchain. fallback_task counts the frames that ran
 static void run_fallback_frame(zest_context context, FallbackDraws *draws, zest_image target) {
 	SDL_Event event;
@@ -3820,6 +3929,107 @@ int test_d3d12_device_removed_mid_frame(void) {
 	}
 	int failed = run_device_removal(&window, ZEST_FALSE);
 	failed |= run_device_removal(&window, ZEST_TRUE);
+	close_test_window(&window);
+	return failed;
+}
+
+//One frame whose render pass, named "Removal Pass", clears the swapchain
+static void run_removal_report_frame(zest_context context) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {}
+	zest_UpdateDevice(context->device);
+	if (!zest_BeginFrame(context)) return;
+	zest_frame_graph frame_graph = NULL;
+	if (zest_BeginFrameGraph(context, "Removal Report Frame", NULL)) {
+		zest_ImportSwapchainResource();
+		zest_BeginRenderPass("Removal Pass");
+		zest_ConnectSwapChainOutput();
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+	}
+	zest_EndFrame(context, frame_graph);
+}
+
+static zest_uint log_file_size(zest_device device) {
+	zest_file log = zest_ReadEntireFile(device, device->log_path.str, ZEST_FALSE);
+	zest_uint size = log ? zest_vec_size(log) : 0;
+	if (log) zest_FreeFile(device, log);
+	return size;
+}
+
+static int count_report_lines(const char *report, const char *line) {
+	int count = 0;
+	for (const char *found = strstr(report, line); found; found = strstr(found + 1, line)) count++;
+	return count;
+}
+
+//Every line of the report, whose DRED part is empty as ID3D12Device5::RemoveDevice leaves no breadcrumbs or page fault
+static int check_removal_report(const char *report) {
+	const char *lines[] = { "D3D12 device removed: DXGI_ERROR_DEVICE_REMOVED (0x887A0005)", "DRED breadcrumbs: none recorded.", "DRED: no page fault." };
+	int failed = 0;
+	for (int line = 0; line != 3; ++line) {
+		int count = count_report_lines(report, lines[line]);
+		if (count != 1) {
+			ZEST_PRINT("\tThe log has \"%s\" %d times after the removal, expected once", lines[line], count);
+			failed = 1;
+		}
+	}
+	return failed;
+}
+
+//The first place to see a removal writes one report to the log, and a new device on the adapter then runs clean
+int test_d3d12_device_removal_report(void) {
+	D3D12TestWindow window;
+	if (!open_test_window(&window, "D3D12 Device Removal Report")) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_device device = create_windowed_test_device(&window);
+	if (!device) {
+		close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		set_test_clear_color(context);
+		for (int frame = 0; frame != 2; ++frame) run_removal_report_frame(context);
+		zest_WaitForIdleDevice(device);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_uint log_size = log_file_size(device);
+		remove_test_device(device);
+		for (int frame = 0; frame != 2; ++frame) run_removal_report_frame(context);
+		failed |= !zest_ContextDeviceWasLost(context);
+		//The removal itself raises no validation messages, on the AMD GPU or on WARP
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_file log = zest_ReadEntireFile(device, device->log_path.str, ZEST_TRUE);
+		failed |= log == NULL || zest_vec_size(log) <= log_size;
+		if (log && zest_vec_size(log) > log_size) {
+			failed |= check_removal_report(log + log_size);
+		}
+		if (log) zest_FreeFile(device, log);
+		zest_DestroyContext(context);
+	}
+	zest_ResetValidationErrors(device);
+	zest_DestroyDevice(device);
+	failed |= zest__dx_last_device_release_count() != 0;
+
+	device = create_windowed_test_device(&window);
+	failed |= device == NULL;
+	if (device) {
+		context = zest_CreateContext(device, &window.window_data, &info);
+		failed |= context == NULL;
+		if (context) {
+			set_test_clear_color(context);
+			for (int frame = 0; frame != 3; ++frame) run_removal_report_frame(context);
+			zest_WaitForIdleDevice(device);
+			failed |= zest_ContextDeviceWasLost(context);
+			zest_DestroyContext(context);
+		}
+		failed |= finish_device(device);
+	}
 	close_test_window(&window);
 	return failed;
 }
@@ -5880,6 +6090,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Present Parameters", test_d3d12_present_parameters },
 	{ "D3D12 Windowed Frames", test_d3d12_windowed_frames },
 	{ "D3D12 Debug Overlay", test_d3d12_debug_overlay },
+	{ "D3D12 Object Names", test_d3d12_object_names },
 	{ "D3D12 Push Constant Fallback Frames", test_d3d12_push_constant_fallback_frames },
 	{ "D3D12 DXGI Messages Counted", test_d3d12_dxgi_messages_counted },
 	{ "D3D12 Per Mip Views", test_d3d12_per_mip_views },
@@ -5926,6 +6137,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Imported First Use", test_d3d12_imported_first_use },
 	{ "D3D12 Copy Queue First Use Report", test_d3d12_copy_queue_first_use_report },
 	{ "D3D12 Rescue Clears Tracked State", test_d3d12_rescue_clears_tracked_state },
+	{ "D3D12 Device Removal Report", test_d3d12_device_removal_report },
 	//Must stay last, see the test
 	{ "D3D12 Device Removed Mid Frame", test_d3d12_device_removed_mid_frame },
 };

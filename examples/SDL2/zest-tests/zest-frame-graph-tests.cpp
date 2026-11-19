@@ -2862,4 +2862,136 @@ int test__transient_structured_buffer(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+#define GPU_PROFILE_BUFFER_SIZE 1024
+
+struct GPUProfileTestState {
+	int recorded_frames[ZEST_MAX_FIF];	//The test frame each frame in flight last recorded, -1 before its first
+	int checked_frames;
+};
+
+static void gpu_profile_upload_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node buffer = zest_GetPassOutputResource(command_list, "Profile Upload Buffer");
+	zest_buffer staging = zest_CreateStagingBuffer(command_list->device, GPU_PROFILE_BUFFER_SIZE, 0);
+	zest_cmd_CopyBuffer(command_list, staging, zest_GetResourceBuffer(buffer), GPU_PROFILE_BUFFER_SIZE);
+	zest_FreeBuffer(staging);
+}
+
+static void gpu_profile_compute_task(const zest_command_list command_list, void *user_data) {
+	Test *test = (Test *)user_data;
+	zest_BeginGPUProfile(command_list, "Profile Region %d", test->frame_count);
+	zest_EndGPUProfile(command_list);
+}
+
+static zest_bool gpu_profile_has_result(zest_gpu_profile_result_t *results, zest_uint count, const char *name, zest_uint depth) {
+	for (zest_uint result_index = 0; result_index != count; ++result_index) {
+		if (results[result_index].depth == depth && strcmp(results[result_index].name, name) == 0) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+static zest_bool gpu_profile_has_smoothed(zest_gpu_profile_smoothed_t *smoothed, zest_uint count, const char *name) {
+	for (zest_uint smoothed_index = 0; smoothed_index != count; ++smoothed_index) {
+		if (smoothed[smoothed_index].depth == 0 && strcmp(smoothed[smoothed_index].name, name) == 0) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+static const char *gpu_profile_pass_names[3] = { "Profile Upload", "Profile Compute", "Profile Draw" };
+
+//The results zest_BeginFrame read back must be the ones recorded_frame wrote, with every timing in range
+static int gpu_profile_check_results(zest_context context, int recorded_frame) {
+	int failed = 0;
+	zest_uint count = 0;
+	zest_gpu_profile_result_t *results = zest_GetGPUProfileResults(context, &count);
+	for (int pass = 0; pass != 3; ++pass) {
+		if (!gpu_profile_has_result(results, count, gpu_profile_pass_names[pass], 0)) {
+			ZEST_PRINT("\tThe results read back for frame %d have no \"%s\" at depth 0", recorded_frame, gpu_profile_pass_names[pass]);
+			failed |= 2;
+		}
+	}
+	char region_name[ZEST_GPU_PROFILE_NAME_LENGTH];
+	snprintf(region_name, sizeof(region_name), "Profile Region %d", recorded_frame);
+	if (!gpu_profile_has_result(results, count, region_name, 1)) {
+		ZEST_PRINT("\tThe results read back for frame %d have no \"%s\" at depth 1, so they came from another frame", recorded_frame, region_name);
+		failed |= 4;
+	}
+	for (zest_uint result_index = 0; result_index != count; ++result_index) {
+		double microseconds = results[result_index].microseconds;
+		if (microseconds < 0.0 || microseconds > 1000000.0) {
+			ZEST_PRINT("\t\"%s\" took %f microseconds in frame %d, expected 0 to 1000000", results[result_index].name, microseconds, recorded_frame);
+			failed |= 8;
+		}
+	}
+	if (zest_GetGPUProfileTotalTime(context) <= 0.0) {
+		ZEST_PRINT("\tThe GPU profile total for frame %d is %f microseconds, expected more than 0", recorded_frame, zest_GetGPUProfileTotalTime(context));
+		failed |= 16;
+	}
+	return failed;
+}
+
+//Transfer, compute and graphics passes on their own queues, each frame's timings read back once its frame in flight comes round again
+int test__gpu_profiler_timestamps(ZestTests *tests, Test *test) {
+	static GPUProfileTestState state;
+	if (test->frame_count == 0) {
+		for (int fif = 0; fif != ZEST_MAX_FIF; ++fif) state.recorded_frames[fif] = -1;
+		state.checked_frames = 0;
+	}
+	zest_buffer_resource_info_t info = {};
+	info.size = GPU_PROFILE_BUFFER_SIZE;
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(tests->context)) {
+		zest_uint fif = zest_CurrentFIF(tests->context);
+		if (state.recorded_frames[fif] >= 0) {
+			test->result |= gpu_profile_check_results(tests->context, state.recorded_frames[fif]);
+			state.checked_frames++;
+		}
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(tests->context, "GPU Profile Graph", 0)) {
+			zest_ImportSwapchainResource();
+			zest_resource_node upload_buffer = zest_AddTransientBufferResource("Profile Upload Buffer", &info);
+			zest_resource_node compute_buffer = zest_AddTransientBufferResource("Profile Compute Buffer", &info);
+
+			zest_BeginTransferPass("Profile Upload");
+			zest_ConnectOutput(upload_buffer);
+			zest_SetPassTask(gpu_profile_upload_task, NULL);
+			zest_EndPass();
+
+			//Independent of the upload so the two share a wave, which is what puts them on their own queues
+			zest_BeginComputePass("Profile Compute");
+			zest_ConnectOutput(compute_buffer);
+			zest_SetPassTask(gpu_profile_compute_task, test);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Profile Draw");
+			zest_ConnectInput(upload_buffer);
+			zest_ConnectInput(compute_buffer);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		state.recorded_frames[fif] = test->frame_count;
+		zest_EndFrame(tests->context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	if (test->frame_count == test->run_count) {
+		if (state.checked_frames == 0) {
+			ZEST_PRINT("\tNo frame read back another frame's GPU timings");
+			test->result |= 32;
+		}
+		zest_uint smoothed_count = 0;
+		zest_gpu_profile_smoothed_t *smoothed = zest_GetGPUProfileSmoothedResults(tests->context, &smoothed_count);
+		for (int pass = 0; pass != 3; ++pass) {
+			if (!gpu_profile_has_smoothed(smoothed, smoothed_count, gpu_profile_pass_names[pass])) {
+				ZEST_PRINT("\tThe smoothed GPU results have no \"%s\"", gpu_profile_pass_names[pass]);
+				test->result |= 64;
+			}
+		}
+	}
+	return test->result;
+}
+
 

@@ -7,6 +7,7 @@ Zest D3D12 Implementation
 	-- [Backend_structs]
 	-- [Other_setup_structs]
 	-- [Error_logging]
+	-- [Device_removal]
 	-- [Enum_to_string_functions]
 	-- [Type_converters]
 	-- [Inline_helpers]
@@ -27,6 +28,8 @@ Zest D3D12 Implementation
 	-- [Internal_Frame_graph_context_functions]
 	-- [Frame_graph_context_functions]
 	-- [Shader_compiling]
+	-- [GPU_Profiling_backend]
+	-- [Debug_naming]
 	-- [Debug_functions]
 */
 
@@ -84,6 +87,7 @@ ZEST__DX_DEFINE_IID(ID3D12Debug3, 0x5cf4e58f, 0xf671, 0x4ff1, 0xa5, 0x42, 0x36, 
 ZEST__DX_DEFINE_IID(ID3D12DebugDevice, 0x3febd6dd, 0x4973, 0x4787, 0x81, 0x94, 0xe4, 0x5f, 0x9e, 0x28, 0x92, 0x3e);
 ZEST__DX_DEFINE_IID(ID3D12InfoQueue1, 0x2852dd88, 0xb484, 0x4c0c, 0xb6, 0xb1, 0x67, 0x16, 0x85, 0x00, 0xe6, 0x00);
 ZEST__DX_DEFINE_IID(ID3D12DeviceRemovedExtendedDataSettings1, 0xdbd5ae51, 0x3317, 0x4f0a, 0xad, 0xf9, 0x1d, 0x7c, 0xed, 0xca, 0xae, 0x0b);
+ZEST__DX_DEFINE_IID(ID3D12DeviceRemovedExtendedData1, 0x9727a022, 0xcf1d, 0x4dda, 0x9e, 0xba, 0xef, 0xfa, 0x65, 0x3f, 0xc5, 0x06);
 ZEST__DX_DEFINE_IID(ID3D12CommandQueue, 0x0ec870a6, 0x5d7e, 0x4c22, 0x8c, 0xfc, 0x5b, 0xaa, 0xe0, 0x76, 0x16, 0xed);
 ZEST__DX_DEFINE_IID(ID3D12CommandAllocator, 0x6102dee4, 0xaf59, 0x4b09, 0xb9, 0x99, 0xb4, 0x4d, 0x73, 0xf0, 0x9b, 0x24);
 ZEST__DX_DEFINE_IID(ID3D12GraphicsCommandList7, 0xdd171223, 0x8b61, 0x4769, 0x90, 0xe3, 0x16, 0x0c, 0xcd, 0xe4, 0xe2, 0xc1);
@@ -91,6 +95,7 @@ ZEST__DX_DEFINE_IID(ID3D12GraphicsCommandList9, 0x34ed2808, 0xffe6, 0x4c2b, 0xb1
 ZEST__DX_DEFINE_IID(ID3D12Fence, 0x0a753dcf, 0xc4d8, 0x4b91, 0xad, 0xf6, 0xbe, 0x5a, 0x60, 0xd9, 0x5a, 0x76);
 ZEST__DX_DEFINE_IID(ID3D12Resource, 0x696442be, 0xa72e, 0x4059, 0xbc, 0x79, 0x5b, 0x5c, 0x98, 0x04, 0x0f, 0xad);
 ZEST__DX_DEFINE_IID(ID3D12Heap, 0x6b3b2502, 0x6e51, 0x45b3, 0x90, 0xee, 0x98, 0x84, 0x26, 0x5e, 0x8d, 0xf3);
+ZEST__DX_DEFINE_IID(ID3D12QueryHeap, 0x0d9658ae, 0xed45, 0x469e, 0xa6, 0x1d, 0x97, 0x0e, 0xc5, 0x83, 0xca, 0xb4);
 ZEST__DX_DEFINE_IID(ID3D12DescriptorHeap, 0x8efb471d, 0x616c, 0x4f49, 0x90, 0xf7, 0x12, 0x7b, 0xb7, 0x63, 0xfa, 0x51);
 ZEST__DX_DEFINE_IID(IDXGISwapChain1, 0x790a45f7, 0x0d42, 0x4876, 0x98, 0x3a, 0x0a, 0x55, 0xcf, 0xe6, 0xf4, 0xaa);
 ZEST__DX_DEFINE_IID(IDXGISwapChain3, 0x94d99bdb, 0xf1f8, 0x4ab0, 0xb2, 0x36, 0x7d, 0xa0, 0x17, 0x0e, 0xda, 0xb1);
@@ -348,6 +353,7 @@ typedef struct zest_dx_device_backend_t {
 	SRWLOCK indirect_signature_lock;	//Guards creating indirect_signatures, and is never held while taking another Zest lock
 	HRESULT last_result;
 	zest_bool counted_as_live;
+	volatile LONG removal_reported;	//Set by the first removal report, cleared when the logical device is recreated
 } zest_dx_device_backend_t;
 
 typedef struct zest_dx_queue_backend_t {
@@ -402,7 +408,19 @@ typedef struct zest_dx_command_list_backend_t {
 	zest_dx_bind_state_t bind_state;
 	zest_bool render_pass_open;
 	HRESULT close_result;
+	zest_uint profile_query_begin;		//The queries this list wrote, resolved when it closes. Empty when begin equals end
+	zest_uint profile_query_end;
 } zest_dx_command_list_backend_t;
+
+typedef struct zest_dx_gpu_profiler_backend_t {
+	zest_device device;
+	ID3D12QueryHeap *timestamp_heap;			//Direct and compute lists, max_queries per frame in flight
+	ID3D12QueryHeap *copy_timestamp_heap;		//Copy lists, laid out the same
+	//One per context queue slot, as only one D3D12 queue may write a buffer at a time and each slot's submissions are ordered
+	ID3D12Resource *readback_buffers[ZEST_QUEUE_COUNT];		//A zest_u64 per query, max_queries per frame in flight
+	zest_u64 *mapped_timestamps[ZEST_QUEUE_COUNT];
+	zest_byte query_slots[ZEST_MAX_GPU_PROFILE_QUERIES * ZEST_MAX_FIF];	//The slot whose buffer each query was resolved into
+} zest_dx_gpu_profiler_backend_t;
 
 //Recorded when the graph is compiled, before the queue type or the image's current D3D12 layout is known
 typedef struct zest_dx_frame_graph_image_barrier_t {
@@ -537,18 +555,22 @@ typedef struct zest_dx_pipeline_layout_backend_t {
 #define ZEST__DX_WAIT_FOREVER (~(zest_microsecs)0)
 #define ZEST__DX_IMMEDIATE_TIMEOUT ZEST_SECONDS_IN_MICROSECONDS(1000)
 #define ZEST__DX_SWAPCHAIN_BUFFER_COUNT (ZEST_MAX_FIF + 1)
+#define ZEST__DX_MARKER_NAME_LENGTH 128		//The most UTF-16 characters a marker or object name keeps, including the terminator
 
 typedef struct zest_dx_queue_family_t {
 	D3D12_COMMAND_LIST_TYPE type;
 	zest_device_queue_type queue_types;
 	zest_uint queue_count;
 	const char *name;
+	const char *queue_name;					//Debug names for the family's queues and the lists Zest creates for them
+	const char *immediate_list_name;
+	const char *frame_graph_list_name;
 } zest_dx_queue_family_t;
 
 static const zest_dx_queue_family_t zest__dx_queue_families[ZEST__DX_QUEUE_FAMILY_COUNT] = {
-	{ D3D12_COMMAND_LIST_TYPE_DIRECT, zest_queue_graphics | zest_queue_compute | zest_queue_transfer, 4, "Direct" },
-	{ D3D12_COMMAND_LIST_TYPE_COMPUTE, zest_queue_compute | zest_queue_transfer, 4, "Compute" },
-	{ D3D12_COMMAND_LIST_TYPE_COPY, zest_queue_transfer, 2, "Copy" },
+	{ D3D12_COMMAND_LIST_TYPE_DIRECT, zest_queue_graphics | zest_queue_compute | zest_queue_transfer, 4, "Direct", "Zest Direct Queue", "Zest Immediate Direct List", "Zest Frame Graph Direct List" },
+	{ D3D12_COMMAND_LIST_TYPE_COMPUTE, zest_queue_compute | zest_queue_transfer, 4, "Compute", "Zest Compute Queue", "Zest Immediate Compute List", "Zest Frame Graph Compute List" },
+	{ D3D12_COMMAND_LIST_TYPE_COPY, zest_queue_transfer, 2, "Copy", "Zest Copy Queue", "Zest Immediate Copy List", "Zest Frame Graph Copy List" },
 };
 
 //What every layer of one buffer to image copy region shares
@@ -739,6 +761,19 @@ ZEST_API ID3D12CommandQueue *zest_GetD3D12CommandQueue(zest_context context);
 
 ZEST_PRIVATE void zest__dx_initialise_platform_callbacks(zest_platform_t *platform);
 ZEST_PRIVATE void zest__dx_log_hresult(zest_device device, HRESULT result, const char *file, int line);
+//Writes the removal reason, and DRED's breadcrumbs and page fault when the debug layer is on, to the log once per device. Takes no Zest lock
+ZEST_PRIVATE void zest__dx_report_device_removal(zest_device device);
+//NULL for an operation Zest doesn't record
+ZEST_PRIVATE const char *zest__dx_breadcrumb_operation_name(D3D12_AUTO_BREADCRUMB_OP operation);
+ZEST_PRIVATE const char *zest__dx_dred_allocation_type_name(D3D12_DRED_ALLOCATION_TYPE type);
+//The wide name as UTF-8 in buffer, else the narrow name, else "unnamed"
+ZEST_PRIVATE const char *zest__dx_dred_name(const char *narrow_name, const wchar_t *wide_name, char *buffer, int buffer_size);
+//The context string of the innermost BeginEvent still open at operation_index, or NULL
+ZEST_PRIVATE const wchar_t *zest__dx_open_event_context(const D3D12_AUTO_BREADCRUMB_NODE1 *node, zest_uint operation_index);
+ZEST_PRIVATE void zest__dx_log_breadcrumb_node(const char *log_path, const D3D12_AUTO_BREADCRUMB_NODE1 *node);
+ZEST_PRIVATE void zest__dx_log_dred_breadcrumbs(const char *log_path, ID3D12DeviceRemovedExtendedData1 *dred);
+ZEST_PRIVATE void zest__dx_log_dred_allocations(const char *log_path, const char *label, const D3D12_DRED_ALLOCATION_NODE1 *node);
+ZEST_PRIVATE void zest__dx_log_dred_page_fault(const char *log_path, ID3D12DeviceRemovedExtendedData1 *dred);
 ZEST_PRIVATE void zest__dx_record_validation_message(zest_device device, const char *severity_name, zest_bool counted, zest_key key, int id, const char *description);
 ZEST_PRIVATE void zest__dx_drain_dxgi_messages(zest_device device);
 ZEST_PRIVATE D3D12_CPU_DESCRIPTOR_HANDLE zest__dx_cpu_heap_start(ID3D12DescriptorHeap *heap);
@@ -1080,6 +1115,19 @@ ZEST_PRIVATE const char *zest__dx_stage_name(zest_uint stage);
 ZEST_PRIVATE zest_dx_root_range_t *zest__dx_find_root_range(zest_dx_root_range_t *ranges, zest_uint range_count, const zest_dx_root_range_t *range);
 ZEST_PRIVATE void zest__dx_fill_descriptor_ranges(const zest_dx_root_range_t *ranges, zest_uint range_count, D3D12_DESCRIPTOR_RANGE_FLAGS flags, D3D12_DESCRIPTOR_RANGE1 *out_ranges);
 ZEST_PRIVATE zest_bool zest__dx_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler);
+ZEST_PRIVATE void zest__dx_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler);
+ZEST_PRIVATE void zest__dx_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif);
+ZEST_PRIVATE void zest__dx_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
+ZEST_PRIVATE zest_bool zest__dx_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
+//Truncates to ZEST__DX_MARKER_NAME_LENGTH - 1 characters and returns the length without the terminator
+ZEST_PRIVATE int zest__dx_widen_name(const char *name, wchar_t out_name[ZEST__DX_MARKER_NAME_LENGTH]);
+ZEST_PRIVATE void zest__dx_begin_debug_marker(const zest_command_list command_list, const char *name);
+ZEST_PRIVATE void zest__dx_end_debug_marker(const zest_command_list command_list);
+ZEST_PRIVATE void zest__dx_set_name(ID3D12Object *object, const char *name);
+//The handle is an ID3D12Object pointer. The type is ignored, as its values are Vulkan's
+ZEST_PRIVATE void zest__dx_set_object_name(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
+ZEST_PRIVATE void zest__dx_set_image_name(zest_device device, zest_image image, const char *name);
+ZEST_PRIVATE void zest__dx_set_buffer_pool_name(zest_device device, zest_device_memory_pool pool, const char *name);
 ZEST_PRIVATE void *zest__dx_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__dx_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__dx_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint index);
@@ -1117,6 +1165,9 @@ void zest__dx_log_hresult(zest_device device, HRESULT result, const char *file, 
 	const char *name = zest__dx_hresult_name(result);
 	ZEST_ALERT("Zest D3D12 Error 0x%08X (%s) in %s at line %d", (unsigned int)result, name, file, line);
 	ZEST_APPEND_LOG(device->log_path.str, "Zest D3D12 Error: 0x%08X (%s) in %s at line %d", (unsigned int)result, name, file, line);
+	if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_HUNG || result == DXGI_ERROR_DEVICE_RESET || result == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+		zest__dx_report_device_removal(device);
+	}
 }
 
 static const char *zest__dx_message_severity_name(D3D12_MESSAGE_SEVERITY severity) {
@@ -1191,6 +1242,181 @@ void zest__dx_drain_dxgi_messages(zest_device device) {
 	ZEST_DX_CALL(info_queue, ClearStoredMessages, zest__dx_debug_dxgi);
 }
 // -- End Error_logging
+
+// -- Device_removal
+const char *zest__dx_breadcrumb_operation_name(D3D12_AUTO_BREADCRUMB_OP operation) {
+	switch (operation) {
+		case D3D12_AUTO_BREADCRUMB_OP_SETMARKER: return "SetMarker";
+		case D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT: return "BeginEvent";
+		case D3D12_AUTO_BREADCRUMB_OP_ENDEVENT: return "EndEvent";
+		case D3D12_AUTO_BREADCRUMB_OP_DRAWINSTANCED: return "DrawInstanced";
+		case D3D12_AUTO_BREADCRUMB_OP_DRAWINDEXEDINSTANCED: return "DrawIndexedInstanced";
+		case D3D12_AUTO_BREADCRUMB_OP_EXECUTEINDIRECT: return "ExecuteIndirect";
+		case D3D12_AUTO_BREADCRUMB_OP_DISPATCH: return "Dispatch";
+		case D3D12_AUTO_BREADCRUMB_OP_COPYBUFFERREGION: return "CopyBufferRegion";
+		case D3D12_AUTO_BREADCRUMB_OP_COPYTEXTUREREGION: return "CopyTextureRegion";
+		case D3D12_AUTO_BREADCRUMB_OP_COPYRESOURCE: return "CopyResource";
+		case D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCE: return "ResolveSubresource";
+		case D3D12_AUTO_BREADCRUMB_OP_RESOLVESUBRESOURCEREGION: return "ResolveSubresourceRegion";
+		case D3D12_AUTO_BREADCRUMB_OP_CLEARRENDERTARGETVIEW: return "ClearRenderTargetView";
+		case D3D12_AUTO_BREADCRUMB_OP_CLEARUNORDEREDACCESSVIEW: return "ClearUnorderedAccessView";
+		case D3D12_AUTO_BREADCRUMB_OP_CLEARDEPTHSTENCILVIEW: return "ClearDepthStencilView";
+		case D3D12_AUTO_BREADCRUMB_OP_RESOLVEQUERYDATA: return "ResolveQueryData";
+		case D3D12_AUTO_BREADCRUMB_OP_BARRIER: return "Barrier";
+		case D3D12_AUTO_BREADCRUMB_OP_PRESENT: return "Present";
+		default: return NULL;
+	}
+}
+
+const char *zest__dx_dred_allocation_type_name(D3D12_DRED_ALLOCATION_TYPE type) {
+	switch (type) {
+		case D3D12_DRED_ALLOCATION_TYPE_COMMAND_QUEUE: return "command queue";
+		case D3D12_DRED_ALLOCATION_TYPE_COMMAND_ALLOCATOR: return "command allocator";
+		case D3D12_DRED_ALLOCATION_TYPE_PIPELINE_STATE: return "pipeline state";
+		case D3D12_DRED_ALLOCATION_TYPE_COMMAND_LIST: return "command list";
+		case D3D12_DRED_ALLOCATION_TYPE_FENCE: return "fence";
+		case D3D12_DRED_ALLOCATION_TYPE_DESCRIPTOR_HEAP: return "descriptor heap";
+		case D3D12_DRED_ALLOCATION_TYPE_HEAP: return "heap";
+		case D3D12_DRED_ALLOCATION_TYPE_QUERY_HEAP: return "query heap";
+		case D3D12_DRED_ALLOCATION_TYPE_COMMAND_SIGNATURE: return "command signature";
+		case D3D12_DRED_ALLOCATION_TYPE_RESOURCE: return "resource";
+		default: return NULL;
+	}
+}
+
+const char *zest__dx_dred_name(const char *narrow_name, const wchar_t *wide_name, char *buffer, int buffer_size) {
+	if (wide_name && WideCharToMultiByte(CP_UTF8, 0, wide_name, -1, buffer, buffer_size, NULL, NULL)) return buffer;
+	return narrow_name ? narrow_name : "unnamed";
+}
+
+const wchar_t *zest__dx_open_event_context(const D3D12_AUTO_BREADCRUMB_NODE1 *node, zest_uint operation_index) {
+	//Walks back from the operation, skipping each event that closed before it
+	zest_uint closed_events = 0;
+	for (zest_uint operation = operation_index; operation != 0; --operation) {
+		D3D12_AUTO_BREADCRUMB_OP history = node->pCommandHistory[operation - 1];
+		if (history == D3D12_AUTO_BREADCRUMB_OP_ENDEVENT) {
+			closed_events++;
+		} else if (history == D3D12_AUTO_BREADCRUMB_OP_BEGINEVENT) {
+			if (closed_events == 0) {
+				for (zest_uint context_index = 0; context_index != node->BreadcrumbContextsCount; ++context_index) {
+					if (node->pBreadcrumbContexts[context_index].BreadcrumbIndex == operation - 1) return node->pBreadcrumbContexts[context_index].pContextString;
+				}
+				return NULL;
+			}
+			closed_events--;
+		}
+	}
+	return NULL;
+}
+
+void zest__dx_log_breadcrumb_node(const char *log_path, const D3D12_AUTO_BREADCRUMB_NODE1 *node) {
+	char queue_buffer[512];
+	char list_buffer[512];
+	const char *queue_name = zest__dx_dred_name(node->pCommandQueueDebugNameA, node->pCommandQueueDebugNameW, queue_buffer, (int)sizeof(queue_buffer));
+	const char *list_name = zest__dx_dred_name(node->pCommandListDebugNameA, node->pCommandListDebugNameW, list_buffer, (int)sizeof(list_buffer));
+	//Read as the count of completed operations, as Unreal's DRED logging reads it. Microsoft's docs call it the index of the last one
+	zest_uint completed = node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0;
+	zest_uint total = node->BreadcrumbCount;
+	if (completed >= total) {
+		ZEST_APPEND_LOG(log_path, "  Queue \"%s\", list \"%s\": all %u operations completed", queue_name, list_name, total);
+		return;
+	}
+	char pass_text[600] = "";
+	const wchar_t *pass_name = zest__dx_open_event_context(node, completed);
+	char pass_buffer[512];
+	if (pass_name && WideCharToMultiByte(CP_UTF8, 0, pass_name, -1, pass_buffer, (int)sizeof(pass_buffer), NULL, NULL)) {
+		snprintf(pass_text, sizeof(pass_text), ", in pass \"%s\"", pass_buffer);
+	}
+	char next_buffer[32];
+	const char *next_name = zest__dx_breadcrumb_operation_name(node->pCommandHistory[completed]);
+	if (!next_name) {
+		snprintf(next_buffer, sizeof(next_buffer), "operation %d", (int)node->pCommandHistory[completed]);
+		next_name = next_buffer;
+	}
+	if (completed == 0) {
+		ZEST_APPEND_LOG(log_path, "  Queue \"%s\", list \"%s\": 0 of %u operations completed%s. Next %s", queue_name, list_name, total, pass_text, next_name);
+		return;
+	}
+	char last_buffer[32];
+	const char *last_name = zest__dx_breadcrumb_operation_name(node->pCommandHistory[completed - 1]);
+	if (!last_name) {
+		snprintf(last_buffer, sizeof(last_buffer), "operation %d", (int)node->pCommandHistory[completed - 1]);
+		last_name = last_buffer;
+	}
+	ZEST_APPEND_LOG(log_path, "  Queue \"%s\", list \"%s\": %u of %u operations completed%s. Last completed %s, next %s", queue_name, list_name, completed, total, pass_text, last_name, next_name);
+}
+
+void zest__dx_log_dred_breadcrumbs(const char *log_path, ID3D12DeviceRemovedExtendedData1 *dred) {
+	D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 output = ZEST__ZERO_INIT(D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1);
+	HRESULT result = ZEST_DX_CALL(dred, GetAutoBreadcrumbsOutput1, &output);
+	if (FAILED(result)) {
+		ZEST_APPEND_LOG(log_path, "DRED breadcrumbs aren't available (0x%08X).", (unsigned int)result);
+		return;
+	}
+	//ID3D12Device5::RemoveDevice leaves none, even for lists still waiting on a queue
+	if (!output.pHeadAutoBreadcrumbNode) {
+		ZEST_APPEND_LOG(log_path, "DRED breadcrumbs: none recorded.");
+		return;
+	}
+	ZEST_APPEND_LOG(log_path, "DRED breadcrumbs:");
+	for (const D3D12_AUTO_BREADCRUMB_NODE1 *node = output.pHeadAutoBreadcrumbNode; node; node = node->pNext) {
+		zest__dx_log_breadcrumb_node(log_path, node);
+	}
+}
+
+void zest__dx_log_dred_allocations(const char *log_path, const char *label, const D3D12_DRED_ALLOCATION_NODE1 *node) {
+	for (; node; node = node->pNext) {
+		char name_buffer[512];
+		const char *name = zest__dx_dred_name(node->ObjectNameA, node->ObjectNameW, name_buffer, (int)sizeof(name_buffer));
+		const char *type_name = zest__dx_dred_allocation_type_name(node->AllocationType);
+		if (type_name) {
+			ZEST_APPEND_LOG(log_path, "  %s: \"%s\" (%s)", label, name, type_name);
+		} else {
+			ZEST_APPEND_LOG(log_path, "  %s: \"%s\" (allocation type %d)", label, name, (int)node->AllocationType);
+		}
+	}
+}
+
+void zest__dx_log_dred_page_fault(const char *log_path, ID3D12DeviceRemovedExtendedData1 *dred) {
+	D3D12_DRED_PAGE_FAULT_OUTPUT1 output = ZEST__ZERO_INIT(D3D12_DRED_PAGE_FAULT_OUTPUT1);
+	HRESULT result = ZEST_DX_CALL(dred, GetPageFaultAllocationOutput1, &output);
+	if (FAILED(result)) {
+		ZEST_APPEND_LOG(log_path, "DRED page faults aren't available (0x%08X).", (unsigned int)result);
+		return;
+	}
+	if (output.PageFaultVA == 0 && !output.pHeadExistingAllocationNode && !output.pHeadRecentFreedAllocationNode) {
+		ZEST_APPEND_LOG(log_path, "DRED: no page fault.");
+		return;
+	}
+	ZEST_APPEND_LOG(log_path, "DRED page fault at 0x%016llX", (unsigned long long)output.PageFaultVA);
+	zest__dx_log_dred_allocations(log_path, "Allocation at that address", output.pHeadExistingAllocationNode);
+	zest__dx_log_dred_allocations(log_path, "Recently freed", output.pHeadRecentFreedAllocationNode);
+}
+
+void zest__dx_report_device_removal(zest_device device) {
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	if (!backend || !backend->device) return;
+	HRESULT reason = ZEST_DX_CALL0(backend->device, GetDeviceRemovedReason);
+	if (SUCCEEDED(reason)) return;
+	if (InterlockedCompareExchange(&backend->removal_reported, 1, 0) != 0) return;
+	const char *log_path = device->log_path.str;
+	const char *reason_name = zest__dx_hresult_name(reason);
+	ZEST_APPEND_LOG(log_path, "D3D12 device removed: %s (0x%08X)", reason_name, (unsigned int)reason);
+	//DRED is configured when the debug layer is enabled, and the settings last for the process
+	if (!zest__dx_debug_layer_enabled) {
+		ZEST_APPEND_LOG(log_path, "Turn on validation to record DRED breadcrumbs and page faults for the next removal.");
+	} else {
+		ID3D12DeviceRemovedExtendedData1 *dred = NULL;
+		HRESULT result = ZEST_DX_CALL(backend->device, QueryInterface, ZEST_DX_IID(ID3D12DeviceRemovedExtendedData1), (void **)&dred);
+		if (SUCCEEDED(result)) {
+			zest__dx_log_dred_breadcrumbs(log_path, dred);
+			zest__dx_log_dred_page_fault(log_path, dred);
+			ZEST_DX_RELEASE(dred);
+		}
+	}
+	ZEST_ALERT("The D3D12 device was removed (%s). The log has the report.", reason_name);
+}
+// -- End Device_removal
 
 // -- Type_converters
 DXGI_FORMAT zest__dx_to_dxgi_format(zest_format format) {
@@ -1993,6 +2219,7 @@ void zest__dx_enable_debug_layer(zest_device device, ID3D12Debug3 *debug) {
 	if (SUCCEEDED(result)) {
 		ZEST_DX_CALL(dred_settings, SetAutoBreadcrumbsEnablement, D3D12_DRED_ENABLEMENT_FORCED_ON);
 		ZEST_DX_CALL(dred_settings, SetPageFaultEnablement, D3D12_DRED_ENABLEMENT_FORCED_ON);
+		ZEST_DX_CALL(dred_settings, SetBreadcrumbContextEnablement, D3D12_DRED_ENABLEMENT_FORCED_ON);
 		ZEST_DX_RELEASE(dred_settings);
 	} else {
 		ZEST_APPEND_LOG(log_path, "D3D12 DRED settings aren't available (0x%08X), so device removal reports won't include breadcrumbs or page faults.", (unsigned int)result);
@@ -2365,6 +2592,7 @@ zest_bool zest__dx_reinit_logical_device(zest_device device) {
 		return ZEST_FALSE;
 	}
 	backend->device = native_device;
+	InterlockedExchange(&backend->removal_reported, 0);
 	if (!zest__dx_create_device_objects(device) || !zest__dx_create_queues(device)) {
 		zest__dx_release_device_objects(device);
 		zest__dx_release_native_device(device, backend->device);
@@ -2522,6 +2750,15 @@ void zest__dx_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->validate_shader = zest__dx_validate_shader;
 	platform->compile_shader = zest__dx_compile_shader;
 	platform->create_gpu_profiler_backend = zest__dx_create_gpu_profiler_backend;
+	platform->cleanup_gpu_profiler_backend = zest__dx_cleanup_gpu_profiler_backend;
+	platform->reset_gpu_query_pool = zest__dx_reset_gpu_query_pool;
+	platform->write_timestamp = zest__dx_write_timestamp;
+	platform->readback_gpu_timestamps = zest__dx_readback_gpu_timestamps;
+	platform->set_object_name = zest__dx_set_object_name;
+	platform->set_image_name = zest__dx_set_image_name;
+	platform->set_buffer_pool_name = zest__dx_set_buffer_pool_name;
+	platform->begin_debug_marker = zest__dx_begin_debug_marker;
+	platform->end_debug_marker = zest__dx_end_debug_marker;
 	platform->get_final_signal_ptr = zest__dx_get_final_signal_ptr;
 	platform->get_final_wait_ptr = zest__dx_get_final_wait_ptr;
 	platform->get_swapchain_wait_semaphore = zest__dx_get_swapchain_wait_semaphore;
@@ -2817,6 +3054,8 @@ zest_bool zest__dx_dummy_submit_for_present_only(zest_context context) {
 		ZEST_DX_RELEASE(backend->utility_command_list);
 		if (FAILED(ZEST_DX_CALL(ZEST_DX_BACKEND(device, device)->device10, CreateCommandList1, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_FLAG_NONE, ZEST_DX_IID(ID3D12GraphicsCommandList7), (void **)&backend->utility_command_list))) {
 			backend->utility_command_list = NULL;
+		} else {
+			zest__dx_set_name((ID3D12Object *)backend->utility_command_list, "Zest Present Utility List");
 		}
 		return ZEST_FALSE;
 	}
@@ -2904,6 +3143,8 @@ void *zest__dx_new_queue_backend(zest_device device, zest_uint family_index) {
 		ZEST__FREE(device->allocator, backend);
 		return NULL;
 	}
+	zest__dx_set_name((ID3D12Object *)backend->queue, zest__dx_queue_families[family_index].queue_name);
+	zest__dx_set_name((ID3D12Object *)backend->command_list, zest__dx_queue_families[family_index].immediate_list_name);
 	return backend;
 }
 
@@ -2944,6 +3185,7 @@ zest_bool zest__dx_initialise_context_backend(zest_context context) {
 		zest__dx_log_hresult(device, backend->last_result, __FILE__, __LINE__);
 		return ZEST_FALSE;
 	}
+	zest__dx_set_name((ID3D12Object *)backend->utility_command_list, "Zest Present Utility List");
 	return ZEST_TRUE;
 }
 
@@ -3222,7 +3464,10 @@ zest_semaphore_status zest__dx_wait_for_timeline(zest_execution_timeline timelin
 	zest_u64 target_value = timeline->current_value;
 	zest_u64 completed_value = ZEST_DX_CALL0(backend->fence, GetCompletedValue);
 	//A removed device reports every fence as UINT64_MAX
-	if (completed_value == UINT64_MAX) return zest_semaphore_status_error;
+	if (completed_value == UINT64_MAX) {
+		zest__dx_report_device_removal(timeline->device);
+		return zest_semaphore_status_error;
+	}
 	if (completed_value >= target_value) return zest_semaphore_status_success;
 	if (timeout == 0) return zest_semaphore_status_timeout;
 	if (!zest__dx_wait_event) {
@@ -3244,7 +3489,10 @@ zest_semaphore_status zest__dx_wait_for_timeline(zest_execution_timeline timelin
 		DWORD wait_result = WaitForSingleObject(zest__dx_wait_event, zest__dx_timeout_milliseconds(remaining));
 		if (wait_result == WAIT_FAILED) return zest_semaphore_status_error;
 		completed_value = ZEST_DX_CALL0(backend->fence, GetCompletedValue);
-		if (completed_value == UINT64_MAX) return zest_semaphore_status_error;
+		if (completed_value == UINT64_MAX) {
+			zest__dx_report_device_removal(timeline->device);
+			return zest_semaphore_status_error;
+		}
 		if (completed_value >= target_value) return zest_semaphore_status_success;
 		if (wait_result == WAIT_TIMEOUT) return zest_semaphore_status_timeout;
 		//A registration left by an earlier timed-out wait on this thread can wake it early
@@ -3336,6 +3584,8 @@ zest_queue zest__dx_imm_begin_command_buffer(zest_device device, zest_device_que
 		device_backend->last_result = ZEST_DX_CALL(device_backend->device, CreateCommandList, 0, queue_backend->type, queue_backend->command_allocator, NULL, ZEST_DX_IID(ID3D12GraphicsCommandList7), (void **)&queue_backend->command_list);
 		if (FAILED(device_backend->last_result)) {
 			queue_backend->command_list = NULL;
+		} else {
+			zest__dx_set_name((ID3D12Object *)queue_backend->command_list, zest__dx_queue_families[queue->family_index].immediate_list_name);
 		}
 	}
 	if (FAILED(device_backend->last_result)) {
@@ -6587,6 +6837,7 @@ zest_bool zest__dx_set_next_command_buffer(const zest_command_list command_list,
 			zest__dx_flag_device_lost(context, context_backend->last_result);
 			return ZEST_FALSE;
 		}
+		zest__dx_set_name((ID3D12Object *)queue_backend->command_list, zest__dx_queue_families[family_index].frame_graph_list_name);
 		if (ZEST_DX_BACKEND(device, context->device)->support.dynamic_depth_bias && FAILED(ZEST_DX_CALL(queue_backend->command_list, QueryInterface, ZEST_DX_IID(ID3D12GraphicsCommandList9), (void **)&queue_backend->command_list9))) {
 			queue_backend->command_list9 = NULL;
 		}
@@ -6615,6 +6866,8 @@ zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list) {
 	}
 	backend->close_result = S_OK;
 	backend->render_pass_open = ZEST_FALSE;
+	backend->profile_query_begin = 0;
+	backend->profile_query_end = 0;
 	memset(&backend->bind_state, 0, sizeof(backend->bind_state));
 	if (backend->queue_type != zest_queue_transfer && device->bindless_set) {
 		zest__dx_bind_bindless_heaps(device, backend->command_list);
@@ -6624,6 +6877,18 @@ zest_bool zest__dx_begin_command_buffer(const zest_command_list command_list) {
 
 void zest__dx_end_command_buffer(const zest_command_list command_list) {
 	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	if (backend->profile_query_end != backend->profile_query_begin && command_list->gpu_profiler) {
+		zest_gpu_profiler_t *profiler = command_list->gpu_profiler;
+		zest_dx_gpu_profiler_backend_t *profiler_backend = (zest_dx_gpu_profiler_backend_t *)profiler->backend;
+		zest_uint slot = command_list->queue_index;
+		ZEST_ASSERT(slot < ZEST_QUEUE_COUNT);	//The frame graph sets queue_index to the batch's slot before any pass writes a timestamp
+		ID3D12QueryHeap *heap = backend->queue_type == zest_queue_transfer ? profiler_backend->copy_timestamp_heap : profiler_backend->timestamp_heap;
+		zest_uint first_query = command_list->context->current_fif * profiler->max_queries + backend->profile_query_begin;
+		zest_uint resolve_count = backend->profile_query_end - backend->profile_query_begin;
+		ZEST_DX_CALL(backend->command_list, ResolveQueryData, heap, D3D12_QUERY_TYPE_TIMESTAMP, first_query, resolve_count,
+			profiler_backend->readback_buffers[slot], (UINT64)first_query * sizeof(zest_u64));
+		memset(profiler_backend->query_slots + first_query, (int)slot, resolve_count);
+	}
 	backend->close_result = ZEST_DX_CALL0(backend->command_list, Close);
 	if (FAILED(backend->close_result)) {
 		zest__dx_log_hresult(command_list->context->device, backend->close_result, __FILE__, __LINE__);
@@ -7752,6 +8017,167 @@ zest_bool zest__dx_reflect_shader(const void *container, zest_size size, zest_dx
 }
 // -- End Shader_compiling
 
+// -- GPU_Profiling_backend
+zest_bool zest__dx_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) {
+	zest_device device = context->device;
+	zest_dx_device_backend_t *device_backend = ZEST_DX_BACKEND(device, device);
+	if (!device_backend->support.copy_queue_timestamps) {
+		ZEST_APPEND_LOG(device->log_path.str, "D3D12 GPU profiling needs timestamp queries on the copy queue, which this device doesn't support, so GPU profiling is off.");
+		return ZEST_FALSE;
+	}
+	zest_dx_gpu_profiler_backend_t *backend = (zest_dx_gpu_profiler_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_dx_gpu_profiler_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_dx_gpu_profiler_backend_t);
+	backend->device = device;
+	profiler->backend = backend;
+
+	ZEST_ASSERT(profiler->max_queries <= ZEST_MAX_GPU_PROFILE_QUERIES);	//query_slots is sized for ZEST_MAX_GPU_PROFILE_QUERIES per frame in flight
+	zest_uint query_count = profiler->max_queries * ZEST_MAX_FIF;
+	D3D12_QUERY_HEAP_DESC heap_description = ZEST__ZERO_INIT(D3D12_QUERY_HEAP_DESC);
+	heap_description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+	heap_description.Count = query_count;
+	HRESULT result = ZEST_DX_CALL(device_backend->device, CreateQueryHeap, &heap_description, ZEST_DX_IID(ID3D12QueryHeap), (void **)&backend->timestamp_heap);
+	if (SUCCEEDED(result)) {
+		heap_description.Type = D3D12_QUERY_HEAP_TYPE_COPY_QUEUE_TIMESTAMP;
+		result = ZEST_DX_CALL(device_backend->device, CreateQueryHeap, &heap_description, ZEST_DX_IID(ID3D12QueryHeap), (void **)&backend->copy_timestamp_heap);
+	}
+	if (FAILED(result)) {
+		zest__dx_log_hresult(device, result, __FILE__, __LINE__);
+	}
+	D3D12_HEAP_PROPERTIES heap_properties = zest__dx_heap_properties(zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit, device_backend->support.gpu_upload_heap);
+	for (zest_uint slot = 0; slot != ZEST_QUEUE_COUNT && SUCCEEDED(result); ++slot) {
+		if (!zest__dx_create_pool_buffer(device, &heap_properties, sizeof(zest_u64) * query_count, &backend->readback_buffers[slot])) {
+			result = E_FAIL;
+			continue;
+		}
+		result = ZEST_DX_CALL(backend->readback_buffers[slot], Map, 0, NULL, (void **)&backend->mapped_timestamps[slot]);
+		if (FAILED(result)) {
+			zest__dx_log_hresult(device, result, __FILE__, __LINE__);
+			backend->mapped_timestamps[slot] = NULL;
+		}
+	}
+
+	UINT64 frequencies[ZEST__DX_QUEUE_FAMILY_COUNT] = { 0 };
+	for (zest_uint family_index = 0; family_index != ZEST__DX_QUEUE_FAMILY_COUNT && SUCCEEDED(result); ++family_index) {
+		ID3D12CommandQueue *queue = ZEST_DX_BACKEND(queue, &device->queue_families[family_index]->queues[0])->queue;
+		result = ZEST_DX_CALL(queue, GetTimestampFrequency, &frequencies[family_index]);
+		if (FAILED(result)) {
+			zest__dx_log_hresult(device, result, __FILE__, __LINE__);
+		}
+	}
+	if (SUCCEEDED(result) && frequencies[0] == 0) {
+		ZEST_APPEND_LOG(device->log_path.str, "The D3D12 direct queue reports a timestamp frequency of 0, so GPU profiling is off.");
+		result = E_FAIL;
+	}
+	if (FAILED(result)) {
+		zest__dx_cleanup_gpu_profiler_backend(profiler);
+		ZEST__FREE(context->allocator, backend);
+		profiler->backend = NULL;
+		return ZEST_FALSE;
+	}
+
+	//Every queue's ticks are converted with the direct queue's frequency
+	profiler->timestamp_period_ns = (float)(1000000000.0 / (double)frequencies[0]);
+	ZEST_APPEND_LOG(device->log_path.str, "D3D12 timestamp frequencies: direct %llu Hz, compute %llu Hz, copy %llu Hz", (zest_ull)frequencies[0], (zest_ull)frequencies[1], (zest_ull)frequencies[2]);
+	zest_ForEachFrameInFlight(fif) {
+		profiler->raw_timestamps[fif] = (zest_u64 *)ZEST__ALLOCATE(context->allocator, sizeof(zest_u64) * profiler->max_queries);
+		memset(profiler->raw_timestamps[fif], 0, sizeof(zest_u64) * profiler->max_queries);
+	}
+	return ZEST_TRUE;
+}
+
+void zest__dx_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler) {
+	zest_dx_gpu_profiler_backend_t *backend = (zest_dx_gpu_profiler_backend_t *)profiler->backend;
+	if (!backend) return;
+	for (zest_uint slot = 0; slot != ZEST_QUEUE_COUNT; ++slot) {
+		if (!backend->readback_buffers[slot]) continue;
+		if (backend->mapped_timestamps[slot]) {
+			ZEST_DX_CALL(backend->readback_buffers[slot], Unmap, 0, NULL);
+			backend->mapped_timestamps[slot] = NULL;
+		}
+		ZEST_DX_RELEASE(backend->readback_buffers[slot]);
+		zest__atomic_fetch_add(&backend->device->memory_allocation_count, -1);
+	}
+	ZEST_DX_RELEASE(backend->timestamp_heap);
+	ZEST_DX_RELEASE(backend->copy_timestamp_heap);
+}
+
+void zest__dx_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif) {
+	//D3D12 query heaps need no reset
+}
+
+void zest__dx_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end) {
+	zest_dx_gpu_profiler_backend_t *profiler_backend = (zest_dx_gpu_profiler_backend_t *)profiler->backend;
+	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	ID3D12QueryHeap *heap = backend->queue_type == zest_queue_transfer ? profiler_backend->copy_timestamp_heap : profiler_backend->timestamp_heap;
+	ZEST_DX_CALL(backend->command_list, EndQuery, heap, D3D12_QUERY_TYPE_TIMESTAMP, fif * profiler->max_queries + query_index);
+	if (backend->profile_query_begin == backend->profile_query_end) {
+		backend->profile_query_begin = query_index;
+		backend->profile_query_end = query_index + 1;
+	} else {
+		backend->profile_query_begin = ZEST__MIN(backend->profile_query_begin, query_index);
+		backend->profile_query_end = ZEST__MAX(backend->profile_query_end, query_index + 1);
+	}
+}
+
+zest_bool zest__dx_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count) {
+	zest_dx_gpu_profiler_backend_t *backend = (zest_dx_gpu_profiler_backend_t *)profiler->backend;
+	zest_u64 *raw_timestamps = profiler->raw_timestamps[fif];
+	zest_uint first_query = fif * profiler->max_queries;
+	for (zest_uint query = 0; query != query_count; ++query) {
+		raw_timestamps[query] = backend->mapped_timestamps[backend->query_slots[first_query + query]][first_query + query];
+	}
+	return ZEST_TRUE;
+}
+// -- End GPU_Profiling_backend
+
+// -- Debug_naming
+int zest__dx_widen_name(const char *name, wchar_t out_name[ZEST__DX_MARKER_NAME_LENGTH]) {
+	size_t byte_count = strlen(name);
+	//A UTF-8 byte never becomes more than one UTF-16 unit, so capping the bytes caps the output. A split sequence becomes U+FFFD
+	if (byte_count > ZEST__DX_MARKER_NAME_LENGTH - 1) byte_count = ZEST__DX_MARKER_NAME_LENGTH - 1;
+	int length = byte_count ? MultiByteToWideChar(CP_UTF8, 0, name, (int)byte_count, out_name, ZEST__DX_MARKER_NAME_LENGTH - 1) : 0;
+	out_name[length] = 0;
+	return length;
+}
+
+void zest__dx_begin_debug_marker(const zest_command_list command_list, const char *name) {
+	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	wchar_t wide_name[ZEST__DX_MARKER_NAME_LENGTH];
+	int length = zest__dx_widen_name(name, wide_name);
+	//Metadata 0 is PIX's UTF-16 event format
+	ZEST_DX_CALL(backend->command_list, BeginEvent, 0, wide_name, (UINT)((length + 1) * sizeof(wchar_t)));
+}
+
+void zest__dx_end_debug_marker(const zest_command_list command_list) {
+	zest_dx_command_list_backend_t *backend = ZEST_DX_BACKEND(command_list, command_list);
+	ZEST_DX_CALL0(backend->command_list, EndEvent);
+}
+
+void zest__dx_set_name(ID3D12Object *object, const char *name) {
+	if (!object || !name) return;
+	wchar_t wide_name[ZEST__DX_MARKER_NAME_LENGTH];
+	zest__dx_widen_name(name, wide_name);
+	ZEST_DX_CALL(object, SetName, wide_name);
+}
+
+void zest__dx_set_object_name(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name) {
+	zest__dx_set_name((ID3D12Object *)(uintptr_t)object_handle, name);
+}
+
+void zest__dx_set_image_name(zest_device device, zest_image image, const char *name) {
+	zest_dx_image_backend_t *backend = ZEST_DX_BACKEND(image, image);
+	if (!backend) return;
+	zest__dx_set_name((ID3D12Object *)backend->resource, name);
+}
+
+void zest__dx_set_buffer_pool_name(zest_device device, zest_device_memory_pool pool, const char *name) {
+	zest_dx_device_memory_pool_backend_t *backend = ZEST_DX_BACKEND(device_memory_pool, pool);
+	if (!backend) return;
+	//Image pools have a heap and no buffer
+	zest__dx_set_name(backend->buffer ? (ID3D12Object *)backend->buffer : (ID3D12Object *)backend->heap, name);
+}
+// -- End Debug_naming
+
 // -- Debug_functions
 void *zest__dx_get_resource_ptr(zest_resource_node resource) {
 	if (ZEST__FLAGGED(resource->type, zest_resource_type_is_image) && resource->image.backend) {
@@ -7761,8 +8187,6 @@ void *zest__dx_get_resource_ptr(zest_resource_node resource) {
 	}
 	return NULL;
 }
-
-zest_bool zest__dx_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) { return zest__dx_report_unavailable(context->device, "GPU profiling is not available on the D3D12 backend yet."); }
 
 //D3D12 has no binary semaphores and its batches keep no semaphore lists, so the print helpers get NULL
 void *zest__dx_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index) { return NULL; }

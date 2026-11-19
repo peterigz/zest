@@ -179,6 +179,8 @@ ZEST_PRIVATE zest_bool zest__vk_readback_gpu_timestamps(zest_gpu_profiler_t *pro
 ZEST_PRIVATE void zest__vk_set_object_name(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
 ZEST_PRIVATE void zest__vk_set_image_name(zest_device device, zest_image image, const char *name);
 ZEST_PRIVATE void zest__vk_set_buffer_pool_name(zest_device device, zest_device_memory_pool pool, const char *name);
+ZEST_PRIVATE void zest__vk_begin_debug_marker(const zest_command_list command_list, const char *name);
+ZEST_PRIVATE void zest__vk_end_debug_marker(const zest_command_list command_list);
 
 ZEST_PRIVATE void zest__log_vulkan_error(zest_device device, VkResult result, const char *file, int line);
 ZEST_PRIVATE const char *zest__vulkan_error_string(VkResult errorCode);
@@ -490,6 +492,8 @@ typedef struct zest_device_backend_t {
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkQueueFamilyProperties *queue_families;
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
+    PFN_vkCmdBeginDebugUtilsLabelEXT pfn_vkCmdBeginDebugUtilsLabel;
+    PFN_vkCmdEndDebugUtilsLabelEXT pfn_vkCmdEndDebugUtilsLabel;
     PFN_vkCmdBeginRenderingKHR pfn_vkCmdBeginRendering;
     PFN_vkCmdEndRenderingKHR pfn_vkCmdEndRendering;
     PFN_vkQueueSubmit2KHR pfn_vkQueueSubmit2;
@@ -744,6 +748,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->set_object_name                               = zest__vk_set_object_name;
 	platform->set_image_name                                = zest__vk_set_image_name;
 	platform->set_buffer_pool_name                          = zest__vk_set_buffer_pool_name;
+	platform->begin_debug_marker                            = zest__vk_begin_debug_marker;
+	platform->end_debug_marker                              = zest__vk_end_debug_marker;
 
 	platform->wait_for_idle_device                          = zest__vk_wait_for_idle_device;
 	platform->initialise_device                      	    = zest__vk_initialise_device;
@@ -871,6 +877,21 @@ void zest__vk_set_image_name(zest_device device, zest_image image, const char *n
 void zest__vk_set_buffer_pool_name(zest_device device, zest_device_memory_pool pool, const char *name) {
 	if (!device->backend->pfnSetDebugUtilsObjectNameEXT || !pool->backend) return;
 	zest__vk_set_object_name(device, (zest_uint)VK_OBJECT_TYPE_BUFFER, (zest_u64)pool->backend->vk_buffer, name);
+}
+
+void zest__vk_begin_debug_marker(const zest_command_list command_list, const char *name) {
+	PFN_vkCmdBeginDebugUtilsLabelEXT begin_label = command_list->device->backend->pfn_vkCmdBeginDebugUtilsLabel;
+	if (!begin_label) return;
+	VkDebugUtilsLabelEXT label = ZEST__ZERO_INIT(VkDebugUtilsLabelEXT);
+	label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	label.pLabelName = name;
+	begin_label(command_list->backend->command_buffer, &label);
+}
+
+void zest__vk_end_debug_marker(const zest_command_list command_list) {
+	PFN_vkCmdEndDebugUtilsLabelEXT end_label = command_list->device->backend->pfn_vkCmdEndDebugUtilsLabel;
+	if (!end_label) return;
+	end_label(command_list->backend->command_buffer);
 }
 
 // -- Error_logging
@@ -2125,6 +2146,8 @@ void zest__vk_setup_validation(zest_device device) {
     ZEST_VK_LOG(device, zest__vk_create_debug_messenger(device->backend->instance, &create_info, &device->backend->allocation_callbacks, &device->backend->debug_messenger));
 
     device->backend->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(device->backend->instance, "vkSetDebugUtilsObjectNameEXT");
+    device->backend->pfn_vkCmdBeginDebugUtilsLabel = (PFN_vkCmdBeginDebugUtilsLabelEXT)vkGetInstanceProcAddr(device->backend->instance, "vkCmdBeginDebugUtilsLabelEXT");
+    device->backend->pfn_vkCmdEndDebugUtilsLabel = (PFN_vkCmdEndDebugUtilsLabelEXT)vkGetInstanceProcAddr(device->backend->instance, "vkCmdEndDebugUtilsLabelEXT");
 }
 
 zest_bool zest__vk_pick_physical_device(zest_device device) {

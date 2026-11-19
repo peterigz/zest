@@ -22,8 +22,6 @@ Run from the root of the Zest repository, as the library and shader paths are re
 - `--frames N` exits after N frames
 - `--effect-mode baked|cpu|gpu` starts with that technique selected
 
-On D3D12 the profile window shows CPU timings only, as the D3D12 backend has no GPU timestamps yet.
-
 ## Zest Features Used
 
 - **Compute Shaders**: `zest_CreateCompute` for sprite data playback and GPU particle simulation

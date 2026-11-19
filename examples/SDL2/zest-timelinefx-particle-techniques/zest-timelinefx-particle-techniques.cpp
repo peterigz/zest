@@ -575,10 +575,7 @@ int main(int argc, char *argv[]) {
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
-	if (!example.options.use_d3d12) {
-		//D3D12 has no GPU timestamps yet, and asking for them asserts
-		ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
-	}
+	ZEST__FLAG(create_info.flags, zest_context_init_flag_gpu_profiling);
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
