@@ -142,6 +142,11 @@ typedef unsigned int zloc_thread_access;
 typedef int zloc_bool;
 typedef void* zloc_pool;
 
+//Strict ISO C on glibc hides the POSIX functions the implementation uses, so this has to come before the first system include
+#if defined(ZEST_IMPLEMENTATION) && defined(__linux__) && !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
+
 #include <stdio.h>		//For printf mainly and loading files
 #include <stdlib.h>		//For abort etc.
 #include <stdint.h>		//For uint32_t etc.
