@@ -401,7 +401,7 @@ int main(int argc, char *argv[]) {
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_enable_vsync);
 
 	TimelineFXExample game = {0};
-	//--d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
 	game.options = ParseExampleOptions(argc, argv);
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_BeginTimelineFX(tfx_GetDefaultThreadCount(), zloc__MEGABYTE(128));

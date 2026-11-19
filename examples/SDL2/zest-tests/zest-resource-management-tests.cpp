@@ -1995,7 +1995,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		char shader_path[256];
 		zest_shader_handle shader = zest_CreateShaderFromFile(
 			tests->device,
-			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
+			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)),
 			"test_compute.spv",
 			zest_compute_shader, NULL,
 			1  // disable caching
@@ -2124,7 +2124,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			char shader_path[256];
 			shaders[i] = zest_CreateShaderFromFile(
 				tests->device,
-				TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
+				TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)),
 				"multi_compute.spv",
 				zest_compute_shader, NULL,
 				1
@@ -2279,7 +2279,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 		char shader_path[256];
 		zest_shader_handle shader = zest_CreateShaderFromFile(
 			tests->device,
-			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
+			TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)),
 			"edge_compute.spv",
 			zest_compute_shader, NULL,
 			1
@@ -2293,7 +2293,7 @@ int test__compute_shader_resources(ZestTests *tests, Test *test) {
 			for (int i = 0; i < cycle_count; i++) {
 				zest_shader_handle cycle_shader = zest_CreateShaderFromFile(
 					tests->device,
-					TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)),
+					TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)),
 					"cycle_compute.spv",
 					zest_compute_shader, NULL,
 					1
@@ -3083,7 +3083,7 @@ int test__stride_aligned_buffers(ZestTests *tests, Test *test) {
 
 	StrideCheckState state = {};
 	char shader_path[256];
-	zest_shader_handle shader = zest_CreateShaderFromFile(device, TestShaderPath(device, "examples/SDL2/zest-tests/shaders/stride_check.comp", shader_path, sizeof(shader_path)), "stride_check.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, TestShaderPath(device, "examples/SDL2/zest-tests/shaders/glsl/stride_check.comp", shader_path, sizeof(shader_path)), "stride_check.spv", zest_compute_shader, NULL, 1);
 	state.compute = zest_CreateCompute(device, "Stride Check", shader);
 	if (!zest_IsValidHandle((void *)&state.compute)) {
 		test->frame_count++;

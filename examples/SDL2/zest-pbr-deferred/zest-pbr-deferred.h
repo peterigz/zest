@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -178,6 +179,7 @@ struct SimplePBRExample {
 	bool sync_refresh;
 	int request_graph_print;
 	bool reset;
+	example_options_t options;
 };
 
 void InitSimplePBRExample(SimplePBRExample *app);

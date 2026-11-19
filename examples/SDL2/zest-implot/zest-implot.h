@@ -7,6 +7,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
 #include "implot.h"
+#include "examples/Common/example_platform.h"
 
 struct ImGuiApp {
 	zest_context context;
@@ -14,6 +15,7 @@ struct ImGuiApp {
 	zest_timer_t timer;
 	bool sync_refresh;
 	zest_imgui_t imgui;
+	example_options_t options;
 };
 
 void InitImGuiApp(ImGuiApp *app);

@@ -1,6 +1,9 @@
 // Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include "zest-indirect-draw.h"
 #include "zest.h"
@@ -29,7 +32,7 @@ Key concepts:
 void InitIndirectDrawExample(IndirectDrawExample *app) {
 	// Initialize Dear ImGui with Zest and SDL2 backend
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
 	// Custom ImGui font setup
@@ -69,16 +72,20 @@ void InitIndirectDrawExample(IndirectDrawExample *app) {
 
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 
-	// Load shaders for render pipelines
-	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.vert", "indirect_instancing_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/instancing.frag", "indirect_instancing_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.vert", "indirect_planet_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/planet.frag", "indirect_planet_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.vert", "indirect_skybox_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/sky_box.frag", "indirect_skybox_frag.spv", zest_fragment_shader, NULL, true);
+	// Load shaders for render pipelines, in GLSL on Vulkan and HLSL on D3D12
+	const char *shader_folder = "examples/SDL2/zest-indirect-draw/shaders";
+	char path[256];
+	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "instancing.vert", path, sizeof(path)), "indirect_instancing_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "instancing.frag", path, sizeof(path)), "indirect_instancing_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "planet.vert", path, sizeof(path)), "indirect_planet_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "planet.frag", path, sizeof(path)), "indirect_planet_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.vert", path, sizeof(path)), "indirect_skybox_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.frag", path, sizeof(path)), "indirect_skybox_frag.spv", zest_fragment_shader, NULL, true);
 
-	// Load compute shader for frustum culling
-	zest_shader_handle cull_shader = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-indirect-draw/shaders/cull.comp", "indirect_cull_comp.spv", zest_compute_shader, NULL, true);
+	// Load compute shaders that reset the draw command and then frustum cull into it
+	zest_shader_handle reset_shader = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "cull_reset.comp", path, sizeof(path)), "indirect_cull_reset_comp.spv", zest_compute_shader, NULL, true);
+	app->reset_compute = zest_CreateCompute(app->device, "Reset Indirect", reset_shader);
+	zest_shader_handle cull_shader = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "cull.comp", path, sizeof(path)), "indirect_cull_comp.spv", zest_compute_shader, NULL, true);
 	app->cull_compute = zest_CreateCompute(app->device, "Frustum Cull", cull_shader);
 
 	// Rock pipeline: TWO vertex bindings - mesh vertices (binding 0) and instance data (binding 1)
@@ -295,6 +302,25 @@ void UpdateImGui(IndirectDrawExample *app) {
 	} zest_EndTimerLoop(app->timer);
 }
 
+// Compute pass callback: reset the draw command, so the cull pass can count visible instances into it
+void ResetIndirectCompute(zest_command_list command_list, void *user_data) {
+	IndirectDrawExample *app = (IndirectDrawExample *)user_data;
+	zest_compute compute = zest_GetCompute(app->reset_compute);
+	zest_cmd_BindComputePipeline(command_list, compute);
+
+	zest_layer rock_layer = zest_GetLayer(app->rock_layer);
+	const zest_mesh_offset_data_t *mesh_offsets = zest_GetLayerMeshOffsets(rock_layer, app->rock_mesh_index);
+
+	indirect_reset_push_t reset_push;
+	reset_push.indirect_cmd_index = app->indirect_cmd_index;
+	reset_push.index_count = mesh_offsets->index_count;
+	reset_push.first_index = mesh_offsets->index_offset;
+	reset_push.vertex_offset = mesh_offsets->vertex_offset;
+
+	zest_cmd_SendPushConstants(command_list, &reset_push, sizeof(indirect_reset_push_t));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+}
+
 // Compute pass callback: frustum cull instances
 void CullCompute(zest_command_list command_list, void *user_data) {
 	IndirectDrawExample *app = (IndirectDrawExample *)user_data;
@@ -376,9 +402,11 @@ void MainLoop(IndirectDrawExample *app) {
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -431,9 +459,17 @@ void MainLoop(IndirectDrawExample *app) {
 					zest_AddSwapchainToGroup(group);
 					zest_AddResourceToGroup(group, depth_buffer);
 
+					// Compute pass: reset the draw command before any culling counts into it
+					zest_BeginComputePass("Reset Indirect"); {
+						zest_ConnectOutput(indirect_node);
+						zest_SetPassTask(ResetIndirectCompute, app);
+						zest_EndPass();
+					}
+
 					// Compute pass: frustum cull
 					zest_BeginComputePass("Frustum Cull"); {
 						zest_ConnectInput(all_instances_node);
+						zest_ConnectInput(indirect_node);
 						zest_ConnectOutput(visible_node);
 						zest_ConnectOutput(indirect_node);
 						zest_SetPassTask(CullCompute, app);
@@ -480,10 +516,15 @@ void MainLoop(IndirectDrawExample *app) {
 
 int main(int argc, char *argv[]) {
 	IndirectDrawExample app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	app.options = ParseExampleOptions(argc, argv);
 
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Indirect Draw - GPU Frustum Culling");
 
-	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	app.device = CreateExampleDevice(&window_data, &app.options, 0);
+	if (!app.device) {
+		return 1;
+	}
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);
@@ -493,7 +534,6 @@ int main(int argc, char *argv[]) {
 
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&app.imgui);
-	zest_DestroyDevice(app.device);
 
-	return 0;
+	return FinishExample(app.device, &app.options);
 }

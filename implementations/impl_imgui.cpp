@@ -455,6 +455,13 @@ void zest__imgui_destroy_viewport(ImGuiViewport* viewport) {
 	zest_imgui_viewport_t* app_viewport = (zest_imgui_viewport_t*)viewport->RendererUserData;
 	if (!app_viewport) return;
 	zest_context context = app_viewport->context;
+	//ImGui calls this for the main viewport too, whose window and context belong to the app
+	if (app_viewport == app_viewport->imgui->main_viewport) {
+		app_viewport->imgui->main_viewport = NULL;
+		zest_imgui_FreeViewport(zest_GetContextDevice(context), app_viewport);
+		viewport->RendererUserData = NULL;
+		return;
+	}
 	ZEST_ASSERT(app_viewport->imgui->destroy_window_callback, "You must set the destroy window callback that frees the window associated with the viewport. This might be zest_implglfw_DestroyWindow or zest_implsdl2_DestroyWindow if you're using zest_utilities.");
 	app_viewport->imgui->destroy_window_callback(context);
 	zest_imgui_FreeViewport(zest_GetContextDevice(context), app_viewport);

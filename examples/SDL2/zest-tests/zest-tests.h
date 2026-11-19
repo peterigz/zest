@@ -85,12 +85,13 @@ int RunTests(ZestTests *tests, zest_window_data_t *window_data, const char **ins
 void PrintTestUpdate(Test *test, int phase, zest_bool passed);
 int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const char **instance_extensions, unsigned int extension_count, zest_bool force_legacy_render_pass, int *total_out);
 
-//Shader files load from shaders/hlsl/<file name>.hlsl on D3D12, and from glsl_path everywhere else
+//Shader files load from <folder>/glsl/<file name> on Vulkan, and from their twin <folder>/hlsl/<file name>.hlsl on D3D12
 static const char *TestShaderPath(zest_device device, const char *glsl_path, char *buffer, size_t buffer_size) {
 	if (zest_GetDevicePlatform(device) != zest_platform_d3d12) return glsl_path;
-	const char *file_name = strrchr(glsl_path, '/');
-	file_name = file_name ? file_name + 1 : glsl_path;
-	snprintf(buffer, buffer_size, "examples/SDL2/zest-tests/shaders/hlsl/%s.hlsl", file_name);
+	const char *glsl_folder = strstr(glsl_path, "/glsl/");
+	ZEST_ASSERT(glsl_folder);	//Test shaders live in a glsl folder, with their HLSL twins in an hlsl folder beside it
+	if (!glsl_folder) return glsl_path;
+	snprintf(buffer, buffer_size, "%.*s/hlsl/%s.hlsl", (int)(glsl_folder - glsl_path), glsl_path, glsl_folder + sizeof("/glsl/") - 1);
 	return buffer;
 }
 

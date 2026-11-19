@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -41,6 +42,14 @@ struct cull_push_t {
 	int vertex_offset;
 	zest_uint cull_enabled;
 	float contract_frustum;
+};
+
+//Mirrors the push block in cull_reset.comp
+struct indirect_reset_push_t {
+	zest_uint indirect_cmd_index;
+	zest_uint index_count;
+	zest_uint first_index;
+	int vertex_offset;
 };
 
 struct mesh_instance_t {
@@ -101,6 +110,7 @@ struct IndirectDrawExample {
 	zest_uint indirect_cmd_index;
 
 	// Compute
+	zest_compute_handle reset_compute;
 	zest_compute_handle cull_compute;
 
 	RenderCacheInfo cache_info;
@@ -121,6 +131,7 @@ struct IndirectDrawExample {
 	bool sync_refresh;
 	bool culling_enabled;
 	bool print_frame_graph;
+	example_options_t options;
 };
 
 void InitIndirectDrawExample(IndirectDrawExample *app);

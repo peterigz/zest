@@ -21,6 +21,15 @@ struct VSOutput
     float GradientPos : POSITION0;
 };
 
+//The quad path's output: DXIL rejects SV_PointSize, so it can't share VSOutput
+struct QuadVSOutput
+{
+    float4 Pos : SV_POSITION;
+    float4 Color : COLOR0;
+    float GradientPos : POSITION0;
+    float2 UV : TEXCOORD0;
+};
+
 struct Particle
 {
 	float2 pos;
@@ -47,6 +56,7 @@ struct PushConsts
 	int gradient_index;
 	int sampler_index;
 	int uniform_index;
+	float2 quad_extent;		//Half the size of an 8 pixel quad in NDC. Only the quad entry points read it
 };
 [[vk::push_constant]] ConstantBuffer<PushConsts> pc;
 
@@ -83,6 +93,27 @@ float4 fragmentMain(VSOutput input, float2 pointCoord: SV_PointCoord)
 {
     float3 color = images[pc.gradient_index].Sample(samplers[pc.sampler_index], float2(input.GradientPos, 0.0)).rgb;
     return float4(images[pc.particle_index].Sample(samplers[pc.sampler_index], pointCoord).rgb * color, 1.0);
+}
+
+//D3D12 has no point sprites, so there each particle is an instance of a 4 vertex strip covering what the point sprite would
+[shader("vertex")]
+QuadVSOutput vertexQuadMain(VSInput input, uint vertex_id : SV_VertexID)
+{
+    float2 corner = float2(vertex_id & 1, vertex_id >> 1);
+    QuadVSOutput output;
+    output.Color = float4(0.035, 0.035, 0.035, 0.035);
+    output.GradientPos = input.GradientPos.x;
+    output.Pos = float4(input.Pos.xy + (corner * 2.0 - 1.0) * pc.quad_extent, 1.0, 1.0);
+    //With the viewport flip, (0, 0) is the top left corner on screen, as it is for SV_PointCoord
+    output.UV = corner;
+    return output;
+}
+
+[shader("fragment")]
+float4 fragmentQuadMain(QuadVSOutput input) : SV_Target
+{
+    float3 color = images[pc.gradient_index].Sample(samplers[pc.sampler_index], float2(input.GradientPos, 0.0)).rgb;
+    return float4(images[pc.particle_index].Sample(samplers[pc.sampler_index], input.UV).rgb * color, 1.0);
 }
 
 [shader("compute")]

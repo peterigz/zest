@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -92,6 +93,7 @@ struct InstancingExample {
 	float loc_speed;
 	float glob_speed;
 	bool sync_refresh;
+	example_options_t options;
 };
 
 void InitInstancingExample(InstancingExample *app);

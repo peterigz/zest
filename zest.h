@@ -9967,6 +9967,8 @@ void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 		context->window_data = *window_data;
 	}
     zest__initialise_context(context, &context->create_info);
+	//zest__cleanup_context removed it from the device's list, which zest_DestroyDevice frees from
+	zest_vec_push(device->allocator, device->contexts, context);
 }
 
 //-- End Initialisation and destruction

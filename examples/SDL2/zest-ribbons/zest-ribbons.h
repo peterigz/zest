@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 #include <vector>
 
 #define SEGMENT_COUNT 128 
@@ -125,6 +126,7 @@ struct Ribbons {
 	zest_uint ribbon_built;
 
 	mouse_t mouse;
+	example_options_t options;
 };
 
 RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);

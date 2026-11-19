@@ -153,8 +153,8 @@ static void render_update_uniform_buffer(render_app_t *app) {
 }
 
 static int render_init_resources(render_app_t *app) {
-	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/timelinefx.frag", "tfx_reload_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/timelinefx3d.vert", "tfx_reload_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/glsl/timelinefx.frag", "tfx_reload_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/glsl/timelinefx3d.vert", "tfx_reload_vert.spv", zest_vertex_shader, NULL, true);
 	if (!zest_IsValidHandle(&frag) || !zest_IsValidHandle(&vert)) {
 		fprintf(stderr, "[platform] could not compile the timelinefx shaders\n");
 		return 0;

@@ -17,10 +17,20 @@ array with `gl_VertexIndex`, so the pipeline disables vertex input and the pass 
 
 This is the best starting point to understand Zest's core architecture.
 
+## Running
+
+Run from the root of the Zest repository, as the shader paths are relative to it.
+
+- D3D12 is the default in a build configured with `ZEST_ENABLE_D3D12`, falling back to Vulkan if the D3D12 device can't be created. Otherwise it runs on Vulkan.
+- `--vulkan` or `--d3d12` chooses the backend, with no fallback
+- `--validate` turns on the validation layers and exits with 1 on any validation error
+- `--validate-sync` adds Vulkan synchronisation validation, or D3D12 GPU-based validation, to `--validate`
+- `--frames N` exits after N frames
+
 ## Zest Features Used
 
-- **Device/Context**: `zest_implsdl2_CreateVulkanDevice`, `zest_CreateContext`
-- **Shaders**: `zest_CreateShaderFromFile` (`shaders/triangle.vert`, `shaders/triangle.frag`)
+- **Device/Context**: `zest_implsdl2_CreateVulkanDevice` or `zest_implsdl2_CreateD3D12Device` (through `examples/Common/example_platform.h`), `zest_CreateContext`
+- **Shaders**: `zest_CreateShaderFromFile` (`shaders/glsl/triangle.vert` and `.frag` on Vulkan, `shaders/hlsl/triangle.vert.hlsl` and `.frag.hlsl` on D3D12)
 - **Pipelines**: `zest_CreatePipelineTemplate`, `zest_SetPipelineShaders`, `zest_SetPipelineDisableVertexInput`, `zest_BlendStateOpaque`, `zest_GetPipeline`
 - **Frame Graph**: `zest_BeginFrameGraph`, `zest_EndFrameGraph`
 - **Frame Graph Caching**: `zest_InitialiseCacheKey`, `zest_GetCachedFrameGraph`
@@ -28,8 +38,3 @@ This is the best starting point to understand Zest's core architecture.
 - **Render Pass**: `zest_BeginRenderPass`, `zest_SetPassTask`, `zest_EndPass`
 - **Commands**: `zest_cmd_SetScreenSizedViewport`, `zest_cmd_BindPipeline`, `zest_cmd_Draw`
 - **Frame Lifecycle**: `zest_BeginFrame`, `zest_EndFrame`
-
-## Note
-
-Shader paths are relative to the working directory, which is expected to be the root of the
-Zest repository.

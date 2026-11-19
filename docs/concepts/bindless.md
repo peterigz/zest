@@ -185,16 +185,17 @@ cbuffer zest_push : register(b0, space0) {
     uint buffer_index;
 };
 
-SamplerState zest_samplers[] : register(s0, space100);              // zest_sampler_binding
-Texture2D zest_textures[] : register(t0, space101);                 // zest_texture_2d_binding
-TextureCube zest_cubemaps[] : register(t0, space102);               // zest_texture_cube_binding
-Texture2DArray zest_texture_arrays[] : register(t0, space103);      // zest_texture_array_binding
-Texture3D zest_textures_3d[] : register(t0, space104);              // zest_texture_3d_binding
-ByteAddressBuffer zest_buffers[] : register(t0, space105);          // zest_storage_buffer_binding, read only
-RWByteAddressBuffer zest_rw_buffers[] : register(u0, space105);     // zest_storage_buffer_binding, read and write
-RWTexture2D<float4> zest_images[] : register(u0, space106);         // zest_storage_image_binding
-ConstantBuffer<camera_t> zest_uniforms[] : register(b0, space107);  // zest_uniform_buffer_binding
-TextureCubeArray zest_cube_arrays[] : register(t0, space108);       // zest_texture_cube_array_binding
+SamplerState zest_samplers[] : register(s0, space100);                  // zest_sampler_binding
+Texture2D zest_textures[] : register(t0, space101);                     // zest_texture_2d_binding
+TextureCube zest_cubemaps[] : register(t0, space102);                   // zest_texture_cube_binding
+Texture2DArray zest_texture_arrays[] : register(t0, space103);          // zest_texture_array_binding
+Texture3D zest_textures_3d[] : register(t0, space104);                  // zest_texture_3d_binding
+ByteAddressBuffer zest_buffers[] : register(t0, space105);              // zest_storage_buffer_binding, read only
+RWByteAddressBuffer zest_rw_buffers[] : register(u0, space105);         // zest_storage_buffer_binding, read and write
+RWTexture2D<float4> zest_images[] : register(u0, space106);             // zest_storage_image_binding
+RWTexture2DArray<float4> zest_image_arrays[] : register(u0, space206);  // zest_storage_image_binding, array and cube images
+ConstantBuffer<camera_t> zest_uniforms[] : register(b0, space107);      // zest_uniform_buffer_binding
+TextureCubeArray zest_cube_arrays[] : register(t0, space108);           // zest_texture_cube_array_binding
 
 float4 main(float2 uv : TEXCOORD0) : SV_Target0 {
     return zest_textures[NonUniformResourceIndex(texture_index)].Sample(zest_samplers[NonUniformResourceIndex(sampler_index)], uv);
@@ -206,6 +207,11 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0 {
   pipeline creation with a message naming its register and space.
 - Read-only and read-write storage buffer views are different register classes (`t` and `u`), so
   both can use space 105.
+- A second array of the same register class at one binding goes in space `200 + binding number`,
+  and a third in `300 + binding number`, as an unbounded array claims every register above its own.
+  So `RWTexture2DArray` sits in space 206 beside `RWTexture2D` in 106, and two `ConstantBuffer`
+  types read from `zest_uniform_buffer_binding` use spaces 107 and 207. `RWTexture2DArray` writes
+  array and cube storage images, a cube as its six faces, indexed `uint3(x, y, face)`.
 - Spaces below 100 are left for custom descriptor sets, which the D3D12 backend doesn't support yet.
 - `NonUniformResourceIndex` costs nothing on a uniform index and is required on one that varies
   within a draw.

@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_MSDF_IMPLEMENTATION
 #include "zest-render-targets.h"
 #include <zest.h>
@@ -17,11 +20,13 @@ void InitExample(render_target_app_t *example) {
 	zest_sampler sampler = zest_GetSampler(example->sampler);
 	example->sampler_index = zest_AcquireSamplerIndex(example->device, sampler);
 
-	//Load compute shaders for bloom down/up sampling and the composite pass-through shaders
-	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, NULL, 1);
-	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, NULL, 1);
-	zest_shader_handle fullscreen_vert = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/fullscreen.vert", "fullscreen_vert.spv", zest_vertex_shader, NULL, 1);
-	zest_shader_handle composite_bloom = zest_CreateShaderFromFile(example->device, "examples/SDL2/zest-render-targets/shaders/composite_bloom.frag", "composite_bloom_vert.spv", zest_fragment_shader, NULL, 1);
+	//Load compute shaders for bloom down/up sampling and the composite pass-through shaders, in GLSL on Vulkan and HLSL on D3D12
+	const char *shader_folder = "examples/SDL2/zest-render-targets/shaders";
+	char path[256];
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, ExampleShaderPath(example->device, shader_folder, "downsample.comp", path, sizeof(path)), "downsample_comp.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, ExampleShaderPath(example->device, shader_folder, "upsample.comp", path, sizeof(path)), "upsample_comp.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle fullscreen_vert = zest_CreateShaderFromFile(example->device, ExampleShaderPath(example->device, shader_folder, "fullscreen.vert", path, sizeof(path)), "fullscreen_vert.spv", zest_vertex_shader, NULL, 1);
+	zest_shader_handle composite_bloom = zest_CreateShaderFromFile(example->device, ExampleShaderPath(example->device, shader_folder, "composite_bloom.frag", path, sizeof(path)), "composite_bloom_vert.spv", zest_fragment_shader, NULL, 1);
 
 	//Composite pipeline - fullscreen pass that blends base and bloom images together.
 	//No vertex input needed; the vertex shader generates a fullscreen triangle.
@@ -39,7 +44,11 @@ void InitExample(render_target_app_t *example) {
 		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->sampler_index);
 	}
 
-	example->font_resources = zest_CreateFontResources(example->context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
+	char vert_path[256];
+	char frag_path[256];
+	ExampleShaderPath(example->device, "examples/assets/shaders", "font.vert", vert_path, sizeof(vert_path));
+	ExampleShaderPath(example->device, "examples/assets/shaders", "font.frag", frag_path, sizeof(frag_path));
+	example->font_resources = zest_CreateFontResources(example->context, vert_path, frag_path);
 	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer", 500);
 
 	//Create compute pipelines for the bloom down/up sampling passes
@@ -212,9 +221,11 @@ void Mainloop(render_target_app_t *example) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&example->options, frame)) {
+		++frame;
 		running = PollSDLEvents(example->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -314,6 +325,8 @@ void Mainloop(render_target_app_t *example) {
 					//Reconstruct bloom by upsampling back through mip chain
 					zest_BeginComputePass("Upsampler Pass"); {
 						zest_ConnectInput(downsampler);
+						//Each dispatch samples the mip below the one it writes, so the upsampler is read as well as written
+						zest_ConnectInput(upsampler);
 						zest_ConnectOutput(upsampler);
 						zest_SetPassTask(zest_UpsampleCompute, example);
 						zest_EndPass();
@@ -346,6 +359,10 @@ void Mainloop(render_target_app_t *example) {
 }
 
 int main(int argc, char *argv[]) {
+	render_target_app_t app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	app.options = ParseExampleOptions(argc, argv);
+
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	/*
 	ZEST__FLAG(create_info.flags, zest_context_init_flag_debug_overlay);
@@ -356,10 +373,11 @@ int main(int argc, char *argv[]) {
 	//Create a window using SDL2 before device creation (needed for Vulkan extensions)
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Render Targets");
 
-	render_target_app_t app = {};
-
-	//Create Vulkan device, window, and context
-	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend, and the context
+	app.device = CreateExampleDevice(&window_data, &app.options, 0);
+	if (!app.device) {
+		return 1;
+	}
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);
 
 	InitExample(&app);
@@ -368,7 +386,6 @@ int main(int argc, char *argv[]) {
 
 	//Cleanup
 	zest_FreeFont(&app.font);
-	zest_DestroyDevice(app.device);
 
-	return 0;
+	return FinishExample(app.device, &app.options);
 }

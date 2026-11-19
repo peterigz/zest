@@ -1,0 +1,32 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 1) in;
+
+struct DrawCommand {
+	uint indexCount;
+	uint instanceCount;
+	uint firstIndex;
+	int vertexOffset;
+	uint firstInstance;
+};
+
+layout(std430, set = 0, binding = 5) buffer IndirectSSBO {
+	DrawCommand cmd;
+} indirect_buffers[];
+
+layout(push_constant) uniform Push {
+	uint indirect_cmd_index;
+	uint index_count;
+	uint first_index;
+	int vertex_offset;
+} pc;
+
+//Resets the draw command before the Frustum Cull pass counts the visible instances into it
+void main() {
+	indirect_buffers[pc.indirect_cmd_index].cmd.indexCount = pc.index_count;
+	indirect_buffers[pc.indirect_cmd_index].cmd.instanceCount = 0;
+	indirect_buffers[pc.indirect_cmd_index].cmd.firstIndex = pc.first_index;
+	indirect_buffers[pc.indirect_cmd_index].cmd.vertexOffset = pc.vertex_offset;
+	indirect_buffers[pc.indirect_cmd_index].cmd.firstInstance = 0;
+}

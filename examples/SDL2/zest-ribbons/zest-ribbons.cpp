@@ -1,6 +1,9 @@
 // Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-ribbons.h"
 #include <zest.h>
@@ -32,7 +35,7 @@ Data flow:
 void InitImGuiApp(Ribbons *app) {
 	// Initialize Dear ImGui with Zest and GLFW backend
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
 	// Custom ImGui font setup
@@ -63,9 +66,11 @@ void InitImGuiApp(Ribbons *app) {
 	zest_uniform_buffer uniform_buffer = zest_GetUniformBuffer(app->uniform_buffer);
 
 	// Load shaders: compute shader generates geometry, vert/frag render it
-	app->ribbon_comp_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbons.comp", "ribbon_comp.spv", zest_compute_shader, NULL, true);
-	app->ribbon_vert_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", zest_vertex_shader, NULL, true);
-	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, "examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", zest_fragment_shader, NULL, true);
+	const char *shader_folder = "examples/SDL2/zest-ribbons/shaders";
+	char path[256];
+	app->ribbon_comp_shader = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "ribbons.comp", path, sizeof(path)), "ribbon_comp.spv", zest_compute_shader, NULL, true);
+	app->ribbon_vert_shader = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "ribbon_3d.vert", path, sizeof(path)), "ribbon_3d_vert.spv", zest_vertex_shader, NULL, true);
+	app->ribbon_frag_shader = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "ribbon.frag", path, sizeof(path)), "ribbon_frag.spv", zest_fragment_shader, NULL, true);
 
 	// Create compute pipeline for ribbon geometry generation
 	app->ribbon_compute = zest_CreateCompute(app->device, "Ribbon Compute", app->ribbon_comp_shader);
@@ -436,9 +441,11 @@ void MainLoop(Ribbons *app) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -564,13 +571,18 @@ void MainLoop(Ribbons *app) {
 
 int main(int argc, char *argv[]) {
 	Ribbons imgui_app{};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Ribbons");
 
-	// Create Vulkan device (one per application)
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, 0);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);
@@ -581,7 +593,6 @@ int main(int argc, char *argv[]) {
 	// Cleanup
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyDevice(imgui_app.device);
 
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

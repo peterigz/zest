@@ -722,7 +722,7 @@ typedef struct zest_dx_bindless_slot_t {
 	zest_uint binding;				//zest_global_binding_number, or ZEST_INVALID for the storage buffer UAV region
 } zest_dx_bindless_slot_t;
 
-#define ZEST__DX_BINDLESS_SLOT_COUNT 12
+#define ZEST__DX_BINDLESS_SLOT_COUNT 13
 ZEST_GLOBAL const zest_dx_bindless_slot_t zest__dx_bindless_slots[ZEST__DX_BINDLESS_SLOT_COUNT] = {
 	{ 1, 14, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, zest_sampler_binding },
 	{ 3, 2, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, zest_texture_2d_binding },
@@ -735,6 +735,7 @@ ZEST_GLOBAL const zest_dx_bindless_slot_t zest__dx_bindless_slots[ZEST__DX_BINDL
 	{ 8, 12, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ZEST_INVALID },
 	{ 7, 11, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ZEST_INVALID },
 	{ 6, 2, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, zest_storage_image_binding },
+	{ 6, 7, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, zest_storage_image_binding },		//RWTexture2DArray, the view of an array or cube storage image
 	{ 2, 13, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, zest_uniform_buffer_binding },
 };
 

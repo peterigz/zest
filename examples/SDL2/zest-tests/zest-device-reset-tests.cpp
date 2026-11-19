@@ -396,7 +396,7 @@ int CreateResetResourceBatch(ZestTests *tests) {
 
 	//Shader and compute pipeline
 	char shader_path[256];
-	zest_shader_handle shader = zest_CreateShaderFromFile(device, TestShaderPath(device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, TestShaderPath(device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 	zest_compute_handle compute = zest_CreateCompute(device, "Reset Batch Compute", shader);
 	if (!zest_IsValidHandle((void*)&compute)) failed_count++;
 

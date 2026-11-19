@@ -357,7 +357,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -367,7 +367,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_verify.comp", shader_path, sizeof(shader_path)), "buffer_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_verify.comp", shader_path, sizeof(shader_path)), "buffer_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -527,7 +527,7 @@ Image Write / Read(Clear Color) :
 int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -597,7 +597,7 @@ The copy is the transfer pass's output, so the pass must survive culling and run
 int test__transfer_image_output(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -752,7 +752,7 @@ B and C share a wave, so the copy runs on the transfer queue, which can't run th
 int test__transfer_queue_mip_copy(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -931,7 +931,7 @@ Multi-Queue Synchronization:
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -1013,11 +1013,11 @@ int test__multi_queue_cached_handoff(ZestTests *tests, Test *test) {
 		memset(&handoff, 0, sizeof(handoff));
 		char shader_path[256];
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
-			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
 			tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		}
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
-			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 			tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		}
 		if (!tests->cpu_buffer) {
@@ -1148,7 +1148,7 @@ static int cached_imported_image_run(ZestTests *tests, Test *test, zest_bool asy
 		memset(&cached, 0, sizeof(cached));
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			char shader_path[256];
-			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_write2.comp", shader_path, sizeof(shader_path)), "image_write.spv", zest_compute_shader, NULL, 1);
 			tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		}
 		zest_image_info_t write_info = zest_CreateImageInfo(16, 16);
@@ -1262,7 +1262,7 @@ int test__multi_queue_imported_handback(ZestTests *tests, Test *test) {
 		memset(&handback, 0, sizeof(handback));
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			char shader_path[256];
-			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+			zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 			tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		}
 		if (!tests->cpu_buffer) {

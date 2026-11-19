@@ -1,6 +1,9 @@
 // Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_MSDF_IMPLEMENTATION		// Enables MSDF font generation/loading in zest-utilities
 #include <SDL.h>
 #include "implementations/impl_imgui.h"
@@ -9,6 +12,7 @@
 #include <imgui/backends/imgui_impl_sdl2.h>
 #include <zest.h>
 #include "examples/Common/sdl_events.cpp"
+#include "examples/Common/example_platform.h"
 
 /*
 MSDF Font Rendering Example
@@ -40,12 +44,13 @@ typedef struct zest_fonts_example {
 	zest_layer_handle font_layer;		// Layer for batching text draw calls
 	float font_size;					// Current font scale factor
 	bool print_frame_graph;
+	example_options_t options;			// Backend, validation and frame limit from the command line
 } zest_fonts_example;
 
 void InitExample(zest_fonts_example *app) {
-	// Initialize Dear ImGui with Zest and GLFW backend
+	// Initialize Dear ImGui with Zest and the SDL2 backend
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
 	// Timer for rate-limiting ImGui updates (reduces buffer uploads and command recording)
@@ -60,8 +65,12 @@ void InitExample(zest_fonts_example *app) {
 		app->font = zest_LoadMSDF(app->context, "examples/assets/vaders/Anta-Regular.msdf", app->imgui.font_sampler_binding_index);
 	}
 
-	// Create font rendering resources: shader pipeline for MSDF text
-	app->font_resources = zest_CreateFontResources(app->context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
+	// Create font rendering resources: shader pipeline for MSDF text, in GLSL on Vulkan and HLSL on D3D12
+	char vert_path[256];
+	char frag_path[256];
+	ExampleShaderPath(app->device, "examples/assets/shaders", "font.vert", vert_path, sizeof(vert_path));
+	ExampleShaderPath(app->device, "examples/assets/shaders", "font.frag", frag_path, sizeof(frag_path));
+	app->font_resources = zest_CreateFontResources(app->context, vert_path, frag_path);
 	// Create a layer to batch text draw calls (100 = initial instance capacity)
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer", 100);
 	app->font_size = 1.f;
@@ -74,9 +83,11 @@ void MainLoop(zest_fonts_example *app) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		// Calculate FPS
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
@@ -197,18 +208,23 @@ void MainLoop(zest_fonts_example *app) {
 }
 
 int main(int argc, char *argv[]) {
+	zest_fonts_example fonts_app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	fonts_app.options = ParseExampleOptions(argc, argv);
+
 	// Configure context settings (disable vsync for uncapped framerate)
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	ZEST__UNFLAG(create_info.flags, zest_context_init_flag_enable_vsync);
-
-	zest_fonts_example fonts_app = {};
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "MSDF Fonts");
 
-	//Create a device using a helper function for GLFW.
-	fonts_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	fonts_app.device = CreateExampleDevice(&window_data, &fonts_app.options, 0);
+	if (!fonts_app.device) {
+		return 1;
+	}
 
 	// Create window and context (one context per window/swapchain)
 	fonts_app.context = zest_CreateContext(fonts_app.device, &window_data, &create_info);
@@ -224,7 +240,6 @@ int main(int argc, char *argv[]) {
 	zest_FreeFont(&fonts_app.font);
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&fonts_app.imgui);
-	zest_DestroyDevice(fonts_app.device);
 
-	return 0;
+	return FinishExample(fonts_app.device, &fonts_app.options);
 }

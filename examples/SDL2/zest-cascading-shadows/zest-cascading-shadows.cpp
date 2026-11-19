@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include "zest-cascading-shadows.h"
 #include "zest.h"
@@ -26,7 +29,7 @@ This example demonstrates:
 void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
     /*
@@ -74,12 +77,14 @@ void InitCascadingShadowsExample(CascadingShadowsExample *app) {
 	app->scene_push.shadow_sampler_index = zest_AcquireSamplerIndex(app->device, shadow_sampler_2d);
 
 	//Load shaders for scene rendering, depth pass, and debug visualization
-	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.vert", "scene_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/scene.frag", "scene_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle depthpass_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.vert", "depthpass_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle depthpass_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/depthpass.frag", "depthpass_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle debug_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.vert", "debugshadowmap_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle debug_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-cascading-shadows/shaders/debugshadowmap.frag", "debugshadowmap_frag.spv", zest_fragment_shader, NULL, true);
+	const char *shader_folder = "examples/SDL2/zest-cascading-shadows/shaders";
+	char path[256];
+	zest_shader_handle scene_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "scene.vert", path, sizeof(path)), "scene_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle scene_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "scene.frag", path, sizeof(path)), "scene_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle depthpass_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "depthpass.vert", path, sizeof(path)), "depthpass_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle depthpass_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "depthpass.frag", path, sizeof(path)), "depthpass_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle debug_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "debugshadowmap.vert", path, sizeof(path)), "debugshadowmap_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle debug_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "debugshadowmap.frag", path, sizeof(path)), "debugshadowmap_frag.spv", zest_fragment_shader, NULL, true);
 
 	//Debug pipeline for visualizing shadow map cascades (uses fullscreen triangle, no vertex input)
 	app->debug_pipeline = zest_CreatePipelineTemplate(app->device, "pipeline_mesh_instance");
@@ -451,9 +456,11 @@ void MainLoop(CascadingShadowsExample *app) {
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -549,7 +556,7 @@ void MainLoop(CascadingShadowsExample *app) {
 
 				//Shadow map: multi-layer depth image (one layer per cascade)
 				zest_image_resource_info_t shadow_info = {
-					zest_format_d32_sfloat_s8_uint,
+					zest_format_d32_sfloat,
 					zest_resource_usage_hint_none,
 					SHADOW_MAP_TEXTURE_SIZE, SHADOW_MAP_TEXTURE_SIZE,
 					1,
@@ -639,13 +646,18 @@ void MainLoop(CascadingShadowsExample *app) {
 int main(int argc, char *argv[]) {
 
 	CascadingShadowsExample imgui_app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
-	//Create a device using a helper function for SDL2.
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, 0);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
 	imgui_app.context = zest_CreateContext(imgui_app.device, &window_data, &create_info);
@@ -656,7 +668,6 @@ int main(int argc, char *argv[]) {
 	//Cleanup
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyDevice(imgui_app.device);
 
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

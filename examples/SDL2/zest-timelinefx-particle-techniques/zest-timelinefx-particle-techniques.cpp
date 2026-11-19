@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
 	if (!TimelineFXShadersAvailable("zest-timelinefx-particle-techniques")) return 0;
 
 	tfxParticleTechniquesExample example{};
-	//--d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
 	example.options = ParseExampleOptions(argc, argv);
 	//--effect-mode baked|cpu|gpu starts in that mode, so an automated run can reach each one
 	for (int argument_index = 1; argument_index < argc; ++argument_index) {

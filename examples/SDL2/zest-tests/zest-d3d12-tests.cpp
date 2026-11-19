@@ -671,23 +671,25 @@ int test_d3d12_dxc_missing(void) {
 }
 
 #define D3D12_HLSL_SHADER_PATH "examples/SDL2/zest-tests/shaders/hlsl/"
+#define D3D12_COMMON_HLSL_SHADER_PATH "examples/Common/shaders/hlsl/"
 
 struct D3D12TestShaderFile {
+	const char *folder;
 	const char *file_name;
 	const char *profile;
 };
 
 static const D3D12TestShaderFile d3d12_test_shader_files[] = {
-	{ "buffer_write.comp.hlsl", "cs_6_0" },
-	{ "buffer_verify.comp.hlsl", "cs_6_0" },
-	{ "image_verify.comp.hlsl", "cs_6_0" },
-	{ "image_write2.comp.hlsl", "cs_6_0" },
-	{ "stride_check.comp.hlsl", "cs_6_0" },
-	{ "genbrdflut.comp.hlsl", "cs_6_0" },
-	{ "instance.vert.hlsl", "vs_6_0" },
-	{ "instance.frag.hlsl", "ps_6_0" },
-	{ "vertex.vert.hlsl", "vs_6_0" },
-	{ "vertex.frag.hlsl", "ps_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "buffer_write.comp.hlsl", "cs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "buffer_verify.comp.hlsl", "cs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "image_verify.comp.hlsl", "cs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "image_write2.comp.hlsl", "cs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "stride_check.comp.hlsl", "cs_6_0" },
+	{ D3D12_COMMON_HLSL_SHADER_PATH, "genbrdflut.comp.hlsl", "cs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "instance.vert.hlsl", "vs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "instance.frag.hlsl", "ps_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "vertex.vert.hlsl", "vs_6_0" },
+	{ D3D12_HLSL_SHADER_PATH, "vertex.frag.hlsl", "ps_6_0" },
 };
 #define D3D12_TEST_SHADER_FILE_COUNT (sizeof(d3d12_test_shader_files) / sizeof(d3d12_test_shader_files[0]))
 
@@ -699,7 +701,7 @@ static ID3DBlob *compile_test_hlsl(zest_device device, const char *source, const
 
 static ID3DBlob *compile_test_shader_file(zest_device device, const D3D12TestShaderFile *shader_file) {
 	char path[256];
-	snprintf(path, sizeof(path), D3D12_HLSL_SHADER_PATH "%s", shader_file->file_name);
+	snprintf(path, sizeof(path), "%s%s", shader_file->folder, shader_file->file_name);
 	zest_file source = zest_ReadEntireFile(device, path, ZEST_TRUE);
 	if (!source) {
 		ZEST_PRINT("\tCouldn't read %s. Run the tests from the repository root.", path);
@@ -1518,7 +1520,7 @@ int test_d3d12_shader_compile(void) {
 	zest_file sources[D3D12_CONCURRENT_SOURCE_COUNT] = {};
 	for (zest_uint source_index = 0; source_index != D3D12_CONCURRENT_SOURCE_COUNT; ++source_index) {
 		char path[256];
-		snprintf(path, sizeof(path), D3D12_HLSL_SHADER_PATH "%s", d3d12_test_shader_files[source_index].file_name);
+		snprintf(path, sizeof(path), "%s%s", d3d12_test_shader_files[source_index].folder, d3d12_test_shader_files[source_index].file_name);
 		sources[source_index] = zest_ReadEntireFile(device, path, ZEST_TRUE);
 		failed |= sources[source_index] == NULL;
 	}
@@ -2471,6 +2473,83 @@ int test_d3d12_compute_reads_descriptors(void) {
 	zest_DestroyContext(context);
 	return failed | finish_device(device);
 }
+
+static const char *cube_storage_image_source =
+	"cbuffer zest_push : register(b0, space0) {\n"
+	"	uint image_index;\n"
+	"};\n"
+	"RWTexture2DArray<float4> zest_image_arrays[] : register(u0, space206);\n"
+	"[numthreads(4, 4, 1)]\n"
+	"void main(uint3 thread_id : SV_DispatchThreadID) {\n"
+	"	zest_image_arrays[NonUniformResourceIndex(image_index)][thread_id] = float4((float)thread_id.z, 0.0, 0.0, 1.0);\n"
+	"}\n";
+
+#define CUBE_STORAGE_SIZE 4
+#define CUBE_STORAGE_TEXELS (CUBE_STORAGE_SIZE * CUBE_STORAGE_SIZE)
+
+struct CubeStorageTask {
+	zest_compute compute;
+	zest_uint image_index;
+};
+
+static void cube_storage_task(const zest_command_list command_list, void *user_data) {
+	CubeStorageTask *task = (CubeStorageTask *)user_data;
+	zest_cmd_BindComputePipeline(command_list, task->compute);
+	zest_cmd_SendPushConstants(command_list, &task->image_index, sizeof(task->image_index));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 6);
+}
+
+//A cube storage image's index reaches its faces through RWTexture2DArray, one layer per face
+int test_d3d12_cube_storage_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_device(device);
+	zest_shader_handle shader = zest_CreateShader(device, cube_storage_image_source, zest_compute_shader, "cube_storage_image", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Cube Storage Image", shader);
+	CubeStorageTask task = {};
+	task.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_image_info_t image_info = zest_CreateImageInfo(CUBE_STORAGE_SIZE, CUBE_STORAGE_SIZE);
+	image_info.format = zest_format_r32g32b32a32_sfloat;
+	image_info.flags = zest_image_preset_storage_cubemap | zest_image_flag_transfer_src;
+	image_info.layer_count = 6;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = task.compute == NULL || !image;
+	if (!failed) {
+		task.image_index = zest_AcquireStorageImageIndex(device, image, zest_storage_image_binding);
+		if (zest_BeginCommandGraph(context, "Cube Storage Image", 0)) {
+			zest_resource_node image_node = zest_ImportImageResource("Cube Image", image, 0);
+			zest_BeginComputePass("Write Faces");
+			zest_ConnectOutput(image_node);
+			zest_SetPassTask(cube_storage_task, &task);
+			zest_EndPass();
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
+			failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		} else {
+			failed = 1;
+		}
+		for (zest_uint face = 0; face != 6; ++face) {
+			float texels[CUBE_STORAGE_TEXELS * 4];
+			memset(texels, 0xFF, sizeof(texels));
+			failed |= !zest__dx_read_subresource(device, image, 0, face, texels);
+			zest_uint matching_count = 0;
+			for (zest_uint texel = 0; texel != CUBE_STORAGE_TEXELS; ++texel) {
+				if (texels[texel * 4] == (float)face && texels[texel * 4 + 3] == 1.f) matching_count++;
+			}
+			if (matching_count != CUBE_STORAGE_TEXELS) ZEST_PRINT("\tFace %u: %u of %u texels hold %u, the first holds %g", face, matching_count, CUBE_STORAGE_TEXELS, face, texels[0]);
+			failed |= matching_count != CUBE_STORAGE_TEXELS;
+		}
+	}
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (image) zest_FreeImageNow(image_handle);
+	if (task.compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
 int test_d3d12_pool_failure_rejected(void) {
 	zest_device device = create_device_with_failing_pool(BeginD3D12TestBuilder());
 	int failed = device != NULL;
@@ -6110,6 +6189,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Lazy Binding Order", test_d3d12_lazy_binding_order },
 	{ "D3D12 Push Constant Fallback", test_d3d12_push_constant_fallback },
 	{ "D3D12 Compute Reads Descriptors", test_d3d12_compute_reads_descriptors },
+	{ "D3D12 Cube Storage Image", test_d3d12_cube_storage_image },
 	{ "D3D12 Viewport Orientation", test_d3d12_viewport_orientation },
 	{ "D3D12 Buffer Copies", test_d3d12_buffer_copies },
 	{ "D3D12 Buffer Descriptors", test_d3d12_buffer_descriptors },

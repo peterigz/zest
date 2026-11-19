@@ -142,7 +142,7 @@ void MainLoop(ImGuiApp *app) {
 int main(int argc, char *argv[]) {
 
 	ImGuiApp imgui_app = {};
-	//--d3d12, --validate and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --validate and --frames N, see examples/Common/example_platform.h
 	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get

@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-compute-example.h"
 #include <zest.h>
@@ -26,8 +29,11 @@ void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-	//Call the appropriate imgui implementation for vulkan which is the rendering API we're using
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	//Call the imgui SDL2 implementation for the rendering API the device uses
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
+
+	//Vulkan draws each particle as a point sprite. D3D12 has no point sprites, so it draws each as an instanced quad
+	app->draw_point_sprites = zest_GetDevicePlatform(app->device) != zest_platform_d3d12;
 
 	//Initialise some timing variables
 	app->frame_timer = 1.f;
@@ -36,7 +42,7 @@ void InitComputeExample(ComputeExample *app) {
 	app->attach_to_cursor = false;
 
 	//Prepare a couple of textures:
-	//Particle image for point sprites. Use stb_image libarry to load the images we need
+	//Particle image for the point sprites, or the quads on D3D12. Use stb_image libarry to load the images we need
 	int width, height, channels;
 	stbi_uc *particle_pixels = stbi_load("examples/assets/particle.png", &width, &height, &channels, 0);
 	int size = width * height * channels;
@@ -98,10 +104,12 @@ void InitComputeExample(ComputeExample *app) {
 	//type of buffer that we want, in this case a vertex storage buffer which will allow us to use on the compute and 
 	//graphics pipeliens
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
+	//The compute shader reads it as a RWStructuredBuffer<Particle>, whose D3D12 view must start on a whole element
+	particle_vertex_buffer_info.element_alignment = sizeof(Particle);
 	//Create the buffer with the info and the same size as the staging buffer.
 	app->particle_buffer = zest_CreateBuffer(app->device, storage_buffer_size, &particle_vertex_buffer_info);
-	//We'll need a descriptor index to access the buffer in the compute shader.
-	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->device, app->particle_buffer);
+	//We'll need a descriptor index to access the buffer in the compute shader. On Vulkan this is the same descriptor as a storage buffer index
+	app->particle_buffer_index = zest_AcquireStructuredBufferIndex(app->device, app->particle_buffer, sizeof(Particle));
 	//Copy the staging buffer to the gpu bound particle buffer using an "immediate" command buffer. It doesn't *have* to be
 	//on the transfer queue but we specify it for good practice
 	zest_queue queue = zest_imm_BeginCommandBuffer(app->device, zest_queue_transfer);
@@ -115,8 +123,13 @@ void InitComputeExample(ComputeExample *app) {
 	//The shaders for this example are written in slang so we initialise that here.
 	zest_slang_InitialiseSession(app->device);
 	const char *path = "examples/SDL2/zest-compute-example/shaders/particle.slang";
-	zest_shader_handle frag_shader = zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, true);
-	zest_shader_handle vert_shader = zest_slang_CreateShader(app->device, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, true);
+	//Only the draw path's pair is compiled, as DXIL can't compile the point sprite entry points
+	zest_shader_handle frag_shader = app->draw_point_sprites ?
+		zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, true) :
+		zest_slang_CreateShader(app->device, path, "particle_quad_frag", "fragmentQuadMain", zest_fragment_shader, true);
+	zest_shader_handle vert_shader = app->draw_point_sprites ?
+		zest_slang_CreateShader(app->device, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, true) :
+		zest_slang_CreateShader(app->device, path, "particle_quad_vert", "vertexQuadMain", zest_vertex_shader, true);
 	zest_shader_handle comp_shader = zest_slang_CreateShader(app->device, path, "particle_comp.spv", "computeMain", zest_compute_shader, true);
 
 	//Assert that they all loaded and compiled ok. If the value in a handle is 0 then the item could not be created.
@@ -129,8 +142,8 @@ void InitComputeExample(ComputeExample *app) {
 	//Create a new pipeline in the renderer for drawing the particles
 	app->particle_pipeline = zest_CreatePipelineTemplate(app->device, "particles");
 	//Once it's created you can begin configuring it:
-	//Add our own vertex binding description using the Particle struct
-	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), zest_input_rate_vertex);
+	//Add our own vertex binding description using the Particle struct, per vertex for point sprites and per instance for quads
+	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), app->draw_point_sprites ? zest_input_rate_vertex : zest_input_rate_instance);
 	//Add the attribute descriptions for each type in the Particle struct. These will be locations in the vertex shader
 	zest_AddVertexAttribute(app->particle_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(Particle, pos));
 	zest_AddVertexAttribute(app->particle_pipeline, 0, 1, zest_format_r32g32b32a32_sfloat, offsetof(Particle, gradient_pos));
@@ -138,8 +151,8 @@ void InitComputeExample(ComputeExample *app) {
 	//Set the shaders to use in the pipeline
 	zest_SetPipelineFragShader(app->particle_pipeline, frag_shader);
 	zest_SetPipelineVertShader(app->particle_pipeline, vert_shader);
-	//Set the remaining pipeline configuration that we need to draw point sprites
-	zest_SetPipelineTopology(app->particle_pipeline, zest_topology_point_list);
+	//Set the remaining pipeline configuration that we need to draw point sprites, or a 4 vertex strip per particle on D3D12
+	zest_SetPipelineTopology(app->particle_pipeline, app->draw_point_sprites ? zest_topology_point_list : zest_topology_triangle_strip);
 	zest_SetPipelineBlend(app->particle_pipeline, zest_AdditiveBlendState2());
 	zest_SetPipelinePolygonFillMode(app->particle_pipeline, zest_polygon_mode_fill);
 	zest_SetPipelineCullMode(app->particle_pipeline, zest_cull_mode_none);
@@ -170,15 +183,22 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	push.particle_index = app->particle_image_index;
 	push.gradient_index = app->gradient_image_index;
 	push.sampler_index = app->sampler_index;
+	//The quads are 8 pixels across, the size of the point sprites
+	push.quad_extent = zest_Vec2Set(8.f / zest_ScreenWidthf(app->context), 8.f / zest_ScreenHeightf(app->context));
 	//Send the push constant
 	zest_cmd_SendPushConstants(command_list, &push, sizeof(ParticlePushConsts));
 	//Set the viewport with this helper function. Pipelines are created with dynamic viewports by default so you
 	//must always set the view port for each draw call.
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
-	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
+	//Bind the vertex buffer with the particle buffer containing the location of all the particles
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, app->particle_buffer);
-	//Draw the point sprites
-	zest_cmd_Draw(command_list, PARTICLE_COUNT, 1, 0, 0);
+	if (app->draw_point_sprites) {
+		//Draw the point sprites, one vertex per particle
+		zest_cmd_Draw(command_list, PARTICLE_COUNT, 1, 0, 0);
+	} else {
+		//D3D12 has no point sprites, so draw a 4 vertex strip for each particle instance
+		zest_cmd_Draw(command_list, 4, PARTICLE_COUNT, 0, 0);
+	}
 }
 
 void RecordComputeCommands(zest_command_list command_list, void *user_data) {
@@ -236,10 +256,12 @@ void MainLoop(ComputeExample *app) {
 	zest_uint frame_count = 0;
 	zest_uint fps = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
 	zest_microsecs last_time = zest_Microsecs();
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 
 		//Update timings
@@ -387,13 +409,18 @@ void MainLoop(ComputeExample *app) {
 
 int main(int argc, char *argv[]) {
 	ComputeExample compute_example = { 0 };
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	compute_example.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 
-	//Create a device using a helper function for GLFW.
-	compute_example.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	compute_example.device = CreateExampleDevice(&window_data, &compute_example.options, 0);
+	if (!compute_example.device) {
+		return 1;
+	}
 
 	//Initialise a Zest context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -411,9 +438,7 @@ int main(int argc, char *argv[]) {
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&compute_example.imgui);
 	//Note: Destroying the device will also cleanup all contexts as well
-	zest_DestroyDevice(compute_example.device);
-
-	return 0;
+	return FinishExample(compute_example.device, &compute_example.options);
 }
 #else
 int main(int argc, char *argv[]) {

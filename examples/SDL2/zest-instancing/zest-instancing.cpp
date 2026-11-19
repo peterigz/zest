@@ -1,6 +1,9 @@
 // Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include "zest-instancing.h"
 #include "zest.h"
@@ -32,7 +35,7 @@ Key concepts:
 void InitInstancingExample(InstancingExample *app) {
 	// Initialize Dear ImGui with Zest and GLFW backend
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
 	// Custom ImGui font setup - demonstrates how to use a different font
@@ -73,14 +76,16 @@ void InitInstancingExample(InstancingExample *app) {
 
 	zest_uniform_buffer view_buffer = zest_GetUniformBuffer(app->view_buffer);
 
-	// Load shaders for each pipeline (rocks, planet, skybox)
+	// Load shaders for each pipeline (rocks, planet, skybox), in GLSL on Vulkan and HLSL on D3D12
 	// Last param (true) = compile from source if .spv is outdated
-	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.vert", "instancing_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/instancing.frag", "instancing_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.vert", "planet_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/planet.frag", "planet_frag.spv", zest_fragment_shader, NULL, true);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.vert", "skybox_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-instancing/shaders/sky_box.frag", "skybox_frag.spv", zest_fragment_shader, NULL, true);
+	const char *shader_folder = "examples/SDL2/zest-instancing/shaders";
+	char path[256];
+	zest_shader_handle instance_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "instancing.vert", path, sizeof(path)), "instancing_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle instance_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "instancing.frag", path, sizeof(path)), "instancing_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle planet_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "planet.vert", path, sizeof(path)), "planet_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle planet_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "planet.frag", path, sizeof(path)), "planet_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.vert", path, sizeof(path)), "skybox_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.frag", path, sizeof(path)), "skybox_frag.spv", zest_fragment_shader, NULL, true);
 
 	// Rock pipeline: Uses TWO vertex bindings - mesh vertices (binding 0) and instance data (binding 1)
 	// This is the key to GPU instancing: per-vertex data + per-instance data
@@ -191,7 +196,7 @@ void PrepareInstanceData(InstancingExample *app) {
 	zest_image rock_image = zest_GetImage(app->rock_textures);
 	std::default_random_engine rndGenerator(zest_Millisecs());
 	std::uniform_real_distribution<float> uniformDist(0.0, 1.0);
-	std::uniform_int_distribution<uint32_t> rndTextureIndex(0, zest_ImageInfo(rock_image)->layer_count);
+	std::uniform_int_distribution<uint32_t> rndTextureIndex(0, zest_ImageInfo(rock_image)->layer_count - 1);
 
 	// Distribute asteroids randomly across two concentric rings around the planet
 	for (auto i = 0; i < INSTANCE_COUNT / 2; i++) {
@@ -341,9 +346,11 @@ void MainLoop(InstancingExample *app) {
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -439,13 +446,18 @@ void MainLoop(InstancingExample *app) {
 
 int main(int argc, char *argv[]) {
 	InstancingExample imgui_app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Instanced Meshes");
 
-	// Create Vulkan device (one per application)
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	// Create the device for the chosen backend (one per application)
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, 0);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	// Create window and context
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -457,7 +469,6 @@ int main(int argc, char *argv[]) {
 	// Cleanup
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyDevice(imgui_app.device);
 
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_MSDF_IMPLEMENTATION
 #define ZEST_MAX_FIF 2
 #include <SDL.h>
@@ -12,6 +15,7 @@
 #include "timelinefx.h"
 #include "examples/Common/timelinefx_shaders.h"
 #include "examples/Common/sdl_events.cpp"
+#include "examples/Common/example_platform.h"
 
 /*
 	Simple Space Invaders clone showing how to use Zest to render billboards and particle effects (using timelinefx)
@@ -234,6 +238,7 @@ struct VadersGame {
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
 	zest_uint last_fps;
+	example_options_t options;
 
 	void Init();
 	void Update(float ellapsed);
@@ -417,7 +422,7 @@ void VadersGame::Init() {
 
 	//Initialise imgui
 	zest_imgui_Initialise(context, &imgui, zest_implsdl2_DestroyWindow);
-    ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(context));
+	InitImGuiSDL2ForDevice(device, (SDL_Window *)zest_Window(context));
 	//SDL requires a different viewport creation function
 	ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
 	platform_io.Renderer_CreateWindow = CreateSDLViewport;
@@ -453,19 +458,21 @@ void VadersGame::Init() {
 		tfx_SetEffectPositionVec3(title_pm, title_index, &title_position.x);
 	}
 
-	//Create and compile the shaders for our custom sprite pipeline
-	billboard_frag_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, NULL, true);
-	billboard_vert_shader = zest_CreateShaderFromFile(device, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, NULL, true);
+	//Create and compile the shaders for our custom sprite pipeline, in GLSL on Vulkan and HLSL on D3D12
+	char vert_path[256];
+	char frag_path[256];
+	billboard_frag_shader = zest_CreateShaderFromFile(device, ExampleShaderPath(device, "examples/assets/shaders", "billboard.frag", frag_path, sizeof(frag_path)), "billboard_frag.spv", zest_fragment_shader, NULL, true);
+	billboard_vert_shader = zest_CreateShaderFromFile(device, ExampleShaderPath(device, "examples/assets/shaders", "billboard.vert", vert_path, sizeof(vert_path)), "billboard_vert.spv", zest_vertex_shader, NULL, true);
 
 	//Create a pipeline that we can use to draw billboards
 	billboard_pipeline = zest_CreatePipelineTemplate(device, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(billboard_instance_t), zest_input_rate_instance);
 
 	zest_AddVertexAttribute(billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(billboard_instance_t, position));			    // Location 0: Position
-	zest_AddVertexAttribute(billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(billboard_pipeline, 0, 1, zest_format_r8g8b8a8_snorm, offsetof(billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
 	zest_AddVertexAttribute(billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
 	zest_AddVertexAttribute(billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(billboard_instance_t, uv));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sint, offsetof(billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
 	zest_AddVertexAttribute(billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
 	zest_AddVertexAttribute(billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(billboard_instance_t, color));			        // Location 7: Instance Color
 
@@ -475,7 +482,9 @@ void VadersGame::Init() {
 
 	billboard_layer_handle = zest_CreateInstanceLayer(context, "billboards", sizeof(billboard_instance_t), 10000);
 
-	font_resources = zest_CreateFontResources(context, "examples/assets/shaders/font.vert", "examples/assets/shaders/font.frag");
+	ExampleShaderPath(device, "examples/assets/shaders", "font.vert", vert_path, sizeof(vert_path));
+	ExampleShaderPath(device, "examples/assets/shaders", "font.frag", frag_path, sizeof(frag_path));
+	font_resources = zest_CreateFontResources(context, vert_path, frag_path);
 	font_layer_handle = zest_CreateFontLayer(context, "MSDF Font", 500);
 
 	zest_ForEachFrameInFlight(fif) {
@@ -1436,9 +1445,11 @@ void MainLoop(VadersGame *game) {
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&game->options, frame)) {
+		++frame;
 		running = PollSDLEvents(game->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -1465,14 +1476,20 @@ int main(int argc, char *argv[]) {
 	//ZEST__FLAG(create_info.flags, zest_context_init_flag_cpu_profiling);
 
 	VadersGame game = { 0 };
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	game.options = ParseExampleOptions(argc, argv);
 	tfx_BeginTimelineFX(tfx_GetDefaultThreadCount(), zloc__MEGABYTE(128));
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Vaders");
 
-	//Create the device that serves all vulkan based contexts
-	game.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	game.device = CreateExampleDevice(&window_data, &game.options, 0);
+	if (!game.device) {
+		tfx_EndTimelineFX();
+		return 1;
+	}
 
 	//Initialise Zest
 	game.context = zest_CreateContext(game.device, &window_data, &create_info);
@@ -1492,8 +1509,8 @@ int main(int argc, char *argv[]) {
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&game.imgui);
 	FreeTimelineFXShaderSession(game.device, game.shader_session);
-	zest_DestroyDevice(game.device);
+	int exit_code = FinishExample(game.device, &game.options);
 	tfx_EndTimelineFX();
 
-	return 0;
+	return exit_code;
 }

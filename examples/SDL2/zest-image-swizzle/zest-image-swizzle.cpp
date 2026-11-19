@@ -1,8 +1,12 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #include <SDL.h>
 #include <zest.h>
 #include <math.h>
+#include "examples/Common/example_platform.h"
 
 /**
 	Demonstrates zest_image_info_t::swizzle. The same single channel r8_unorm mask is uploaded
@@ -34,6 +38,7 @@ struct swizzle_app_t {
 	zest_sampler_handle sampler;
 	swizzle_push_t identity_push;
 	swizzle_push_t swizzled_push;
+	example_options_t options;
 };
 
 //A soft edged disc, one byte per pixel, which is the shape r8_unorm masks are normally used for.
@@ -52,8 +57,11 @@ void BuildMask(unsigned char *pixels) {
 }
 
 void InitApp(swizzle_app_t *app) {
-	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-image-swizzle/shaders/quad.vert", "swizzle_quad_vert", zest_vertex_shader, NULL, ZEST_TRUE);
-	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-image-swizzle/shaders/quad.frag", "swizzle_quad_frag", zest_fragment_shader, NULL, ZEST_TRUE);
+	const char *shader_folder = "examples/SDL2/zest-image-swizzle/shaders";
+	char vert_path[256];
+	char frag_path[256];
+	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "quad.vert", vert_path, sizeof(vert_path)), "swizzle_quad_vert", zest_vertex_shader, NULL, ZEST_TRUE);
+	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "quad.frag", frag_path, sizeof(frag_path)), "swizzle_quad_frag", zest_fragment_shader, NULL, ZEST_TRUE);
 
 	app->quad_pipeline = zest_CreatePipelineTemplate(app->device, "Swizzle Quad Pipeline");
 	zest_SetPipelineShaders(app->quad_pipeline, vert, frag);
@@ -128,9 +136,11 @@ int PollSDLEvents(zest_context context, SDL_Event *event) {
 
 void MainLoop(swizzle_app_t *app) {
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_UpdateDevice(app->device);
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
@@ -153,19 +163,23 @@ void MainLoop(swizzle_app_t *app) {
 }
 
 int main(int argc, char *argv[]) {
-	zest_create_context_info_t create_info = zest_CreateContextInfo();
-
 	swizzle_app_t app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	app.options = ParseExampleOptions(argc, argv);
+
+	zest_create_context_info_t create_info = zest_CreateContextInfo();
 
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Image Swizzle");
 
-	app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	app.device = CreateExampleDevice(&window_data, &app.options, 0);
+	if (!app.device) {
+		return 1;
+	}
 	app.context = zest_CreateContext(app.device, &window_data, &create_info);
 
 	InitApp(&app);
 
 	MainLoop(&app);
-	zest_DestroyDevice(app.device);
 
-	return 0;
+	return FinishExample(app.device, &app.options);
 }

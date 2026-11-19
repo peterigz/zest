@@ -1,5 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#ifdef ZEST_ENABLE_D3D12
+#define ZEST_D3D12_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include "zest-pbr-deferred.h"
 #include "zest.h"
@@ -35,7 +38,7 @@ Key concepts demonstrated:
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(app->context, &app->imgui, zest_implsdl2_DestroyWindow);
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window *)zest_Window(app->context));
+	InitImGuiSDL2ForDevice(app->device, (SDL_Window *)zest_Window(app->context));
 	zest_imgui_DarkStyle(&app->imgui);
 
 	ImGuiIO& io = ImGui::GetIO();
@@ -69,18 +72,20 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.z = 0.1f;
 
 	//Load skybox shaders
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, NULL, true);
+	const char *shader_folder = "examples/SDL2/zest-pbr-deferred/shaders";
+	char path[256];
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.vert", path, sizeof(path)), "sky_box_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "sky_box.frag", path, sizeof(path)), "sky_box_frag.spv", zest_fragment_shader, NULL, true);
 
 	//Deferred rendering shaders:
 	//- gbuffer: outputs geometry data to multiple render targets
 	//- lighting: fullscreen pass that reads G-buffer and computes PBR lighting
 	//- composite: combines lit scene with skybox
-	app->gbuffer_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.vert", "gbuffer_vert.spv", zest_vertex_shader, NULL, true);
-	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/gbuffer.frag", "gbuffer_frag.spv", zest_fragment_shader, NULL, true);
-	app->lighting_vert = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.vert", "deferred_lighting_vert.spv", zest_vertex_shader, NULL, true);
-	app->lighting_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/deferred_lighting.frag", "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
-	app->composite_frag = zest_CreateShaderFromFile(app->device, "examples/SDL2/zest-pbr-deferred/shaders/composite.frag", "composite_frag.spv", zest_fragment_shader, NULL, true);
+	app->gbuffer_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "gbuffer.vert", path, sizeof(path)), "gbuffer_vert.spv", zest_vertex_shader, NULL, true);
+	app->gbuffer_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "gbuffer.frag", path, sizeof(path)), "gbuffer_frag.spv", zest_fragment_shader, NULL, true);
+	app->lighting_vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "deferred_lighting.vert", path, sizeof(path)), "deferred_lighting_vert.spv", zest_vertex_shader, NULL, true);
+	app->lighting_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "deferred_lighting.frag", path, sizeof(path)), "deferred_lighting_frag.spv", zest_fragment_shader, NULL, true);
+	app->composite_frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "composite.frag", path, sizeof(path)), "composite_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->device, &sampler_info);
@@ -343,9 +348,11 @@ void MainLoop(SimplePBRExample *app) {
 	zest_microsecs frame_time = 0;
 	zest_uint frame_count = 0;
 	int running = 1;
+	int frame = 0;
 	SDL_Event event;
 
-	while (running) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
+		++frame;
 		running = PollSDLEvents(app->context, &event);
 		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
 		running_time = zest_Microsecs();
@@ -358,6 +365,17 @@ void MainLoop(SimplePBRExample *app) {
 		}
 
 		zest_UpdateDevice(app->device);
+
+		//The context can't be reset inside a frame, and the reset replaces the layers fetched below
+		if (app->reset) {
+			app->reset = false;
+			ImGui_ImplSDL2_Shutdown();
+			zest_imgui_Destroy(&app->imgui);
+			zest_implsdl2_DestroyWindow(app->context);
+			zest_window_data_t window_handles = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+			zest_ResetContext(app->context, &window_handles);
+			InitSimplePBRExample(app);
+		}
 
 		zest_layer mesh_layer = zest_GetLayer(app->mesh_layer);
 		zest_layer skybox_layer = zest_GetLayer(app->skybox_layer);
@@ -437,16 +455,6 @@ void MainLoop(SimplePBRExample *app) {
 			zest_SetLayerColor(skybox_layer, 255, 255, 255, 255);
 			DrawInstancedMesh(skybox_layer, zero, zero, zero, 0, 0);
 			zest_SetLayerPushConstants(skybox_layer, sky_push, sizeof(zest_uint) * 2);
-
-			if (app->reset) {
-				app->reset = false;
-				ImGui_ImplSDL2_Shutdown();
-				zest_imgui_Destroy(&app->imgui);
-				zest_implsdl2_DestroyWindow(app->context);
-				zest_window_data_t window_handles = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-				zest_ResetContext(app->context, &window_handles);
-				InitSimplePBRExample(app);
-			}
 
 			zest_swapchain swapchain = zest_GetSwapchain(app->context);
 
@@ -601,13 +609,18 @@ void MainLoop(SimplePBRExample *app) {
 
 int main(int argc, char *argv[]) {
 	SimplePBRExample imgui_app = {};
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Deferred");
 
-	//Create the Vulkan device (one per application)
-	imgui_app.device = zest_implsdl2_CreateVulkanDevice(&window_data, 0);
+	//Create the device for the chosen backend
+	imgui_app.device = CreateExampleDevice(&window_data, &imgui_app.options, 0);
+	if (!imgui_app.device) {
+		return 1;
+	}
 
 	//Create a Zest context for this window
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -622,7 +635,6 @@ int main(int argc, char *argv[]) {
 	//Cleanup
 	ImGui_ImplSDL2_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
-	zest_DestroyDevice(imgui_app.device);
 
-	return 0;
+	return FinishExample(imgui_app.device, &imgui_app.options);
 }

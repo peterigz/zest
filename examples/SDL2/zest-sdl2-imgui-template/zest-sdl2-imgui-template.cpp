@@ -185,15 +185,13 @@ void MainLoop(ImGuiApp *app) {
 
 		if (app->reset) {
 			app->reset = false;
-			ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-			//We don't want imgui to destroy the context with the callback as we will just rest it for
-			//testing purposes
+			//InitImGuiApp starts the loader thread again
+			if (app->loader_thread.joinable()) app->loader_thread.join();
 			ImGui_ImplSDL2_Shutdown();
 			zest_imgui_Destroy(&app->imgui);
 			zest_implsdl2_DestroyWindow(app->context);
 			zest_window_data_t window_handles = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-			zest_create_context_info_t create_info = zest_CreateContextInfo();
-			app->context = zest_CreateContext(app->device, &window_handles, &create_info);
+			zest_ResetContext(app->context, &window_handles);
 			InitImGuiApp(app);
 		}
 
@@ -256,7 +254,7 @@ int main(int argc, char *argv[]) {
 	 }
 
 	ImGuiApp imgui_app = {};
-	//--d3d12, --validate and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --validate and --frames N, see examples/Common/example_platform.h
 	imgui_app.options = ParseExampleOptions(argc, argv);
 
 	//Create a window using SDL2. We must do this before setting up the device as it's needed to get

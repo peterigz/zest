@@ -37,7 +37,7 @@ int test__frame_graph_and_execute(ZestTests *tests, Test *test) {
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
 
 	char shader_path[256];
-	tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
+	tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/glsl/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
 	tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
 
 	zest_BeginCommandGraph(tests->context, "BRDFLUT", 0);
@@ -72,7 +72,7 @@ Verifies cross-graph synchronization.
 int test__timeline_wait_external(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -179,7 +179,7 @@ Verify cache is used and each execution completes properly.
 int test__immediate_execute_cached(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->brd_shader)) {
 		char shader_path[256];
-		tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
+		tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/glsl/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
 		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
@@ -284,7 +284,7 @@ use zest_cmd_InsertComputeImageBarrier between levels.
 int test__compute_mipmap_chain(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->brd_shader)) {
 		char shader_path[256];
-		tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
+		tests->brd_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/Common/shaders/glsl/genbrdflut.comp", shader_path, sizeof(shader_path)), "genbrdflut_comp.spv", zest_compute_shader, NULL, true);
 	}
 	if (!zest_IsValidHandle((void*)&tests->brd_compute)) {
 		tests->brd_compute = zest_CreateCompute(tests->device, "Brd Compute", tests->brd_shader);
@@ -334,7 +334,7 @@ Create two timelines, single graph signals both, verify both can be waited on.
 int test__multiple_timeline_signals(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -412,7 +412,7 @@ Common pattern for particle simulation.
 int test__compute_read_modify_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -470,7 +470,7 @@ Verify compiles and executes correctly.
 int test__compute_only_graph(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -480,7 +480,7 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	}
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_verify.comp", shader_path, sizeof(shader_path)), "buffer_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_verify.comp", shader_path, sizeof(shader_path)), "buffer_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Buffer Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
@@ -563,7 +563,7 @@ Verify no crashes/conflicts.
 int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -657,7 +657,7 @@ both execution and the timeline wait, returning zest_semaphore_status_error.
 int test__flush_compile_failure_no_hang(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
@@ -728,7 +728,7 @@ pending deferred releases.
 int test__headless_flush_and_wait(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void *)&tests->compute_write)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", shader_path, sizeof(shader_path)), "buffer_write.spv", zest_compute_shader, NULL, 1);
 		tests->compute_write = zest_CreateCompute(tests->device, "Buffer Write", shader);
 		if (!zest_IsValidHandle((void *)&tests->compute_write)) {
 			test->frame_count++;

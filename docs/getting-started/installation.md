@@ -102,7 +102,8 @@ With it on, `ZEST_ENABLE_D3D12` is defined for everything that links zest. Defin
 folder next to the target, and `dxcompiler.dll` and `dxil.dll` beside it, which the target needs to run. Projects that
 compile zest into their own target can include `cmake/ZestD3D12.cmake` for the same function.
 
-The examples that run on both backends take `--d3d12`. See [Examples](../examples/index.md).
+With D3D12 compiled in, the examples start on D3D12 and fall back to Vulkan if the D3D12 device can't be created, and
+`--vulkan` or `--d3d12` chooses a backend. See [Examples](../examples/index.md).
 
 PIX and RenderDoc show each frame graph pass by name, as the D3D12 backend always wraps passes in event markers and
 names its queues and command lists. With validation on, a device removal writes DRED breadcrumbs and any page fault

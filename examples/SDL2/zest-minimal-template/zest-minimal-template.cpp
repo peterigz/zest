@@ -9,30 +9,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "examples/Common/example_platform.h"
 
 /**
 	Minimal app with a frame graph that renders a hello world triangle to the swapchain.
 	The triangle needs no vertex or index buffers at all - the vertex shader generates the
 	positions and colors from the vertex index.
-	Arguments: --d3d12 selects the D3D12 backend, --frames N exits after N frames, --validate enables
-	the validation layers and fails the run on any validation error.
+	Arguments: --vulkan or --d3d12 selects the backend (D3D12 is the default when it's compiled in),
+	--frames N exits after N frames, --validate enables the validation layers and fails the run on
+	any validation error. See examples/Common/example_platform.h.
  */
 
 struct minimal_app_t {
 	zest_device device;
 	zest_context context;
 	zest_pipeline_template triangle_pipeline;
-	int max_frames;		//0 runs until the window is closed
+	example_options_t options;
 };
 
 void InitApp(minimal_app_t *app) {
 	//Compile the shaders. Paths are relative to the working directory, which is expected to
-	//be the root of the Zest repository. Each backend compiles its own shader language.
-	zest_bool hlsl = zest_GetDevicePlatform(app->device) == zest_platform_d3d12;
-	const char *vert_path = hlsl ? "examples/SDL2/zest-minimal-template/shaders/hlsl/triangle.vert.hlsl" : "examples/SDL2/zest-minimal-template/shaders/triangle.vert";
-	const char *frag_path = hlsl ? "examples/SDL2/zest-minimal-template/shaders/hlsl/triangle.frag.hlsl" : "examples/SDL2/zest-minimal-template/shaders/triangle.frag";
-	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, vert_path, "triangle_vert", zest_vertex_shader, NULL, ZEST_TRUE);
-	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, frag_path, "triangle_frag", zest_fragment_shader, NULL, ZEST_TRUE);
+	//be the root of the Zest repository. Each backend compiles its own shader language, so
+	//ExampleShaderPath picks shaders/hlsl on D3D12 and shaders/glsl on Vulkan.
+	const char *shader_folder = "examples/SDL2/zest-minimal-template/shaders";
+	char vert_path[256];
+	char frag_path[256];
+	zest_shader_handle vert = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "triangle.vert", vert_path, sizeof(vert_path)), "triangle_vert", zest_vertex_shader, NULL, ZEST_TRUE);
+	zest_shader_handle frag = zest_CreateShaderFromFile(app->device, ExampleShaderPath(app->device, shader_folder, "triangle.frag", frag_path, sizeof(frag_path)), "triangle_frag", zest_fragment_shader, NULL, ZEST_TRUE);
 
 	//Create the pipeline template. New templates already use the device's default (bindless)
 	//pipeline layout so there's nothing else to set up here.
@@ -78,7 +81,7 @@ void MainLoop(minimal_app_t *app) {
 	int frame = 0;
 	SDL_Event event;
 
-	while (running && (app->max_frames == 0 || frame < app->max_frames)) {
+	while (running && !ExampleFrameLimitReached(&app->options, frame)) {
 		++frame;
 		//Check if the window was closed
 		running = PollSDLEvents(app->context, &event);
@@ -117,30 +120,9 @@ void MainLoop(minimal_app_t *app) {
 }
 
 int main(int argc, char *argv[]) {
-	bool use_d3d12 = false;
-	bool validate = false;
 	minimal_app_t app = {};
-	for (int argument_index = 1; argument_index < argc; ++argument_index) {
-		if (strcmp(argv[argument_index], "--d3d12") == 0) {
-			use_d3d12 = true;
-		} else if (strcmp(argv[argument_index], "--validate") == 0) {
-			validate = true;
-		} else if (strcmp(argv[argument_index], "--frames") == 0 && argument_index + 1 < argc) {
-			app.max_frames = atoi(argv[++argument_index]);
-		}
-	}
-
-#ifndef ZEST_ENABLE_D3D12
-	if (use_d3d12) {
-		printf("D3D12 is not compiled into this build\n");
-		return 1;
-	}
-#endif
-
-	zest_device_init_flags device_flags = 0;
-	if (validate) {
-		device_flags = zest_device_init_flag_enable_validation_layers | zest_device_init_flag_log_validation_errors_to_memory | zest_device_init_flag_log_validation_errors_to_console;
-	}
+	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	app.options = ParseExampleOptions(argc, argv);
 
 	//Make a config struct where you can configure zest with some options
 	zest_create_context_info_t create_info = zest_CreateContextInfo();
@@ -150,23 +132,10 @@ int main(int argc, char *argv[]) {
 	//the extensions info.
 	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Minimal Template");
 
-	//Create the device that serves all contexts
-#ifdef ZEST_ENABLE_D3D12
-	if (use_d3d12) {
-		app.device = zest_implsdl2_CreateD3D12Device(&window_data, device_flags);
-	} else
-#endif
-	{
-		app.device = zest_implsdl2_CreateVulkanDevice(&window_data, device_flags);
-	}
+	//Create the device that serves all contexts, on the backend the options chose
+	app.device = CreateExampleDevice(&window_data, &app.options, 0);
 	if (!app.device) {
-		printf("Could not create the device\n");
 		return 1;
-	}
-	if (!use_d3d12) {
-		//Vulkan loader warnings from third party layers are counted as validation errors
-		printf("ignored %u validation messages from device creation\n", zest_GetValidationErrorCount(app.device));
-		zest_ResetValidationErrors(app.device);
 	}
 
 	//Initialise Zest
@@ -183,21 +152,6 @@ int main(int argc, char *argv[]) {
 	//Start the Zest main loop
 	MainLoop(&app);
 
-	zest_uint validation_error_count = zest_GetValidationErrorCount(app.device);
-	if (validate) {
-		printf("validation errors: %u\n", validation_error_count);
-	}
-	zest_DestroyDevice(app.device);
-
-	int exit_code = validate && validation_error_count > 0 ? 1 : 0;
-#ifdef ZEST_ENABLE_D3D12
-	if (validate && use_d3d12) {
-		zest_uint release_count = zest__dx_last_device_release_count();
-		printf("device release count: %u\n", release_count);
-		if (release_count != 0) {
-			exit_code = 1;
-		}
-	}
-#endif
-	return exit_code;
+	//Destroys the device and returns 1 for any validation error under --validate
+	return FinishExample(app.device, &app.options);
 }

@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_TEXTURE_SIZE 4096
@@ -109,6 +110,7 @@ struct CascadingShadowsExample {
 	float frame_timer;
 	bool sync_refresh;
 	bool print_frame_graph;
+	example_options_t options;
 };
 
 void InitCascadingShadowsExample(CascadingShadowsExample *app);

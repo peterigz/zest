@@ -1,6 +1,7 @@
 #pragma once
 #include <SDL.h>
 #include <zest.h>
+#include "examples/Common/example_platform.h"
 
 struct BloomPushConstants {
 	zest_uint storage_image_index;
@@ -44,6 +45,7 @@ struct render_target_app_t {
 
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
+	example_options_t options;
 };
 
 void InitExample(render_target_app_t * example);

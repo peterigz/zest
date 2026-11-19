@@ -7,6 +7,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 #define SHADOW_MAP_SIZE 2048
 
@@ -84,6 +85,7 @@ struct ShadowMappingExample {
 	float frame_timer;
 	bool sync_refresh;
 	bool print_frame_graph;
+	example_options_t options;
 };
 
 void InitShadowMappingExample(ShadowMappingExample *app);

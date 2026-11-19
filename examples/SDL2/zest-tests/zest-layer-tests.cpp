@@ -34,8 +34,8 @@ void zest_ReadbackLayerBuffer(const zest_command_list command_list, void *user_d
 //quad in the vertex shader, coloring every pixel with the instance data
 zest_pipeline_template create_instance_pipeline_template(ZestTests *tests, const char *name) {
 	char shader_path[256];
-	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/instance.vert", shader_path, sizeof(shader_path)), "instance_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/instance.frag", shader_path, sizeof(shader_path)), "instance_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/instance.vert", shader_path, sizeof(shader_path)), "instance_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/instance.frag", shader_path, sizeof(shader_path)), "instance_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(tests->device, name);
 	zest_AddVertexInputBindingDescription(pipeline_template, 0, sizeof(TestData), zest_input_rate_instance);
@@ -265,7 +265,7 @@ that color. If the instance data never reached the vertex shader the red clear w
 int test__instance_layer_draw(ZestTests *tests, Test *test) {
 	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 		char shader_path[256];
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/image_verify.comp", shader_path, sizeof(shader_path)), "image_verify.spv", zest_compute_shader, NULL, 1);
 		tests->compute_verify = zest_CreateCompute(tests->device, "Image Verify", shader);
 		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;

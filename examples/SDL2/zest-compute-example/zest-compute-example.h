@@ -6,6 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_sdl2.h>
+#include "examples/Common/example_platform.h"
 
 #define PARTICLE_COUNT 256 * 1024
 
@@ -24,11 +25,13 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 	int32_t write_particle_buffer_index = 0;
 } ubo;
 
+//Mirrors PushConsts in particle.slang, 24 bytes
 struct ParticlePushConsts {
 	int particle_index;
 	int gradient_index;
 	int sampler_index;
 	int uniform_index;
+	zest_vec2 quad_extent;		//Half the size of an 8 pixel quad in NDC. Only the quad entry points read it
 };
 
 struct RenderCacheInfo {
@@ -66,6 +69,8 @@ struct ComputeExample {
 	bool attach_to_cursor;
 	bool print_render_graph;
 	bool output_debug_overlay;
+	zest_bool draw_point_sprites;	//D3D12 has no point sprites, so it draws instanced quads
+	example_options_t options;
 };
 
 static inline float Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }

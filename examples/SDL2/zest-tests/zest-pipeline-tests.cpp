@@ -22,8 +22,8 @@ zest_command_list_t create_test_command_list(ZestTests *tests) {
 // Helper function to create a basic pipeline template
 zest_pipeline_template create_basic_pipeline_template(ZestTests *tests, const char *name) {
 	char shader_path[256];
-	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
 
 	zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, name);
 	
@@ -336,8 +336,8 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 		//Three channel 16 bit formats have no DXGI equivalent
 		if (tests->platform == zest_platform_d3d12 && position_formats[i] == zest_format_r16g16b16_sfloat) continue;
 		char shader_path[256];
-		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
-		zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
+		zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
+		zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
 
 		zest_pipeline_template pipeline_test = zest_CreatePipelineTemplate(tests->device, format_names[i]);
 		
@@ -364,8 +364,8 @@ int test__pipeline_state_vertex_input(ZestTests *tests, Test *test) {
 	zest_pipeline_template instance_pipeline = zest_CreatePipelineTemplate(tests->device, "Instance Rate Test");
 	
 	char shader_path[256];
-	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
-	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
+	zest_shader_handle vert_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.vert", shader_path, sizeof(shader_path)), "vertex_vert.spv", zest_vertex_shader, NULL, true);
+	zest_shader_handle frag_shader = zest_CreateShaderFromFile(tests->device, TestShaderPath(tests->device, "examples/SDL2/zest-tests/shaders/glsl/vertex.frag", shader_path, sizeof(shader_path)), "vertex_frag.spv", zest_fragment_shader, NULL, true);
 	
 	zest_AddVertexInputBindingDescription(instance_pipeline, 0, sizeof(vertex), zest_input_rate_instance);
 	zest_AddVertexAttribute(instance_pipeline, 0, 0, zest_format_r32g32b32a32_sfloat, offsetof(vertex, position));	  

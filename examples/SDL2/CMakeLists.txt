@@ -43,7 +43,9 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${SDL2_INCLUDE_DIRS})
 
 	# Collect shader files
-	file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag" "${SHADER_DIR}/*.comp" "${SHADER_DIR}/*.slang")
+	file(GLOB SHADERS "${SHADER_DIR}/glsl/*" "${SHADER_DIR}/hlsl/*.hlsl" "${SHADER_DIR}/*.slang")
+	# Zest compiles shaders at run time, so stop Visual Studio compiling the .hlsl files with FXC
+	set_source_files_properties(${SHADERS} PROPERTIES VS_TOOL_OVERRIDE "None")
 	file(GLOB IMGUI_SOURCE
 		${IMGUI}*.cpp
 		${IMGUI}backends/imgui_impl_sdl2.cpp
@@ -186,6 +188,7 @@ function(buildExample EXAMPLE_NAME)
 
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+	zest_copy_d3d12_runtime(${EXAMPLE_NAME})
 endfunction(buildExample)
 
 # impl_timelinefx.c inflates zstd supercompressed KTX2 shapes. Only the decoder half of zstd is built.
@@ -238,17 +241,8 @@ foreach(SLANG_EXAMPLE ${SLANG_EXAMPLES})
 	zest_copy_slang_runtime(${SLANG_EXAMPLE})
 endforeach()
 zest_copy_slang_runtime(zest-tests)
-zest_copy_d3d12_runtime(zest-tests)
 if(ZEST_D3D12_ENABLED)
 	target_include_directories(zest-tests PRIVATE ${ZEST_D3D12_DXC_INCLUDE_DIR})
-endif()
-zest_copy_d3d12_runtime(zest-clear-screen)
-zest_copy_d3d12_runtime(zest-minimal-template)
-zest_copy_d3d12_runtime(zest-imgui-template)
-zest_copy_d3d12_runtime(zest-sdl2-imgui-template)
-if(ZEST_ENABLE_SLANG)
-	zest_copy_d3d12_runtime(zest-timelinefx)
-	zest_copy_d3d12_runtime(zest-timelinefx-particle-techniques)
 endif()
 
 # Compiles zest.h as C11 so C regressions fail the build. Never linked.

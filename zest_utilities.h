@@ -821,7 +821,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
     zest_AddVertexAttribute(font_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_font_instance_t, position));  
     zest_AddVertexAttribute(font_pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(zest_font_instance_t, uv));  
     zest_AddVertexAttribute(font_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_font_instance_t, color));
-    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r16g16_sscaled, offsetof(zest_font_instance_t, size));  
+    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r16g16_sint, offsetof(zest_font_instance_t, size));  
     zest_AddVertexAttribute(font_pipeline, 0, 4, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));
 
 	zest_SetPipelineVertShader(font_pipeline, font_vert);

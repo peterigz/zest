@@ -271,21 +271,34 @@ Or set the working directory in your IDE to the repository root.
 
 ## Running on D3D12
 
-These examples run on Vulkan by default and on D3D12 with `--d3d12`, in a build with `ZEST_ENABLE_D3D12` (on by
-default on Windows):
+Every built example runs on both Vulkan and D3D12. In a build with `ZEST_ENABLE_D3D12` (on by default on Windows)
+the examples start on D3D12, and if the D3D12 device can't be created they print one line and run on Vulkan. Other
+builds, including every Linux and macOS build, run on Vulkan. The examples written in Slang (`zest-compute-example`,
+`zest-vaders`, `zest-timelinefx` and `zest-timelinefx-particle-techniques`) also need `ZEST_ENABLE_SLANG`.
 
-- `zest-clear-screen` and `zest-minimal-template`
-- `zest-imgui-template` and `zest-sdl2-imgui-template`
-- `zest-timelinefx` and `zest-timelinefx-particle-techniques`, which also need `ZEST_ENABLE_SLANG`
-
-They share these arguments, from `examples/Common/example_platform.h` (the clear screen and minimal templates parse
-their own):
+They share these arguments, from `examples/Common/example_platform.h`:
 
 | Argument | Effect |
 |----------|--------|
-| `--d3d12` | Use the D3D12 backend |
+| `--vulkan` | Use the Vulkan backend |
+| `--d3d12` | Use the D3D12 backend, with no fallback to Vulkan. A build without D3D12 exits with a message |
 | `--validate` | Turn on the validation layers, print the validation error count at exit and exit with 1 if it isn't 0. On D3D12 also print the COM references the device left behind |
-| `--validate-sync` | `--validate` with Vulkan synchronisation validation or D3D12 GPU-based validation (not the clear screen and minimal templates) |
+| `--validate-sync` | `--validate` with Vulkan synchronisation validation or D3D12 GPU-based validation |
 | `--frames N` | Exit after N frames |
 
 `zest-timelinefx-particle-techniques` also takes `--effect-mode baked|cpu|gpu` to start with that technique.
+
+Each shader folder (an example's `shaders/`, `examples/Common/shaders/` and `examples/assets/shaders/`) keeps its
+GLSL in `glsl/` and its HLSL twins in `hlsl/`. `ExampleShaderPath` in `example_platform.h` gives
+`<folder>/hlsl/<name>.hlsl` on D3D12 and `<folder>/glsl/<name>` on Vulkan. A twin keeps its GLSL's maths and the same
+push constant, uniform and buffer layouts, so the C++ is the same on both backends. The Slang examples compile one
+source for both.
+
+Limits on D3D12:
+
+- `zest-shadow-mapping` sets its depth bias with `zest_cmd_SetDepthBias`. On a driver without dynamic depth bias the
+  shadows lose their bias and the run logs one validation error.
+- `zest-compute-example` draws point sprites on Vulkan and an instanced quad per particle on D3D12, which has no point
+  sprites.
+- `zest-cascading-shadows` draws its four cascades with view instancing, so it needs a GPU that supports it.
+- The TimelineFX reload harness (`zest-timelinefx-reload-render`) runs on Vulkan only.
