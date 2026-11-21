@@ -660,7 +660,6 @@ typedef struct zest_dx_shader_reflection_t {
 #define ZEST_DX_MAX_ROOT_RANGES 32
 #define ZEST_DX_MAX_SAMPLER_RANGES 4
 #define ZEST_DX_MAX_PUSH_REGISTERS 4
-#define ZEST__DX_MAX_ROOT_DWORDS 64
 
 typedef struct zest_dx_root_range_t {
 	zest_uint range_type;			//D3D12_DESCRIPTOR_RANGE_TYPE
@@ -678,7 +677,6 @@ typedef struct zest_dx_root_push_t {
 typedef struct zest_dx_root_layout_t {
 	zest_uint push_count;
 	zest_dx_root_push_t pushes[ZEST_DX_MAX_PUSH_REGISTERS];
-	zest_uint push_dword_count;
 	zest_bool push_as_cbv;
 	zest_uint resource_range_count;
 	zest_dx_root_range_t resource_ranges[ZEST_DX_MAX_ROOT_RANGES];
@@ -687,10 +685,9 @@ typedef struct zest_dx_root_layout_t {
 	zest_bool input_assembler;
 } zest_dx_root_layout_t;
 
-//The part of a root layout the draw and dispatch flushes read, so they never touch the 632-byte layout
+//The part of a root layout the draw and dispatch flushes read, so they never touch the 628-byte layout
 typedef struct zest_dx_root_parameters_t {
 	zest_uint push_count;			//Push parameters are 0 to push_count - 1
-	zest_uint push_dword_count;
 	zest_bool push_as_cbv;
 	zest_uint resource_table;		//Parameter index, or ZEST_INVALID with no resource range
 	zest_uint sampler_table;		//Parameter index, or ZEST_INVALID with no sampler range
@@ -4530,7 +4527,7 @@ void *zest__dx_new_pipeline_layout_backend(zest_device device) {
 	return backend;
 }
 
-//Root signatures come from each pipeline's shaders, so the layout only carries the root constant size
+//Root signatures come from each pipeline's shaders, so the layout only carries the push constant size
 zest_bool zest__dx_build_pipeline_layout(zest_device device, zest_pipeline_layout layout, zest_pipeline_layout_info_t *info) {
 	ZEST_DX_BACKEND(pipeline_layout, layout)->push_constant_size = info->push_constant_range.size;
 	return ZEST_TRUE;
@@ -5238,7 +5235,6 @@ zest_dx_root_range_t *zest__dx_find_root_range(zest_dx_root_range_t *ranges, zes
 zest_bool zest__dx_derive_root_layout(const zest_dx_shader_reflection_t **stages, zest_uint stage_count, zest_uint push_constant_size, zest_bool input_assembler, const zest_dx_bindless_regions_t *regions, zest_dx_root_layout_t *out_layout, char *out_error, zest_size error_size) {
 	memset(out_layout, 0, sizeof(*out_layout));
 	out_layout->input_assembler = input_assembler;
-	out_layout->push_dword_count = (push_constant_size + 3) / 4;
 	for (zest_uint stage_index = 0; stage_index != stage_count; ++stage_index) {
 		const zest_dx_shader_reflection_t *stage = stages[stage_index];
 		const char *stage_name = zest__dx_stage_name(stage->stage);
@@ -5329,16 +5325,14 @@ zest_bool zest__dx_derive_root_layout(const zest_dx_shader_reflection_t **stages
 			push->visibility = (zest_uint)visibility;
 		}
 	}
-	//A table costs 1 DWORD, root constants push_dword_count each and a root CBV 2
-	zest_uint table_cost = (out_layout->resource_range_count ? 1 : 0) + (out_layout->sampler_range_count ? 1 : 0);
-	out_layout->push_as_cbv = table_cost + out_layout->push_count * out_layout->push_dword_count > ZEST__DX_MAX_ROOT_DWORDS;
+	//Never root constants: on AMD, an index into a root constant array that differs between lanes reads the first lane's element
+	out_layout->push_as_cbv = out_layout->push_count != 0;
 	return ZEST_TRUE;
 }
 
 zest_dx_root_parameters_t zest__dx_root_parameters(const zest_dx_root_layout_t *layout) {
 	zest_dx_root_parameters_t parameters;
 	parameters.push_count = layout->push_count;
-	parameters.push_dword_count = layout->push_dword_count;
 	parameters.push_as_cbv = layout->push_as_cbv;
 	parameters.resource_table = layout->resource_range_count ? layout->push_count : ZEST_INVALID;
 	parameters.sampler_table = layout->sampler_range_count ? layout->push_count + (layout->resource_range_count ? 1 : 0) : ZEST_INVALID;
@@ -5365,14 +5359,8 @@ ID3D12RootSignature *zest__dx_create_root_signature(zest_device device, const ze
 	for (zest_uint push_index = 0; push_index != layout->push_count; ++push_index) {
 		D3D12_ROOT_PARAMETER1 *parameter = &parameters[parameter_count++];
 		parameter->ShaderVisibility = (D3D12_SHADER_VISIBILITY)layout->pushes[push_index].visibility;
-		if (layout->push_as_cbv) {
-			parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-			parameter->Descriptor.ShaderRegister = layout->pushes[push_index].shader_register;
-		} else {
-			parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-			parameter->Constants.ShaderRegister = layout->pushes[push_index].shader_register;
-			parameter->Constants.Num32BitValues = layout->push_dword_count;
-		}
+		parameter->ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+		parameter->Descriptor.ShaderRegister = layout->pushes[push_index].shader_register;
 	}
 	if (layout->resource_range_count) {
 		zest__dx_fill_descriptor_ranges(layout->resource_ranges, layout->resource_range_count, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE, resource_ranges);
@@ -7279,16 +7267,10 @@ zest_bool zest__dx_flush_compute_state(zest_device device, ID3D12GraphicsCommand
 		state->compute_push_dirty = ZEST_TRUE;
 	}
 	if (state->compute_push_dirty && parameters->push_count) {
-		if (parameters->push_as_cbv) {
-			D3D12_GPU_VIRTUAL_ADDRESS address = 0;
-			if (!zest__dx_allocate_push_upload(device, push_upload, state->push_data, &address)) return ZEST_FALSE;
-			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
-				ZEST_DX_CALL(native_list, SetComputeRootConstantBufferView, parameter, address);
-			}
-		} else {
-			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
-				ZEST_DX_CALL(native_list, SetComputeRoot32BitConstants, parameter, parameters->push_dword_count, state->push_data, 0);
-			}
+		D3D12_GPU_VIRTUAL_ADDRESS address = 0;
+		if (!zest__dx_allocate_push_upload(device, push_upload, state->push_data, &address)) return ZEST_FALSE;
+		for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+			ZEST_DX_CALL(native_list, SetComputeRootConstantBufferView, parameter, address);
 		}
 	}
 	state->compute_push_dirty = ZEST_FALSE;
@@ -7327,17 +7309,11 @@ zest_bool zest__dx_flush_graphics_state(const zest_command_list command_list) {
 		state->recorded_topology = pipeline_backend->topology;
 	}
 	if (state->graphics_push_dirty && parameters->push_count) {
-		if (parameters->push_as_cbv) {
-			D3D12_GPU_VIRTUAL_ADDRESS address = 0;
-			zest_dx_push_upload_t *upload = &ZEST_DX_BACKEND(context_queue, backend->context_queue)->push_uploads[context->current_fif];
-			if (!zest__dx_allocate_push_upload(device, upload, state->push_data, &address)) return ZEST_FALSE;
-			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
-				ZEST_DX_CALL(native_list, SetGraphicsRootConstantBufferView, parameter, address);
-			}
-		} else {
-			for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
-				ZEST_DX_CALL(native_list, SetGraphicsRoot32BitConstants, parameter, parameters->push_dword_count, state->push_data, 0);
-			}
+		D3D12_GPU_VIRTUAL_ADDRESS address = 0;
+		zest_dx_push_upload_t *upload = &ZEST_DX_BACKEND(context_queue, backend->context_queue)->push_uploads[context->current_fif];
+		if (!zest__dx_allocate_push_upload(device, upload, state->push_data, &address)) return ZEST_FALSE;
+		for (zest_uint parameter = 0; parameter != parameters->push_count; ++parameter) {
+			ZEST_DX_CALL(native_list, SetGraphicsRootConstantBufferView, parameter, address);
 		}
 	}
 	state->graphics_push_dirty = ZEST_FALSE;

@@ -1172,9 +1172,9 @@ int test_d3d12_root_layout_rules(void) {
 	add_test_resource(&vertex, 2, 13, 0, 0, 0);
 	add_test_resource(&pixel, 2, 13, 0, 0, 0);
 	failed |= !derive_test_layout(&vertex, &pixel, 128, &layout, error, sizeof(error));
-	failed |= layout.push_count != 1 || layout.pushes[0].visibility != D3D12_SHADER_VISIBILITY_ALL || layout.push_dword_count != 32 || layout.push_as_cbv != ZEST_FALSE;
+	failed |= layout.push_count != 1 || layout.pushes[0].visibility != D3D12_SHADER_VISIBILITY_ALL || layout.push_as_cbv != ZEST_TRUE;
 
-	//The baked billboard's shape: two push registers and both tables, 66 DWORDs as root constants
+	//The baked billboard's shape: two push registers and both tables
 	vertex = test_reflection(1);
 	pixel = test_reflection(0);
 	add_test_resource(&vertex, 2, 13, 0, 2, 2);
@@ -1187,7 +1187,7 @@ int test_d3d12_root_layout_rules(void) {
 	zest_dx_root_parameters_t parameters = zest__dx_root_parameters(&layout);
 	failed |= parameters.push_count != 2 || parameters.resource_table != 2 || parameters.sampler_table != 3 || parameters.push_as_cbv != ZEST_TRUE;
 	failed |= !derive_test_layout(&vertex, &pixel, 48, &layout, error, sizeof(error));
-	failed |= layout.push_as_cbv != ZEST_FALSE || layout.push_dword_count != 12;
+	failed |= layout.push_as_cbv != ZEST_TRUE;
 
 	//Every row of the slot table, expected range type and region start written out for the counts above
 	static const zest_uint expected_range_types[12] = {
@@ -2216,6 +2216,57 @@ int test_d3d12_push_constant_fallback(void) {
 	zest_FreeShader(vertex_shader);
 	zest_FreeShader(pixel_shader);
 	zest_DestroyContext(context);
+	return failed | finish_device(device);
+}
+
+#define PUSH_ARRAY_LANE_COUNT 64
+
+struct PushArrayLanesPush {		//80 bytes
+	zest_uint output_index;
+	zest_uint padding[3];
+	zest_uint entries[4][4];
+};
+static_assert(sizeof(PushArrayLanesPush) == 80, "The push block in push_array_lanes.comp.hlsl");
+
+//Each lane reads entry x & 15 of the push block's array, so the lanes of a wave index different rows
+int test_d3d12_push_array_lanes(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, D3D12_HLSL_SHADER_PATH "push_array_lanes.comp.hlsl", "push_array_lanes", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Push Array Lanes", shader);
+	zest_compute compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, PUSH_ARRAY_LANE_COUNT * sizeof(zest_uint), &buffer_info);
+	int failed = compute == NULL || buffer == NULL;
+	if (!failed) {
+		PushArrayLanesPush push = {};
+		push.output_index = zest_AcquireStorageBufferIndex(device, buffer);
+		for (zest_uint entry = 0; entry != 16; ++entry) push.entries[entry >> 2][entry & 3] = 1000 + entry;
+		memset(zest_BufferData(buffer), 0xFF, PUSH_ARRAY_LANE_COUNT * sizeof(zest_uint));
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+		failed |= queue == NULL;
+		if (queue) {
+			zest_imm_SendPushConstants(queue, &push, sizeof(push));
+			zest_imm_BindComputePipeline(queue, compute);
+			failed |= !zest_imm_DispatchCompute(queue, 1, 1, 1);
+			failed |= !zest_imm_EndCommandBuffer(queue);
+		}
+		const zest_uint *values = (const zest_uint *)zest_BufferData(buffer);
+		zest_uint wrong_elements = 0;
+		for (zest_uint element = 0; element != PUSH_ARRAY_LANE_COUNT; ++element) {
+			zest_uint expected = 1000 + (element & 15);
+			if (values[element] != expected) {
+				if (!wrong_elements) ZEST_PRINT("\tElement %u holds %u, expected %u", element, values[element], expected);
+				wrong_elements++;
+			}
+		}
+		zest_bool push_as_cbv = compute->backend ? ZEST_DX_BACKEND(compute, compute)->root_parameters.push_as_cbv : ZEST_FALSE;
+		ZEST_PRINT("\tRoot CBV pushes: %s, %u wrong elements", push_as_cbv ? "yes" : "no", wrong_elements);
+		failed |= wrong_elements != 0 || zest_GetValidationErrorCount(device) != 0;
+	}
+	if (buffer) zest_FreeBufferNow(buffer);
+	if (compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
 	return failed | finish_device(device);
 }
 
@@ -6188,6 +6239,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Precompiled Shaders", test_d3d12_precompiled_shaders },
 	{ "D3D12 Lazy Binding Order", test_d3d12_lazy_binding_order },
 	{ "D3D12 Push Constant Fallback", test_d3d12_push_constant_fallback },
+	{ "D3D12 Push Array Lanes", test_d3d12_push_array_lanes },
 	{ "D3D12 Compute Reads Descriptors", test_d3d12_compute_reads_descriptors },
 	{ "D3D12 Cube Storage Image", test_d3d12_cube_storage_image },
 	{ "D3D12 Viewport Orientation", test_d3d12_viewport_orientation },
