@@ -246,7 +246,7 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
         ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(staging_index_buffer);
         ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(staging_vertex_buffer);
 
-        for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
+        for (int n = 0; n < imgui_draw_data->CmdLists.Size; n++) {
             const ImDrawList *cmd_list = imgui_draw_data->CmdLists[n];
             memcpy(vtxDst, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
             memcpy(idxDst, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
@@ -294,7 +294,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
 
 	zest_context context = zest_GetContext(command_list);
     
-    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
+    if (imgui_draw_data && imgui_draw_data->CmdLists.Size > 0) {
 
         int32_t vertex_offset = 0;
         int32_t index_offset = 0;
@@ -302,7 +302,7 @@ void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_
         ImVec2 clip_off = imgui_draw_data->DisplayPos;
         ImVec2 clip_scale = imgui_draw_data->FramebufferScale;
 
-        for (int32_t i = 0; i < imgui_draw_data->CmdListsCount; i++)
+        for (int32_t i = 0; i < imgui_draw_data->CmdLists.Size; i++)
         {
             ImDrawList *cmd_list = imgui_draw_data->CmdLists[i];
             for (int32_t j = 0; j < cmd_list->CmdBuffer.Size; j++)
