@@ -29,6 +29,7 @@
 - [Cost_] Per-frame cost
 - [Testing_] Testing
 - [Digest_] Code style digest for the Mac
+- [Built_] As built
 
 ## [Constraints_] Global Constraints
 
@@ -527,3 +528,31 @@ For use only if the `code-style` skill isn't on the Mac. The skill wins where th
 - Log messages are whole sentences that tell the user what to do.
 - No new dependency and no code for a niche case without asking Peter. Document the limit instead.
 - Find the closest existing code and mirror it, but don't copy `zest_dx12.h`'s style: it's agent-written.
+
+## [Built_] As built
+
+### Task 1: Mac baseline (2026-11-22, commit 60a0fec, run over SSH from the Windows machine)
+
+**Machine**
+- Mac mini, Apple M2, 8 GB. macOS 26.2 (25C56). Xcode 26.2 (17C52), Apple clang 17.0.0. CMake 4.2.2, SDL2 2.32.10 from Homebrew. No ninja and no pkg-config.
+- Vulkan SDK 1.4.335.1 at `~/VulkanSDK/1.4.335.1`, with `VULKAN_SDK` pointing at its `macOS` folder. It holds `include/spirv_cross/spirv_cross_c.h`, `lib/libspirv-cross-c.a` with the `core`, `glsl`, `msl`, `reflect`, `util`, `cpp` and `hlsl` static libraries, `libspirv-cross-c-shared.dylib` (0.67.0), `libshaderc_combined.a`, `libMoltenVK.dylib`, Slang 2025.23.2, and the `glslc`, `spirv-cross`, `slangc` and `dxc` tools. So Task 2 has everything it needs.
+- The repo is `~/Documents/GitHub/zest`. An old in-tree `build/` folder from a ninja configure is still there and isn't used.
+
+**Differences from the plan's commands**
+- The default generator is Unix Makefiles, which is single-config. Configure with `cmake -S . -B ../Zest-Build -DCMAKE_BUILD_TYPE=Debug`, and build with `cmake --build ../Zest-Build --target <target> -j 8`, with no `--config`. Executables are in `../Zest-Build/examples/SDL2/`, with no `Debug` folder.
+- `VULKAN_SDK` and the Homebrew path come from `~/.zshrc` and `~/.zprofile`. A non-interactive SSH command has neither until it sources both.
+- A test or example launched from an SSH session opens its window and runs, as long as the user is logged in at the console.
+- `git pull --ff-only` in the Mac clone fails with "Cannot fast-forward to multiple branches". The clone is at the same commit as Windows, so nothing was pulled. The clone's pull configuration needs a look.
+- Slang is off in a default configure ("Slang support disabled"), so the Slang tests aren't registered. That's why the Mac registers 129 tests where Windows registers 136. `-DZEST_ENABLE_SLANG=ON` is needed for M6 and for Task 2's optional Slang step.
+
+**Results**
+- The tree builds as it is: `zest-tests`, `zest-minimal-template`, `zest-imgui-template` and `zest-c-compile-check`, with no errors and no warnings. The D3D12 work left no Mac build regression.
+- `zest-tests`, exit 1: `Dynamic rendering: 129 / 129`, `Legacy render pass: 127 / 129`.
+- The two failures, in the legacy run only:
+  - "Pipeline Test State Polygon Mode"
+  - "Pipeline Test State Rasterization"
+
+  Both build a pipeline with the point polygon mode, and MoltenVK's portability subset rejects it (VUID-VkPipelineRasterizationStateCreateInfo-pointPolygons-04458). The same two tests pass in the dynamic rendering run with no VUID line. Whether they failed before the D3D12 work isn't known. Nothing was changed: the Metal baseline is 129 and 127 until Peter rules on them.
+- Known noise in the Mac log: Vulkan loader lines for the ICD and validation layer search, 2 "Shader compilation failed" lines from the broken-shader test, 2 VUID blocks from the failures above, and repeated "Cannot cache the frame graph this frame" lines in the stress tests.
+- `zest-minimal-template --validate --frames 600` and `zest-imgui-template --validate --frames 600`: exit 0, 0 validation errors, 0 messages ignored at creation.
+- **Fixed the same day (Peter's ruling):** both tests skip the point polygon mode on Apple (`zest-pipeline-tests.cpp`, in `test__pipeline_state_polygon_mode` and `test__pipeline_state_rasterization`). With the skip the Mac gives `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, exit 0, with no VUID line. That is the baseline for M1. Windows is unaffected: the skip is inside `#if defined(__APPLE__)`.

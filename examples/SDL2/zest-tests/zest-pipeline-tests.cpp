@@ -264,6 +264,10 @@ int test__pipeline_state_polygon_mode(ZestTests *tests, Test *test) {
 	for (int i = 0; i < 3; i++) {
 		//D3D12 has no point fill mode
 		if (tests->platform == zest_platform_d3d12 && polygon_modes[i] == zest_polygon_mode_point) continue;
+#if defined(__APPLE__)
+		//MoltenVK's portability subset has no point fill mode
+		if (polygon_modes[i] == zest_polygon_mode_point) continue;
+#endif
 		zest_pipeline_template pipeline = create_basic_pipeline_template(tests, polygon_mode_names[i]);
 		zest_SetPipelinePolygonFillMode(pipeline, polygon_modes[i]);
 		pipelines[i] = zest_GetPipeline(pipeline, &command_list);
@@ -496,6 +500,9 @@ int test__pipeline_state_rasterization(ZestTests *tests, Test *test) {
 	
 	// Test point mode, which D3D12 doesn't have
 	zest_bool skip_point = tests->platform == zest_platform_d3d12;
+#if defined(__APPLE__)
+	skip_point = ZEST_TRUE;	//MoltenVK's portability subset has no point fill mode
+#endif
 	if (!skip_point) {
 		zest_pipeline_template pipeline3 = create_basic_pipeline_template(tests, rasterization_names[3]);
 		zest_SetPipelinePolygonFillMode(pipeline3, zest_polygon_mode_point);
