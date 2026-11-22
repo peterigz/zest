@@ -500,7 +500,12 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - New M1 tests, all in `metal_tests[]`: Device Lifecycle, Minimum Spec Rejected, Timeline Wait, Buffer Pool, Residency Tracks Pools, Image Round Trip, Mip Chain, Format Table, Bindless Slots, Device With Defaults, Headless Context, Untracked Pass Ordering, Validation Reports.
 
 **Peter's tests, on Windows, after M1's shared edits**
-- Before M1 starts: record the four summary lines from `zest-tests.exe` as the Windows baseline.
+- **Windows baseline (2026-11-22, commit 60a0fec, AMD RX 6600):**
+  - `--platform all`: `Dynamic rendering: 136 / 136`, `Legacy render pass: 136 / 136`, `D3D12 suite: 132 / 132`, `D3D12 backend: 103 / 103`, exit 0.
+  - `--platform d3d12 --warp` and `--platform d3d12 --gbv`: `D3D12 suite: 132 / 132`, `D3D12 backend: 103 / 103`, exit 0.
+  - Known noise in a passing run: 5 "Zest D3D12 Error" lines from the injected failures, 5 "Shader compilation failed" lines from the broken-shader tests, 2 Vulkan loader lines about a Twitch layer JSON file, and no VUID lines.
+  - `zest-minimal-template.exe --validate --frames 600`: 0 validation errors and exit 0 on `--d3d12` (device release count 0) and on `--vulkan` (1 loader message ignored at creation).
+  - `zest-c-compile-check` builds clean.
 - After: `cmake --build E:/Projects/C++/Zest-Build --config Debug --target zest-tests`, then `zest-c-compile-check`, then `zest-tests.exe` with the default `--platform all`. Expected: the same four lines.
 - One D3D12 run with `--gbv` and one with `--warp`, not overlapped.
 - `zest-minimal-template.exe --validate --frames 600` on each backend.
