@@ -51,6 +51,20 @@ if(ZEST_D3D12_ENABLED)
 endif()
 # --- End D3D12 Integration ---
 
+# --- Optional Metal Integration ---
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ZestMetal.cmake)
+if(ZEST_METAL_ENABLED)
+    # Use #ifdef ZEST_ENABLE_METAL in your code
+    target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_METAL)
+    target_compile_definitions(zest PRIVATE ZEST_ENABLE_METAL)
+    target_include_directories(zest-interface INTERFACE ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR})
+    target_include_directories(zest PUBLIC ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR})
+    target_link_libraries(zest-interface INTERFACE ${ZEST_METAL_SPIRV_CROSS_LIBRARIES} ${ZEST_METAL_FRAMEWORKS})
+    target_link_libraries(zest PUBLIC ${ZEST_METAL_SPIRV_CROSS_LIBRARIES} ${ZEST_METAL_FRAMEWORKS})
+    zest_metal_implementation_source(zest ${CMAKE_CURRENT_SOURCE_DIR}/zest.cpp)
+endif()
+# --- End Metal Integration ---
+
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
     message(STATUS "Using module to find Vulkan")

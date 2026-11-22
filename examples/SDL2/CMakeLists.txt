@@ -189,6 +189,7 @@ function(buildExample EXAMPLE_NAME)
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	zest_copy_d3d12_runtime(${EXAMPLE_NAME})
+	zest_metal_implementation_source(${EXAMPLE_NAME} ${MAIN_CPP})
 endfunction(buildExample)
 
 # impl_timelinefx.c inflates zstd supercompressed KTX2 shapes. Only the decoder half of zstd is built.
@@ -249,6 +250,14 @@ endif()
 add_library(zest-c-compile-check OBJECT zest-tests/zest-c-compile-check.c)
 set_target_properties(zest-c-compile-check PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
 target_link_libraries(zest-c-compile-check PRIVATE zest-interface)
+
+# Compiles zest.h with the Metal backend as Objective-C, C11, as the C check above can't include zest_metal.h. Never linked.
+if(ZEST_METAL_ENABLED)
+	add_library(zest-objc-compile-check OBJECT zest-tests/zest-objc-compile-check.m)
+	set_source_files_properties(zest-tests/zest-objc-compile-check.m PROPERTIES LANGUAGE C COMPILE_FLAGS "-x objective-c -fno-objc-arc")
+	set_target_properties(zest-objc-compile-check PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+	target_link_libraries(zest-objc-compile-check PRIVATE zest-interface)
+endif()
 
 
 

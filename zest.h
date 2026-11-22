@@ -5176,6 +5176,7 @@ ZEST_PRIVATE void zest__draw_debug_text(zest_context context, const char* text, 
 //Device creation builder. Each backend has its own begin function (defined by its platform header).
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder(zest_device_init_flags flags);
 ZEST_API zest_device_builder zest_BeginD3D12DeviceBuilder(zest_device_init_flags flags);
+ZEST_API zest_device_builder zest_BeginMetalDeviceBuilder(zest_device_init_flags flags);
 //The SDL2 helper matches zest_implsdl2_CreateVulkanDevice's parameters so apps can switch by name, and ignores window_data
 ZEST_API zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zest_device_init_flags flags);
 ZEST_API zest_device zest_implglfw_CreateD3D12Device(zest_device_init_flags flags);
@@ -9388,7 +9389,8 @@ zest_device zest__end_device_builder(zest_device_builder builder) {
 
 	switch (builder->platform) {
 		case zest_platform_vulkan:
-		case zest_platform_d3d12: {
+		case zest_platform_d3d12:
+		case zest_platform_metal: {
 			if (!zest__initialise_platform_device(device, builder)) {
 				ZEST__FREE_POOL(memory_pool);
 				return NULL;
@@ -13354,6 +13356,7 @@ zest_bool zest__shader_binary_matches_platform(zest_device device, const void *b
 	}
 	switch (device->setup_info.platform) {
 		case zest_platform_vulkan: return magic == 0x07230203;		//SPIR-V
+		case zest_platform_metal: return magic == 0x07230203;		//SPIR-V, which the backend converts to MSL
 		case zest_platform_d3d12: return magic == 0x43425844;		//DXBC, the DXIL container
 		default: return ZEST_TRUE;
 	}
@@ -23540,6 +23543,7 @@ void zest_implsdl2_SetWindowMode(zest_context context, zest_window_mode mode) {
 #include "zest_dx12.h"
 #endif
 #ifdef ZEST_METAL_IMPLEMENTATION
+#include "zest_metal.h"
 #endif
 
 #endif // ! ZEST_POCKET_RENDERER
