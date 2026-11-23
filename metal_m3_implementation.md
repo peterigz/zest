@@ -51,7 +51,7 @@ The implementer doesn't reopen these.
   - MoltenVK's layer gets one measurement in the baseline task, and no fix.
 - **One image arena category.** `create_transient_image_unbound` reports `ZEST_ARENA_CATEGORY_IMAGE_BASE` for every image. Any texture can be placed in any of the backend's heaps, which is why M1's image pools have one category too (`zest_metal.h:2557`).
 - **A transient image's descriptor is rebuilt at bind.** The unbound call keeps only the sample count. Rejected: keeping the `MTLTextureDescriptor` between the two calls, which shared code would have to release on every failure path between them.
-- **Copies between image mips follow D3D12's rule, by channel layout.** Metal copies bits between formats with the same channel count and bytes per pixel, and gives wrong bytes with no message between formats that only match in size ([Probe_]). So `copy_image_mip`, and `blit_image_mip` on matching formats, require the same channels and bytes per pixel from `zest_GetFormatPixelData`, and report otherwise.
+- **Copies between image mips follow D3D12's rule, by channel layout.** Metal copies bits between formats with the same channel count and bytes per pixel, and gives wrong bytes with no message between formats that only match in size ([Probe_]). So `copy_image_mip` requires the same channels and bytes per pixel from `zest_GetFormatPixelData`, and reports otherwise. As built in Phase 3, `blit_image_mip` copies only between two images of one format, as a blit between two formats converts and a copy doesn't.
 - **The blit pipeline is built on first use**, not at device creation. The first build costs about 200 ms on a machine that has never compiled it and about 2 ms after ([Probe_]), and most apps never blit.
 - **Blit objects outlive a device reset.** The library, pipelines and samplers belong to the `MTLDevice`, which a reset keeps. `cleanup_device_backend` releases them.
 - **A resolve keeps its source.** The store action is store and resolve, as Vulkan's resolve leaves the multisampled image intact.
@@ -266,14 +266,14 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`upload_buffer(command_list, uploader)`** copies each entry of `uploader->buffer_copies`, then clears the list, the flags and both buffer pointers, and returns true, as D3D12's does (`zest_dx12.h:7506-7520`). Without an encoder it returns false and leaves the uploader as it was.
 
 **Steps:**
-- [ ] Implement, replacing the two stubs.
-- [ ] Test "Metal Frame Graph Buffer Copies", mirroring `zest-d3d12-tests.cpp:4353`, on a headless context:
+- [x] Implement, replacing the two stubs.
+- [x] Test "Metal Frame Graph Buffer Copies", mirroring `zest-d3d12-tests.cpp:4353`, on a headless context:
   - A transfer pass copies a staging buffer of known bytes into a device buffer with `zest_cmd_CopyBuffer`, and a second transfer pass copies that into a readback buffer. The bytes match.
   - The same through `zest_cmd_UploadBuffer` with three regions at different offsets. Afterwards the uploader's list is empty.
   - A graph with a transfer pass that copies followed by a render pass that clears an imported image, in one batch. Both results are right and there are 0 validation errors.
   - A copy called from a render pass callback: one validation error, which the test resets, and the destination is untouched.
-- [ ] Break each once: don't end the encoder in `release_barrier` (the copy-then-render graph must abort or report), drop the fence wait, which can't fail yet and is recorded as such, and copy from offset 0 in place of `memory_offset` (the bytes must differ).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Break each once: don't end the encoder in `release_barrier` (the copy-then-render graph must abort or report), drop the fence wait, which can't fail yet and is recorded as such, and copy from offset 0 in place of `memory_offset` (the bytes must differ).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
 
 ### Task 5: Mip copies, and mip blits between matching formats
 
@@ -286,17 +286,17 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`blit_image_mip`** records the copy when the formats are copy compatible. Otherwise it reports that a blit between formats isn't available yet. Task 8 replaces that report.
 
 **Steps:**
-- [ ] Implement, replacing the two stubs.
-- [ ] Pure checks added to "Metal Format Table": `r8g8b8a8_unorm` is copy compatible with its sRGB form, with `b8g8r8a8_unorm` and with `r8g8b8a8_uint`, and not with `r32_sfloat`, `r16g16_unorm` or `r16g16b16a16_sfloat`.
-- [ ] Test "Metal Image Mip Commands", mirroring `zest-d3d12-tests.cpp:4791`: two 16x16 images with 3 mips, each mip of the source cleared to its own colour by render passes.
+- [x] Implement, replacing the two stubs.
+- [x] Pure checks added to "Metal Format Table": `r8g8b8a8_unorm` is copy compatible with its sRGB form, with `b8g8r8a8_unorm` and with `r8g8b8a8_uint`, and not with `r32_sfloat`, `r16g16_unorm` or `r16g16b16a16_sfloat`.
+- [x] Test "Metal Image Mip Commands", mirroring `zest-d3d12-tests.cpp:4791`: two 16x16 images with 3 mips, each mip of the source cleared to its own colour by render passes.
   - A transfer pass copies mip 1 with `zest_cmd_CopyImageMip`. Mip 1 of the destination reads back as the source's and mips 0 and 2 are untouched.
   - The same with `zest_cmd_BlitImageMip` on mip 2.
   - A copy from `r8g8b8a8_unorm` into `r8g8b8a8_srgb`: the bytes match.
   - A copy from `r8g8b8a8_unorm` into `r32_sfloat`: one validation error, and the destination is untouched.
-- [ ] Finish "Metal Transient Images": the copied transient reads back as the colour its pass cleared it to, on every one of the 6 runs. Rerun Task 3's "offset 0" breakage, which must now fail.
-- [ ] Break it: copy mip 0 whatever mip was asked for, and skip the compatibility check (the `r32_sfloat` case must fail).
-- [ ] Build and run `--platform metal`, with `--shader-validation`, and once with `NSZombieEnabled=YES MallocScribble=1`. Expected: no zombie report.
-- [ ] Phase report. Restore the Mac clone.
+- [x] Finish "Metal Transient Images": the copied transient reads back as the colour its pass cleared it to, on every one of the 6 runs. Rerun Task 3's "offset 0" breakage, which must now fail.
+- [x] Break it: copy mip 0 whatever mip was asked for, and skip the compatibility check (the `r32_sfloat` case must fail).
+- [x] Build and run `--platform metal`, with `--shader-validation`, and once with `NSZombieEnabled=YES MallocScribble=1`. Expected: no zombie report.
+- [x] Phase report. Restore the Mac clone.
 
 ## [Phase_4] Immediate commands
 
@@ -310,14 +310,14 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`imm_update_buffer(queue, buffer, data, intended_size)`** copies `min(intended_size rounded up to 4, buffer size, 65536)` bytes through a staging buffer, with the bytes past `intended_size` zeroed, as D3D12's does (`zest_dx12.h:3685-3698`).
 
 **Steps:**
-- [ ] Implement, replacing the two stubs.
-- [ ] Test "Metal Buffer Fills", mirroring the fill and update parts of `zest-d3d12-tests.cpp:4210`: a device buffer of 200,000 bytes.
+- [x] Implement, replacing the two stubs.
+- [x] Test "Metal Buffer Fills", mirroring the fill and update parts of `zest-d3d12-tests.cpp:4210`: a device buffer of 200,000 bytes.
   - Filled with 0, then with 0xABABABAB, then with 0x11223344. Each time a copy to a readback buffer holds the value in every word, including the last block, which is shorter than 64 KB.
   - A buffer whose size isn't a multiple of 4 filled with 0x11223344: the tail bytes are the value's first bytes.
   - An update of 10 bytes: the first 10 match, bytes 10 and 11 are 0, and byte 12 is what the fill left.
   - An update with an `intended_size` above 65,536: only 65,536 bytes change.
-- [ ] Break it: always take the `fillBuffer` path (the 0x11223344 fill must fail), and drop the round up to 4 (bytes 10 and 11 must fail).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Break it: always take the `fillBuffer` path (the 0x11223344 fill must fail), and drop the round up to 4 (bytes 10 and 11 must fail).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
 
 ### Task 7: Render target usage and clears
 
@@ -335,13 +335,13 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`image_clear(command_list, image)`** reports with a render encoder open. Otherwise it ends the pass's blit encoder and clears mip 0 of layer 0 to zero with the context's descriptor.
 
 **Steps:**
-- [ ] Implement, replacing the three stubs.
-- [ ] Pure test "Metal Render Target Usage": the descriptor's usage for a sampled texture, a colour attachment, a depth attachment, a storage image and a compressed texture, as Decision 1 gives them.
-- [ ] Test "Metal Clear Colour Image", mirroring `zest-d3d12-tests.cpp:4909`: a 16x16 colour attachment with 3 mips and 2 layers cleared to (0.2, 0.4, 0.6, 1). Every mip of both layers reads back (51, 102, 153, 255). Then a storage image, if Decision 1 takes it. Then a plain sampled texture: false, one validation error, and the report names the flag.
-- [ ] Test "Metal Clear Depth Image", mirroring 4972: a `d32_sfloat` attachment cleared to 0.25 reads back 0.25 everywhere. On a compute queue: false, one validation error, and the image still holds 0.25. A `d32_sfloat_s8_uint` attachment cleared to 0.5 and 7 reads back both.
-- [ ] Test "Metal Image Clear Command", mirroring 5050: an image cleared to a colour, then `zest_cmd_ImageClear` in a transfer pass after a copy in the same pass. Mip 0 reads back zero, mip 1 keeps its colour, and the copy's result is right. The same call from a render pass callback: false and one validation error.
-- [ ] Break each once: clear mip 0 only (the mip check must fail), leave the descriptor's texture set (the freed target's owner count from M2's "Metal Render Pass Clear" pattern must fail), skip the target check (Metal's own validation message must fail the plain texture case).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Implement, replacing the three stubs.
+- [x] Pure test "Metal Render Target Usage": the descriptor's usage for a sampled texture, a colour attachment, a depth attachment, a storage image and a compressed texture, as Decision 1 gives them.
+- [x] Test "Metal Clear Colour Image", mirroring `zest-d3d12-tests.cpp:4909`: a 16x16 colour attachment with 3 mips and 2 layers cleared to (0.2, 0.4, 0.6, 1). Every mip of both layers reads back (51, 102, 153, 255). Then a storage image, if Decision 1 takes it. Then a plain sampled texture: false, one validation error, and the report names the flag.
+- [x] Test "Metal Clear Depth Image", mirroring 4972: a `d32_sfloat` attachment cleared to 0.25 reads back 0.25 everywhere. On a compute queue: false, one validation error, and the image still holds 0.25. A `d32_sfloat_s8_uint` attachment cleared to 0.5 and 7 reads back both.
+- [x] Test "Metal Image Clear Command", mirroring 5050: an image cleared to a colour, then `zest_cmd_ImageClear` in a transfer pass after a copy in the same pass. Mip 0 reads back zero, mip 1 keeps its colour, and the copy's result is right. The same call from a render pass callback: false and one validation error.
+- [x] Break each once: clear mip 0 only (the mip check must fail), leave the descriptor's texture set (the freed target's owner count from M2's "Metal Render Pass Clear" pattern must fail), skip the target check (Metal's own validation message must fail the plain texture case).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
 
 ### Task 8: The blit pipeline
 
@@ -359,12 +359,12 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - `zest_bool zest__mtl_blit_formats_are_valid(zest_device device, zest_image source, zest_image destination);` reports and returns false for an integer or depth format on either side (Decision 2) and for a destination that can't be a target.
 - `void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, id<MTLRenderPipelineState> pipeline, id<MTLSamplerState> sampler, id<MTLTexture> source, zest_uint source_mip, const float source_rect[4], id<MTLTexture> destination, zest_uint destination_mip, MTLViewport viewport, MTLScissorRect scissor);` is one render pass with a load action of load and one draw of 3 vertices, on the fence.
 - **`imm_blit_image`** reports off a graphics queue. It ends the queue's blit encoder, turns the source rect into 0 to 1 coordinates of mip 0 and the destination rect into a viewport and a clamped scissor, and records the blit. A source that isn't a plain 2D texture is sampled through a 2D view of mip 0, slice 0 made for the call.
-- **`blit_image_mip`** between formats that aren't copy compatible: reports with a render encoder open, for a source or destination with more than one layer, and for formats `zest__mtl_blit_formats_are_valid` refuses. Otherwise it ends the pass's blit encoder and records a blit of the whole mip with the nearest sampler and the context's descriptor.
+- **`blit_image_mip`** between two different formats: reports with a render encoder open, for a source or destination with more than one layer, and for formats `zest__mtl_blit_formats_are_valid` refuses. Otherwise it ends the pass's blit encoder and records a blit of the whole mip with the nearest sampler and the context's descriptor.
 - `cleanup_device_backend` releases the pipelines, the samplers and the library, and destroys the lock.
 
 **Steps:**
-- [ ] Implement, replacing `imm_blit_image` and the report Task 5 left in `blit_image_mip`.
-- [ ] Test "Metal Blit Image", mirroring `zest-d3d12-tests.cpp:4614`, with a 16x16 source whose left half is red, right half blue and top row green:
+- [x] Implement, replacing `imm_blit_image` and the report Task 5 left in `blit_image_mip`.
+- [x] Test "Metal Blit Image", mirroring `zest-d3d12-tests.cpp:4614`, with a 16x16 source whose left half is red, right half blue and top row green:
   - Whole to whole, nearest: an exact copy.
   - Whole into a 16x16 destination's 8x8 region, linear: the top row is half green.
   - The right half into a 4x4 rect at (6, 2), nearest, over a destination cleared to green: blue inside the rect, green outside.
@@ -372,9 +372,9 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
   - Into a plain sampled texture, and from an `r8g8b8a8_uint` source: false and one validation error each.
   - Into a second destination format: `blit_pipeline_count` is 2. The first format again: still 2.
   - A device reset between two blits: the second still works and the count is unchanged.
-- [ ] Extend "Metal Image Mip Commands": `zest_cmd_BlitImageMip` from `r8g8b8a8_unorm` into an `r16g16b16a16_sfloat` colour attachment in a transfer pass. The destination's mip reads back as the source's colour, converted.
-- [ ] Break each once: flip the V coordinate (the top row check must fail), use the linear sampler for nearest (the exact copy must fail), skip the scissor clamp (Metal's message must fail the overhang case), build a pipeline on every call (the count check must fail).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Extend "Metal Image Mip Commands": `zest_cmd_BlitImageMip` from `r8g8b8a8_unorm` into an `r16g16b16a16_sfloat` colour attachment in a transfer pass. The destination's mip reads back as the source's colour, converted.
+- [x] Break each once: flip the V coordinate (the top row check must fail), use the linear sampler for nearest (the exact copy must fail), skip the scissor clamp (Metal's message must fail the overhang case), build a pipeline on every call (the count check must fail).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
 
 ### Task 9: Resolve, and per-mip views
 
@@ -386,12 +386,12 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
   - Ends the queue's blit encoder, then records one render pass with the source as colour attachment 0, the destination as its resolve texture, a load action of load, a store action of store and resolve, and no draws.
 
 **Steps:**
-- [ ] Implement, replacing the stub.
-- [ ] Test "Metal Resolve Image", mirroring `zest-d3d12-tests.cpp:5105`: a 4x multisampled 16x16 colour attachment cleared to (0.2, 0.4, 0.6, 1) and resolved into a single-sampled texture, which reads back (51, 102, 153, 255). A single-sampled source, a multisampled destination and a compute queue each return false with one validation error.
-- [ ] Test "Metal Per Mip Views", mirroring `zest-d3d12-tests.cpp:3881`: a 16x16 colour attachment with 4 mips, each cleared to its own colour, and `zest_CreateImageViewsPerMip`. Each view's texture reads back its own mip's colour at that mip's size.
-- [ ] Break it: store without the resolve (the readback must fail), and give every per-mip view mip 0 (the per-mip check must fail).
-- [ ] Build and run `--platform metal`, with `--shader-validation`, and with zombies and `MallocScribble`.
-- [ ] Phase report. Restore the Mac clone.
+- [x] Implement, replacing the stub.
+- [x] Test "Metal Resolve Image", mirroring `zest-d3d12-tests.cpp:5105`: a 4x multisampled 16x16 colour attachment cleared to (0.2, 0.4, 0.6, 1) and resolved into a single-sampled texture, which reads back (51, 102, 153, 255). A single-sampled source, a multisampled destination and a compute queue each return false with one validation error.
+- [x] Test "Metal Per Mip Views", mirroring `zest-d3d12-tests.cpp:3881`: a 16x16 colour attachment with 4 mips, each cleared to its own colour, and `zest_CreateImageViewsPerMip`. Each view's texture reads back its own mip's colour at that mip's size.
+- [x] Break it: store without the resolve (the readback must fail), and give every per-mip view mip 0 (the per-mip check must fail).
+- [x] Build and run `--platform metal`, with `--shader-validation`, and with zombies and `MallocScribble`.
+- [x] Phase report. Restore the Mac clone.
 
 ## [Phase_5] The suite and the close
 
@@ -566,3 +566,161 @@ One part per phase, in the order they were built.
 - `zest-tests --test` runs the first test it matches on the suite's first context, which `RunSuite` makes with the default create info before any test is registered. A test with its own create info only gets it when it isn't first. It's in the shared runner, so it wasn't changed. The sweep's results for a test run alone are read with that in mind.
 - What makes a `CAMetalLayer` drop a presented drawable's texture early.
 - `zest__mtl_collect_validation_messages` reaped every context's batches by walking shared code's queue maps from whichever thread asked for a validation count. It now walks the backend's list under the lock like every other reap, so that exposure of M2's is closed.
+
+### Phase 3: copies in a frame graph (2026-11-23, on top of commit 6d221c2, built and run on the Mac over SSH)
+
+**What changed**
+- `zest_metal.h`:
+  - `zest__mtl_pass_blit_encoder` and `zest__mtl_end_pass_blit_encoder`, and `blit_encoder` in `zest_mtl_command_list_backend_t`. `release_barrier` and `end_command_buffer` end the encoder.
+  - `zest__mtl_copy_buffer` and `zest__mtl_upload_buffer`.
+  - `zest__mtl_formats_copy_compatible`, `zest__mtl_record_mip_copy`, `zest__mtl_copy_image_mip` and `zest__mtl_blit_image_mip`. 41 stubs remain.
+- `zest-metal-tests.cpp`: "Metal Frame Graph Buffer Copies" and "Metal Image Mip Commands". "Metal Format Table" checks the copy rule. "Metal Transient Images" copies its transient to an imported image in a transfer pass and reads that back on each of its six held runs.
+- `zest-tests.cpp`: 6 tests are off `metal_pending_tests[]`, which now holds 55 in three groups.
+
+**Results**
+- Mac at the end of the phase, Metal on:
+  - `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` build with no warning from Zest's files.
+  - `zest-tests --platform all`, twice: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 77 / 77`, `Metal backend: 28 / 28`, exit 0, no VUID line.
+  - `zest-tests --platform metal` three times, and once with `NSZombieEnabled=YES MallocScribble=1`: 77 / 77 and 28 / 28, with no Metal validation record in the suite's part of the log, no destroyed in use message and no zombie report.
+  - `zest-tests --platform metal --shader-validation` eight times on the final tree: 77 / 77 and 28 / 28 every time.
+- Mac, Metal off: `zest-tests` and `zest-c-compile-check` build with no warning, and `zest-tests` gives 129 / 129 and 129 / 129, exit 0, no VUID line.
+- **One test check was wrong, not the backend.** With shader validation on, "Metal Transient Images" failed in 2 runs of 5 on its ordering event having two owners. A build with nothing changed passed and one with an unrelated call in a pool failed (`spikes/metal/m3_sv_experiment4.py`), so it was timing: Metal lets go of what a finished command buffer held on a thread of its own, a moment after Zest has released the batch. The check now gives the count up to 200 ms to fall to one. A batch that never releases its event still fails it, with and without shader validation.
+- Windows: `zest-tests` and `zest-c-compile-check` build in Debug with no warning and no error. The suites were not run.
+
+**The pending list** (`spikes/metal/sweep_pending.py`)
+- Of the 7 tests that stopped at `copy_buffer`, 6 pass alone and in the whole suite and came off: "Cached Transient Placement", "Unbacked Transient Barrier", "Intraframe Two Graphs" and the three "Layer Test" uploads.
+- "GPU Profiler Timestamps" stays, under its own comment. It fails alone and asserts in the whole suite: its graph has a compute pass that dispatches, and it reads GPU timestamps back.
+
+**Every new check was broken on purpose** (`mutations_m3_p3.py` and `mutations_m3_p3b.py`)
+
+| Breakage | What failed |
+| --- | --- |
+| `release_barrier` leaves the blit encoder open | The process aborts inside "Metal Frame Graph Buffer Copies" |
+| No blit encoder is ever ended | The same abort |
+| A copy is allowed inside a render pass | The same abort |
+| `copy_buffer` reads from offset 0, or writes to offset 0 | "Metal Frame Graph Buffer Copies" |
+| An upload copies only its first region, leaves its list, or goes ahead without an encoder | "Metal Frame Graph Buffer Copies" |
+| A mip copy always copies mip 0, or uses the size of mip 0 | "Metal Image Mip Commands" |
+| A copy skips the format rule | "Metal Image Mip Commands" |
+| A blit between two formats copies | "Metal Image Mip Commands" |
+| Formats compare by size only | "Metal Format Table", "Metal Image Mip Commands" |
+| A format with no size copies to any other | "Metal Format Table" |
+| Every transient is placed at offset 0, rerun from Task 3 | "Metal Transient Images" |
+| `end_command_buffer` leaves the blit encoder open | Nothing, see below |
+| The blit encoder doesn't wait on the fence, or doesn't update it | Nothing, see below |
+
+**Differences from the plan**
+- **A mip copy takes the first layer only**, where the plan said every layer. Vulkan and D3D12 both copy one layer (`zest_vulkan.h`, `zest__vk_copy_image_mip`, and `zest_dx12.h`, `zest__dx_record_mip_copy`), and a copy of every layer would fail on Metal for a destination with fewer layers where the others work.
+- **`zest_cmd_BlitImageMip` is a copy only between two images of the same format**, where the plan said between any two copy compatible formats. A blit converts: from `r8g8b8a8_unorm` into its sRGB form it encodes, and into `b8g8r8a8_unorm` it swaps channels, and a copy of the bits does neither. D3D12 draws for any two different formats too. Task 8's wording is changed to match.
+- **`begin_render_pass` doesn't end a blit encoder.** The plan's Interfaces listed it and its cost table didn't. Nothing can open a blit encoder between one pass's `release_barrier` and the next pass's `begin_render_pass`, so the call would never find one.
+- **The copy rule also compares block sizes, and refuses any format the pixel table gives no size.** That is every depth and packed format, which the table gives zeros, so two of them would otherwise compare as equal.
+- **The mip test uploads a pattern into each mip**, where the plan cleared each to a colour through render passes. A pattern also shows a copy that lands flipped or offset.
+- **The pending group was swept in this phase**, which the plan left to Task 10.
+
+**Checks that can't fail yet**
+- The blit encoder's fence wait and its fence update: nothing reads the order they keep until a pipeline draws.
+- `end_command_buffer` ending a blit encoder: `release_barrier` has always ended it first, and only an execution that fails between a copy and the end of its pass would leave one.
+- A copy between two block compressed formats of one block size and channel count, such as BC3 and BC7. The rule allows it and Metal's answer wasn't measured.
+
+**Noticed and left alone**
+- 510 byte copies at offsets that are multiples of 256 raised nothing, on private and shared buffers. Apple's documentation says a buffer copy's offsets and size have to be multiples of 4 on macOS. Offsets that aren't multiples of 4 can't come from Zest's pools and weren't tried.
+
+### Phase 4: immediate commands (2026-11-23, on top of commit 6d221c2 with Phase 3 uncommitted in the tree, built and run on the Mac over SSH)
+
+**What changed**
+- `zest_metal.h`:
+  - `zest__mtl_imm_fill_buffer` and `zest__mtl_imm_update_buffer`, and `ZEST__MTL_FILL_BLOCK_SIZE`.
+  - `zest__mtl_new_texture_descriptor` gives render target usage to an attachment and to a storage image in an uncompressed colour format. `zest__mtl_image_can_be_target`.
+  - `zest__mtl_record_clear`, `zest__mtl_imm_clear_color_image`, `zest__mtl_imm_clear_depth_stencil_image` and `zest__mtl_image_clear`.
+  - `zest__mtl_blit_shader_source`, `zest_mtl_blit_pipeline_t`, the device backend's blit library, pipeline table, samplers and lock, `zest__mtl_create_blit_objects`, `zest__mtl_blit_pipeline`, `zest__mtl_blit_formats_are_valid`, `zest__mtl_record_blit` and `zest__mtl_imm_blit_image`. `zest__mtl_blit_image_mip` draws between two formats. `zest__mtl_cleanup_device_backend` releases the blit objects.
+  - `zest__mtl_imm_resolve_image`.
+  - `zest__mtl_is_unsigned_integer_format` and `zest__mtl_is_signed_integer_format`, in `Type_converters`.
+  - 34 stubs remain.
+- `zest-metal-tests.cpp`: "Metal Buffer Fills", "Metal Render Target Usage", "Metal Clear Colour Image", "Metal Clear Depth Image", "Metal Image Clear Command", "Metal Blit Image", "Metal Resolve Image" and "Metal Per Mip Views". "Metal Image Mip Commands" blits between two formats. `metal_tests[]` holds 36.
+- No shared file changed in this phase, and `metal_pending_tests[]` still holds 55.
+
+**The Mac's screen was locked for the whole phase**
+- `ioreg` gave `IOConsoleLocked = Yes` from the first run to the last. With the screen locked a `CAMetalLayer` hands out no drawable, so `zest_BeginFrame` waits out Metal's one second and "Metal Windowed Frames" fails on its 500 ms limit: `slowest zest_BeginFrame 1012766 microseconds`.
+- It failed that way in the run made before any edit of this phase, and in every run since. "Metal Windowed Context" failed with it once, in the second run before any edit, and not again.
+- With the Mac unlocked afterwards (`IOConsoleLocked = No`) and the tree unchanged, `zest-tests --platform metal`, the same with `--shader-validation`, and `--platform all` each gave `Metal suite: 77 / 77` and `Metal backend: 36 / 36`, exit 0, with `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129` and no VUID line in the last. The results below are the locked runs.
+
+**Results**
+- Mac at the end of the phase, Metal on:
+  - `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` build with no warning from Zest's files.
+  - `zest-tests --platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 77 / 77`, `Metal backend: 35 / 36`, no VUID line. The one failure is "Metal Windowed Frames", as above.
+  - `zest-tests --platform metal` three times, once with `--shader-validation` and once with `NSZombieEnabled=YES MallocScribble=1`: 77 / 77 and 35 / 36 every time, the same one failure, with no Metal validation record in the suite's part of the log, no destroyed in use message and no zombie report.
+- Mac, Metal off: `zest-tests` and `zest-c-compile-check` build with no warning, and `zest-tests` gives 129 / 129 and 129 / 129, exit 0, no VUID line.
+- Windows: `zest-tests` and `zest-c-compile-check` build in Debug with no warning and no error. The suites were not run.
+
+**Every new check was broken on purpose** (`spikes/metal/mutate_m2.py` with `mutations_m3_p4a.py` to `mutations_m3_p4e.py`, untracked)
+
+| Breakage | What failed |
+| --- | --- |
+| A fill always uses `fillBuffer`, starts at the pool's start, copies a whole last block, copies only its first block, or leaves the staging block's tail unwritten | "Metal Buffer Fills" |
+| A fill or an update reads its staging block from the pool's start | "Metal Buffer Fills" |
+| An update isn't rounded up to 4, isn't capped at 65,536, or doesn't zero what the round up adds | "Metal Buffer Fills" |
+| A storage image gets no render target usage, every texture gets it, or a compressed or a depth storage image gets it | "Metal Render Target Usage", and the clear tests for the first two |
+| A clear only clears mip 0, or only layer 0 | "Metal Clear Colour Image" |
+| A clear passes on no colour, no depth or no stencil, or leaves the stencil plane | "Metal Clear Colour Image" or "Metal Clear Depth Image" |
+| An integer clear takes the colour as floats | "Metal Clear Colour Image" |
+| A clear skips the target check, or clears a 3D image | "Metal Clear Colour Image" |
+| A depth clear runs on any queue, or either clear takes the other kind of image | "Metal Clear Depth Image" |
+| A clear leaves the context's descriptor holding the texture | "Metal Image Clear Command" |
+| A frame graph clear clears every mip | "Metal Image Clear Command" |
+| A clear pass doesn't wait on the fence, or doesn't update it | "Metal Clear Colour Image" |
+| An immediate clear, a frame graph clear, an immediate blit, a frame graph blit or a resolve leaves the copy encoder open | The process aborts inside the test |
+| A frame graph clear or blit is allowed inside a render pass | The process aborts inside the test |
+| The blit lands upside down | "Metal Blit Image", "Metal Image Mip Commands" |
+| A nearest blit uses the linear sampler, or a linear one the nearest | "Metal Blit Image" |
+| The blit's scissor isn't clamped | "Metal Blit Image" |
+| A blit builds a pipeline on every call, or a built pipeline is never counted | "Metal Blit Image" |
+| The table takes a seventeenth format | The process crashes inside "Metal Blit Image" |
+| The samplers have no mip filter, a blit always samples mip 0, or always draws into mip 0 | "Metal Image Mip Commands" |
+| A blit leaves the context's descriptor on its mip, or holding the destination | "Metal Image Mip Commands" |
+| A frame graph blit takes an array, or skips the image checks | "Metal Image Mip Commands" |
+| An immediate blit skips the image checks, takes an integer format, or runs on any queue | "Metal Blit Image" |
+| A blit destination need not be a target | "Metal Blit Image", "Metal Image Mip Commands" |
+| A negative destination width isn't mirrored, or an array source is bound with no view | "Metal Blit Image" |
+| A blit clears as it loads, ignores the source rect, or sets no viewport | "Metal Blit Image" |
+| A blit pass doesn't wait on the fence | "Metal Blit Image" |
+| The device's cleanup keeps the blit objects | "Metal Blit Image" |
+| A resolve stores without resolving, or clears as it loads | "Metal Resolve Image" |
+| A resolve runs on any queue, or takes a single sampled source, a multisampled destination, another format, another size or a source that is no target | "Metal Resolve Image" |
+| A resolve pass doesn't wait on the fence | "Metal Resolve Image" |
+| Every per-mip view is mip 0 | "Metal Per Mip Views" |
+| A blit sets no scissor | Nothing, see below |
+| A blit pass, or a resolve pass, doesn't update the fence | Nothing, see below |
+| A resolve doesn't store its source | Nothing, see below |
+| A clear leaves the descriptor on its last mip and slice | Nothing, see below |
+
+**What the fence tests showed**
+- The clear, blit and resolve tests each record a copy and a pass that touch one image into one command buffer. With the pass's fence wait taken out, each test fails. With a clear pass's fence update taken out, "Metal Clear Colour Image" fails. So Metal does run a copy and a render pass out of the order they were recorded in when no fence orders them. Which pixel check failed in each wasn't recorded.
+- With the fence update taken out of a blit pass or a resolve pass, the copy and the second pass recorded after it still read what it drew, in one run each.
+- Phase 3 recorded the copy encoder's own wait and update as checks that can't fail until a pipeline draws. An upload and a clear of one image in one command buffer may show them, which no test tries yet.
+
+**Differences from the plan**
+- **An integer image clears to the colour's bits read as integers.** Vulkan's clear value is a union, D3D12's backend follows it, and the same call would otherwise clear to another value on Metal. Metal's clear colour is four doubles, which hold any 32 bit integer exactly.
+- **A blit with a negative destination width or height mirrors**, as `vkCmdBlitImage` and D3D12's blit do. The flip moves onto the source rect.
+- **`zest__mtl_blit_formats_are_valid` also refuses a 3D or a multisampled image on either side.** The fragment function reads a `texture2d<float>`, and either would raise Metal's own validation message.
+- **`zest_imm_ResolveImage` also refuses two images of different sizes, and a depth source.** Vulkan resolves the area both cover. Metal's resolve is a pass's store action, which takes the whole attachment.
+- **`zest_imm_ClearColorImage` refuses a depth image and `zest_imm_ClearDepthStencilImage` a colour one.**
+- **The pipeline table's count is read with an acquiring load and raised with a releasing store** (`__atomic_load_n` and `__atomic_store_n`), not as a plain `volatile int`. On arm64 a plain read doesn't order the count before the entry it guards.
+- **`zest__mtl_create_blit_objects` isn't in the plan.** It is the library and sampler half of `zest__mtl_blit_pipeline`, split out to keep that function to one job.
+- **The blit's samplers have a nearest mip filter.** With Metal's default a sampler reads mip 0 whatever level the fragment function asks for.
+- **A wrong call reports through `ZEST_ASSERT_OR_VALIDATE` and a limit of the backend through `zest__mtl_report_unavailable`**, as Phases 1 and 3 did. A wrong call is a missing flag, the wrong queue, the wrong kind of image or a call inside a render pass. A limit is a 3D clear, an integer or depth blit, and a frame graph blit of an array.
+- **"Metal Buffer Fills"** fills in the order 0xABABABAB, 0, 0x11223344, as new device memory is already zero. Zest rounds every buffer's size up to 256, so the fill that ends part way through a word runs on a buffer whose size the test shrinks to 1022 for the call.
+- **"Metal Per Mip Views"** uses a 3 mip texture with a pattern uploaded to each mip, where the plan cleared 4 mips of an attachment. An immediate clear gives every mip one colour, and a pattern also shows a view that is offset.
+- **"Metal Blit Image"** fails "the linear sampler for nearest" on the rect that hangs off the destination, not on the exact copy. A linear blit between two rects of one size samples texel centres and is exact too.
+- **The clear, blit and resolve tests each record several commands into one command buffer**, to check the order they run in. The plan had one command per command buffer.
+
+**Checks that can't fail yet**
+- The blit's scissor. On the Apple M2 nothing is drawn outside the viewport without it. It stays, as Metal doesn't promise that.
+- The fence update on a blit pass and on a resolve pass. A copy recorded after either read what it drew, with and without the update. The same call on a clear pass fails "Metal Clear Colour Image".
+- A resolve that doesn't store its source. On the Apple M2 the multisampled image still held its samples.
+- `zest__mtl_record_clear` putting the descriptor's mip and slice back. Only `zest_cmd_ImageClear` gives it a context's descriptor, and that clears mip 0 of layer 0.
+- The second lookup under the blit lock, which needs two threads building one format at once.
+- A blit library or a sampler that can't be built.
+
+**Noticed and left alone**
+- Any Metal queue can clear a depth image, blit or resolve. The three calls refuse a queue that isn't a graphics queue only so that one app behaves the same on every backend.
+- `zest_GetFormatPixelData` gives a depth format no size, so the tests read depth and stencil planes through their own blit.

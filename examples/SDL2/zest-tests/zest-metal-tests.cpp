@@ -108,6 +108,15 @@ static zest_bool metal_read_texture(zest_device device, zest_image image, zest_u
 	return metal_read_native_texture(device, ZEST_MTL_BACKEND(image, image)->texture, mip, slice, width, height, bytes_per_pixel, out_pixels);
 }
 
+//Records a read of mip 0 of a 16x16 image with 4 bytes a pixel into the command buffer the queue is recording. The caller ends the command
+//buffer and releases the buffer. Without a fence to order them, a copy is what Metal runs ahead of a pass recorded before it.
+static id<MTLBuffer> metal_record_image_read(zest_device device, zest_queue queue, zest_image image) {
+	id<MTLBuffer> readback = [zest_GetMetalDevice(device) newBufferWithLength:16 * 16 * 4 options:MTLResourceStorageModeShared];
+	[zest__mtl_queue_blit_encoder(queue) copyFromTexture:ZEST_MTL_BACKEND(image, image)->texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(16, 16, 1)
+		toBuffer:readback destinationOffset:0 destinationBytesPerRow:16 * 4 destinationBytesPerImage:16 * 16 * 4];
+	return readback;
+}
+
 //Fills every layer of an image from one tightly packed block of pixels, one layer after another
 static zest_bool metal_upload_layers(zest_device device, zest_image image, const void *pixels, zest_size bytes_per_layer, zest_uint layer_count) {
 	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, bytes_per_layer * layer_count, (void *)pixels);
@@ -481,6 +490,18 @@ int test_metal_format_table(void) {
 	failed |= zest_IsImageFormatSupported(device, zest_format_bc7_unorm_block, zest_image_preset_color_attachment);
 	failed |= zest_IsImageFormatSupported(device, zest_format_d32_sfloat, zest_image_preset_storage);
 	failed |= !zest_IsImageFormatSupported(device, zest_format_d32_sfloat, zest_image_preset_depth_attachment);
+	//Copies are allowed between formats that share their channels and size, which is where Metal copies the bits as they are
+	failed |= !zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r8g8b8a8_unorm);
+	failed |= !zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r8g8b8a8_srgb);
+	failed |= !zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_b8g8r8a8_unorm);
+	failed |= !zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r8g8b8a8_uint);
+	failed |= zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r32_sfloat);
+	failed |= zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r16g16_unorm);
+	failed |= zest__mtl_formats_copy_compatible(zest_format_r8g8b8a8_unorm, zest_format_r16g16b16a16_sfloat);
+	//The table has no size for a depth format, so one only copies to itself
+	failed |= !zest__mtl_formats_copy_compatible(zest_format_d32_sfloat, zest_format_d32_sfloat);
+	failed |= zest__mtl_formats_copy_compatible(zest_format_d32_sfloat, zest_format_d16_unorm);
+	failed |= zest__mtl_formats_copy_compatible(zest_format_bc1_rgba_unorm_block, zest_format_bc7_unorm_block);
 	return failed | finish_metal_device(device);
 }
 
@@ -862,6 +883,31 @@ static zest_image_handle metal_create_clear_target(zest_device device, zest_form
 	return zest_CreateImage(device, &image_info);
 }
 
+static zest_clear_value_t metal_colour_clear_value(float red, float green, float blue) {
+	zest_clear_value_t clear_value = {};
+	clear_value.color.x = red;
+	clear_value.color.y = green;
+	clear_value.color.z = blue;
+	clear_value.color.w = 1.f;
+	return clear_value;
+}
+
+//Clears the image in a command buffer of its own, and returns what the clear returned
+static zest_bool run_metal_colour_clear(zest_device device, zest_image image, zest_clear_value_t clear_value) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) return ZEST_FALSE;
+	zest_bool cleared = zest_imm_ClearColorImage(queue, image, clear_value);
+	return zest_imm_EndCommandBuffer(queue) && cleared;
+}
+
+static zest_bool metal_validation_error_mentions(zest_device device, const char *text) {
+	zest_map_foreach(error_index, device->validation_errors) {
+		const char *message = device->validation_errors.data[error_index].str;
+		if (message && strstr(message, text)) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
 static zest_uint metal_committed_count(zest_context context, const char *graph_name) {
 	zest_context_queue context_queue = *zest_map_at(context->cached_frame_graph_queues[context->graphics_queue_index], graph_name);
 	zest_uint count = 0;
@@ -1107,6 +1153,14 @@ int test_metal_arena_backing(void) {
 	return failed | finish_metal_device(device);
 }
 
+//Metal lets go of what a finished command buffer held on a thread of its own, so a count that should fall to one owner is given up to 200 ms to
+static NSUInteger metal_settled_owner_count(id object) {
+	for (int attempt = 0; attempt != 200 && [object retainCount] != 1; ++attempt) {
+		usleep(1000);
+	}
+	return [object retainCount];
+}
+
 typedef struct MetalTransientCapture {
 	const char *name;
 	id<MTLTexture> texture;		//Retained here when held, as Zest retires a transient once its graph has run
@@ -1157,24 +1211,38 @@ static int metal_report_count(zest_device device, const char *text) {
 	return count;
 }
 
-//Clears a 64x64 transient to blue, then clears the imported target to orange in a pass that reads the transient.
+static void metal_copy_transient_pass(const zest_command_list command_list, void *user_data) {
+	(void)user_data;
+	zest_resource_node transient = zest_GetPassInputResource(command_list, "Transient Target");
+	zest_resource_node copy_target = zest_GetPassOutputResource(command_list, "Copy Target");
+	zest_cmd_CopyImageMip(command_list, transient, copy_target, 0, zest_shader_fragment_stage);
+}
+
+//Clears a 64x64 transient to blue, copies it to the imported copy target in a transfer pass, then clears the imported target to orange in a pass that reads the transient.
 //Hands back the status of the flush and, when it's asked for, the transient's texture, retained. Without that only Zest holds the transient.
-static zest_semaphore_status run_metal_transient_graph(zest_context context, zest_image target, zest_resource_usage_hint usage_hints, id<MTLTexture> *out_texture) {
+static zest_semaphore_status run_metal_transient_graph(zest_context context, zest_image target, zest_image copy_target, zest_resource_usage_hint usage_hints, id<MTLTexture> *out_texture) {
 	MetalTransientCapture capture = { "Transient Target", nil, out_texture != NULL, ZEST_FALSE };
 	if (out_texture) *out_texture = nil;
 	if (!zest_BeginCommandGraph(context, "Transient Images", 0)) return zest_semaphore_status_error;
 	zest_image_resource_info_t transient_info = { zest_format_r8g8b8a8_unorm };
-	transient_info.usage_hints = usage_hints;
+	transient_info.usage_hints = usage_hints | zest_resource_usage_hint_copy_src;
 	transient_info.width = 64;
 	transient_info.height = 64;
 	zest_resource_node transient = zest_AddTransientImageResource("Transient Target", &transient_info);
 	zest_resource_node target_node = zest_ImportImageResource("Target", target, 0);
+	zest_resource_node copy_node = zest_ImportImageResource("Copy Target", copy_target, 0);
 	zest_SetResourceClearColor(transient, 0.2f, 0.4f, 0.6f, 1.0f);
 	zest_SetResourceClearColor(target_node, 0.6f, 0.4f, 0.2f, 1.0f);
 
 	zest_BeginRenderPass("Write Transient");
 	zest_ConnectOutput(transient);
 	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginTransferPass("Copy Transient");
+	zest_ConnectInput(transient);
+	zest_ConnectOutput(copy_node);
+	zest_SetPassTask(metal_copy_transient_pass, 0);
 	zest_EndPass();
 
 	zest_BeginRenderPass("Read Transient");
@@ -1293,9 +1361,21 @@ int test_metal_transient_images(void) {
 		zest_DestroyDevice(device);
 		return 1;
 	}
-	//The first readback makes the device's staging pool, which stays, so the baselines are taken after one
+	zest_image_info_t copy_info = zest_CreateImageInfo(64, 64);
+	copy_info.format = zest_format_r8g8b8a8_unorm;
+	copy_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle copy_handle = zest_CreateImage(device, &copy_info);
+	zest_image copy_target = zest_GetImage(copy_handle);
+	if (!copy_target) {
+		zest_DestroyDevice(device);
+		return 1;
+	}
+	//The first upload and the first readback each make a staging pool of the device's, which stays, so the baselines are taken after one of each
+	static zest_uint copied_pixels[64 * 64];
 	zest_uint first_pixels[16 * 16];
-	int failed = !zest_CopyImageToBitmap(device, target, first_pixels);
+	memset(copied_pixels, 0, sizeof(copied_pixels));
+	int failed = !zest_CopyBitmapToImage(device, copied_pixels, sizeof(copied_pixels), copy_target, 64, 64);
+	failed |= !zest_CopyImageToBitmap(device, target, first_pixels);
 	zest_WaitForIdleDevice(device);
 	zest_size allocated_before = metal_allocated_size();
 	NSUInteger residency_before = [residency_set allocationCount];
@@ -1308,8 +1388,16 @@ int test_metal_transient_images(void) {
 		NSUInteger residency_counts[6];
 		for (int run = 0; run != 6; ++run) {
 			id<MTLTexture> texture = nil;
-			failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, &texture) != zest_semaphore_status_success;
+			//The copy target is emptied first, so what it holds afterwards is what this run's transfer pass copied out of the transient
+			memset(copied_pixels, 0, sizeof(copied_pixels));
+			failed |= !zest_CopyBitmapToImage(device, copied_pixels, sizeof(copied_pixels), copy_target, 64, 64);
+			failed |= run_metal_transient_graph(context, target, copy_target, zest_resource_usage_hint_none, &texture) != zest_semaphore_status_success;
 			failed |= zest_GetValidationErrorCount(device) != 0;
+			failed |= !zest_CopyImageToBitmap(device, copy_target, copied_pixels);
+			if (!metal_pixels_match(copied_pixels, 64 * 64, metal_blue_expected)) {
+				ZEST_PRINT("Run %i copied its transient to an image that doesn't hold the transient's clear colour.", run);
+				failed = 1;
+			}
 			if (!texture) {
 				ZEST_PRINT("Run %i of the transient graph never reached its transient.", run);
 				failed = 1;
@@ -1343,7 +1431,7 @@ int test_metal_transient_images(void) {
 		}
 		//With only Zest holding it, each transient is destroyed as soon as its flush has waited, which Metal allows once the batch that used it has completed
 		for (int run = 0; run != 8; ++run) {
-			failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
+			failed |= run_metal_transient_graph(context, target, copy_target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
 		}
 		if (zest_GetValidationErrorCount(device) != 0) {
 			ZEST_PRINT("Eight transient graphs that only Zest held the transients of raised %u validation errors.", zest_GetValidationErrorCount(device));
@@ -1351,7 +1439,7 @@ int test_metal_transient_images(void) {
 		}
 		//Every batch is committed with the ordering event it signals last, and gives it up when the batch is released
 		id<MTLSharedEvent> ordering_event = ZEST_MTL_BACKEND(execution_timeline, &context->queue_ordering_timelines[context->graphics_queue_index])->event;
-		if ([ordering_event retainCount] != 1) {
+		if (metal_settled_owner_count(ordering_event) != 1) {
 			ZEST_PRINT("The graphics queue's ordering event has %lu owners once every batch has been released, where only its timeline should hold it.", (unsigned long)[ordering_event retainCount]);
 			failed = 1;
 		}
@@ -1362,7 +1450,7 @@ int test_metal_transient_images(void) {
 		}
 		//A transient image can't be host visible, so the graph fails where it places its transients and says why once
 		id<MTLTexture> refused_texture = nil;
-		failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_cpu_transfer, &refused_texture) != zest_semaphore_status_error;
+		failed |= run_metal_transient_graph(context, target, copy_target, zest_resource_usage_hint_cpu_transfer, &refused_texture) != zest_semaphore_status_error;
 		failed |= refused_texture != nil;
 		[refused_texture release];
 		if (metal_report_count(device, "zest_resource_usage_hint_cpu_transfer") != 1) {
@@ -1371,7 +1459,7 @@ int test_metal_transient_images(void) {
 		}
 		failed |= zest_GetValidationErrorCount(device) != 0;
 		//The refused graph left nothing behind that stops the next one
-		failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
+		failed |= run_metal_transient_graph(context, target, copy_target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
 	}
 	zest_WaitForIdleDevice(device);
 	failed |= zest_GetValidationErrorCount(device) != 0;
@@ -1384,6 +1472,1376 @@ int test_metal_transient_images(void) {
 		failed = 1;
 	}
 	zest_FreeImageNow(target_handle);
+	zest_FreeImageNow(copy_handle);
+	return failed | finish_metal_device(device);
+}
+
+typedef struct MetalBufferCopyTask {
+	zest_buffer source;
+	zest_buffer target;
+	zest_size size;
+	zest_buffer_uploader_t uploader;
+	zest_bool uploaded;					//What zest_cmd_UploadBuffer returned
+	zest_uint copies_left;				//The uploader's list once the pass has run, read there as the list is the graph's memory
+	zest_bool uploader_was_reset;
+} MetalBufferCopyTask;
+
+static void metal_copy_buffer_pass(const zest_command_list command_list, void *user_data) {
+	MetalBufferCopyTask *task = (MetalBufferCopyTask *)user_data;
+	zest_cmd_CopyBuffer(command_list, task->source, task->target, task->size);
+}
+
+static void metal_upload_buffer_pass(const zest_command_list command_list, void *user_data) {
+	MetalBufferCopyTask *task = (MetalBufferCopyTask *)user_data;
+	task->uploaded = zest_cmd_UploadBuffer(command_list, &task->uploader);
+	task->copies_left = zest_vec_size(task->uploader.buffer_copies);
+	task->uploader_was_reset = task->uploader.flags == 0 && task->uploader.source_buffer == NULL && task->uploader.target_buffer == NULL;
+}
+
+//Both copy commands from inside a render pass, where neither can record
+static void metal_copy_in_render_pass(const zest_command_list command_list, void *user_data) {
+	metal_copy_buffer_pass(command_list, user_data);
+	metal_upload_buffer_pass(command_list, user_data);
+}
+
+static void metal_fill_buffer_bytes(zest_buffer buffer, zest_uint seed) {
+	unsigned char *bytes = (unsigned char *)zest_BufferData(buffer);
+	for (zest_size byte = 0; byte != buffer->size; ++byte) bytes[byte] = (unsigned char)(byte * 7 + seed);
+}
+
+//Brings a device local buffer's bytes back through an immediate copy
+static zest_bool metal_read_device_buffer(zest_device device, zest_buffer device_buffer, zest_buffer readback, zest_size size) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) return ZEST_FALSE;
+	zest_bool recorded = zest_imm_CopyBuffer(queue, device_buffer, readback, size);
+	return zest_imm_EndCommandBuffer(queue) && recorded;
+}
+
+//How many batches the graph's passes were put in, and the most passes any one of them holds
+static zest_uint metal_graph_batch_count(zest_frame_graph frame_graph, zest_uint *out_most_passes) {
+	zest_uint batch_count = 0;
+	*out_most_passes = 0;
+	zest_vec_foreach(submission_index, frame_graph->submissions) {
+		for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+			zest_submission_batch_t *batch = &frame_graph->submissions[submission_index].batches[queue_index];
+			if (!batch->magic) continue;
+			batch_count++;
+			*out_most_passes = ZEST__MAX(*out_most_passes, zest_vec_size(batch->pass_indices));
+		}
+	}
+	return batch_count;
+}
+
+int test_metal_frame_graph_buffer_copies(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	//The first buffer of each kind sits at the start of its pool, so the ones the test copies between all have an offset to get wrong
+	zest_buffer blockers[3] = { zest_CreateBuffer(device, 1024, &upload_info), zest_CreateBuffer(device, 1024, &readback_info), zest_CreateBuffer(device, 1024, &device_info) };
+	zest_buffer source = zest_CreateBuffer(device, 1024, &upload_info);
+	zest_buffer readback = zest_CreateBuffer(device, 1024, &readback_info);
+	zest_buffer device_buffer = zest_CreateBuffer(device, 1024, &device_info);
+	zest_image_handle target_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image target = zest_GetImage(target_handle);
+	int failed = context == NULL || !blockers[0] || !blockers[1] || !blockers[2] || !source || !readback || !device_buffer || target == NULL;
+	if (!failed) {
+		failed |= source->memory_offset == 0 || readback->memory_offset == 0 || device_buffer->memory_offset == 0;
+		memset(zest_BufferData(blockers[0]), 0, blockers[0]->size);
+		metal_fill_buffer_bytes(source, 3);
+
+		//Up to the device buffer in one transfer pass and back down in the next, which opens an encoder of its own. 510 bytes is no multiple of 4.
+		MetalBufferCopyTask up = {};
+		up.source = source;
+		up.target = device_buffer;
+		up.size = 510;
+		MetalBufferCopyTask down = {};
+		down.source = device_buffer;
+		down.target = readback;
+		down.size = 510;
+		memset(zest_BufferData(readback), 0xEE, readback->size);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Copies", 0);
+		zest_resource_node device_node = zest_ImportBufferResource("Device Buffer", device_buffer, 0);
+		zest_BeginTransferPass("Copy Up");
+		zest_ConnectOutput(device_node);
+		zest_SetPassTask(metal_copy_buffer_pass, &up);
+		zest_EndPass();
+		zest_BeginTransferPass("Copy Down");
+		zest_ConnectInput(device_node);
+		zest_DoNotCull();
+		zest_SetPassTask(metal_copy_buffer_pass, &down);
+		zest_EndPass();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		const unsigned char *source_bytes = (const unsigned char *)zest_BufferData(source);
+		const unsigned char *readback_bytes = (const unsigned char *)zest_BufferData(readback);
+		if (memcmp(readback_bytes, source_bytes, 510) != 0 || readback_bytes[510] != 0xEE || readback_bytes[511] != 0xEE) {
+			ZEST_PRINT("A buffer copied up to a device buffer and back down came back different, or the copy ran past its 510 bytes.");
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//Three regions through an uploader, each at its own offset in both buffers
+		const zest_size regions[3][3] = { { 0, 0, 96 }, { 128, 256, 100 }, { 512, 700, 64 } };
+		MetalBufferCopyTask upload = {};
+		memset(zest_BufferData(readback), 0xEE, readback->size);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Upload", 0);
+		zest_AddCopyCommand(context, &upload.uploader, source, readback, (zest_size)regions[0][2]);
+		for (int region = 1; region != 3; ++region) {
+			zest_buffer_copy_t copy = { source->memory_offset + regions[region][0], readback->memory_offset + regions[region][1], regions[region][2] };
+			zest_vec_linear_push(zest__frame_graph_builder->allocator, upload.uploader.buffer_copies, copy);
+		}
+		zest_BeginTransferPass("Upload");
+		zest_DoNotCull();
+		zest_SetPassTask(metal_upload_buffer_pass, &upload);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= !upload.uploaded || upload.copies_left != 0 || !upload.uploader_was_reset;
+		zest_size checked = 0;
+		for (int region = 0; region != 3; ++region) {
+			//What lies before each region was left alone
+			for (zest_size byte = checked; byte != regions[region][1]; ++byte) failed |= readback_bytes[byte] != 0xEE;
+			failed |= memcmp(readback_bytes + regions[region][1], source_bytes + regions[region][0], (size_t)regions[region][2]) != 0;
+			checked = regions[region][1] + regions[region][2];
+		}
+		for (zest_size byte = checked; byte != 1024; ++byte) failed |= readback_bytes[byte] != 0xEE;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A transfer pass that copies and the render pass after it share a batch, so the copy's encoder has to be ended before the pass opens its own
+		metal_fill_buffer_bytes(source, 91);
+		up.size = 512;
+		failed |= !zest_BeginCommandGraph(context, "Copy Then Clear", 0);
+		device_node = zest_ImportBufferResource("Device Buffer", device_buffer, 0);
+		zest_resource_node target_node = zest_ImportImageResource("Target", target, 0);
+		zest_SetResourceClearColor(target_node, 0.6f, 0.4f, 0.2f, 1.0f);
+		zest_BeginTransferPass("Copy Up");
+		zest_ConnectOutput(device_node);
+		zest_SetPassTask(metal_copy_buffer_pass, &up);
+		zest_EndPass();
+		zest_BeginRenderPass("Clear Pass");
+		zest_ConnectInput(device_node);
+		zest_ConnectOutput(target_node);
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+		zest_uint most_passes = 0;
+		zest_uint batch_count = frame_graph ? metal_graph_batch_count(frame_graph, &most_passes) : 0;
+		if (batch_count != 1 || most_passes != 2) {
+			ZEST_PRINT("The copy and the render pass after it went into %u batches with at most %u passes, where the test needs both in one.", batch_count, most_passes);
+			failed = 1;
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		memset(zest_BufferData(readback), 0xEE, readback->size);
+		failed |= !metal_read_device_buffer(device, device_buffer, readback, 512);
+		failed |= memcmp(readback_bytes, source_bytes, 512) != 0;
+		zest_uint pixels[16 * 16];
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest_CopyImageToBitmap(device, target, pixels);
+		failed |= !metal_pixels_match(pixels, 16 * 16, metal_orange_expected);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//Neither copy command can record with a render pass open. Both say so with the one message, and leave their buffers and the uploader alone.
+		MetalBufferCopyTask refused = {};
+		refused.source = source;
+		refused.target = readback;
+		refused.size = 256;
+		memset(zest_BufferData(readback), 0xEE, readback->size);
+		failed |= !zest_BeginCommandGraph(context, "Copy In Render Pass", 0);
+		zest_AddCopyCommand(context, &refused.uploader, source, readback, 128);
+		target_node = zest_ImportImageResource("Target", target, 0);
+		zest_SetResourceClearColor(target_node, 0.2f, 0.4f, 0.6f, 1.0f);
+		zest_BeginRenderPass("Clear Pass");
+		zest_ConnectOutput(target_node);
+		zest_SetPassTask(metal_copy_in_render_pass, &refused);
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		if (zest_GetValidationErrorCount(device) != 1) {
+			ZEST_PRINT("Two copy commands inside a render pass raised %u validation errors, where they share one message.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+		failed |= refused.uploaded || refused.copies_left != 1 || refused.uploader_was_reset;
+		for (zest_size byte = 0; byte != 1024; ++byte) failed |= readback_bytes[byte] != 0xEE;
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !zest_CopyImageToBitmap(device, target, pixels);
+		failed |= !metal_pixels_match(pixels, 16 * 16, metal_blue_expected);
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	for (int index = 0; index != 3; ++index) {
+		zest_FreeBufferNow(blockers[index]);
+	}
+	zest_FreeBufferNow(source);
+	zest_FreeBufferNow(readback);
+	zest_FreeBufferNow(device_buffer);
+	zest_FreeImageNow(target_handle);
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	return failed | finish_metal_device(device);
+}
+
+//One 16x16 image with 3 mips and 4 bytes a pixel
+static zest_image_handle metal_create_mip_image(zest_device device, zest_format format) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = format;
+	image_info.mip_levels = 3;
+	image_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+static void metal_mip_pattern(unsigned char *bytes, zest_uint mip, zest_uint seed) {
+	zest_uint mip_size = 16u >> mip;
+	for (zest_uint byte = 0; byte != mip_size * mip_size * 4; ++byte) bytes[byte] = (unsigned char)(byte * 3 + mip * 40 + seed);
+}
+
+//Gives every mip its own bytes, which differ from image to image with the seed
+static zest_bool metal_upload_mip_patterns(zest_device device, zest_image image, zest_uint seed) {
+	unsigned char bytes[16 * 16 * 4 + 8 * 8 * 4 + 4 * 4 * 4];
+	zest_buffer_image_copy_t regions[3];
+	zest_size offset = 0;
+	for (zest_uint mip = 0; mip != 3; ++mip) {
+		zest_uint mip_size = 16u >> mip;
+		metal_mip_pattern(bytes + offset, mip, seed);
+		regions[mip] = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+		regions[mip].buffer_offset = offset;
+		regions[mip].image_aspect = zest_image_aspect_color_bit;
+		regions[mip].mip_level = mip;
+		regions[mip].layer_count = 1;
+		regions[mip].image_extent.width = mip_size;
+		regions[mip].image_extent.height = mip_size;
+		regions[mip].image_extent.depth = 1;
+		offset += (zest_size)mip_size * mip_size * 4;
+	}
+	zest_buffer staging_buffer = zest_CreateDedicatedStagingBuffer(device, sizeof(bytes), bytes);
+	if (!staging_buffer) return ZEST_FALSE;
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	zest_bool recorded = queue != NULL && zest_imm_CopyBufferRegionsToImage(queue, regions, 3, staging_buffer, image);
+	recorded = recorded && zest_imm_TransitionImage(queue, image, zest_resource_state_shader_read, 0, 3, 0, 1);
+	zest_bool finished = queue && zest_imm_EndCommandBuffer(queue);
+	zest_FreeBufferNow(staging_buffer);
+	return recorded && finished;
+}
+
+//Whether one mip of the image holds the pattern the seed gives that mip
+static zest_bool metal_mip_holds_pattern(zest_device device, zest_image image, zest_uint mip, zest_uint seed) {
+	unsigned char read_bytes[16 * 16 * 4];
+	unsigned char expected_bytes[16 * 16 * 4];
+	zest_uint mip_size = 16u >> mip;
+	memset(read_bytes, 0, sizeof(read_bytes));
+	metal_mip_pattern(expected_bytes, mip, seed);
+	if (!metal_read_texture(device, image, mip, 0, mip_size, mip_size, 4, read_bytes)) return ZEST_FALSE;
+	return memcmp(read_bytes, expected_bytes, mip_size * mip_size * 4) == 0;
+}
+
+typedef struct MetalMipCommandTask {
+	zest_bool blit;
+	zest_uint mip;
+	int run_count;
+	zest_buffer copy_source;			//When set, 256 bytes are copied from it before the mip command and again after
+	zest_buffer copy_targets[2];
+} MetalMipCommandTask;
+
+static void metal_mip_command_pass(const zest_command_list command_list, void *user_data) {
+	MetalMipCommandTask *task = (MetalMipCommandTask *)user_data;
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Mip Source");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Mip Destination");
+	task->run_count++;
+	if (task->copy_source) {
+		zest_cmd_CopyBuffer(command_list, task->copy_source, task->copy_targets[0], 256);
+	}
+	if (task->blit) {
+		zest_cmd_BlitImageMip(command_list, source, destination, task->mip, zest_shader_fragment_stage);
+	} else {
+		zest_cmd_CopyImageMip(command_list, source, destination, task->mip, zest_shader_fragment_stage);
+	}
+	if (task->copy_source) {
+		zest_cmd_CopyBuffer(command_list, task->copy_source, task->copy_targets[1], 256);
+	}
+}
+
+//One transfer pass that runs the task's mip command from the source into the destination
+static int run_metal_mip_task_graph(zest_context context, zest_image source, zest_image destination, MetalMipCommandTask *task) {
+	if (!zest_BeginCommandGraph(context, "Image Mip Commands", 0)) return 1;
+	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
+	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
+	zest_BeginTransferPass("Mip Pass");
+	zest_ConnectInput(source_node);
+	zest_ConnectOutput(destination_node);
+	zest_SetPassTask(metal_mip_command_pass, task);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	return failed | (task->run_count != 1);
+}
+
+//Copies, or blits, one mip of the source into the destination
+static int run_metal_mip_command_graph(zest_context context, zest_image source, zest_image destination, zest_bool blit, zest_uint mip) {
+	MetalMipCommandTask task = {};
+	task.blit = blit;
+	task.mip = mip;
+	return run_metal_mip_task_graph(context, source, destination, &task);
+}
+
+//A blit of mip 1 from inside a render pass that draws to the destination
+static int run_metal_mip_blit_in_render_pass(zest_context context, zest_image source, zest_image destination) {
+	MetalMipCommandTask task = {};
+	task.blit = ZEST_TRUE;
+	task.mip = 1;
+	if (!zest_BeginCommandGraph(context, "Mip Blit In Render Pass", 0)) return 1;
+	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
+	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
+	zest_BeginRenderPass("Mip Pass");
+	zest_ConnectInput(source_node);
+	zest_ConnectOutput(destination_node);
+	zest_SetPassTask(metal_mip_command_pass, &task);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	return failed | (task.run_count != 1);
+}
+
+static float metal_half_to_float(unsigned short half) {
+	int exponent = (half >> 10) & 0x1F;
+	float mantissa = (float)(half & 0x3FF);
+	float magnitude = exponent ? ldexpf(1.f + mantissa / 1024.f, exponent - 15) : ldexpf(mantissa / 1024.f, -14);
+	return (half & 0x8000) ? -magnitude : magnitude;
+}
+
+//Whether one mip of a 16x16 half float image holds the seed's pattern for that mip, each byte converted to a float
+static zest_bool metal_mip_holds_converted_pattern(zest_device device, zest_image image, zest_uint mip, zest_uint seed) {
+	unsigned short read_channels[16 * 16 * 4];
+	unsigned char expected_bytes[16 * 16 * 4];
+	zest_uint mip_size = 16u >> mip;
+	memset(read_channels, 0, sizeof(read_channels));
+	metal_mip_pattern(expected_bytes, mip, seed);
+	if (!metal_read_texture(device, image, mip, 0, mip_size, mip_size, 8, read_channels)) return ZEST_FALSE;
+	for (zest_uint channel = 0; channel != mip_size * mip_size * 4; ++channel) {
+		if (fabsf(metal_half_to_float(read_channels[channel]) * 255.f - (float)expected_bytes[channel]) > 0.5f) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+//Whether every pixel of one mip of a 16x16 half float image is the colour
+static zest_bool metal_half_mip_is(zest_device device, zest_image image, zest_uint mip, zest_uint layer, const float expected[4]) {
+	unsigned short read_channels[16 * 16 * 4];
+	zest_uint mip_size = 16u >> mip;
+	memset(read_channels, 0, sizeof(read_channels));
+	if (!metal_read_texture(device, image, mip, layer, mip_size, mip_size, 8, read_channels)) return ZEST_FALSE;
+	for (zest_uint channel = 0; channel != mip_size * mip_size * 4; ++channel) {
+		if (fabsf(metal_half_to_float(read_channels[channel]) - expected[channel % 4]) > 0.005f) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static zest_image_handle metal_create_half_float_target(zest_device device, zest_uint layer_count) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r16g16b16a16_sfloat;
+	image_info.mip_levels = 3;
+	image_info.layer_count = layer_count;
+	image_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+int test_metal_image_mip_commands(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	const zest_uint source_seed = 11;
+	const zest_uint untouched_seed = 97;
+	zest_image_handle source_handle = metal_create_mip_image(device, zest_format_r8g8b8a8_unorm);
+	zest_image_handle destination_handle = metal_create_mip_image(device, zest_format_r8g8b8a8_unorm);
+	zest_image_handle srgb_handle = metal_create_mip_image(device, zest_format_r8g8b8a8_srgb);
+	zest_image_handle float_handle = metal_create_mip_image(device, zest_format_r32_sfloat);
+	zest_image_handle half_handle = metal_create_half_float_target(device, 1);
+	zest_image_handle half_array_handle = metal_create_half_float_target(device, 2);
+	zest_image_handle target_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer copy_source = zest_CreateBuffer(device, 256, &upload_info);
+	zest_buffer copy_targets[2] = { zest_CreateBuffer(device, 256, &readback_info), zest_CreateBuffer(device, 256, &readback_info) };
+	zest_image source = zest_GetImage(source_handle);
+	zest_image destination = zest_GetImage(destination_handle);
+	zest_image srgb_destination = zest_GetImage(srgb_handle);
+	zest_image float_destination = zest_GetImage(float_handle);
+	zest_image half_destination = zest_GetImage(half_handle);
+	zest_image half_array_destination = zest_GetImage(half_array_handle);
+	zest_image target = zest_GetImage(target_handle);
+	int failed = context == NULL || !source || !destination || !srgb_destination || !float_destination || !half_destination || !half_array_destination || !target;
+	failed |= !copy_source || !copy_targets[0] || !copy_targets[1];
+	if (!failed) {
+		failed |= !metal_upload_mip_patterns(device, source, source_seed);
+		failed |= !metal_upload_mip_patterns(device, destination, untouched_seed);
+		failed |= !metal_upload_mip_patterns(device, srgb_destination, untouched_seed);
+		failed |= !metal_upload_mip_patterns(device, float_destination, untouched_seed);
+
+		//A copy moves the one mip it's given and no other
+		failed |= run_metal_mip_command_graph(context, source, destination, ZEST_FALSE, 1);
+		failed |= !metal_mip_holds_pattern(device, destination, 1, source_seed);
+		failed |= !metal_mip_holds_pattern(device, destination, 0, untouched_seed) || !metal_mip_holds_pattern(device, destination, 2, untouched_seed);
+		//A blit between two images of one format is that copy
+		failed |= run_metal_mip_command_graph(context, source, destination, ZEST_TRUE, 2);
+		failed |= !metal_mip_holds_pattern(device, destination, 2, source_seed);
+		failed |= !metal_mip_holds_pattern(device, destination, 0, untouched_seed);
+		//A copy between two formats with the same channels and size moves the bytes as they are
+		failed |= run_metal_mip_command_graph(context, source, srgb_destination, ZEST_FALSE, 0);
+		failed |= !metal_mip_holds_pattern(device, srgb_destination, 0, source_seed);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//Metal would copy four 8 bit channels into one 32 bit float wrongly and say nothing, so the copy is refused
+		failed |= run_metal_mip_command_graph(context, source, float_destination, ZEST_FALSE, 0);
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_mip_holds_pattern(device, float_destination, 0, untouched_seed)) {
+			ZEST_PRINT("A copy from r8g8b8a8_unorm into r32_sfloat raised %u validation errors and %s its destination, where it should be refused once.", zest_GetValidationErrorCount(device),
+				metal_mip_holds_pattern(device, float_destination, 0, untouched_seed) ? "left" : "changed");
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+
+		//A blit between two formats converts, which it does by drawing the one mip into a destination that can be a render target
+		const float blue_floats[4] = { 0.2f, 0.4f, 0.6f, 1.f };
+		failed |= !run_metal_colour_clear(device, half_destination, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+		failed |= !run_metal_colour_clear(device, half_array_destination, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+		//With a buffer copy either side of it in the one pass, the blit has to end the first copy's encoder and the second copy opens another
+		MetalMipCommandTask converting = {};
+		converting.blit = ZEST_TRUE;
+		converting.mip = 1;
+		converting.copy_source = copy_source;
+		converting.copy_targets[0] = copy_targets[0];
+		converting.copy_targets[1] = copy_targets[1];
+		metal_fill_buffer_bytes(copy_source, 29);
+		memset(zest_BufferData(copy_targets[0]), 0xEE, 256);
+		memset(zest_BufferData(copy_targets[1]), 0xEE, 256);
+		failed |= run_metal_mip_task_graph(context, source, half_destination, &converting);
+		if (!metal_mip_holds_converted_pattern(device, half_destination, 1, source_seed)) {
+			ZEST_PRINT("A blit of mip 1 from r8g8b8a8_unorm into r16g16b16a16_sfloat didn't leave the source's bytes there as floats.");
+			failed = 1;
+		}
+		failed |= memcmp(zest_BufferData(copy_targets[0]), zest_BufferData(copy_source), 256) != 0 || memcmp(zest_BufferData(copy_targets[1]), zest_BufferData(copy_source), 256) != 0;
+		failed |= !metal_half_mip_is(device, half_destination, 0, 0, blue_floats) || !metal_half_mip_is(device, half_destination, 2, 0, blue_floats);
+		//The blit pointed the context's pass descriptor at mip 1, where the next pass must not be left
+		failed |= run_metal_clear_graph(context, target, NULL, ZEST_TRUE, ZEST_FALSE);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A sampled texture can't be drawn into, so the blit says which flags its destination needs
+		failed |= run_metal_mip_command_graph(context, source, srgb_destination, ZEST_TRUE, 1);
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "zest_image_flag_color_attachment") || !metal_mip_holds_pattern(device, srgb_destination, 1, untouched_seed)) {
+			ZEST_PRINT("A blit from r8g8b8a8_unorm into a sampled r8g8b8a8_srgb texture raised %u validation errors and %s its destination, where it should be refused once.", zest_GetValidationErrorCount(device),
+				metal_mip_holds_pattern(device, srgb_destination, 1, untouched_seed) ? "left" : "changed");
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+		//A layer of an array would need a view made for the blit, which a frame graph batch can't keep alive
+		failed |= run_metal_mip_command_graph(context, source, half_array_destination, ZEST_TRUE, 1);
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "one layer");
+		zest_ResetValidationErrors(device);
+		failed |= !metal_half_mip_is(device, half_array_destination, 1, 0, blue_floats) || !metal_half_mip_is(device, half_array_destination, 1, 1, blue_floats);
+		//Inside a render pass the pass's encoder is open, so the blit can't open its own
+		failed |= run_metal_mip_blit_in_render_pass(context, source, half_destination);
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "inside a render pass");
+		zest_ResetValidationErrors(device);
+		failed |= !metal_mip_holds_converted_pattern(device, half_destination, 1, source_seed);
+
+		//A blit points the context's pass descriptor at its destination, which must not keep the image alive. Checked with no pass after the blit.
+		failed |= run_metal_mip_command_graph(context, source, half_destination, ZEST_TRUE, 2);
+		failed |= !metal_mip_holds_converted_pattern(device, half_destination, 2, source_seed);
+		id<MTLTexture> blitted_texture = [ZEST_MTL_BACKEND(image, half_destination)->texture retain];
+		zest_WaitForIdleDevice(device);
+		zest_FreeImageNow(half_handle);
+		half_handle.value = 0;
+		if (metal_settled_owner_count(blitted_texture) != 1) {
+			ZEST_PRINT("The freed image that zest_cmd_BlitImageMip drew into still has %lu owners, where only this test should hold it.", (unsigned long)[blitted_texture retainCount]);
+			failed = 1;
+		}
+		[blitted_texture release];
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (source_handle.value) zest_FreeImageNow(source_handle);
+	if (destination_handle.value) zest_FreeImageNow(destination_handle);
+	if (srgb_handle.value) zest_FreeImageNow(srgb_handle);
+	if (float_handle.value) zest_FreeImageNow(float_handle);
+	if (half_handle.value) zest_FreeImageNow(half_handle);
+	if (half_array_handle.value) zest_FreeImageNow(half_array_handle);
+	if (target_handle.value) zest_FreeImageNow(target_handle);
+	if (copy_source) zest_FreeBufferNow(copy_source);
+	if (copy_targets[0]) zest_FreeBufferNow(copy_targets[0]);
+	if (copy_targets[1]) zest_FreeBufferNow(copy_targets[1]);
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	return failed | finish_metal_device(device);
+}
+
+static zest_bool metal_words_equal(const void *bytes, zest_size size, zest_uint value) {
+	const zest_uint *words = (const zest_uint *)bytes;
+	for (zest_size word = 0; word != size / 4; ++word) {
+		if (words[word] != value) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static int run_metal_fill(zest_device device, zest_buffer buffer, zest_uint value) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) return 1;
+	zest_imm_FillBuffer(queue, buffer, value);
+	return !zest_imm_EndCommandBuffer(queue);
+}
+
+static int run_metal_update(zest_device device, zest_buffer buffer, const void *data, zest_size intended_size) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) return 1;
+	zest_imm_UpdateBuffer(queue, buffer, (void *)data, intended_size);
+	return !zest_imm_EndCommandBuffer(queue);
+}
+
+int test_metal_buffer_fills(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	//The buffers either side show a fill that starts early or runs on, and are large enough to share the filled buffer's pool.
+	//200,000 bytes is three whole staging blocks and a short one.
+	const zest_size guard_size = 70000;
+	zest_buffer before = zest_CreateBuffer(device, guard_size, &device_info);
+	zest_buffer device_buffer = zest_CreateBuffer(device, 200000, &device_info);
+	zest_buffer after = zest_CreateBuffer(device, guard_size, &device_info);
+	zest_buffer readback = zest_CreateBuffer(device, 200000, &readback_info);
+	//Holds the start of the staging pool, so the block a fill or an update copies from has an offset to get wrong
+	zest_buffer staging_blocker = zest_CreateStagingBuffer(device, 1024, NULL);
+	int failed = !before || !device_buffer || !after || !readback || !staging_blocker;
+	if (!failed) {
+		memset(zest_BufferData(staging_blocker), 0xEE, 1024);
+		const unsigned char *bytes = (const unsigned char *)zest_BufferData(readback);
+		zest_size whole_size = device_buffer->size;
+		if (device_buffer->memory_offset == 0 || whole_size % ZEST__MTL_FILL_BLOCK_SIZE == 0 || whole_size < ZEST__MTL_FILL_BLOCK_SIZE * 3) {
+			ZEST_PRINT("The filled buffer is %llu bytes at offset %llu, where the test needs an offset and a size that ends on a short block.", (unsigned long long)whole_size, (unsigned long long)device_buffer->memory_offset);
+			failed = 1;
+		}
+		failed |= run_metal_fill(device, before, 0x77777777u);
+		failed |= run_metal_fill(device, after, 0x77777777u);
+
+		//One byte repeated, zero, then four different bytes, so every fill changes what the last one left
+		const zest_uint fill_values[3] = { 0xABABABABu, 0, 0x11223344u };
+		for (int fill = 0; fill != 3; ++fill) {
+			failed |= run_metal_fill(device, device_buffer, fill_values[fill]);
+			memset(zest_BufferData(readback), 0x5A, readback->size);
+			failed |= !metal_read_device_buffer(device, device_buffer, readback, whole_size);
+			if (!metal_words_equal(bytes, whole_size, fill_values[fill])) {
+				ZEST_PRINT("A buffer of %llu bytes filled with 0x%08X doesn't hold it in every word.", (unsigned long long)whole_size, fill_values[fill]);
+				failed = 1;
+			}
+		}
+
+		//Zest rounds every buffer's size up, so only a size the test shrinks ends part way through a word
+		device_buffer->size = 1022;
+		failed |= run_metal_fill(device, device_buffer, 0x55667788u);
+		device_buffer->size = whole_size;
+		failed |= !metal_read_device_buffer(device, device_buffer, readback, 2048);
+		failed |= !metal_words_equal(bytes, 1020, 0x55667788u);
+		if (bytes[1020] != 0x88 || bytes[1021] != 0x77 || bytes[1022] != 0x22 || bytes[1023] != 0x11) {
+			ZEST_PRINT("A 1022 byte fill ended on bytes %02X %02X %02X %02X, where its last two bytes are 88 77 and the two after it are left as 22 11.", bytes[1020], bytes[1021], bytes[1022], bytes[1023]);
+			failed = 1;
+		}
+		failed |= !metal_words_equal(bytes + 1024, 1024, 0x11223344u);
+
+		//An update is rounded up to a whole word, and the bytes that adds are zero
+		const unsigned char update_data[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+		failed |= run_metal_update(device, device_buffer, update_data, 10);
+		failed |= !metal_read_device_buffer(device, device_buffer, readback, 2048);
+		if (memcmp(bytes, update_data, 10) != 0 || bytes[10] != 0 || bytes[11] != 0 || bytes[12] != 0x88) {
+			ZEST_PRINT("A 10 byte update left bytes 10 to 12 as %02X %02X %02X, where they should be 00 00 88.", bytes[10], bytes[11], bytes[12]);
+			failed = 1;
+		}
+
+		//An update stops at 65,536 bytes however many it's given
+		static unsigned char large_update[70000];
+		memset(large_update, 0xC3, sizeof(large_update));
+		failed |= run_metal_update(device, device_buffer, large_update, sizeof(large_update));
+		failed |= !metal_read_device_buffer(device, device_buffer, readback, whole_size);
+		failed |= !metal_words_equal(bytes, 65536, 0xC3C3C3C3u);
+		if (!metal_words_equal(bytes + 65536, whole_size - 65536, 0x11223344u)) {
+			ZEST_PRINT("A 70,000 byte update changed bytes past its first 65,536.");
+			failed = 1;
+		}
+
+		failed |= !metal_read_device_buffer(device, before, readback, guard_size) || !metal_words_equal(bytes, guard_size, 0x77777777u);
+		failed |= !metal_read_device_buffer(device, after, readback, guard_size) || !metal_words_equal(bytes, guard_size, 0x77777777u);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (before) zest_FreeBufferNow(before);
+	if (device_buffer) zest_FreeBufferNow(device_buffer);
+	if (after) zest_FreeBufferNow(after);
+	if (readback) zest_FreeBufferNow(readback);
+	if (staging_blocker) zest_FreeBufferNow(staging_blocker);
+	return failed | finish_metal_device(device);
+}
+
+//Whether the texture Zest would make for the format and flags can be a render target
+static zest_bool metal_descriptor_is_target(zest_device device, zest_format format, zest_image_flags flags) {
+	zest_image_t image = {};
+	image.info = zest_CreateImageInfo(16, 16);
+	image.info.format = format;
+	MTLTextureDescriptor *descriptor = zest__mtl_new_texture_descriptor(device, &image, 1, 1, flags);
+	zest_bool is_target = ([descriptor usage] & MTLTextureUsageRenderTarget) != 0;
+	[descriptor release];
+	return is_target;
+}
+
+//Attachments can be render targets, and so can a storage image in an uncompressed colour format. Nothing else can.
+int test_metal_render_target_usage(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	int failed = metal_descriptor_is_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_texture);
+	failed |= !metal_descriptor_is_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	failed |= !metal_descriptor_is_target(device, zest_format_d32_sfloat, zest_image_preset_depth_attachment);
+	failed |= !metal_descriptor_is_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_storage);
+	failed |= !metal_descriptor_is_target(device, zest_format_r32_uint, zest_image_preset_storage);
+	failed |= metal_descriptor_is_target(device, zest_format_bc7_unorm_block, zest_image_preset_texture);
+	failed |= metal_descriptor_is_target(device, zest_format_bc7_unorm_block, zest_image_preset_storage);
+	failed |= metal_descriptor_is_target(device, zest_format_astc_4X4_unorm_block, zest_image_preset_storage);
+	failed |= metal_descriptor_is_target(device, zest_format_d32_sfloat, zest_image_preset_storage);
+	//The compressed descriptors above were made, so their answers aren't those of a format the device lacks
+	zest_image_t compressed_image = {};
+	compressed_image.info = zest_CreateImageInfo(16, 16);
+	compressed_image.info.format = zest_format_bc7_unorm_block;
+	MTLTextureDescriptor *compressed_descriptor = zest__mtl_new_texture_descriptor(device, &compressed_image, 1, 1, zest_image_preset_storage);
+	failed |= compressed_descriptor == nil;
+	[compressed_descriptor release];
+	return failed | finish_metal_device(device);
+}
+
+//Whether every pixel of every layer of the first mip_count mips of a 16x16 image with 4 bytes a pixel is the colour
+static zest_bool metal_mips_match(zest_device device, zest_image image, zest_uint mip_count, zest_uint layer_count, const int expected[4]) {
+	for (zest_uint mip = 0; mip != mip_count; ++mip) {
+		zest_uint mip_size = 16u >> mip;
+		for (zest_uint layer = 0; layer != layer_count; ++layer) {
+			zest_uint pixels[16 * 16];
+			memset(pixels, 0x5A, sizeof(pixels));
+			if (!metal_read_texture(device, image, mip, layer, mip_size, mip_size, 4, pixels)) return ZEST_FALSE;
+			if (!metal_pixels_match(pixels, mip_size * mip_size, expected)) return ZEST_FALSE;
+		}
+	}
+	return ZEST_TRUE;
+}
+
+//An integer image clears to the colour's bits read as integers, as on the other backends
+static int metal_integer_clear_matches(zest_device device, zest_format format, zest_uint value) {
+	zest_image_handle handle = metal_create_clear_target(device, format, zest_image_preset_color_attachment);
+	zest_image image = zest_GetImage(handle);
+	if (!image) return 1;
+	zest_clear_value_t clear_value = {};
+	zest_uint bits[4] = { value, value, value, value };
+	memcpy(&clear_value.color, bits, sizeof(bits));
+	int failed = !run_metal_colour_clear(device, image, clear_value);
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0x5A, sizeof(pixels));
+	failed |= !metal_read_texture(device, image, 0, 0, 16, 16, 4, pixels);
+	for (zest_uint index = 0; index != 16 * 16; ++index) failed |= pixels[index] != value;
+	zest_FreeImageNow(handle);
+	return failed;
+}
+
+int test_metal_clear_colour_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	const int black_expected[4] = { 0, 0, 0, 255 };
+	zest_uint black_pixels[16 * 16];
+	for (zest_uint index = 0; index != 16 * 16; ++index) black_pixels[index] = 0xFF000000u;
+	zest_image_info_t attachment_info = zest_CreateImageInfo(16, 16);
+	attachment_info.format = zest_format_r8g8b8a8_unorm;
+	attachment_info.mip_levels = 3;
+	attachment_info.layer_count = 2;
+	attachment_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	zest_image_handle attachment_handle = zest_CreateImage(device, &attachment_info);
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.mip_levels = 3;
+	storage_info.flags = zest_image_preset_storage | zest_image_flag_transfer_src;
+	zest_image_handle storage_handle = zest_CreateImage(device, &storage_info);
+	zest_image_info_t texture_info = zest_CreateImageInfo(16, 16);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle texture_handle = zest_CreateImageWithPixels(device, black_pixels, sizeof(black_pixels), &texture_info);
+	zest_image_info_t volume_info = zest_CreateImageInfo3D(16, 16, 4);
+	volume_info.format = zest_format_r8g8b8a8_unorm;
+	volume_info.flags = zest_image_preset_storage_3d;
+	zest_image_handle volume_handle = zest_CreateImage(device, &volume_info);
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer source = zest_CreateBuffer(device, 16 * 16 * 4, &upload_info);
+	int failed = !attachment_handle.value || !storage_handle.value || !texture_handle.value || !volume_handle.value || !source;
+	if (!failed) {
+		zest_image attachment = zest_GetImage(attachment_handle);
+		zest_image storage = zest_GetImage(storage_handle);
+		zest_image texture = zest_GetImage(texture_handle);
+		failed |= !run_metal_colour_clear(device, attachment, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+		if (!metal_mips_match(device, attachment, 3, 2, metal_blue_expected)) {
+			ZEST_PRINT("A colour attachment with 3 mips and 2 layers wasn't cleared in every mip of both layers.");
+			failed = 1;
+		}
+
+		//A storage image carries the usage a clear needs too, and keeps the one a shader writes it through
+		MTLTextureUsage storage_usage = [ZEST_MTL_BACKEND(image, storage)->texture usage];
+		failed |= !(storage_usage & MTLTextureUsageRenderTarget) || !(storage_usage & MTLTextureUsageShaderWrite);
+		failed |= !run_metal_colour_clear(device, storage, metal_colour_clear_value(0.6f, 0.4f, 0.2f));
+		failed |= !metal_mips_match(device, storage, 3, 1, metal_orange_expected);
+
+		//An upload, two clears and another upload in one command buffer each open an encoder of their own, and have to run in the order they were
+		//recorded in: the first clear covers the upload before it, and the second upload covers the clear before it
+		metal_fill_buffer_bytes(source, 5);
+		zest_buffer_image_copy_t region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+		region.image_aspect = zest_image_aspect_color_bit;
+		region.layer_count = 1;
+		region.image_extent = attachment->info.extent;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, source, attachment);
+		failed |= !zest_imm_ClearColorImage(queue, attachment, metal_colour_clear_value(0.6f, 0.4f, 0.2f));
+		failed |= !zest_imm_ClearColorImage(queue, storage, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+		failed |= !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, source, storage);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		if (!metal_mips_match(device, attachment, 3, 2, metal_orange_expected)) {
+			ZEST_PRINT("A clear recorded after an upload to the same image didn't cover it.");
+			failed = 1;
+		}
+		unsigned char uploaded_bytes[16 * 16 * 4];
+		zest_uint mip_pixels[8 * 8];
+		memset(uploaded_bytes, 0, sizeof(uploaded_bytes));
+		failed |= !metal_read_texture(device, storage, 0, 0, 16, 16, 4, uploaded_bytes);
+		if (memcmp(uploaded_bytes, zest_BufferData(source), sizeof(uploaded_bytes)) != 0) {
+			ZEST_PRINT("An upload recorded after a clear of the same image didn't cover it.");
+			failed = 1;
+		}
+		for (zest_uint mip = 1; mip != 3; ++mip) {
+			memset(mip_pixels, 0, sizeof(mip_pixels));
+			failed |= !metal_read_texture(device, storage, mip, 0, 16u >> mip, 16u >> mip, 4, mip_pixels) || !metal_pixels_match(mip_pixels, (16u >> mip) * (16u >> mip), metal_blue_expected);
+		}
+
+		//Above 2^24, so a value that went through a float on the way would come back changed
+		failed |= metal_integer_clear_matches(device, zest_format_r32_uint, 0x89ABCDEFu);
+		failed |= metal_integer_clear_matches(device, zest_format_r32_sint, (zest_uint)-123456789);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A sampled texture can't be a render target, so Zest refuses before Metal's own validation would, and names the flags that make one
+		failed |= run_metal_colour_clear(device, texture, metal_colour_clear_value(0.2f, 0.4f, 0.6f)) != ZEST_FALSE;
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "zest_image_flag_color_attachment") || !metal_validation_error_mentions(device, "zest_image_flag_storage")) {
+			ZEST_PRINT("Clearing a sampled texture raised %u validation errors, where the one refusal should name the flags to add.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+		failed |= !metal_mips_match(device, texture, 1, 1, black_expected);
+
+		//A pass targets one depth plane of a 3D image, so the whole image can't be cleared this way
+		failed |= run_metal_colour_clear(device, zest_GetImage(volume_handle), metal_colour_clear_value(0.2f, 0.4f, 0.6f)) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "3D image");
+		zest_ResetValidationErrors(device);
+	}
+	if (attachment_handle.value) zest_FreeImageNow(attachment_handle);
+	if (storage_handle.value) zest_FreeImageNow(storage_handle);
+	if (texture_handle.value) zest_FreeImageNow(texture_handle);
+	if (volume_handle.value) zest_FreeImageNow(volume_handle);
+	if (source) zest_FreeBufferNow(source);
+	return failed | finish_metal_device(device);
+}
+
+//Reads the depth or the stencil plane of mip 0 of a 16x16 depth image
+static zest_bool metal_read_depth_plane(zest_device device, zest_image image, zest_bool stencil, void *out_values) {
+	zest_uint bytes_per_pixel = stencil ? 1 : 4;
+	id<MTLBuffer> readback = [zest_GetMetalDevice(device) newBufferWithLength:16 * 16 * bytes_per_pixel options:MTLResourceStorageModeShared];
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+	if (!queue) {
+		[readback release];
+		return ZEST_FALSE;
+	}
+	[zest__mtl_queue_blit_encoder(queue) copyFromTexture:ZEST_MTL_BACKEND(image, image)->texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(16, 16, 1)
+		toBuffer:readback destinationOffset:0 destinationBytesPerRow:16 * bytes_per_pixel destinationBytesPerImage:16 * 16 * bytes_per_pixel
+		options:zest__mtl_blit_option(image->info.format, stencil ? zest_image_aspect_stencil_bit : zest_image_aspect_depth_bit)];
+	zest_bool finished = zest_imm_EndCommandBuffer(queue);
+	if (finished) {
+		memcpy(out_values, [readback contents], 16 * 16 * bytes_per_pixel);
+	}
+	[readback release];
+	return finished;
+}
+
+static zest_bool metal_depth_plane_is(zest_device device, zest_image image, float expected) {
+	float depths[16 * 16];
+	memset(depths, 0, sizeof(depths));
+	if (!metal_read_depth_plane(device, image, ZEST_FALSE, depths)) return ZEST_FALSE;
+	for (zest_uint index = 0; index != 16 * 16; ++index) {
+		if (depths[index] != expected) return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+static zest_bool run_metal_depth_clear(zest_device device, zest_device_queue_type queue_type, zest_image image, float depth, zest_uint stencil) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return ZEST_FALSE;
+	zest_bool cleared = zest_imm_ClearDepthStencilImage(queue, image, depth, stencil);
+	return zest_imm_EndCommandBuffer(queue) && cleared;
+}
+
+int test_metal_clear_depth_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_image_handle depth_handle = metal_create_clear_target(device, zest_format_d32_sfloat, zest_image_preset_depth_attachment);
+	zest_image_handle stencil_handle = metal_create_clear_target(device, zest_format_d32_sfloat_s8_uint, zest_image_preset_depth_attachment);
+	zest_image_handle sampled_handle = metal_create_clear_target(device, zest_format_d32_sfloat, zest_image_flag_sampled | zest_image_flag_device_local);
+	zest_image_handle colour_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	int failed = !depth_handle.value || !stencil_handle.value || !sampled_handle.value || !colour_handle.value;
+	if (!failed) {
+		zest_image depth_image = zest_GetImage(depth_handle);
+		zest_image stencil_image = zest_GetImage(stencil_handle);
+		failed |= !run_metal_depth_clear(device, zest_queue_graphics, depth_image, 0.25f, 0);
+		failed |= !metal_depth_plane_is(device, depth_image, 0.25f);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//Any Metal queue could clear it, and the call is refused off a graphics queue so one app behaves the same on every backend
+		failed |= run_metal_depth_clear(device, zest_queue_compute, depth_image, 1.f, 0) != ZEST_FALSE;
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_depth_plane_is(device, depth_image, 0.25f)) {
+			ZEST_PRINT("A depth clear on a compute queue raised %u validation errors, where it should be refused once and leave the image alone.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+
+		//A format with stencil clears both planes in the one pass
+		failed |= !run_metal_depth_clear(device, zest_queue_graphics, stencil_image, 0.5f, 7);
+		failed |= !metal_depth_plane_is(device, stencil_image, 0.5f);
+		unsigned char stencils[16 * 16];
+		memset(stencils, 0, sizeof(stencils));
+		failed |= !metal_read_depth_plane(device, stencil_image, ZEST_TRUE, stencils);
+		for (zest_uint index = 0; index != 16 * 16; ++index) failed |= stencils[index] != 7;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A depth image that is no attachment, and each kind of image given to the other kind's clear
+		failed |= run_metal_depth_clear(device, zest_queue_graphics, zest_GetImage(sampled_handle), 0.5f, 0) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "zest_image_flag_depth_stencil_attachment");
+		zest_ResetValidationErrors(device);
+		failed |= run_metal_depth_clear(device, zest_queue_graphics, zest_GetImage(colour_handle), 0.5f, 0) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1;
+		zest_ResetValidationErrors(device);
+		failed |= run_metal_colour_clear(device, depth_image, metal_colour_clear_value(0.2f, 0.4f, 0.6f)) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1;
+		zest_ResetValidationErrors(device);
+		failed |= !metal_depth_plane_is(device, depth_image, 0.25f);
+	}
+	if (depth_handle.value) zest_FreeImageNow(depth_handle);
+	if (stencil_handle.value) zest_FreeImageNow(stencil_handle);
+	if (sampled_handle.value) zest_FreeImageNow(sampled_handle);
+	if (colour_handle.value) zest_FreeImageNow(colour_handle);
+	return failed | finish_metal_device(device);
+}
+
+typedef struct MetalImageClearTask {
+	zest_buffer source;
+	zest_buffer target_before;
+	zest_buffer target_after;
+	zest_bool copy_around_clear;
+	zest_bool cleared;					//What zest_cmd_ImageClear returned
+	int run_count;
+} MetalImageClearTask;
+
+//Clears the pass's target, between two buffer copies when the task asks for them
+static void metal_image_clear_pass(const zest_command_list command_list, void *user_data) {
+	MetalImageClearTask *task = (MetalImageClearTask *)user_data;
+	task->run_count++;
+	if (task->copy_around_clear) {
+		zest_cmd_CopyBuffer(command_list, task->source, task->target_before, 512);
+	}
+	zest_resource_node target = zest_GetPassOutputResource(command_list, "Clear Target");
+	task->cleared = zest_cmd_ImageClear(command_list, zest_GetResourceImage(target));
+	if (task->copy_around_clear) {
+		zest_cmd_CopyBuffer(command_list, task->source, task->target_after, 512);
+	}
+}
+
+static int run_metal_image_clear_graph(zest_context context, zest_image image, zest_bool render_pass, MetalImageClearTask *task) {
+	if (!zest_BeginCommandGraph(context, "Image Clear", 0)) return 1;
+	zest_resource_node node = zest_ImportImageResource("Clear Target", image, 0);
+	zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
+	if (render_pass) {
+		zest_BeginRenderPass("Clear Pass");
+	} else {
+		zest_BeginTransferPass("Clear Pass");
+	}
+	zest_ConnectOutput(node);
+	zest_SetPassTask(metal_image_clear_pass, task);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	return failed | (task->run_count != 1);
+}
+
+int test_metal_image_clear_command(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	const int zero_expected[4] = { 0, 0, 0, 0 };
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = zest_format_r8g8b8a8_unorm;
+	image_info.mip_levels = 2;
+	image_info.flags = zest_image_preset_color_attachment | zest_image_flag_transfer_src;
+	zest_image_handle image_handle = zest_CreateImage(device, &image_info);
+	zest_image_handle target_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	zest_buffer source = zest_CreateBuffer(device, 512, &upload_info);
+	zest_buffer readbacks[2] = { zest_CreateBuffer(device, 512, &readback_info), zest_CreateBuffer(device, 512, &readback_info) };
+	int failed = context == NULL || !image_handle.value || !target_handle.value || !source || !readbacks[0] || !readbacks[1];
+	if (!failed) {
+		zest_image image = zest_GetImage(image_handle);
+		zest_image target = zest_GetImage(target_handle);
+		failed |= !run_metal_colour_clear(device, image, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+		failed |= !metal_mips_match(device, image, 2, 1, metal_blue_expected);
+
+		//The clear ends the encoder the copy before it opened, and the copy after it opens another. Only mip 0 is cleared, to zero.
+		MetalImageClearTask task = {};
+		task.source = source;
+		task.target_before = readbacks[0];
+		task.target_after = readbacks[1];
+		task.copy_around_clear = ZEST_TRUE;
+		metal_fill_buffer_bytes(source, 17);
+		memset(zest_BufferData(readbacks[0]), 0xEE, 512);
+		memset(zest_BufferData(readbacks[1]), 0xEE, 512);
+		failed |= run_metal_image_clear_graph(context, image, ZEST_FALSE, &task);
+		failed |= !task.cleared;
+		failed |= !metal_mips_match(device, image, 1, 1, zero_expected);
+		zest_uint mip_pixels[8 * 8];
+		memset(mip_pixels, 0, sizeof(mip_pixels));
+		failed |= !metal_read_texture(device, image, 1, 0, 8, 8, 4, mip_pixels) || !metal_pixels_match(mip_pixels, 8 * 8, metal_blue_expected);
+		failed |= memcmp(zest_BufferData(readbacks[0]), zest_BufferData(source), 512) != 0 || memcmp(zest_BufferData(readbacks[1]), zest_BufferData(source), 512) != 0;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//The clear pointed the context's pass descriptor at the image, which must not keep it alive. Checked before another pass refills the descriptor.
+		id<MTLTexture> cleared_texture = [ZEST_MTL_BACKEND(image, image)->texture retain];
+		zest_WaitForIdleDevice(device);
+		zest_FreeImageNow(image_handle);
+		image_handle.value = 0;
+		if (metal_settled_owner_count(cleared_texture) != 1) {
+			ZEST_PRINT("The freed image that zest_cmd_ImageClear cleared still has %lu owners, where only this test should hold it.", (unsigned long)[cleared_texture retainCount]);
+			failed = 1;
+		}
+		[cleared_texture release];
+
+		//Inside a render pass the pass's own encoder is open, so the command is refused and the pass's clear stands
+		MetalImageClearTask refused = {};
+		failed |= run_metal_image_clear_graph(context, target, ZEST_TRUE, &refused);
+		failed |= refused.cleared != ZEST_FALSE;
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "zest_cmd_ImageClear")) {
+			ZEST_PRINT("zest_cmd_ImageClear inside a render pass raised %u validation errors, where it should be refused once.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+		failed |= !metal_mips_match(device, target, 1, 1, metal_orange_expected);
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (image_handle.value) zest_FreeImageNow(image_handle);
+	if (target_handle.value) zest_FreeImageNow(target_handle);
+	if (source) zest_FreeBufferNow(source);
+	if (readbacks[0]) zest_FreeBufferNow(readbacks[0]);
+	if (readbacks[1]) zest_FreeBufferNow(readbacks[1]);
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	return failed | finish_metal_device(device);
+}
+
+static const zest_uint metal_red_pixel = 0xFF0000FFu;
+static const zest_uint metal_green_pixel = 0xFF00FF00u;
+static const zest_uint metal_blue_pixel = 0xFFFF0000u;
+static const zest_uint metal_black_pixel = 0xFF000000u;
+
+//Left half red, right half blue and the top row green, so a blit that lands flipped, shifted or unfiltered shows
+static void metal_blit_source_pixels(zest_uint *pixels) {
+	for (zest_uint index = 0; index != 16 * 16; ++index) {
+		pixels[index] = index < 16 ? metal_green_pixel : ((index % 16) < 8 ? metal_red_pixel : metal_blue_pixel);
+	}
+}
+
+static zest_bool run_metal_blit(zest_device device, zest_device_queue_type queue_type, zest_image source, zest_image destination, const int source_rect[4], const int destination_rect[4], zest_filter_type filter) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return ZEST_FALSE;
+	zest_bool blitted = zest_imm_BlitImage(queue, source, destination, source_rect[0], source_rect[1], source_rect[2], source_rect[3], destination_rect[0], destination_rect[1], destination_rect[2], destination_rect[3], filter);
+	return zest_imm_EndCommandBuffer(queue) && blitted;
+}
+
+//Whether mip 0 of a 16x16 image with 4 bytes a pixel holds the pixels, give or take the tolerance in each channel
+static zest_bool metal_image_holds(zest_device device, zest_image image, const zest_uint *expected, int tolerance) {
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0x5A, sizeof(pixels));
+	if (!metal_read_texture(device, image, 0, 0, 16, 16, 4, pixels)) return ZEST_FALSE;
+	const unsigned char *read_channels = (const unsigned char *)pixels;
+	const unsigned char *expected_channels = (const unsigned char *)expected;
+	for (zest_uint channel = 0; channel != 16 * 16 * 4; ++channel) {
+		if (abs((int)read_channels[channel] - (int)expected_channels[channel]) > tolerance) {
+			ZEST_PRINT("Pixel %u, %u is %08X, where %08X was expected.", (channel / 4) % 16, channel / 64, pixels[channel / 4], expected[channel / 4]);
+			return ZEST_FALSE;
+		}
+	}
+	return ZEST_TRUE;
+}
+
+static void metal_fill_pixels(zest_uint *pixels, zest_uint value) {
+	for (zest_uint index = 0; index != 16 * 16; ++index) pixels[index] = value;
+}
+
+static zest_image_handle metal_create_blit_source(zest_device device, const zest_uint *pixels) {
+	zest_image_info_t source_info = zest_CreateImageInfo(16, 16);
+	source_info.format = zest_format_r8g8b8a8_unorm;
+	source_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	return zest_CreateImageWithPixels(device, (void *)pixels, 16 * 16 * 4, &source_info);
+}
+
+int test_metal_blit_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	zest_uint source_pixels[16 * 16];
+	zest_uint black_pixels[16 * 16];
+	zest_uint expected[16 * 16];
+	zest_uint array_pixels[2 * 16 * 16];
+	metal_blit_source_pixels(source_pixels);
+	metal_fill_pixels(black_pixels, metal_black_pixel);
+	metal_blit_source_pixels(array_pixels);
+	metal_fill_pixels(array_pixels + 16 * 16, 0xFFFFFFFFu);
+	zest_image_handle source_handle = metal_create_blit_source(device, source_pixels);
+	zest_image_handle destination_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_handle swapped_handle = metal_create_clear_target(device, zest_format_b8g8r8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_handle texture_handle = metal_create_blit_source(device, black_pixels);
+	zest_image_handle integer_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_uint, zest_image_preset_texture);
+	zest_image_info_t array_info = zest_CreateImageInfo(16, 16);
+	array_info.format = zest_format_r8g8b8a8_unorm;
+	array_info.layer_count = 2;
+	array_info.flags = zest_image_preset_texture;
+	zest_image_handle array_handle = zest_CreateImage(device, &array_info);
+	int failed = !source_handle.value || !destination_handle.value || !swapped_handle.value || !texture_handle.value || !integer_handle.value || !array_handle.value;
+	const int whole[4] = { 0, 0, 16, 16 };
+	if (!failed) {
+		zest_image source = zest_GetImage(source_handle);
+		zest_image destination = zest_GetImage(destination_handle);
+		zest_image swapped = zest_GetImage(swapped_handle);
+		zest_image texture = zest_GetImage(texture_handle);
+		failed |= !metal_upload_layers(device, zest_GetImage(array_handle), array_pixels, 16 * 16 * 4, 2);
+
+		//Nothing is built until something blits. A nearest blit between two rects of one size is an exact copy with the top row still at the top.
+		failed |= device_backend->blit_pipeline_count != 0 || device_backend->blit_library != nil;
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, whole, zest_filter_nearest);
+		failed |= !metal_image_holds(device, destination, source_pixels, 0);
+		failed |= device_backend->blit_pipeline_count != 1;
+
+		//A linear blit to half the size averages each 2x2 block, so the green row comes through at half strength, and nothing outside the rect is written
+		const int half_rect[4] = { 4, 4, 8, 8 };
+		failed |= !run_metal_colour_clear(device, destination, metal_colour_clear_value(0.f, 0.f, 0.f));
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, half_rect, zest_filter_linear);
+		metal_fill_pixels(expected, metal_black_pixel);
+		for (zest_uint row = 0; row != 8; ++row) {
+			for (zest_uint column = 0; column != 8; ++column) {
+				zest_uint half_green = column < 4 ? 0xFF008080u : 0xFF808000u;
+				expected[(row + 4) * 16 + column + 4] = row == 0 ? half_green : (column < 4 ? metal_red_pixel : metal_blue_pixel);
+			}
+		}
+		failed |= !metal_image_holds(device, destination, expected, 1);
+
+		//A source rect drawn into a destination rect lands in that rect and leaves the rest
+		const int right_half[4] = { 8, 0, 8, 16 };
+		const int small_rect[4] = { 6, 2, 4, 4 };
+		failed |= !run_metal_colour_clear(device, destination, metal_colour_clear_value(0.f, 1.f, 0.f));
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, right_half, small_rect, zest_filter_nearest);
+		metal_fill_pixels(expected, metal_green_pixel);
+		for (zest_uint row = 2; row != 6; ++row) {
+			for (zest_uint column = 6; column != 10; ++column) expected[row * 16 + column] = metal_blue_pixel;
+		}
+		failed |= !metal_image_holds(device, destination, expected, 0);
+
+		//A destination rect that hangs off the image writes the part inside it, and one wholly outside or with no size writes nothing
+		const int off_far_corner[4] = { 12, 12, 8, 8 };
+		const int off_near_corner[4] = { -4, -4, 8, 8 };
+		const int outside[4] = { 20, 20, 8, 8 };
+		const int no_width[4] = { 0, 0, 0, 8 };
+		failed |= !run_metal_colour_clear(device, destination, metal_colour_clear_value(0.f, 0.f, 0.f));
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, off_far_corner, zest_filter_nearest);
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, off_near_corner, zest_filter_nearest);
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, outside, zest_filter_nearest);
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, no_width, zest_filter_nearest);
+		metal_fill_pixels(expected, metal_black_pixel);
+		for (zest_uint row = 0; row != 4; ++row) {
+			for (zest_uint column = 0; column != 4; ++column) {
+				expected[row * 16 + column] = metal_blue_pixel;
+				expected[(row + 12) * 16 + column + 12] = metal_red_pixel;
+			}
+		}
+		failed |= !metal_image_holds(device, destination, expected, 0);
+		if (zest_GetValidationErrorCount(device) != 0) {
+			ZEST_PRINT("Blits into rects that hang off the destination raised %u validation errors.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+
+		//A negative width runs the rect back from its far edge, as vkCmdBlitImage takes it, which mirrors the image
+		const int mirrored[4] = { 16, 0, -16, 16 };
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, mirrored, zest_filter_nearest);
+		for (zest_uint index = 0; index != 16 * 16; ++index) expected[index] = source_pixels[(index / 16) * 16 + 15 - (index % 16)];
+		failed |= !metal_image_holds(device, destination, expected, 0);
+
+		//An upload, two blits and another upload in one command buffer. Each blit ends the encoder before it, and the passes have to run in the order
+		//they were recorded in, as the first blit reads the upload and the second reads what the first drew.
+		zest_buffer staging_buffer = zest_CreateStagingBuffer(device, sizeof(source_pixels), source_pixels);
+		zest_buffer_image_copy_t region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+		region.image_aspect = zest_image_aspect_color_bit;
+		region.layer_count = 1;
+		region.image_extent = texture->info.extent;
+		failed |= !run_metal_colour_clear(device, destination, metal_colour_clear_value(0.f, 0.f, 0.f));
+		failed |= !run_metal_colour_clear(device, swapped, metal_colour_clear_value(0.f, 0.f, 0.f));
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= !staging_buffer || queue == NULL || !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, staging_buffer, texture);
+		failed |= !zest_imm_BlitImage(queue, texture, destination, 0, 0, 16, 16, 0, 0, 16, 16, zest_filter_nearest);
+		failed |= !zest_imm_BlitImage(queue, destination, swapped, 0, 0, 16, 16, 0, 0, 16, 16, zest_filter_nearest);
+		id<MTLBuffer> blitted_readback = queue ? metal_record_image_read(device, queue, swapped) : nil;
+		failed |= !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, staging_buffer, zest_GetImage(integer_handle));
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		if (staging_buffer) zest_FreeBufferNow(staging_buffer);
+		for (zest_uint index = 0; index != 16 * 16; ++index) expected[index] = (source_pixels[index] & 0xFF00FF00u) | ((source_pixels[index] & 0xFFu) << 16) | ((source_pixels[index] >> 16) & 0xFFu);
+		if (!blitted_readback || memcmp([blitted_readback contents], expected, sizeof(expected)) != 0) {
+			ZEST_PRINT("A copy recorded after a blit in the same command buffer didn't read what the blit drew.");
+			failed = 1;
+		}
+		[blitted_readback release];
+		if (!metal_image_holds(device, destination, source_pixels, 0) || !metal_image_holds(device, swapped, expected, 0)) {
+			ZEST_PRINT("An upload and two blits recorded in one command buffer didn't run in the order they were recorded in.");
+			failed = 1;
+		}
+		failed |= !run_metal_colour_clear(device, swapped, metal_colour_clear_value(0.f, 0.f, 0.f));
+		failed |= !zest_CopyBitmapToImage(device, black_pixels, sizeof(black_pixels), texture, 16, 16);
+
+		//The first layer of an array is read through a view made for the call
+		failed |= !run_metal_blit(device, zest_queue_graphics, zest_GetImage(array_handle), destination, whole, whole, zest_filter_nearest);
+		failed |= !metal_image_holds(device, destination, source_pixels, 0);
+
+		//A blit converts, so red and blue change places in a BGRA destination, and each destination format has one pipeline however often it's used
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, swapped, whole, whole, zest_filter_nearest);
+		for (zest_uint index = 0; index != 16 * 16; ++index) expected[index] = (source_pixels[index] & 0xFF00FF00u) | ((source_pixels[index] & 0xFFu) << 16) | ((source_pixels[index] >> 16) & 0xFFu);
+		failed |= !metal_image_holds(device, swapped, expected, 0);
+		failed |= device_backend->blit_pipeline_count != 2;
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, destination, whole, whole, zest_filter_linear);
+		failed |= !run_metal_blit(device, zest_queue_graphics, source, swapped, whole, whole, zest_filter_linear);
+		if (device_backend->blit_pipeline_count != 2) {
+			ZEST_PRINT("Blits to two destination formats left %i blit pipelines, where each format has one.", device_backend->blit_pipeline_count);
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A sampled texture can't be drawn into, an integer source can't be sampled as floats, and the call needs a graphics queue as it does elsewhere
+		failed |= run_metal_blit(device, zest_queue_graphics, source, texture, whole, whole, zest_filter_nearest) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "zest_image_flag_color_attachment");
+		zest_ResetValidationErrors(device);
+		failed |= run_metal_blit(device, zest_queue_graphics, zest_GetImage(integer_handle), destination, whole, whole, zest_filter_nearest) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "integer");
+		zest_ResetValidationErrors(device);
+		failed |= run_metal_blit(device, zest_queue_compute, source, destination, whole, whole, zest_filter_nearest) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1 || !metal_validation_error_mentions(device, "graphics queue");
+		zest_ResetValidationErrors(device);
+		failed |= !metal_image_holds(device, destination, source_pixels, 0);
+		failed |= !metal_image_holds(device, texture, black_pixels, 0);
+	}
+	if (source_handle.value) zest_FreeImageNow(source_handle);
+	if (destination_handle.value) zest_FreeImageNow(destination_handle);
+	if (swapped_handle.value) zest_FreeImageNow(swapped_handle);
+	if (texture_handle.value) zest_FreeImageNow(texture_handle);
+	if (integer_handle.value) zest_FreeImageNow(integer_handle);
+	if (array_handle.value) zest_FreeImageNow(array_handle);
+
+	//The library, pipelines and samplers belong to the Metal device, which a reset keeps
+	zest_ResetDevice(device);
+	failed |= device_backend != ZEST_MTL_BACKEND(device, device) || device_backend->blit_pipeline_count != 2;
+	source_handle = metal_create_blit_source(device, source_pixels);
+	destination_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	failed |= !source_handle.value || !destination_handle.value;
+	if (source_handle.value && destination_handle.value) {
+		failed |= !run_metal_blit(device, zest_queue_graphics, zest_GetImage(source_handle), zest_GetImage(destination_handle), whole, whole, zest_filter_nearest);
+		failed |= !metal_image_holds(device, zest_GetImage(destination_handle), source_pixels, 0);
+		failed |= device_backend->blit_pipeline_count != 2;
+	}
+	if (source_handle.value) zest_FreeImageNow(source_handle);
+	if (destination_handle.value) zest_FreeImageNow(destination_handle);
+
+	//The table holds 16 destination formats. A blit to one more gets no pipeline and says so, and the table is left as it was.
+	const MTLPixelFormat more_formats[15] = { MTLPixelFormatR8Unorm, MTLPixelFormatRG8Unorm, MTLPixelFormatRGBA8Unorm_sRGB, MTLPixelFormatBGRA8Unorm_sRGB, MTLPixelFormatR16Unorm, MTLPixelFormatRG16Unorm, MTLPixelFormatRGBA16Unorm,
+		MTLPixelFormatR16Float, MTLPixelFormatRG16Float, MTLPixelFormatRGBA16Float, MTLPixelFormatR32Float, MTLPixelFormatRG32Float, MTLPixelFormatRGBA32Float, MTLPixelFormatRGB10A2Unorm, MTLPixelFormatRG11B10Float };
+	for (int format_index = 0; format_index != 14; ++format_index) {
+		failed |= zest__mtl_blit_pipeline(device, more_formats[format_index]) == nil;
+	}
+	failed |= device_backend->blit_pipeline_count != ZEST__MTL_MAX_BLIT_PIPELINES || metal_report_count(device, "destination formats") != 0;
+	id<MTLRenderPipelineState> one_too_many = zest__mtl_blit_pipeline(device, more_formats[14]);
+	if (one_too_many != nil || device_backend->blit_pipeline_count != ZEST__MTL_MAX_BLIT_PIPELINES || metal_report_count(device, "destination formats") != 1) {
+		ZEST_PRINT("A blit to a seventeenth destination format %s a pipeline, left a count of %i and made %i reports.", one_too_many ? "got" : "got no", device_backend->blit_pipeline_count, metal_report_count(device, "destination formats"));
+		failed = 1;
+	}
+	failed |= zest__mtl_blit_pipeline(device, MTLPixelFormatBGRA8Unorm) == nil || zest__mtl_blit_pipeline(device, more_formats[13]) == nil;
+
+	//The device's teardown lets go of what the blits built
+	id<MTLLibrary> blit_library = [device_backend->blit_library retain];
+	failed |= blit_library == nil;
+	failed |= finish_metal_device(device);
+	if (blit_library && metal_settled_owner_count(blit_library) != 1) {
+		ZEST_PRINT("The blit library has %lu owners after its device was destroyed, where only this test should hold it.", (unsigned long)[blit_library retainCount]);
+		failed = 1;
+	}
+	[blit_library release];
+	return failed;
+}
+
+//zest_CreateImage only makes single sampled images, so this follows its steps with a sample count
+static zest_image_handle metal_create_multisampled_image(zest_device device, zest_uint size, zest_sample_count_flags sample_count, zest_image_flags flags) {
+	zest_image_handle handle = zest__new_image(device);
+	zest_image image = zest__get_image_unsafe(handle);
+	image->info = zest_CreateImageInfo(size, size);
+	image->info.flags = flags;
+	image->info.sample_count = sample_count;
+	image->info.aspect_flags = zest_image_aspect_color_bit;
+	if (!device->platform->create_image(device, 0, image, 1, sample_count, image->info.flags)) {
+		zest__cleanup_image(image);
+		return ZEST__ZERO_INIT(zest_image_handle);
+	}
+	image->default_view = device->platform->create_image_view(device, image, zest_image_view_type_2d, 1, 0, 0, 1, 0);
+	image->default_view->handle.store = &device->resource_stores[zest_handle_type_views];
+	zest__activate_resource(handle.store, handle.value);
+	return handle;
+}
+
+static zest_bool run_metal_resolve(zest_device device, zest_device_queue_type queue_type, zest_image source, zest_image destination) {
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return ZEST_FALSE;
+	zest_bool resolved = zest_imm_ResolveImage(queue, source, destination);
+	return zest_imm_EndCommandBuffer(queue) && resolved;
+}
+
+int test_metal_resolve_image(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	const int black_expected[4] = { 0, 0, 0, 255 };
+	zest_uint black_pixels[16 * 16];
+	metal_fill_pixels(black_pixels, metal_black_pixel);
+	zest_image_handle multisampled_handle = metal_create_multisampled_image(device, 16, zest_sample_count_4_bit, zest_image_preset_color_attachment);
+	zest_image_handle second_multisampled_handle = metal_create_multisampled_image(device, 16, zest_sample_count_4_bit, zest_image_preset_color_attachment);
+	zest_image_handle sampled_multisampled_handle = metal_create_multisampled_image(device, 16, zest_sample_count_4_bit, zest_image_flag_sampled | zest_image_flag_device_local);
+	zest_image_handle resolved_handle = metal_create_blit_source(device, black_pixels);
+	zest_image_handle single_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_handle attachment_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_handle swapped_handle = metal_create_clear_target(device, zest_format_b8g8r8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_info_t small_info = zest_CreateImageInfo(8, 8);
+	small_info.flags = zest_image_preset_color_attachment;
+	zest_image_handle small_handle = zest_CreateImage(device, &small_info);
+	int failed = !multisampled_handle.value || !second_multisampled_handle.value || !sampled_multisampled_handle.value || !resolved_handle.value || !single_handle.value || !attachment_handle.value || !swapped_handle.value || !small_handle.value;
+	if (!failed) {
+		zest_image multisampled = zest_GetImage(multisampled_handle);
+		zest_image resolved = zest_GetImage(resolved_handle);
+		zest_image single = zest_GetImage(single_handle);
+		zest_image attachment = zest_GetImage(attachment_handle);
+		failed |= [ZEST_MTL_BACKEND(image, multisampled)->texture sampleCount] != 4;
+		failed |= !run_metal_colour_clear(device, multisampled, metal_colour_clear_value(0.2f, 0.4f, 0.6f));
+
+		//Into a sampled texture, which needs no render target usage to be resolved into. The upload before it in the same command buffer leaves
+		//an encoder open that the resolve has to end.
+		zest_buffer staging_buffer = zest_CreateStagingBuffer(device, sizeof(black_pixels), black_pixels);
+		zest_buffer_image_copy_t region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
+		region.image_aspect = zest_image_aspect_color_bit;
+		region.layer_count = 1;
+		region.image_extent = resolved->info.extent;
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= !staging_buffer || queue == NULL || !zest_imm_CopyBufferRegionsToImage(queue, &region, 1, staging_buffer, resolved);
+		failed |= !zest_imm_ResolveImage(queue, multisampled, resolved);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		if (staging_buffer) zest_FreeBufferNow(staging_buffer);
+		if (!metal_mips_match(device, resolved, 1, 1, metal_blue_expected)) {
+			ZEST_PRINT("A multisampled image cleared to blue didn't resolve to blue.");
+			failed = 1;
+		}
+		//The resolve keeps its source, so a second one from it gives the same pixels
+		failed |= !run_metal_resolve(device, zest_queue_graphics, multisampled, attachment);
+		if (!metal_mips_match(device, attachment, 1, 1, metal_blue_expected)) {
+			ZEST_PRINT("A second resolve from the same multisampled image didn't give its pixels, so the first one didn't keep its source.");
+			failed = 1;
+		}
+		//A copy and a blit recorded after a resolve read what it wrote. The BGRA destination's bytes are the blue's with red and blue changed over.
+		failed |= !run_metal_colour_clear(device, attachment, metal_colour_clear_value(0.f, 0.f, 0.f));
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || !zest_imm_ResolveImage(queue, multisampled, attachment);
+		id<MTLBuffer> resolved_readback = queue ? metal_record_image_read(device, queue, attachment) : nil;
+		failed |= !zest_imm_BlitImage(queue, attachment, zest_GetImage(swapped_handle), 0, 0, 16, 16, 0, 0, 16, 16, zest_filter_nearest);
+		failed |= !zest_imm_EndCommandBuffer(queue);
+		if (!resolved_readback || !metal_pixels_match((const zest_uint *)[resolved_readback contents], 16 * 16, metal_blue_expected) || !metal_mips_match(device, zest_GetImage(swapped_handle), 1, 1, metal_orange_expected)) {
+			ZEST_PRINT("A copy and a blit recorded after a resolve in the same command buffer didn't read what the resolve wrote.");
+			failed = 1;
+		}
+		[resolved_readback release];
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A source with one sample, a destination with four, a compute queue, another format, another size and a source that is no attachment
+		//are each refused before Metal sees them
+		zest_image refused_sources[6] = { single, multisampled, multisampled, multisampled, multisampled, zest_GetImage(sampled_multisampled_handle) };
+		zest_image refused_destinations[6] = { attachment, zest_GetImage(second_multisampled_handle), attachment, zest_GetImage(swapped_handle), zest_GetImage(small_handle), attachment };
+		for (int refusal = 0; refusal != 6; ++refusal) {
+			failed |= !run_metal_colour_clear(device, attachment, metal_colour_clear_value(0.f, 0.f, 0.f));
+			failed |= run_metal_resolve(device, refusal == 2 ? zest_queue_compute : zest_queue_graphics, refused_sources[refusal], refused_destinations[refusal]) != ZEST_FALSE;
+			if (zest_GetValidationErrorCount(device) != 1) {
+				ZEST_PRINT("Refused resolve %i raised %u validation errors, where it should raise one.", refusal, zest_GetValidationErrorCount(device));
+				failed = 1;
+			}
+			zest_ResetValidationErrors(device);
+			failed |= !metal_mips_match(device, attachment, 1, 1, black_expected);
+		}
+	}
+	if (multisampled_handle.value) zest_FreeImageNow(multisampled_handle);
+	if (second_multisampled_handle.value) zest_FreeImageNow(second_multisampled_handle);
+	if (sampled_multisampled_handle.value) zest_FreeImageNow(sampled_multisampled_handle);
+	if (resolved_handle.value) zest_FreeImageNow(resolved_handle);
+	if (single_handle.value) zest_FreeImageNow(single_handle);
+	if (attachment_handle.value) zest_FreeImageNow(attachment_handle);
+	if (swapped_handle.value) zest_FreeImageNow(swapped_handle);
+	if (small_handle.value) zest_FreeImageNow(small_handle);
+	return failed | finish_metal_device(device);
+}
+
+//Each view of a per mip array is one mip of the image at that mip's size, read here through the view's own texture
+int test_metal_per_mip_views(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	const zest_uint seed = 43;
+	zest_image_handle image_handle = metal_create_mip_image(device, zest_format_r8g8b8a8_unorm);
+	zest_image image = zest_GetImage(image_handle);
+	int failed = image == NULL || !metal_upload_mip_patterns(device, image, seed);
+	zest_image_view_array_handle views_handle = ZEST__ZERO_INIT(zest_image_view_array_handle);
+	if (!failed) {
+		views_handle = zest_CreateImageViewsPerMip(device, image);
+		zest_image_view_array view_array = views_handle.value ? zest_GetImageViewArray(views_handle) : NULL;
+		failed |= view_array == NULL || view_array->count != 3;
+		for (zest_uint mip = 0; !failed && mip != 3; ++mip) {
+			zest_uint mip_size = 16u >> mip;
+			id<MTLTexture> view_texture = ZEST_MTL_BACKEND(image_view, &view_array->views[mip])->texture;
+			unsigned char read_bytes[16 * 16 * 4];
+			unsigned char expected_bytes[16 * 16 * 4];
+			memset(read_bytes, 0, sizeof(read_bytes));
+			metal_mip_pattern(expected_bytes, mip, seed);
+			if (view_texture == nil || [view_texture width] != mip_size || [view_texture height] != mip_size || [view_texture mipmapLevelCount] != 1) {
+				ZEST_PRINT("The view of mip %u is %lu by %lu with %lu mips, where it should be %u square with one.", mip, (unsigned long)[view_texture width], (unsigned long)[view_texture height], (unsigned long)[view_texture mipmapLevelCount], mip_size);
+				failed = 1;
+				continue;
+			}
+			failed |= !metal_read_native_texture(device, view_texture, 0, 0, mip_size, mip_size, 4, read_bytes);
+			if (memcmp(read_bytes, expected_bytes, mip_size * mip_size * 4) != 0) {
+				ZEST_PRINT("The view of mip %u doesn't hold what was uploaded to that mip.", mip);
+				failed = 1;
+			}
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (views_handle.value) zest_FreeImageViewArrayNow(views_handle);
+	if (image_handle.value) zest_FreeImageNow(image_handle);
 	return failed | finish_metal_device(device);
 }
 
@@ -1975,6 +3433,16 @@ static MetalTest metal_tests[] = {
 	{ "Metal Depth Readback", test_metal_depth_readback },
 	{ "Metal Arena Backing", test_metal_arena_backing },
 	{ "Metal Transient Images", test_metal_transient_images },
+	{ "Metal Frame Graph Buffer Copies", test_metal_frame_graph_buffer_copies },
+	{ "Metal Image Mip Commands", test_metal_image_mip_commands },
+	{ "Metal Buffer Fills", test_metal_buffer_fills },
+	{ "Metal Render Target Usage", test_metal_render_target_usage },
+	{ "Metal Clear Colour Image", test_metal_clear_colour_image },
+	{ "Metal Clear Depth Image", test_metal_clear_depth_image },
+	{ "Metal Image Clear Command", test_metal_image_clear_command },
+	{ "Metal Blit Image", test_metal_blit_image },
+	{ "Metal Resolve Image", test_metal_resolve_image },
+	{ "Metal Per Mip Views", test_metal_per_mip_views },
 	{ "Metal Swapchain Formats", test_metal_swapchain_formats },
 	{ "Metal Windowed Frames", test_metal_windowed_frames },
 	{ "Metal Windowed Context", test_metal_windowed_context },
