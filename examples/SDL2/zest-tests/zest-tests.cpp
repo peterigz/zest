@@ -228,7 +228,7 @@ static zest_bool IsVulkanOnlyTest(const char *name) {
 #ifdef ZEST_ENABLE_METAL
 //The shared tests the Metal suite run leaves out, under what each group needs from the backend
 static const char *metal_pending_tests[] = {
-	//A compute dispatch, and GPU timestamps to read back
+	//A context with GPU profiling and the debug overlay, which need GPU timestamps and the overlay's shaders
 	"GPU Profiler Timestamps",
 	//Shader compiling, which every test with a pipeline, a draw or a compute dispatch starts from
 	"Buffer Read/Write",

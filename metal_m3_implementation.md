@@ -400,12 +400,12 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 **Files:** `zest-tests.cpp:230-317`. `metal_m3_implementation.md`, `metal_platform_layer_implementation.md`.
 
 **Steps:**
-- [ ] Sweep every test still on the pending list, each alone in its own process with the pending check off. One that passes with no Metal validation record comes off. Regroup what stays under what the sweep saw it stop at. A test with its own context create info is judged in the whole suite, as `--test` runs the first test it matches on the default context ([Built_], Phase 2).
-- [ ] Check the done line: every test in `zest-resource-management-tests.cpp` runs on Metal except those the sweep shows need a shader. List them by name.
-- [ ] The final check on the Mac: every target with Metal on and with Metal off, `zest-objc-compile-check`, `--platform all`, `--platform metal --shader-validation`, one zombie and `MallocScribble` run, and `zest-clear-screen --metal --validate --frames 240`. Expected: the Vulkan lines at the baseline, both Metal lines full, `validation errors: 0`.
-- [ ] Build `zest-tests` and `zest-c-compile-check` on Windows in Debug. Expected: clean.
-- [ ] Add `## As built (<date>)` to this file: the suite count and the pending groups mapped to milestones, the MoltenVK numbers, every difference from the plan, the checks that can't fail yet, and the shared edits. Add M3's part to [Built_] in the design document.
-- [ ] Hand Peter the Windows check, and the questions M4's plan needs answered. Restore the Mac clone.
+- [x] Sweep every test still on the pending list, each alone in its own process with the pending check off. One that passes with no Metal validation record comes off. Regroup what stays under what the sweep saw it stop at. A test with its own context create info is judged in the whole suite, as `--test` runs the first test it matches on the default context ([Built_], Phase 2).
+- [x] Check the done line: every test in `zest-resource-management-tests.cpp` runs on Metal except those the sweep shows need a shader. List them by name.
+- [x] The final check on the Mac: every target with Metal on and with Metal off, `zest-objc-compile-check`, `--platform all`, `--platform metal --shader-validation`, one zombie and `MallocScribble` run, and `zest-clear-screen --metal --validate --frames 240`. Expected: the Vulkan lines at the baseline, both Metal lines full, `validation errors: 0`.
+- [x] Build `zest-tests` and `zest-c-compile-check` on Windows in Debug. Expected: clean.
+- [x] Add `## As built (<date>)` to this file: the suite count and the pending groups mapped to milestones, the MoltenVK numbers, every difference from the plan, the checks that can't fail yet, and the shared edits. Add M3's part to [Built_] in the design document.
+- [x] Hand Peter the Windows check, and the questions M4's plan needs answered. Restore the Mac clone.
 
 ## [Cost_] Per-frame cost
 
@@ -724,3 +724,91 @@ One part per phase, in the order they were built.
 **Noticed and left alone**
 - Any Metal queue can clear a depth image, blit or resolve. The three calls refuse a queue that isn't a graphics queue only so that one app behaves the same on every backend.
 - `zest_GetFormatPixelData` gives a depth format no size, so the tests read depth and stencil planes through their own blit.
+
+### Phase 5: the suite and the close (2026-11-23, on top of commit 30cbe18, built and run on the Mac over SSH)
+
+**What changed**
+- `zest-tests.cpp`: the comment over "GPU Profiler Timestamps" in `metal_pending_tests[]` says what the test stops at in the whole suite. No test came off, and the list still holds 55 in three groups.
+- Nothing else in the code. `zest_metal.h` still has 34 stubs.
+
+**The sweep** (`spikes/metal/sweep_pending.py`, each test alone with the pending check off)
+- 47 tests: the `compile_shader` stub reports, then shared code asserts at `zest.h:13413`, "There's a bug in this shader that needs fixing", and the process exits with -6.
+- The 7 Slang tests: never compiled in on the Mac, where both builds have `ZEST_ENABLE_SLANG` off, so `--test` finds nothing to run.
+- "GPU Profiler Timestamps" has its own create info, so it was judged in the whole suite with only it taken off the list (`spikes/metal/suite_with_one_unpended.py`, untracked).
+  - Its context asks for GPU profiling and the debug overlay. Creating it reports `create_gpu_profiler_backend`, `get_db_overlay_vertex_shader` and `get_db_overlay_fragment_shader`, then asserts on a null store at `zest.h:4890`, and the process exits with -6.
+  - Run alone, on the default context, it fails with no timings read back.
+  - Its compute pass records a profile region and no dispatch. The group's old comment, "A compute dispatch", and Phase 3's note that the pass dispatches were wrong.
+- "Shader Hot Reload Keeps Macros" writes `zest_macro_reload_test.comp` into the working directory and removes it at its end (`zest-pipeline-tests.cpp:1447`), so an abort leaves it there. The sweep left one in the Mac clone's root, and the final check's Vulkan runs of the same test removed it.
+
+**The done line**
+- Of the 23 tests in `zest-resource-management-tests.cpp`, these 21 ran and passed in the Metal suite of the final `--platform all` run, each named "Resource Test" and then: "Image Format Support", "Image Creation Destruction", "Image Format Edge Cases", "Image View Creation", "Buffer Creation Destruction", "Buffer Edge Cases", "Uniform Buffer Descriptor Management", "Uniform Buffer Edge Cases", "Staging Buffer Operations", "Image With Pixels Creation", "Sampler Creation", "Image Array Descriptor Indexes", "Transient Aliasing Dependency", "Buffer Offset Alignment", "Image Allocator Memory Type Keying", "Large Readback Buffer", "Dedicated Buffer", "Concurrent Pool Growth", "Buffer Grow Contract", "Structured Buffer Index" and "Pooled Image Allocations".
+- The other two, "Resource Test Compute Shader Resources" and "Resource Test Stride Aligned Buffers", make a compute shader from GLSL with `zest_CreateShaderFromFile` and `zest_CreateCompute`, and stop at `compile_shader`. That is the roadmap's done line for M3: the resource management tests pass apart from those that need compute.
+
+**Results** (the Mac's screen unlocked, `IOConsoleLocked = No`)
+- Mac, Metal on: every target builds, `zest-objc-compile-check` included. The only warnings are 9 `sprintf` deprecations in the vendored `examples/libs/stb_image_write.h`, the same as Phase 4's build.
+  - `zest-tests --platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 77 / 77`, `Metal backend: 36 / 36`, exit 0, no VUID line.
+  - `zest-tests --platform metal` twice, once with `--shader-validation` and once with `NSZombieEnabled=YES MallocScribble=1`: 77 / 77 and 36 / 36 every time, exit 0, with no Metal validation record in the suite's part of the log, no destroyed in use message and no zombie report.
+  - `zest-clear-screen --metal --validate --frames 240`: exit 0, `validation errors: 0`, with Metal's validation on. The same with `--vulkan`: exit 0, `validation errors: 0`.
+- Mac, Metal off: every target builds with the same 9 warnings. `zest-tests` gives 129 / 129 and 129 / 129, exit 0, no VUID line. `zest-clear-screen --validate --frames 240`: exit 0, `validation errors: 0`.
+- Windows: `zest-tests` and `zest-c-compile-check` build in Debug with no warning and no error, exit 0. The build also printed `'pwsh.exe' is not recognized as an internal or external command`. That is vcpkg's user-wide MSBuild integration (`%LOCALAPPDATA%\vcpkg\vcpkg.user.targets`), whose `vcpkg.targets` tries PowerShell 7 for its app-local DLL step after a link and falls back to Windows PowerShell, which worked as no vcpkg warning followed. Nothing in the repo calls it. The suites were not run.
+
+**Differences from the plan**
+- No test came off the list, so the regroup is one comment.
+- The final check also ran `zest-clear-screen` on Vulkan and with Metal off, as the earlier phases did.
+
+### M3 as a whole
+
+**Counts**
+
+| | Before M3 | After M3 |
+| --- | --- | --- |
+| `Metal suite` | 52 / 52 | 77 / 77 |
+| `Metal backend` | 23 / 23 | 36 / 36 |
+| `metal_pending_tests[]` | 80 | 55 |
+| Stubs in `zest_metal.h` | 50 | 34 |
+
+The Vulkan lines stayed at 129 / 129 each. 25 tests came off the list: 2 in Phase 1, 17 in Phase 2 and 6 in Phase 3.
+
+**The pending list, by the milestone expected to take each test off**
+
+| Tests | File | Stops at | Milestone |
+| --- | --- | --- | --- |
+| The 14 "Pipeline Test" tests, "Shader Cache Invalidation", "Shader Binary Platform Mismatch", "Shader Platform Macro", "Shader Hot Reload Keeps Macros" | `zest-pipeline-tests.cpp` | `compile_shader` | M4 |
+| "Layer Test Instance Draw", "Layer Test Frame In Flight" | `zest-layer-tests.cpp` | `compile_shader` | M4 |
+| "Resource Test Compute Shader Resources", "Resource Test Stride Aligned Buffers" | `zest-resource-management-tests.cpp` | `compile_shader` | M4, which brings compute pipelines and dispatch |
+| "Buffer Read/Write", "Image Write/Read", "Multi Queue Sync", "Frame Graph Transfer Image Output", "Frame Graph Transfer Queue Mip Copy", "Multi Queue Cached Handoff", "Cached Imported Image", "Cached Imported Image Async", "Multi Queue Imported Handback", "Frame Graph Transient Structured Buffer" | `zest-frame-graph-tests.cpp` | `compile_shader` | M5 |
+| The 4 "Stress Test" tests | `zest-frame-graph-stress.cpp` | `compile_shader` | M5 |
+| The 10 "Compute Test" tests | `zest-compute-tests.cpp` | `compile_shader` | M5 |
+| "Device Reset Memory Stability" | `zest-device-reset-tests.cpp` | `compile_shader` | M5 |
+| "GPU Profiler Timestamps" | `zest-frame-graph-tests.cpp` | The profiler and overlay hooks | M4 for the overlay's shaders, M7 for GPU timestamps |
+| The 7 Slang tests | `zest-slang-tests.cpp` | Not built on the Mac | M6 |
+
+Every M5 row stops at `compile_shader`, so some of them may pass once M4 compiles shaders. M4's sweep will show which.
+
+**The MoltenVK numbers** (Phase 1)
+- Metal's `currentAllocatedSize` in one `--platform vulkan` run: 65,536 bytes before the first suite, 249,610,240 after the dynamic rendering suite and 496,304,128 after the legacy render pass suite. A second run gave 65,536, 248,578,048 and 496,304,128.
+- So each Vulkan suite leaves about 247 MB on the Metal device after its Zest device is destroyed. What holds it is not known, and nothing was changed.
+
+**Shared edits**
+- Phase 1: "Resource Test Pooled Image Allocations" (`zest-resource-management-tests.cpp`) and "Device Reset Pool Sizing" (`zest-device-reset-tests.cpp`) expect their feature on Vulkan only, where they exempted D3D12. Neither changes what runs on Windows.
+- Phases 1, 2, 3 and 5: `metal_pending_tests[]` in `zest-tests.cpp`, inside `#ifdef ZEST_ENABLE_METAL`, which a Windows build doesn't compile.
+- No change to `zest.h`, `zest_vulkan.h` or `zest_dx12.h`.
+
+**Differences from the plan that later milestones build on.** Each phase's part has the full list.
+- Batches stay unretained, and a timeline wait or the device's idle wait settles them first ([Settled_], Phase 2). Each batch holds its frame's drawable texture until then.
+- Every commit of a batch is inside an autorelease pool. With GPU validation on, a commit outside one keeps what the batch used (Phase 2).
+- A mip copy copies the first layer, as Vulkan's and D3D12's do (Phase 3).
+- `zest_cmd_BlitImageMip` copies between two images of one format and draws between two formats (Phases 3 and 4).
+- A wrong call reports through `ZEST_ASSERT_OR_VALIDATE` and a limit of the backend through `zest__mtl_report_unavailable` (Phases 1, 3 and 4).
+- With no fence between them, Metal ran a copy and a render pass in one command buffer out of the order they were recorded in (Phase 4). The fence every encoder waits on and updates is what keeps them in order.
+
+**Checks that can't fail yet**
+- Phase 2: a transient image with more than one sample, `zest__mtl_bind_image_arena` returning false, a context queue left in the device's list without `MallocScribble=1`, and a batch that doesn't hold its frame's drawable texture in any one run.
+- Phase 3: the copy encoder's fence wait and update, `end_command_buffer` ending a blit encoder, and a copy between two block compressed formats of one block size. Since Phase 4 showed Metal reordering a copy and a pass, an upload and a pass that read one image in one command buffer may show the fence ones.
+- Phase 4: the blit's scissor, the fence update on a blit pass and on a resolve pass, a resolve that doesn't store its source, `zest__mtl_record_clear` putting the descriptor's mip and slice back, the second lookup under the blit lock, and a blit library or sampler that can't be built. Neither a copy nor a pass recorded straight after either pass has shown the missing update, so no test for the two fence updates is known.
+
+**For M4's plan**
+1. **Indirect draws.** M4's done line names the pipeline tests, which include "Pipeline Test Indirect Draw", and the roadmap puts indirect draws in M5. Recommended: M4 takes `draw_indirect` and `draw_indexed_indirect`.
+2. **MSAA.** `get_msaa_sample_count` is a stub with no milestone. Shared code calls it for a transient with the MSAA hint (`zest.h:18764`) and for a render pass with a resolve attachment (`zest.h:17033`), and a pipeline drawn in such a pass needs the same count. Recommended: M4.
+3. **`--test` and a test's own create info.** `--test` runs the test it matches on the suite's first context, so a test with its own create info can only be judged in the whole suite. Recommended: make `--test` use the test's create info. It's a shared edit to the runner in `zest-tests.cpp`, so it needs a Windows run.
+4. **The fence checks.** The frame graph copy encoder's fence wait and update may fail a test now, with a copy and a pass on one image in one batch. M4's plan should add that test and break each call once. No test for the fence update on a blit or resolve pass is known.

@@ -881,3 +881,21 @@ Planned and recorded in `metal_m2_implementation.md`. Its [Built_] has every res
   - macOS never frees a `CAMetalLayer` that has had display sync turned off, so an SDL window keeps one Metal view that every context on it reuses.
   - A drawable hands its texture out autoreleased, and a thread with no autorelease pool keeps every one.
   - A depth and stencil format is accepted as a depth attachment with no stencil attachment, and a zero-area scissor rect is accepted.
+
+### M3: memory and resources (2026-11-23, commits fc6e870 to 30cbe18 and the Phase 5 commit after it)
+
+Planned and recorded in `metal_m3_implementation.md`. Its [Built_] has every result, breakage and difference from its plan, the pending list mapped to milestones, and the questions for M4's plan.
+
+- A Metal frame graph places transient buffers and images in arena backings, copies buffers and image mips through one blit encoder per pass, and clears an image or blits between two formats with a render pass. The immediate fill, update, clear, blit and resolve work. The blit is a built-in pipeline from MSL text, built on first use.
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 77 / 77`, `Metal backend: 36 / 36`. 55 shared tests are pending: 47 stop at `compile_shader`, the 7 Slang tests aren't built on the Mac, and "GPU Profiler Timestamps" needs GPU timestamps and the debug overlay's shaders.
+- The resource management tests pass on Metal apart from the two that make a compute shader.
+- `zest_metal.h` has 34 stubs left of M1's 88.
+- What M3 learnt that later milestones rely on:
+  - Metal's debug layer needs an object to outlive the completion of every unretained command buffer that used it, and completion comes a little after the event a timeline wait sees. A successful timeline wait, and the device's idle wait, settle the device's batches before shared code frees anything.
+  - With GPU validation on, a commit outside an autorelease pool keeps what the batch used until a pool drains, which a thread with no pool never does.
+  - With no fence between them, Metal ran a copy and a render pass in one command buffer out of the order they were recorded in. Every encoder waits on its queue's fence when it opens and updates it when it ends.
+  - A copy between two formats with the same bytes per pixel and a different channel layout gives wrong bytes with no message. The copy rule compares channel counts, bytes per pixel and block sizes.
+  - Any format takes render target usage at creation. Using a compressed texture as an attachment is what fails.
+  - A sampler with Metal's default mip filter reads mip 0 whatever level the shader asks for.
+  - With the Mac's screen locked a `CAMetalLayer` hands out no drawable, so the windowed tests fail on a one second `zest_BeginFrame`.
+- Each MoltenVK suite leaves about 247 MB allocated on the Metal device after its Zest device is destroyed. What holds it is not known.
