@@ -422,7 +422,7 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
 - Summary lines: `Metal suite: N / N` and `Metal backend: N / N`. Both count toward the exit code.
 
 **Steps:**
-- [ ] Implement the runner changes with `metal_pending_tests[]` holding every registered test except this starting set, which is what D3D12 ran at the same point:
+- [x] Implement the runner changes with `metal_pending_tests[]` holding every registered test except this starting set, which is what D3D12 ran at the same point:
   - "Empty Graph", "Single Pass", "Blank Screen", "Pass Culling", "Resource Culling", "Chained Pass Culling"
   - "Import Image", "Pass Grouping", "Cyclic Dependency", "Simple Graph Cache"
   - "Resource Test Image Format Support", "Resource Test Image Creation Destruction", "Resource Test Buffer Creation Destruction", "Resource Test Buffer Edge Cases", "Resource Test Sampler Creation"
@@ -430,11 +430,11 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
   - "Compute Test Timeline Timeout"
   - "Resource Test Buffer Offset Alignment", "Resource Test Dedicated Buffer", "Resource Test Buffer Grow Contract"
   - "User Test Device Platform Query", "User Test Descriptor Pool Failure", "User Test Swapchain Resize"
-- [ ] Run `--platform metal`. A starting test that fails because it needs a later capability goes onto the pending list with that capability named. A failure in code this plan owns gets fixed.
-- [ ] Sweep the pending list: run each pending test alone with `--test`, in its own process. One that passes with 0 validation errors comes off the list. Record the final suite count.
-- [ ] Run `--platform all`. Expected: the two Vulkan lines at the Task 1 baseline, `Metal suite` full at the recorded count, `Metal backend: 23 / 23`, exit 0, no VUID line.
-- [ ] Run `--platform metal --shader-validation`. Expected: both Metal lines full.
-- [ ] Build `zest-tests` and `zest-c-compile-check` on Windows. Expected: clean.
+- [x] Run `--platform metal`. A starting test that fails because it needs a later capability goes onto the pending list with that capability named. A failure in code this plan owns gets fixed.
+- [x] Sweep the pending list: run each pending test alone with `--test`, in its own process. One that passes with 0 validation errors comes off the list. Record the final suite count.
+- [x] Run `--platform all`. Expected: the two Vulkan lines at the Task 1 baseline, `Metal suite` full at the recorded count, `Metal backend: 23 / 23`, exit 0, no VUID line.
+- [x] Run `--platform metal --shader-validation`. Expected: both Metal lines full.
+- [x] Build `zest-tests` and `zest-c-compile-check` on Windows. Expected: clean.
 
 ### Task 8: The clear-screen example, and the close
 
@@ -449,13 +449,13 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
 - The default backend doesn't change. Metal is by name only until M6.
 
 **Steps:**
-- [ ] Implement.
-- [ ] On the Mac, from the repo root: `zest-clear-screen --metal --validate --frames 240` and `zest-clear-screen --vulkan --validate --frames 240`. Expected: both exit 0, the Metal run prints `validation errors: 0`, and the log shows Metal API validation on.
-- [ ] `zest-clear-screen --metal --validate-sync --frames 240`. Expected: exit 0, `validation errors: 0`, shader validation on in the log.
-- [ ] Build on Windows: every example in Debug, as they all include `example_platform.h`. Expected: clean.
-- [ ] The final check on the Mac: all targets with Metal on and with Metal off, `zest-objc-compile-check`, `zest-tests --platform all`, `--platform metal --shader-validation`, and one zombie and `MallocScribble` run of `--platform metal`.
-- [ ] Add `## As built (<date>)` to this file: the suite count and the final pending groups mapped to milestones, the two unverified answers from Task 5, every difference from the plan, the checks that still can't fail, and the full list of shared edits. Add M2's line to [Built_] in the design document, and correct its Validation row in [Mapping_] to say that creating a window makes the first Metal device.
-- [ ] Hand Peter the Windows checks and the visual checks in [Testing_], and the questions M3's plan needs answered. Restore the Mac clone.
+- [x] Implement.
+- [x] On the Mac, from the repo root: `zest-clear-screen --metal --validate --frames 240` and `zest-clear-screen --vulkan --validate --frames 240`. Expected: both exit 0, the Metal run prints `validation errors: 0`, and the log shows Metal API validation on.
+- [x] `zest-clear-screen --metal --validate-sync --frames 240`. Expected: exit 0, `validation errors: 0`, shader validation on in the log.
+- [x] Build on Windows: every example in Debug, as they all include `example_platform.h`. Expected: clean.
+- [x] The final check on the Mac: all targets with Metal on and with Metal off, `zest-objc-compile-check`, `zest-tests --platform all`, `--platform metal --shader-validation`, and one zombie and `MallocScribble` run of `--platform metal`.
+- [x] Add `## As built (<date>)` to this file: the suite count and the final pending groups mapped to milestones, the two unverified answers from Task 5, every difference from the plan, the checks that still can't fail, and the full list of shared edits. Add M2's line to [Built_] in the design document, and correct its Validation row in [Mapping_] to say that creating a window makes the first Metal device.
+- [x] Hand Peter the Windows checks and the visual checks in [Testing_], and the questions M3's plan needs answered. Restore the Mac clone.
 
 ## [Cost_] Per-frame cost
 
@@ -497,9 +497,9 @@ From the repo root, `../Zest-Build-Metal/examples/SDL2/zest-clear-screen --metal
 7. Run it again with `--validate`, repeat steps 2 to 4, and close. Expected: `validation errors: 0`.
 8. If you have a Retina display to hand, run step 1 and 2 there. Nothing on the mini's display exercises a backing scale of 2, so this is the only check of it.
 
-## [Built_] As built
+## [Built_] As built (2026-11-23)
 
-Each phase adds its part. Task 8 completes the section.
+One part per phase, in the order they were built. Phase 4's part closes with what M2 leaves for M3.
 
 ### Phase 1: shared wiring, validation and device reset (2026-11-23, on top of commit 0bc5816, built and run on the Mac over SSH)
 
@@ -685,3 +685,87 @@ Each phase adds its part. Task 8 completes the section.
 - The SDL Metal view is never destroyed. It stays a subview of its window, and the handle SDL gave for it is not released when the window is destroyed. One small view per window for the life of the process.
 - Without SDL, the app's own layer has the same macOS behaviour, and what it does with the layer is the app's.
 - MoltenVK's layer was not checked for the same thing.
+
+### Phase 4: the suite and the example (2026-11-23, on top of commit 971d558, built and run on the Mac over SSH and built on Windows)
+
+**What changed**
+- `zest-tests.cpp`:
+  - `CreateSuiteDevice` has a Metal branch, and `RunSuite` fails a Metal suite whose device has no validation.
+  - `metal_pending_tests[]` and `IsMetalPendingTest`, inside `#ifdef ZEST_ENABLE_METAL`.
+  - `RegisterTest` skips `vulkan_only_tests[]` on every platform that isn't Vulkan, a pending test on Metal, and any test `--test` doesn't name.
+  - A suite left with no test prints a line and is skipped.
+  - The Metal process runs the suite in a 1280x768 window, then the backend list, and writes four counts.
+  - `Metal suite: N / N` joins the summary and the exit code.
+- `zest-metal-tests.cpp`: `RunMetalTestsInChildProcess` reads four counts and passes `--test` on. `WriteMetalRunCounts`.
+- `example_platform.h`: `use_metal`, `--metal`, `ExampleValidationFlags`, the early `zest_PrepareMetalValidation` call, the Metal device in `CreateExampleDevice`, and a check in `FinishExample`.
+- `zest-clear-screen.cpp`: defines `ZEST_METAL_IMPLEMENTATION` under `ZEST_ENABLE_METAL`.
+- `zest_metal.h` is unchanged in this phase. 50 stubs remain, where M2 started with 88.
+
+**Results**
+- Mac, Metal on. Every target builds. The only warnings are 9 from `examples/libs/stb_image_write.h`, which a Metal off build gives too.
+  - `--platform metal`, three runs: `Metal suite: 52 / 52`, `Metal backend: 23 / 23`, and no Metal validation record in the suite's part of the log.
+  - `--platform metal --shader-validation`: 52 / 52 and 23 / 23.
+  - `NSZombieEnabled=YES MallocScribble=1`: 52 / 52 and 23 / 23, no zombie report.
+  - `--platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 52 / 52`, `Metal backend: 23 / 23`, exit 0, no VUID line.
+  - `zest-clear-screen --metal --validate --frames 240`: exit 0, `validation errors: 0`, API validation on. With `--validate-sync`: the same, with shader validation on too. `--vulkan --validate --frames 240`: exit 0, `validation errors: 0`.
+- Mac, Metal off. Every target builds. 129 / 129 and 129 / 129, no VUID line. `zest-clear-screen --metal` prints that Metal isn't compiled into the example and exits 1.
+- Windows. Every target builds in Debug, 28 projects, no warning and no error. The suites were not run.
+
+**The Metal suite: 52 tests**
+- The 33 starting tests all passed as they were.
+- The sweep ran each of the 99 pending tests alone, in its own process, with the pending check switched off by a local edit. 19 passed and came off the list:
+  - "Stress Test Simple", "Stress Test Pass Dependencies", "Stress Test Pass Dependency Chain"
+  - "Resource Test Image Format Edge Cases", "Resource Test Image View Creation", "Resource Test Uniform Buffer Descriptor Management", "Resource Test Uniform Buffer Edge Cases", "Resource Test Staging Buffer Operations", "Resource Test Image With Pixels Creation", "Resource Test Image Array Descriptor Indexes"
+  - "User Test Unused Swapchain", "User Test Acquire/Release Indexes", "Essential Unused Transient"
+  - "Resource Test Image Allocator Memory Type Keying", "Resource Test Large Readback Buffer", "Resource Test Concurrent Pool Growth", "Resource Test Structured Buffer Index"
+  - "Device Reset Deferred Frees", "Device Reset Bindless Indexes"
+- The 80 still pending, by what the sweep saw each stop at:
+
+| Group in `metal_pending_tests[]` | Tests | What stopped them | Milestone |
+| --- | --- | --- | --- |
+| Transient images | 16 | `create_transient_image_unbound`, `new_frame_graph_image_backend` | M3 |
+| Transient buffers | 8 | `create_arena_backing` | M3, then M4 for the three layer tests and M7 for "GPU Profiler Timestamps" |
+| Shader compiling | 47 | `compile_shader`, at an assert in shared code that ends the process | M4, then M5 for the multi queue and device reset ones |
+| Shader compiling from Slang | 7 | Not built on the Mac | M6 |
+| A memory allocation count limit | 1 | "Resource Test Pooled Image Allocations" expects one unless the platform is D3D12, and Metal reports 0 as D3D12 does | A one word test edit |
+| Instance extensions | 1 | "Device Reset Pool Sizing" expects some unless the platform is D3D12 | A one word test edit |
+
+- The 4 tests in `vulkan_only_tests[]` never run on Metal.
+
+**Checks made on the new runner and example code**
+- With the `zest_PrepareMetalValidation` call removed from `main`: the suite prints its red line and counts 0 / 1, the backend list gives 20 / 23, exit 1.
+- With the call removed from `ParseExampleOptions`: `zest-clear-screen --metal --validate` prints "Metal validation was not active" and exits 1.
+- `--test Swapchain`: 4 tests in each suite on Vulkan and on Metal, all passing, with the Metal backend list unfiltered. `--platform all --test Swapchain` passes the text on to the Metal process.
+- `--test zzz`: the suite prints that no test has the text in its name and counts 0 / 0, exit 0.
+
+**Where it differs from the plan**
+- **`FinishExample` fails a Metal run whose validation never came on.** Without it, an example that lost its early call still printed `validation errors: 0` and exited 0, with only Zest's alert to show for it. It reads the device backend's `api_validation`, as the D3D12 branch beside it reads an internal count.
+- **The example helper keys on `ZEST_METAL_IMPLEMENTATION`, not `ZEST_ENABLE_METAL`.** CMake defines the second for every example on a Metal build, and only `zest-clear-screen` compiles the backend in. Any other example given `--metal` prints "Metal is not compiled into this example" and exits 1.
+- **`ExampleValidationFlags`** is new, so the early call and `CreateExampleDevice` can't disagree on the flags.
+- **Two device reset tests run on Metal.** [Scope_] left the device reset tests to M5. Two of the four pass now, so the sweep's rule took them off the list.
+- **`MetalRunCounts` is declared in `zest-tests.cpp` on every platform**, as `main`'s exit code reads it, and `zest-metal-tests.cpp` is included after it.
+- **The sweep needed no code.** The pending check was switched off by an edit on the Mac for the length of the sweep.
+
+**One failure that didn't come back**
+- "Metal Windowed Context" failed once, in the first Metal run after the sweep, which had just ended about 50 processes at an assert. The line it prints with the reason wasn't kept. The same test then passed more than 50 runs in a row, 12 of them with every core loaded. Its two timing sensitive checks are the 500 ms bound on `zest_BeginFrame` and the allocated size after each context.
+
+**Checks that still can't fail, for all of M2**
+- A pass that doesn't wait on, or doesn't update, its queue's fence. M4.
+- The waits `begin_command_buffer` encodes: the wave waits (M5) and the ordering wait (M4).
+- `set_screensized_viewport`, and whether a zero-area scissor draws nothing. M4.
+- Either size check in `acquire_swapchain_image` alone. Removing both fails.
+- The swapchain's image backend not being freed on a resize.
+- A backing scale of 2. Nothing on the mini's display exercises it.
+
+**Shared edits for Peter's Windows run (Phase 4)**
+- `zest-tests.cpp`: `--test`, the empty suite line, `RegisterTest` skipping the Vulkan only tests on any platform that isn't Vulkan where it named D3D12, the `MetalRunCounts` struct and its part of the exit code. The rest is inside `#ifdef ZEST_ENABLE_METAL`.
+- `example_platform.h`: `use_metal` and `--metal`, `ExampleValidationFlags` in place of the same lines in `CreateExampleDevice`, `!options->use_metal` beside the two `!options->use_d3d12` tests, and `validation_inactive` in `FinishExample`, which is always false without the Metal backend.
+- `zest-clear-screen.cpp`: three lines under `ZEST_ENABLE_METAL` and two comments.
+- Expected on Windows: what [Testing_] lists.
+
+**For M3's plan**
+- The two pending tests that only exempt D3D12. Changing each exemption to "only Vulkan has this" is a one word edit to a shared test.
+- `zest_CopyImageToBitmap` gives a depth format a row size of 0 on Metal, which Metal's validation rejects. It belongs with the remaining immediate functions.
+- The SDL Metal view is never destroyed (Decision 6). `zest_implsdl2_DestroyWindow` could destroy it, which is a shared edit.
+- MoltenVK's layer wasn't checked for the display sync behaviour Phase 3 found.
+- The intermittent "Metal Windowed Context" failure, if it shows again: the test prints which check failed.

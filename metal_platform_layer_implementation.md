@@ -157,7 +157,7 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Scaled blits | A built-in pipeline whose shaders are MSL text in `zest_metal.h`, so it needs neither shaderc nor SPIRV-Cross | M3 |
 | Clears outside a pass | A render pass with a clear load op and no draws where the image can be a target, otherwise a copy from zeroed staging | M3 |
 | Swapchain | A `CAMetalLayer`. Acquire is `nextDrawable`, present is `presentDrawable` on the frame's last command buffer. Resize is detected by comparing sizes | M2 |
-| Validation | `MTL_DEBUG_LAYER` and `MTL_SHADER_VALIDATION`, set with `setenv` before the process's first Metal device. It is process wide and can't be changed afterwards. Shader validation messages are counted from each command buffer's `logs`. API messages are logged through `NSLog` and counted by a reader on standard error (decision 9) | Spike C |
+| Validation | `MTL_DEBUG_LAYER` and `MTL_SHADER_VALIDATION`, set with `setenv` before the process's first Metal device. Creating a window makes that device, so for a windowed app it means before the first window, which is what `zest_PrepareMetalValidation` is for. It is process wide and can't be changed afterwards. Shader validation messages are counted from each command buffer's `logs`. API messages are logged through `NSLog` and counted by a reader on standard error (decision 9) | Spike C |
 | Markers and names | `pushDebugGroup` and `label`, always on | M7 |
 | GPU timestamps | Counter sample buffers. Apple GPUs sample at pass stage boundaries only *(unverified)*, so sub-pass regions may be a documented limit | M7 |
 | Device loss | The command buffer's error and encoder execution status | M7 |
@@ -868,3 +868,16 @@ One check still can't fail: "Metal Headless Context" compares allocated size acr
 - New: the frame graph's command buffers have to have their `logs` read on completion when shader validation is on, as the immediate ones do now through `zest__mtl_finish_command_buffer`.
 - New: a windowed context's Metal objects are what "Metal Headless Context"'s size check is waiting for, so M2 should add the windowed counterpart.
 - New: an example run with `--validate` and both backends compiled in must create its Metal device before any Vulkan device, or validation can't come on. `example_platform.h` should try Metal first, which is also what decision 4 asks for from M6.
+
+### M2: swapchain and frames (2026-11-23, commits 44a3242 to 971d558 and the Phase 4 commit after it)
+
+Planned and recorded in `metal_m2_implementation.md`. Its [Built_] has every result, breakage and difference from its plan.
+
+- A windowed Metal context presents to a `CAMetalLayer`, resizes, toggles vsync in place and survives a device reset. `zest-clear-screen --metal` runs with validation clean.
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 52 / 52`, `Metal backend: 23 / 23`. 80 shared tests are pending on Metal, grouped in `metal_pending_tests[]` by what each needs.
+- `zest_metal.h` has 50 stubs left of M1's 88.
+- What M2 learnt that later milestones rely on:
+  - Creating a window makes the process's first Metal device, so validation has to be prepared before the window. `zest_PrepareMetalValidation` does it.
+  - macOS never frees a `CAMetalLayer` that has had display sync turned off, so an SDL window keeps one Metal view that every context on it reuses.
+  - A drawable hands its texture out autoreleased, and a thread with no autorelease pool keeps every one.
+  - A depth and stencil format is accepted as a depth attachment with no stencil attachment, and a zero-area scissor rect is accepted.

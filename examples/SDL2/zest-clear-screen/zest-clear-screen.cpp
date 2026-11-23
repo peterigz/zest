@@ -3,6 +3,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #include <SDL.h>
 #include <zest.h>
 #include <math.h>
@@ -12,8 +15,8 @@
 #include "examples/Common/example_platform.h"
 
 /**
-	Clears the window to a slowly cycling colour on either backend.
-	Arguments: --vulkan or --d3d12 selects the backend (D3D12 is the default when it's compiled in),
+	Clears the window to a slowly cycling colour on any backend.
+	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 is the default when it's compiled in),
 	--frames N exits after N frames (resizing the window at N / 2), --validate enables the validation
 	layers and fails the run on any validation error. See examples/Common/example_platform.h.
  */
@@ -24,7 +27,7 @@ static void SetCycleColor(zest_context context, int frame) {
 }
 
 int main(int argc, char *argv[]) {
-	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --metal, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
 	example_options_t options = ParseExampleOptions(argc, argv);
 
 	zest_create_context_info_t create_info = zest_CreateContextInfo();

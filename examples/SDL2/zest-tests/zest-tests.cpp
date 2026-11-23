@@ -22,6 +22,15 @@
 #ifdef ZEST_ENABLE_D3D12
 #include "zest-d3d12-tests.cpp"
 #endif
+
+//What the Metal process ran: the shared suite, then the backend's own list
+struct MetalRunCounts {
+	int suite_passed;
+	int suite_total;
+	int backend_passed;
+	int backend_total;
+};
+
 #ifdef ZEST_ENABLE_METAL
 #include "zest-metal-tests.cpp"
 #endif
@@ -197,7 +206,7 @@ void InitialiseSpecificTests(ZestTests *tests) {
     zest_ResetValidationErrors(tests->device);
 }
 
-//The shared tests the D3D12 suite run leaves out
+//The shared tests only the Vulkan suite runs
 static const char *vulkan_only_tests[] = {
 	//Builds Vulkan devices; "D3D12 Pool Failure Rejected" covers D3D12
 	"User Test Device Creation Pool Failure",
@@ -216,8 +225,114 @@ static zest_bool IsVulkanOnlyTest(const char *name) {
 	return ZEST_FALSE;
 }
 
+#ifdef ZEST_ENABLE_METAL
+//The shared tests the Metal suite run leaves out, under what each group needs from the backend
+static const char *metal_pending_tests[] = {
+	//Transient images
+	"Transient Image",
+	"Image Barriers",
+	"Multi Reader Barrier",
+	"Depth Attachment",
+	"User Test Transient Dependency Ordering",
+	"Compute Test WAW Barrier",
+	"Resource Test Transient Aliasing Dependency",
+	"Versioned Transient",
+	"Cached Transient Persistence",
+	"Transient Placement Failure",
+	"Transient Placement Failure Retry",
+	"Arena Memory Bound",
+	"Arena Alternation",
+	"Arena Trim",
+	"Transient Report",
+	"Transient Mip Views Across Allocator Growth",
+	//Transient buffers
+	"User Test Buffer Output In Render Pass",
+	"Cached Transient Placement",
+	"Unbacked Transient Barrier",
+	"Intraframe Two Graphs",
+	"GPU Profiler Timestamps",
+	"Layer Test Instance Upload",
+	"Layer Test Instruction Batching",
+	"Layer Test Buffer Growth",
+	//Shader compiling, which every test with a pipeline, a draw or a compute dispatch starts from
+	"Buffer Read/Write",
+	"Image Write/Read",
+	"Multi Queue Sync",
+	"Stress Test Transient Buffers",
+	"Stress Test Transient Images",
+	"Stress Test All Transients",
+	"Stress Test Multi Queue",
+	"Pipeline Test State Depth",
+	"Pipeline Test State Blending",
+	"Pipeline Test State Culling",
+	"Pipeline Test State Topology",
+	"Pipeline Test State Polygon Mode",
+	"Pipeline Test State Front Face",
+	"Pipeline Test State Vertex Input",
+	"Pipeline Test State MultiBlend",
+	"Pipeline Test State Rasterization",
+	"Pipeline Test Winding Coverage",
+	"Pipeline Test Vertex Draw",
+	"Pipeline Test Depth Bias",
+	"Pipeline Test Indirect Draw",
+	"Pipeline Test ImGui Shaders",
+	"Shader Cache Invalidation",
+	"Shader Binary Platform Mismatch",
+	"Shader Platform Macro",
+	"Resource Test Compute Shader Resources",
+	"Compute Test Frame Graph and Execute",
+	"Compute Test Timeline Wait External",
+	"Compute Test Immediate Execute Cached",
+	"Compute Test Mipmap Chain",
+	"Compute Test Multiple Timeline Signals",
+	"Compute Test Read Modify Write",
+	"Compute Test Only Graph",
+	"Compute Test Immediate Execute No Wait",
+	"Compute Test Flush Compile Failure No Hang",
+	"Compute Test Headless Flush And Wait",
+	"Resource Test Stride Aligned Buffers",
+	"Frame Graph Transfer Image Output",
+	"Frame Graph Transfer Queue Mip Copy",
+	"Multi Queue Cached Handoff",
+	"Cached Imported Image",
+	"Cached Imported Image Async",
+	"Multi Queue Imported Handback",
+	"Frame Graph Transient Structured Buffer",
+	"Layer Test Instance Draw",
+	"Layer Test Frame In Flight",
+	"Shader Hot Reload Keeps Macros",
+	"Device Reset Memory Stability",
+	//Shader compiling from Slang
+	"Slang Variants And Linking",
+	"Slang Compile Failures",
+	"Slang Type Size",
+	"Slang Debug Info",
+	"Slang Hot Reload",
+	"Slang Shadowing Module",
+	"Slang TimelineFX Strides",
+	//Expects a limit on the number of memory allocations on every platform but D3D12, and Metal has none either
+	"Resource Test Pooled Image Allocations",
+	//Expects instance extensions on every platform but D3D12, and Metal has none either
+	"Device Reset Pool Sizing",
+};
+
+static zest_bool IsMetalPendingTest(const char *name) {
+	for (size_t index = 0; index != sizeof(metal_pending_tests) / sizeof(metal_pending_tests[0]); ++index) {
+		if (strcmp(metal_pending_tests[index], name) == 0) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+#endif
+
+//Set by --test, so that only the tests whose name contains the text are registered
+static const char *suite_test_filter = NULL;
+
 void RegisterTest(ZestTests *tests, Test test) {
-	if (tests->platform == zest_platform_d3d12 && IsVulkanOnlyTest(test.name)) return;
+	if (tests->platform != zest_platform_vulkan && IsVulkanOnlyTest(test.name)) return;
+#ifdef ZEST_ENABLE_METAL
+	if (tests->platform == zest_platform_metal && IsMetalPendingTest(test.name)) return;
+#endif
+	if (suite_test_filter && !strstr(test.name, suite_test_filter)) return;
 	//Overflowing the fixed test array silently corrupts the fields after it in ZestTests
 	ZEST_ASSERT(tests->test_count < TEST_COUNT);
 	tests->tests[tests->test_count] = test;
@@ -301,6 +416,11 @@ static zest_device CreateSuiteDevice(zest_platform_type platform, const char **i
 		return zest_EndDeviceBuilder(BeginD3D12TestBuilder());
 	}
 #endif
+#ifdef ZEST_ENABLE_METAL
+	if (platform == zest_platform_metal) {
+		return zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	}
+#endif
 	// Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
 	zest_AddDeviceBuilderExtensions(device_builder, instance_extensions, extension_count);
@@ -336,6 +456,16 @@ int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const
 		return 0;
 	}
 
+#ifdef ZEST_ENABLE_METAL
+	//Without validation a Metal test that makes a mistake still passes, and validation can't come on once a window exists
+	if (platform == zest_platform_metal && !ZEST_MTL_BACKEND(device, tests.device)->api_validation) {
+		ZEST_PRINT("\033[31mThe Metal suite's device has no validation, so none of its tests ran. zest_PrepareMetalValidation has to be called before the suite's window is created.\033[0m");
+		zest_DestroyDevice(tests.device);
+		*total_out = 1;
+		return 0;
+	}
+#endif
+
 	if (!force_legacy_render_pass && zest__using_legacy_render_pass(tests.device)) {
 		ZEST_PRINT("\033[33mWARNING: dynamic rendering is not supported on this device, this run will use the legacy render pass path instead.\033[0m");
 	}
@@ -346,6 +476,14 @@ int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const
 
 	InitialiseTests(&tests);
 	//InitialiseSpecificTests(&tests);
+
+	//RunTests runs the first test without looking at the count
+	if (tests.test_count == 0) {
+		ZEST_PRINT("No test in this suite has %s in its name, so the suite was skipped.", suite_test_filter ? suite_test_filter : "");
+		zest_DestroyDevice(tests.device);
+		*total_out = 0;
+		return 0;
+	}
 
 	int completed_tests = RunTests(&tests);
 	*total_out = tests.test_count;
@@ -408,6 +546,8 @@ int main(int argc, char *argv[]) {
 				ZEST_PRINT("\033[31mUnknown platform %s, expected vulkan, d3d12, metal or all\033[0m", platform_name);
 				return 1;
 			}
+		} else if (strcmp(argument, "--test") == 0 && argument_index + 1 < argc) {
+			suite_test_filter = argv[++argument_index];
 		}
 #ifdef ZEST_ENABLE_D3D12
 		else if (strcmp(argument, "--warp") == 0) {
@@ -425,21 +565,25 @@ int main(int argc, char *argv[]) {
 #endif
 	}
 
-	int metal_backend_total = 0;
-	int metal_backend_completed = 0;
+	MetalRunCounts metal_counts = {};
 #ifdef ZEST_ENABLE_METAL
-	//Metal fixes its validation when the process makes its first window, which a windowed test does before its device
-	if (run_metal && !run_vulkan) {
-		zest_PrepareMetalValidation(MetalTestFlags());
-	}
 	if (run_metal && run_vulkan) {
-		ZEST_PRINT("=== Test suite run: Metal backend, in its own process ===");
-		metal_backend_completed = RunMetalSuiteInChildProcess(argv[0], &metal_backend_total);
+		ZEST_PRINT("=== Test suite run: Metal, in its own process ===");
+		metal_counts = RunMetalTestsInChildProcess(argv[0], suite_test_filter);
 		ZEST_PRINT("");
 	} else if (run_metal) {
-		ZEST_PRINT("=== Test suite run: Metal backend ===");
-		metal_backend_completed = RunMetalSuite(&metal_backend_total);
+		//Metal fixes its validation when the process makes its first window, so this comes before the suite's window
+		zest_PrepareMetalValidation(MetalTestFlags());
+		ZEST_PRINT("=== Test suite run: Metal suite ===");
+		zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Metal Tests");
+		metal_counts.suite_passed = RunSuite(zest_platform_metal, &window_data, NULL, 0, ZEST_FALSE, &metal_counts.suite_total);
+		SDL_DestroyWindow((SDL_Window *)window_data.window_handle);
+
 		ZEST_PRINT("");
+		ZEST_PRINT("=== Test suite run: Metal backend ===");
+		metal_counts.backend_passed = RunMetalSuite(&metal_counts.backend_total);
+		ZEST_PRINT("");
+		WriteMetalRunCounts(&metal_counts);
 	}
 #endif
 
@@ -498,9 +642,11 @@ int main(int argc, char *argv[]) {
 #ifdef ZEST_ENABLE_METAL
 	//A child process leaves its line to the process that started it
 	if (run_metal && metal_result_descriptor < 0) {
-		ZEST_PRINT("%sMetal backend: %i / %i\033[0m", metal_backend_completed < metal_backend_total ? "\033[31m" : "\033[32m", metal_backend_completed, metal_backend_total);
+		ZEST_PRINT("%sMetal suite: %i / %i\033[0m", metal_counts.suite_passed < metal_counts.suite_total ? "\033[31m" : "\033[32m", metal_counts.suite_passed, metal_counts.suite_total);
+		ZEST_PRINT("%sMetal backend: %i / %i\033[0m", metal_counts.backend_passed < metal_counts.backend_total ? "\033[31m" : "\033[32m", metal_counts.backend_passed, metal_counts.backend_total);
 	}
 #endif
 
-	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_suite_completed == d3d12_suite_total && d3d12_backend_completed == d3d12_backend_total && metal_backend_completed == metal_backend_total) ? 0 : 1;
+	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_suite_completed == d3d12_suite_total && d3d12_backend_completed == d3d12_backend_total
+		&& metal_counts.suite_passed == metal_counts.suite_total && metal_counts.backend_passed == metal_counts.backend_total) ? 0 : 1;
 }

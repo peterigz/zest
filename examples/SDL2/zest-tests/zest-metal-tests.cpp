@@ -1591,25 +1591,28 @@ int RunMetalSuite(int *total_out) {
 		}
 	}
 	ZEST_PRINT("%sMetal tests completed: %i / %i\033[0m", passed < total ? "\033[31m" : "\033[32m", passed, total);
-	if (metal_result_descriptor >= 0) {
-		dprintf(metal_result_descriptor, "%d %d\n", passed, total);
-	}
 	*total_out = total;
 	return passed;
 }
 
-//Metal's validation is decided once per process and MoltenVK isn't clean under it, so when the Vulkan suites run too this list gets a process
-//of its own. The counts come back through a pipe.
-int RunMetalSuiteInChildProcess(const char *executable, int *total_out) {
-	*total_out = 1;
+//A child process gives its counts to the process that started it
+void WriteMetalRunCounts(const MetalRunCounts *counts) {
+	if (metal_result_descriptor < 0) return;
+	dprintf(metal_result_descriptor, "%d %d %d %d\n", counts->suite_passed, counts->suite_total, counts->backend_passed, counts->backend_total);
+}
+
+//Metal's validation is decided once per process and MoltenVK isn't clean under it, so when the Vulkan suites run too the Metal suite and
+//backend list get a process of their own. The counts come back through a pipe. A run that can't report counts as one failure in each.
+MetalRunCounts RunMetalTestsInChildProcess(const char *executable, const char *test_filter) {
+	MetalRunCounts counts = { 0, 1, 0, 1 };
 	int result_pipe[2];
 	if (pipe(result_pipe) != 0) {
 		ZEST_PRINT("\033[31mThe Metal tests couldn't be started: no pipe for their result.\033[0m");
-		return 0;
+		return counts;
 	}
 	char descriptor_text[16];
 	snprintf(descriptor_text, sizeof(descriptor_text), "%d", result_pipe[1]);
-	const char *arguments[8];
+	const char *arguments[10];
 	int argument_count = 0;
 	arguments[argument_count++] = executable;
 	arguments[argument_count++] = "--platform";
@@ -1619,12 +1622,15 @@ int RunMetalSuiteInChildProcess(const char *executable, int *total_out) {
 	if (metal_use_shader_validation) {
 		arguments[argument_count++] = "--shader-validation";
 	}
+	if (test_filter) {
+		arguments[argument_count++] = "--test";
+		arguments[argument_count++] = test_filter;
+	}
 	arguments[argument_count] = NULL;
 	fflush(stdout);
 	pid_t child = 0;
 	int spawn_result = posix_spawn(&child, executable, NULL, NULL, (char *const *)arguments, environ);
 	close(result_pipe[1]);
-	int passed = 0;
 	if (spawn_result != 0) {
 		ZEST_PRINT("\033[31mThe Metal tests couldn't be started: posix_spawn returned %d for %s.\033[0m", spawn_result, executable);
 	} else {
@@ -1636,14 +1642,13 @@ int RunMetalSuiteInChildProcess(const char *executable, int *total_out) {
 		}
 		int status = 0;
 		waitpid(child, &status, 0);
-		int total = 0;
-		if (sscanf(result_text, "%d %d", &passed, &total) == 2) {
-			*total_out = total;
+		MetalRunCounts reported = {};
+		if (sscanf(result_text, "%d %d %d %d", &reported.suite_passed, &reported.suite_total, &reported.backend_passed, &reported.backend_total) == 4) {
+			counts = reported;
 		} else {
-			passed = 0;
 			ZEST_PRINT("\033[31mThe Metal test process ended without reporting its result (wait status %d).\033[0m", status);
 		}
 	}
 	close(result_pipe[0]);
-	return passed;
+	return counts;
 }
