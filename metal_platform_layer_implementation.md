@@ -407,13 +407,13 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - Capabilities: tessellation and geometry false, buffer device address false, non-uniform indexing true. `max_bindless_samplers` is the device's argument buffer sampler limit.
 
 **Steps:**
-- [ ] Device selection and the requirement check, with validation turned on the way Spike C found.
-- [ ] Queues and the residency set, attached to every queue at creation.
-- [ ] Timelines as shared events, with the CPU wait Spike B recorded, honouring `fence_wait_timeout_ns` and the timeout callbacks.
-- [ ] Immediate command buffers: begin takes a command buffer on the family's queue, end commits and waits.
-- [ ] Tests: "Metal Device Lifecycle" (create and destroy four times, allocated size after the fourth equal to the size after the third), "Metal Minimum Spec Rejected" (the forced hook makes creation fail and the log name the feature), "Metal Timeline Wait" (signal from a command buffer, wait satisfied, wait timed out).
-- [ ] Break each on purpose once (skip the release, skip the requirement check, never signal) and confirm its test fails.
-- [ ] Build all three targets and run.
+- [x] Device selection and the requirement check, with validation turned on the way Spike C found.
+- [x] Queues and the residency set, attached to every queue at creation.
+- [x] Timelines as shared events, with the CPU wait Spike B recorded, honouring `fence_wait_timeout_ns` and the timeout callbacks.
+- [x] Immediate command buffers: begin takes a command buffer on the family's queue, end commits and waits.
+- [x] Tests: "Metal Device Lifecycle" (create and destroy four times, allocated size after the fourth equal to the size after the third), "Metal Minimum Spec Rejected" (the forced hook makes creation fail and the log name the feature), "Metal Timeline Wait" (signal from a command buffer, wait satisfied, wait timed out).
+- [x] Break each on purpose once (skip the release, skip the requirement check, never signal) and confirm its test fails.
+- [x] Build all three targets and run.
 
 ### Task 8: Buffer pools, heaps and residency
 
@@ -437,10 +437,10 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - Budget: the device's recommended working set and current allocated size.
 
 **Steps:**
-- [ ] Implement the hooks. `map_memory` returns the shared buffer's contents pointer plus the offset, and `flush_used_buffers` does nothing.
-- [ ] Test "Metal Buffer Pool": allocate host-visible buffers at two offsets in one pool, write through the mapping, copy to a device-local buffer and back with an immediate copy stubbed in for now by a blit encoder in the test's own helper, and compare. State in the test what is read back.
-- [ ] Test "Metal Residency Tracks Pools": the set's allocation count rises with a new pool and falls when it's freed.
-- [ ] Build and run.
+- [x] Implement the hooks. `map_memory` returns the shared buffer's contents pointer plus the offset, and `flush_used_buffers` does nothing.
+- [x] Test "Metal Buffer Pool": allocate host-visible buffers at two offsets in one pool, write through the mapping, copy to a device-local buffer and back with an immediate copy stubbed in for now by a blit encoder in the test's own helper, and compare. State in the test what is read back.
+- [x] Test "Metal Residency Tracks Pools": the set's allocation count rises with a new pool and falls when it's freed.
+- [x] Build and run.
 
 ### Task 9: Formats, images, views, samplers, uploads, readback
 
@@ -455,12 +455,12 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - Mip generation is native here, so unlike D3D12's M1 an image with mips is complete in M1.
 
 **Steps:**
-- [ ] The format table and `is_image_format_supported`, checked against the device's capabilities for the usage asked.
-- [ ] Image creation as a placed texture, views, samplers.
-- [ ] Uploads, mip generation and readback through blit encoders on immediate command buffers.
-- [ ] Tests: "Metal Image Round Trip" (pixels in, read back, compared byte for byte, for an RGBA8 image, an image 8 pixels wide like the debug font, and a 1x1 image), "Metal Mip Chain" (upload a two-colour checker, generate mips, read back the last mip and check it's the average), "Metal Format Table" (every `zest_format` either maps and is creatable as a 4x4 texture, or reports unsupported, with no third outcome).
-- [ ] Break each once and confirm it fails.
-- [ ] Build and run.
+- [x] The format table and `is_image_format_supported`, checked against the device's capabilities for the usage asked.
+- [x] Image creation as a placed texture, views, samplers.
+- [x] Uploads, mip generation and readback through blit encoders on immediate command buffers.
+- [x] Tests: "Metal Image Round Trip" (pixels in, read back, compared byte for byte, for an RGBA8 image, an image 8 pixels wide like the debug font, and a 1x1 image), "Metal Mip Chain" (upload a two-colour checker, generate mips, read back the last mip and check it's the average), "Metal Format Table" (every `zest_format` either maps and is creatable as a 4x4 texture, or reports unsupported, with no third outcome).
+- [x] Break each once and confirm it fails.
+- [x] Build and run.
 
 ### Task 10: The bindless table
 
@@ -474,11 +474,11 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - A non-bindless set layout reports through `zest__mtl_report_unavailable`, as custom sets do on D3D12.
 
 **Steps:**
-- [ ] Create the table buffer, add it to the residency set, lay out the regions.
-- [ ] Implement the three write hooks.
-- [ ] Test "Metal Bindless Slots": for each slot, write a distinct resource at the first, a middle and the last index, then run the spike's converted shader through a pipeline built in the test's own helper and read each back. Write one region's entries at twice the stride and confirm the test fails, as the spike's control did.
-- [ ] With Tasks 7 to 10 in place `zest_EndDeviceBuilder` should complete. Test "Metal Device With Defaults": the default images and the debug font exist and the font's first glyph row reads back as uploaded.
-- [ ] Build and run.
+- [x] Create the table buffer, add it to the residency set, lay out the regions.
+- [x] Implement the three write hooks.
+- [x] Test "Metal Bindless Slots": for each slot, write a distinct resource at the first, a middle and the last index, then run the spike's converted shader through a pipeline built in the test's own helper and read each back. Write one region's entries at twice the stride and confirm the test fails, as the spike's control did.
+- [x] With Tasks 7 to 10 in place `zest_EndDeviceBuilder` should complete. Test "Metal Device With Defaults": the default images and the debug font exist and the font's first glyph row reads back as uploaded.
+- [x] Build and run.
 
 ### Task 11: Headless contexts, the test list and the runner
 
@@ -491,18 +491,18 @@ Each task adds its tests to `zest-metal-tests.cpp` as it goes. Task 11 wires the
 - A summary line `Metal backend: N / M`, included in the exit code.
 
 **Steps:**
-- [ ] Headless context creation and teardown.
-- [ ] Move the tests from Tasks 7 to 10 into `metal_tests[]` and add "Metal Headless Context" (create and destroy three times on one device, allocated size after the third equal to the size after the second), "Metal Untracked Pass Ordering" (Spike B's compute-then-read pair, 200 iterations) and "Metal Validation Reports" (one deliberate error, expect a count of one).
-- [ ] Remove the temporary call in `main` and wire the runner.
-- [ ] Run `zest-tests --platform all`, then `--platform metal --shader-validation`. Expected: the Vulkan lines match Task 1, and every Metal test passes in both.
-- [ ] Run `--platform metal` once with zombies and `MallocScribble` on. Expected: no report.
+- [x] Headless context creation and teardown.
+- [x] Move the tests from Tasks 7 to 10 into `metal_tests[]` and add "Metal Headless Context" (create and destroy three times on one device, allocated size after the third equal to the size after the second), "Metal Untracked Pass Ordering" (Spike B's compute-then-read pair, 200 iterations) and "Metal Validation Reports" (one deliberate error, expect a count of one).
+- [x] Remove the temporary call in `main` and wire the runner.
+- [x] Run `zest-tests --platform all`, then `--platform metal --shader-validation`. Expected: the Vulkan lines match Task 1, and every Metal test passes in both.
+- [x] Run `--platform metal` once with zombies and `MallocScribble` on. Expected: no report.
 
 ### Task 12: Milestone close
 
 **Steps:**
-- [ ] Build `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` with Metal ON, then `zest-tests` with it OFF. Expected: all clean, and OFF gives Task 1's counts.
-- [ ] Write `## As built (<date>)`: the spike numbers, every *(unverified)* row that turned out different, the buffer index values, the test counts, the full list of shared edits.
-- [ ] Hand Peter the Windows checks in [Testing_] and the questions M2's plan needs answered. Known ones: whether `SDL_Metal_CreateView` works on a window made without `SDL_WINDOW_METAL`, and whether a swapchain with `image_count` 1 whose image is re-pointed at each drawable satisfies every shared use of `views[current_image_frame]`.
+- [x] Build `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` with Metal ON, then `zest-tests` with it OFF. Expected: all clean, and OFF gives Task 1's counts.
+- [x] Write `## As built (<date>)`: the spike numbers, every *(unverified)* row that turned out different, the buffer index values, the test counts, the full list of shared edits.
+- [x] Hand Peter the Windows checks in [Testing_] and the questions M2's plan needs answered. Known ones: whether `SDL_Metal_CreateView` works on a window made without `SDL_WINDOW_METAL`, and whether a swapchain with `image_count` 1 whose image is re-pointed at each drawable satisfies every shared use of `views[current_image_frame]`.
 
 ## [Cost_] Per-frame cost
 
@@ -779,3 +779,92 @@ For use only if the `code-style` skill isn't on the Mac. The skill wins where th
 - `zest.cpp`, `zest-tests.cpp`: three lines each inside `#ifdef ZEST_ENABLE_METAL`, which Windows never defines.
 - `CMakeLists.txt`, `examples/SDL2/CMakeLists.txt`: the Metal block and the two calls, all no-ops when `ZEST_METAL_ENABLED` is false.
 - No existing Vulkan or D3D12 line changes meaning. Expected on Windows: the four baseline lines in [Testing_].
+
+### Tasks 7 to 12: device bring-up and M1 close (2026-11-22, on top of commit df5c4da, built and run on the Mac over SSH)
+
+**M1 is done.** A Metal device and a headless context create and destroy with validation silent and allocated size steady, an image with pixels reads back unchanged, and the Mac's Vulkan runs match Task 1's baseline.
+
+**What changed**
+- `zest_metal.h`, now 2,666 lines. 72 of the 160 stubs are replaced and 88 remain for M2 onward.
+  - Task 7: the validation reader, device creation with the minimum spec check, capabilities, three queue families, shared-event timelines, immediate command buffers, `zest_GetMetalDevice`.
+  - Task 8: buffer pools, image heaps, dedicated image memory, the residency set, the memory budget.
+  - Task 9: the format table, images placed in heaps, views, samplers, uploads, mip generation, readback.
+  - Task 10: the bindless table and its three write hooks, the pipeline layout.
+  - Task 11: headless contexts and context queues.
+- `examples/SDL2/zest-tests/zest-metal-tests.cpp` (new, 1,004 lines): 15 backend tests, `BeginMetalTestBuilder`, `RunMetalSuite`, `RunMetalSuiteInChildProcess`.
+- `examples/SDL2/zest-tests/zest-tests.cpp`: `--platform metal`, `--shader-validation`, the `Metal backend: N / M` line and its place in the exit code.
+- `zest.h`: one new platform member, `collect_validation_messages`, called from `zest_GetValidationErrorCount` and `zest_ResetValidationErrors` when a backend sets it.
+
+**Results**
+- Mac, Metal on (`../Zest-Build-Metal`):
+  - All 22 targets build, with `zest-c-compile-check` and `zest-objc-compile-check`, and no warning from Zest's files.
+  - `zest-tests --platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal backend: 15 / 15`, exit 0, no VUID line.
+  - `zest-tests --platform metal`: 15 / 15, with Metal API validation confirmed on by the first test.
+  - `zest-tests --platform metal --shader-validation`: 15 / 15, with the deliberate out-of-bounds read counted from the command buffer's logs.
+  - `NSZombieEnabled=YES MallocScribble=1 zest-tests --platform metal`: 15 / 15, no zombie report.
+- Mac, Metal off (`../Zest-Build`): every target builds, and `zest-tests` gives 129 / 129 and 129 / 129, exit 0, no VUID line. That is Task 1's baseline.
+- Windows: `zest-tests`, `zest-c-compile-check` and `zest` build in Debug with no warning and no error. The suites were not run.
+
+**Every test was broken on purpose and failed**
+A script on the Mac (`spikes/metal/mutate.py`, untracked) made one change at a time, rebuilt and ran the Metal list.
+
+| What was broken | Tests that failed |
+| --- | --- |
+| A pool buffer is never released | Device Lifecycle |
+| An image heap is never released | Device Lifecycle |
+| A texture is never released | Device Lifecycle |
+| The minimum spec check is skipped | Minimum Spec Rejected |
+| A timeline poll always succeeds | Timeline Wait |
+| A buffer copy ignores its destination offset | Buffer Pool |
+| Nothing is added to the residency set | Residency Tracks Pools, Bindless Slots, Untracked Pass Ordering |
+| An image upload reads 4 bytes late | Nearly all, through the validation error it raises at device creation |
+| Mipmaps are never generated | Mip Chain |
+| 24-bit RGB is mapped to RGBA8 | Format Table |
+| Table entries are written at twice the stride | Bindless Slots, Untracked Pass Ordering |
+| Every layer is uploaded to slice 0 | Bindless Slots, Device With Defaults |
+| Validation messages are never collected | Validation Reports |
+| The ordering test's passes use no fence | Untracked Pass Ordering |
+
+Two tests were weak when first written and were changed because of this:
+- **Device Lifecycle** didn't notice a leaked pool buffer. Metal serves small buffers from storage of its own, so a few kilobytes leaked per lifecycle never moved `currentAllocatedSize`. Each lifecycle now also allocates a 256 KB staging buffer and uploads a 256x256 image.
+- **Untracked Pass Ordering** passed with its fences removed, because it chained two compute passes and those don't overlap. It is now compute writes, render reads, copy out, which is the pair Spike B measured overlapping.
+
+One check still can't fail: "Metal Headless Context" compares allocated size across contexts, and a headless context owns no Metal object yet. It will mean something from M2.
+
+**Where it differs from the plan**
+- **The tests ran together, not task by task.** A device can't finish creating until the bindless table exists, so nothing that needs a device could run before Task 10. Each task was built on its own, a throwaway program showed how far device creation got, and the 15 tests first ran once Task 11's code was in.
+- **A fourth shared edit: `collect_validation_messages`.** Metal's debug layer has no callback, so its messages have to be fetched when the count is asked for. The member is unset on Vulkan and D3D12 and checked before the call.
+- **The Metal list runs in a process of its own under `--platform all`.** Metal's validation is decided once per process, and MoltenVK is not clean under it (see below), so the runner starts itself with `--platform metal --result-descriptor <n>` and reads the counts back through a pipe. `--platform metal` on its own still runs in process.
+- **15 tests, not 13.** "Metal Builder" and "Metal Validation Unavailable" were added. The second uses `zest__mtl_forced_validation_unavailable`.
+- **Each family has several queues, as on D3D12** (4 graphics, 4 compute, 2 transfer), not one. A context holds a queue for a frame, and an immediate command buffer needs another.
+- **"Metal Bindless Slots" uses a hand-written kernel** in the shape SPIRV-Cross gives, because SPIRV-Cross isn't in the backend until M4. It catches a wrong entry size. It can't catch a wrong region offset, because the test binds the regions from the same numbers the backend writes with. M4's converted shaders are the check for that.
+- **Validation, beyond decision 9:**
+  - `zest_device_init_flag_enable_validation_layers_with_sync` is what asks for shader validation, as it asks for GPU-based validation on D3D12.
+  - The deliberate mistake at device creation is kept off standard error, so a device with validation doesn't open with an error message.
+  - A launcher that set `MTL_DEBUG_LAYER_ERROR_MODE` itself keeps its choice. In abort mode the mistake isn't made, and API errors stop the process and aren't counted.
+  - Standard error is flushed through the reader when the process exits or aborts, so an assert's message isn't lost.
+- **No Metal query says whether one format is supported**, only what each GPU family brings. `zest__mtl_device_has_pixel_format` encodes that: BC needs the device's BC flag, and ASTC, ETC2, 16-bit packed colour and 8-bit sRGB need an Apple GPU.
+- **Limits found:**
+  - Metal samplers have no LOD bias, so `mip_lod_bias` is ignored.
+  - A storage image can't be sRGB, 16-bit packed, depth or block compressed.
+  - Mipmaps can't be generated for depth or block compressed formats.
+  - `max_multiview_view_count` reports 1 until M5.
+- **A view of a whole image in its own type holds the image's texture** and creates no texture view.
+
+**Found and left alone, for Peter**
+- **MoltenVK under Metal's debug layer.** With `MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog` the Vulkan suites raise two kinds of debug layer error:
+  - "RenderPass Descriptor Validation" in "User Test Swapchain Resize", as recorded under Task 4.
+  - "The following Metal object is being destroyed while still required to be alive by the command buffer (label: vkQueueSubmit MTLCommandBuffer on Queue 0-0)", for a 6,144 byte shared buffer. That is the size of the debug font's staging buffer. In one run the process then crashed with a segmentation fault just after "Compute Test Only Graph".
+  - Repro, from the repo root on the Mac: `MTL_DEBUG_LAYER=1 MTL_DEBUG_LAYER_ERROR_MODE=nslog ../Zest-Build/examples/SDL2/zest-tests --platform vulkan`. Whether Zest's Vulkan path frees that staging buffer too early or MoltenVK holds it loosely is not known.
+
+**Shared edits for Peter's Windows run**
+- `zest.h`: the `collect_validation_messages` member of `zest_platform_t`, and a NULL-checked call to it at the top of `zest_GetValidationErrorCount` and `zest_ResetValidationErrors`. Vulkan and D3D12 leave it unset.
+- `zest-tests.cpp`: a `run_metal` flag that is always false on Windows, `metal` as a platform name (which prints that the backend isn't compiled in), a reworded unknown-platform message, and the rest inside `#ifdef ZEST_ENABLE_METAL`.
+- Expected on Windows: the four baseline lines in [Testing_], then the `--gbv` and `--warp` runs and the minimal template on each backend.
+
+**For M2's plan**
+- **Answered: `SDL_Metal_CreateView` works on any SDL window.** A probe (`spikes/metal/build/probe/probe_sdl_metal.mm`, SDL 2.32.10) made windows with no API flag, with `SDL_WINDOW_VULKAN` and with `SDL_WINDOW_METAL`. On all three the view's layer is a `CAMetalLayer`, three frames clear and present with the command buffer completed, and after `SDL_SetWindowSize` the layer's `drawableSize` and the next drawable follow the new size with nothing set by hand. So `zest_implsdl2_CreateWindow` needs no new flag, and the window that serves Vulkan can serve Metal. The layer hands out up to 3 drawables and has display sync on by default.
+- **Answered: a swapchain with an `image_count` of 1 satisfies shared code.** Shared code touches a swapchain's images in four places: `views[current_image_frame]` at `zest.h:15411` and `zest.h:18938`, `images[0].info` at `zest.h:18937`, and a debug print that loops to `image_count` at `zest.h:18050`. With one image, `current_image_frame` fixed at 0 and the image's and view's textures re-pointed at each drawable, all four hold. The view struct a cached graph keeps then never changes, only the texture behind it.
+- New: the frame graph's command buffers have to have their `logs` read on completion when shader validation is on, as the immediate ones do now through `zest__mtl_finish_command_buffer`.
+- New: a windowed context's Metal objects are what "Metal Headless Context"'s size check is waiting for, so M2 should add the windowed counterpart.
+- New: an example run with `--validate` and both backends compiled in must create its Metal device before any Vulkan device, or validation can't come on. `example_platform.h` should try Metal first, which is also what decision 4 asks for from M6.

@@ -4797,6 +4797,8 @@ typedef struct zest_platform_t {
 	void                       (*write_timestamp)(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
 	zest_bool                  (*readback_gpu_timestamps)(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
 	//Debugging
+	//Unset on a backend whose validation layer reports through a callback. Metal's has none, so its messages are fetched when asked for.
+	void                       (*collect_validation_messages)(zest_device device);
 	void                       (*set_object_name)(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
 	void                       (*set_image_name)(zest_device device, zest_image image, const char *name);
 	void                       (*set_buffer_pool_name)(zest_device device, zest_device_memory_pool pool, const char *name);
@@ -22145,10 +22147,16 @@ void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block,
 }
 
 zest_uint zest_GetValidationErrorCount(zest_device device) {
+	if (device->platform->collect_validation_messages) {
+		device->platform->collect_validation_messages(device);
+	}
     return zest_map_size(device->validation_errors);
 }
 
 void zest_ResetValidationErrors(zest_device device) {
+	if (device->platform->collect_validation_messages) {
+		device->platform->collect_validation_messages(device);
+	}
     zest_map_foreach(i, device->validation_errors) {
         zest_FreeText(device->allocator, &device->validation_errors.data[i]);
     }

@@ -22,6 +22,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #include "zest-d3d12-tests.cpp"
 #endif
+#ifdef ZEST_ENABLE_METAL
+#include "zest-metal-tests.cpp"
+#endif
 
 void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Empty Graph", test__empty_graph, 0, ZEST_MAX_FIF, 0, zest_fgs_no_work_to_do, tests->headless_create_info });
@@ -362,6 +365,10 @@ int main(int argc, char *argv[]) {
 #ifdef ZEST_ENABLE_D3D12
 	run_d3d12 = ZEST_TRUE;
 #endif
+	zest_bool run_metal = ZEST_FALSE;
+#ifdef ZEST_ENABLE_METAL
+	run_metal = ZEST_TRUE;
+#endif
 
 	for (int argument_index = 1; argument_index < argc; ++argument_index) {
 		const char *argument = argv[argument_index];
@@ -370,10 +377,21 @@ int main(int argc, char *argv[]) {
 			if (strcmp(platform_name, "vulkan") == 0) {
 				run_vulkan = ZEST_TRUE;
 				run_d3d12 = ZEST_FALSE;
+				run_metal = ZEST_FALSE;
+			} else if (strcmp(platform_name, "metal") == 0) {
+#ifdef ZEST_ENABLE_METAL
+				run_vulkan = ZEST_FALSE;
+				run_d3d12 = ZEST_FALSE;
+				run_metal = ZEST_TRUE;
+#else
+				ZEST_PRINT("\033[31mThe Metal backend isn't compiled in, configure with -DZEST_ENABLE_METAL=ON\033[0m");
+				return 1;
+#endif
 			} else if (strcmp(platform_name, "d3d12") == 0) {
 #ifdef ZEST_ENABLE_D3D12
 				run_vulkan = ZEST_FALSE;
 				run_d3d12 = ZEST_TRUE;
+				run_metal = ZEST_FALSE;
 #else
 				ZEST_PRINT("\033[31mThe D3D12 backend isn't compiled in, configure with -DZEST_ENABLE_D3D12=ON\033[0m");
 				return 1;
@@ -383,8 +401,11 @@ int main(int argc, char *argv[]) {
 #ifdef ZEST_ENABLE_D3D12
 				run_d3d12 = ZEST_TRUE;
 #endif
+#ifdef ZEST_ENABLE_METAL
+				run_metal = ZEST_TRUE;
+#endif
 			} else {
-				ZEST_PRINT("\033[31mUnknown platform %s, expected vulkan, d3d12 or all\033[0m", platform_name);
+				ZEST_PRINT("\033[31mUnknown platform %s, expected vulkan, d3d12, metal or all\033[0m", platform_name);
 				return 1;
 			}
 		}
@@ -395,7 +416,28 @@ int main(int argc, char *argv[]) {
 			d3d12_use_gpu_validation = ZEST_TRUE;
 		}
 #endif
+#ifdef ZEST_ENABLE_METAL
+		else if (strcmp(argument, "--shader-validation") == 0) {
+			metal_use_shader_validation = ZEST_TRUE;
+		} else if (strcmp(argument, "--result-descriptor") == 0 && argument_index + 1 < argc) {
+			metal_result_descriptor = atoi(argv[++argument_index]);
+		}
+#endif
 	}
+
+	int metal_backend_total = 0;
+	int metal_backend_completed = 0;
+#ifdef ZEST_ENABLE_METAL
+	if (run_metal && run_vulkan) {
+		ZEST_PRINT("=== Test suite run: Metal backend, in its own process ===");
+		metal_backend_completed = RunMetalSuiteInChildProcess(argv[0], &metal_backend_total);
+		ZEST_PRINT("");
+	} else if (run_metal) {
+		ZEST_PRINT("=== Test suite run: Metal backend ===");
+		metal_backend_completed = RunMetalSuite(&metal_backend_total);
+		ZEST_PRINT("");
+	}
+#endif
 
 	int legacy_total = 0;
 	int dynamic_total = 0;
@@ -449,6 +491,12 @@ int main(int argc, char *argv[]) {
 		ZEST_PRINT("%sD3D12 suite: %i / %i\033[0m", d3d12_suite_completed < d3d12_suite_total ? "\033[31m" : "\033[32m", d3d12_suite_completed, d3d12_suite_total);
 		ZEST_PRINT("%sD3D12 backend: %i / %i\033[0m", d3d12_backend_completed < d3d12_backend_total ? "\033[31m" : "\033[32m", d3d12_backend_completed, d3d12_backend_total);
 	}
+#ifdef ZEST_ENABLE_METAL
+	//A child process leaves its line to the process that started it
+	if (run_metal && metal_result_descriptor < 0) {
+		ZEST_PRINT("%sMetal backend: %i / %i\033[0m", metal_backend_completed < metal_backend_total ? "\033[31m" : "\033[32m", metal_backend_completed, metal_backend_total);
+	}
+#endif
 
-	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_suite_completed == d3d12_suite_total && d3d12_backend_completed == d3d12_backend_total) ? 0 : 1;
+	return (dynamic_completed == dynamic_total && legacy_completed == legacy_total && d3d12_suite_completed == d3d12_suite_total && d3d12_backend_completed == d3d12_backend_total && metal_backend_completed == metal_backend_total) ? 0 : 1;
 }
