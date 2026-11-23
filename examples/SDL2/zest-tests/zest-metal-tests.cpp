@@ -339,6 +339,75 @@ int test_metal_image_round_trip(void) {
 	return failed | finish_metal_device(device);
 }
 
+//A window made first is the order every windowed app has, and validation only survives it when zest_PrepareMetalValidation ran before the window
+int test_metal_sdl_helpers(void) {
+	zest_bool initialised_video = ZEST_FALSE;
+	if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+		if (SDL_Init(SDL_INIT_VIDEO) != 0) return 1;
+		initialised_video = ZEST_TRUE;
+	}
+	zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 320, 200, 0, "Metal Helpers");
+	int failed = window_data.window_handle == NULL;
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	window_data.window_sizes_callback(&window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	failed |= framebuffer_width < 320 || framebuffer_height < 200 || window_width != 320 || window_height != 200;
+	zest_device device = zest_implsdl2_CreateMetalDevice(&window_data, MetalTestFlags());
+	if (device) {
+		failed |= zest_GetDevicePlatform(device) != zest_platform_metal;
+		if (!ZEST_MTL_BACKEND(device, device)->api_validation) {
+			ZEST_PRINT("A Metal device made after a window has no validation, so zest_PrepareMetalValidation didn't run before the window.");
+			failed = 1;
+		}
+		failed |= finish_metal_device(device);
+	} else {
+		failed = 1;
+	}
+	if (window_data.window_handle) {
+		SDL_DestroyWindow((SDL_Window *)window_data.window_handle);
+	}
+	if (initialised_video) {
+		SDL_QuitSubSystem(SDL_INIT_VIDEO);
+	}
+	return failed;
+}
+
+//A reset keeps the Metal device and remakes its queues and residency set. The device must still upload and read back afterwards, and the old
+//queue and set must have no owner left but this test.
+int test_metal_device_reset(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	NSUInteger fresh_residency_count = [ZEST_MTL_BACKEND(device, device)->residency_set allocationCount];
+	zest_size allocated_sizes[3];
+	int failed = 0;
+	for (int cycle = 0; cycle != 3; ++cycle) {
+		failed |= run_metal_image_round_trip(device, zest_format_r8g8b8a8_unorm, 16, 16, 4);
+		id<MTLResidencySet> old_residency_set = [ZEST_MTL_BACKEND(device, device)->residency_set retain];
+		id<MTLCommandQueue> old_queue = [ZEST_MTL_BACKEND(queue, &device->queue_families[0]->queues[0])->queue retain];
+		zest_ResetDevice(device);
+		id<MTLResidencySet> new_residency_set = ZEST_MTL_BACKEND(device, device)->residency_set;
+		id<MTLCommandQueue> new_queue = ZEST_MTL_BACKEND(queue, &device->queue_families[0]->queues[0])->queue;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		failed |= new_residency_set == nil || new_queue == nil;
+		if ([old_residency_set retainCount] != 1 || [old_queue retainCount] != 1) {
+			ZEST_PRINT("After reset %i the old residency set has %lu owners and the old queue %lu, where each should have only this test.", cycle, (unsigned long)[old_residency_set retainCount], (unsigned long)[old_queue retainCount]);
+			failed = 1;
+		}
+		[old_residency_set release];
+		[old_queue release];
+		if (new_residency_set && [new_residency_set allocationCount] != fresh_residency_count) {
+			ZEST_PRINT("After reset %i the residency set holds %lu allocations, where a new device holds %lu.", cycle, (unsigned long)[new_residency_set allocationCount], (unsigned long)fresh_residency_count);
+			failed = 1;
+		}
+		allocated_sizes[cycle] = metal_allocated_size();
+	}
+	failed |= run_metal_image_round_trip(device, zest_format_r8g8b8a8_unorm, 16, 16, 4);
+	if (allocated_sizes[2] != allocated_sizes[1]) {
+		ZEST_PRINT("Metal's allocated size went from %llu to %llu between the second and third device reset.", (zest_ull)allocated_sizes[1], (zest_ull)allocated_sizes[2]);
+		failed = 1;
+	}
+	return failed | finish_metal_device(device);
+}
+
 //A red and blue checker averages to half red and half blue in its 1x1 mip, which is read back and checked
 int test_metal_mip_chain(void) {
 	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
@@ -932,6 +1001,8 @@ static MetalTest metal_tests[] = {
 	{ "Metal Headless Context", test_metal_headless_context },
 	{ "Metal Untracked Pass Ordering", test_metal_untracked_pass_ordering },
 	{ "Metal Validation Reports", test_metal_validation_reports },
+	{ "Metal SDL Helpers", test_metal_sdl_helpers },
+	{ "Metal Device Reset", test_metal_device_reset },
 };
 
 int RunMetalSuite(int *total_out) {

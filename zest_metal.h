@@ -208,6 +208,10 @@ static const char *zest__mtl_forced_missing_feature = NULL;
 static zest_bool zest__mtl_forced_validation_unavailable = ZEST_FALSE;
 
 ZEST_API id<MTLDevice> zest_GetMetalDevice(zest_device device);
+//Metal reads its validation settings when the process makes its first Metal device, and creating a window makes one.
+//So call this before creating a window when the device will be created with validation flags, passing those flags.
+//It does nothing without zest_device_init_flag_enable_validation_layers, and a launcher that sets MTL_DEBUG_LAYER=1 doesn't need it.
+ZEST_API void zest_PrepareMetalValidation(zest_device_init_flags flags);
 // -- End Other_setup_structs
 
 ZEST_PRIVATE void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform);
@@ -400,6 +404,7 @@ ZEST_PRIVATE void zest__mtl_query_feature_support(id<MTLDevice> native_device, z
 ZEST_PRIVATE zest_bool zest__mtl_meets_minimum_spec(const zest_mtl_feature_support_t *support, const char **out_missing);
 ZEST_PRIVATE zest_capability_flags zest__mtl_translate_capabilities(const zest_mtl_feature_support_t *support);
 ZEST_PRIVATE zest_bool zest__mtl_create_queues(zest_device device);
+ZEST_PRIVATE zest_bool zest__mtl_create_device_objects(zest_device device);
 ZEST_PRIVATE void zest__mtl_cleanup_queues(zest_device device);
 ZEST_PRIVATE void zest__mtl_add_queue_manager_list(zest_device device, zest_device_queue_type queue_type, const zest_uint *family_order, zest_uint order_count);
 ZEST_PRIVATE void zest__mtl_release_immediate_queue(zest_queue queue, zest_bool gpu_finished);
@@ -1025,21 +1030,25 @@ void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->copy_bitmap_to_image = zest__mtl_copy_bitmap_to_image;
 	platform->copy_image_to_bitmap = zest__mtl_copy_image_to_bitmap;
 }
-//Metal reads its validation settings when the process creates its first device, so they are set before this one is asked for
-void zest__mtl_prepare_validation(zest_device device) {
-	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
-	const char *shader_validation = getenv("MTL_SHADER_VALIDATION");
-	backend->launcher_shader_validation = shader_validation && strcmp(shader_validation, "0") != 0;
-	if (ZEST__NOT_FLAGGED(device->setup_info.flags, zest_device_init_flag_enable_validation_layers)) return;
+void zest_PrepareMetalValidation(zest_device_init_flags flags) {
+	if (ZEST__NOT_FLAGGED(flags, zest_device_init_flag_enable_validation_layers)) return;
 	if (!zest__mtl_forced_validation_unavailable) {
 		setenv("MTL_DEBUG_LAYER", "1", 1);
 		//A launcher that chose to abort on errors keeps its choice
 		setenv("MTL_DEBUG_LAYER_ERROR_MODE", "nslog", 0);
-		if ((device->setup_info.flags & zest_device_init_flag_enable_validation_layers_with_sync) == zest_device_init_flag_enable_validation_layers_with_sync) {
+		if ((flags & zest_device_init_flag_enable_validation_layers_with_sync) == zest_device_init_flag_enable_validation_layers_with_sync) {
 			setenv("MTL_SHADER_VALIDATION", "1", 1);
 		}
 	}
 	zest__mtl_start_validation_reader();
+}
+
+//Only in time for a process that has made no window and no Metal device yet. A windowed app calls zest_PrepareMetalValidation itself, earlier.
+void zest__mtl_prepare_validation(zest_device device) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	const char *shader_validation = getenv("MTL_SHADER_VALIDATION");
+	backend->launcher_shader_validation = shader_validation && strcmp(shader_validation, "0") != 0;
+	zest_PrepareMetalValidation(device->setup_info.flags);
 }
 
 //Makes one harmless mistake to find out whether the debug layer is really on, because asking too late is silent
@@ -1079,8 +1088,8 @@ void zest__mtl_confirm_validation(zest_device device) {
 		pthread_mutex_unlock(&zest__mtl_validation_lock);
 	}
 	if (!confirmed) {
-		ZEST_APPEND_LOG(log_path, "Metal validation was asked for but can't be turned on, because a Metal device already existed in this process. Create the Zest device with validation before any other Metal or MoltenVK device, or launch with MTL_DEBUG_LAYER=1. Disabling validation.");
-		ZEST_ALERT("Metal validation was asked for but can't be turned on, because a Metal device already existed in this process. Create the Zest device with validation before any other Metal or MoltenVK device, or launch with MTL_DEBUG_LAYER=1.");
+		ZEST_APPEND_LOG(log_path, "Metal validation was asked for but can't be turned on, because a window or another Metal or MoltenVK device already existed in this process. Call zest_PrepareMetalValidation with the device's flags before creating the window, or launch with MTL_DEBUG_LAYER=1. Disabling validation.");
+		ZEST_ALERT("Metal validation was asked for but can't be turned on, because a window or another Metal or MoltenVK device already existed in this process. Call zest_PrepareMetalValidation with the device's flags before creating the window, or launch with MTL_DEBUG_LAYER=1.");
 		ZEST__UNFLAG(device->setup_info.flags, zest_device_init_flag_enable_validation_layers_with_sync);
 		return;
 	}
@@ -1236,6 +1245,24 @@ zest_bool zest__mtl_create_queues(zest_device device) {
 	return ZEST_TRUE;
 }
 
+//What a device reset drops and makes again: the residency set and the queues attached to it
+zest_bool zest__mtl_create_device_objects(zest_device device) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	@autoreleasepool {
+		MTLResidencySetDescriptor *residency_descriptor = [[MTLResidencySetDescriptor alloc] init];
+		[residency_descriptor setLabel:@"Zest Residency Set"];
+		[residency_descriptor setInitialCapacity:64];
+		NSError *error = nil;
+		backend->residency_set = [backend->device newResidencySetWithDescriptor:residency_descriptor error:&error];
+		[residency_descriptor release];
+		if (!backend->residency_set) {
+			ZEST_APPEND_LOG(device->log_path.str, "Fatal: the Metal residency set couldn't be created: %s", error ? [[error localizedDescription] UTF8String] : "no error given");
+			return ZEST_FALSE;
+		}
+	}
+	return zest__mtl_create_queues(device);
+}
+
 zest_bool zest__mtl_initialise_device(zest_device device) {
 	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
 	const char *log_path = device->log_path.str;
@@ -1262,25 +1289,28 @@ zest_bool zest__mtl_initialise_device(zest_device device) {
 		//SPIR-V compiled with ZEST_METAL defined shares a cache folder with Vulkan's, so it needs keys of its own
 		device->shader_cache_salt = 0x4D450001;
 
-		MTLResidencySetDescriptor *residency_descriptor = [[MTLResidencySetDescriptor alloc] init];
-		[residency_descriptor setLabel:@"Zest Residency Set"];
-		[residency_descriptor setInitialCapacity:64];
-		NSError *error = nil;
-		backend->residency_set = [backend->device newResidencySetWithDescriptor:residency_descriptor error:&error];
-		[residency_descriptor release];
-		if (!backend->residency_set) {
-			ZEST_APPEND_LOG(log_path, "Fatal: the Metal residency set couldn't be created: %s", error ? [[error localizedDescription] UTF8String] : "no error given");
-			return ZEST_FALSE;
-		}
-
 		if (!zest__mtl_query_device_capabilities(device)) {
 			return ZEST_FALSE;
 		}
-		if (!zest__mtl_create_queues(device)) {
+		if (!zest__mtl_create_device_objects(device)) {
 			return ZEST_FALSE;
 		}
 	}
 	zest__set_default_pool_sizes(device);
+	return ZEST_TRUE;
+}
+
+//Metal has one device per process, so a reset keeps it, with its features and validation, and remakes only what was created from it
+zest_bool zest__mtl_reinit_logical_device(zest_device device) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	zest_WaitForIdleDevice(device);
+	zest__mtl_collect_validation_messages(device);
+	zest__mtl_cleanup_queues(device);
+	ZEST_MTL_RELEASE(backend->residency_set);
+	if (!zest__mtl_create_device_objects(device)) {
+		ZEST_APPEND_LOG(device->log_path.str, "The Metal device couldn't be reset, because its residency set or its command queues couldn't be created again.");
+		return ZEST_FALSE;
+	}
 	return ZEST_TRUE;
 }
 
@@ -2601,7 +2631,6 @@ void *zest__mtl_new_compute_backend(zest_device device) { zest__mtl_report_unava
 void *zest__mtl_new_submission_batch_backend(zest_context context) { zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("new_submission_batch_backend")); return NULL; }
 //Cleanup backends
 void zest__mtl_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores) { zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("cleanup_frame_graph_semaphore")); }
-zest_bool zest__mtl_reinit_logical_device(zest_device device) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("reinit_logical_device")); }
 void zest__mtl_destroy_context_surface(zest_context context) { zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("destroy_context_surface")); }
 void zest__mtl_cleanup_swapchain_backend(zest_swapchain swapchain) { zest__mtl_report_unavailable(swapchain->context->device, ZEST__MTL_UNAVAILABLE("cleanup_swapchain_backend")); }
 void zest__mtl_cleanup_compute_backend(zest_compute compute) { zest__mtl_report_unavailable((zest_device)compute->handle.store->origin, ZEST__MTL_UNAVAILABLE("cleanup_compute_backend")); }

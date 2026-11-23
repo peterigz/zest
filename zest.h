@@ -5182,6 +5182,8 @@ ZEST_API zest_device_builder zest_BeginMetalDeviceBuilder(zest_device_init_flags
 //The SDL2 helper matches zest_implsdl2_CreateVulkanDevice's parameters so apps can switch by name, and ignores window_data
 ZEST_API zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zest_device_init_flags flags);
 ZEST_API zest_device zest_implglfw_CreateD3D12Device(zest_device_init_flags flags);
+//Matches zest_implsdl2_CreateVulkanDevice's parameters too, and ignores window_data. For validation, call zest_PrepareMetalValidation before creating the window
+ZEST_API zest_device zest_implsdl2_CreateMetalDevice(zest_window_data_t *window_data, zest_device_init_flags flags);
 //Add a required Vulkan instance extension, e.g. the surface extensions reported by
 //glfwGetRequiredInstanceExtensions or SDL_Vulkan_GetInstanceExtensions. Vulkan only: other
 //backends have no instance extensions and ignore this list, so calling this is a no-op there.
@@ -17503,6 +17505,11 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
             zest_pipeline_stage_flags timeline_wait_stage;
 
+            //Set before the command buffer is taken, as a backend may need them to begin it
+            frame_graph->command_list.submission_index = submission_index;
+            frame_graph->command_list.queue_index = queue_index;
+            frame_graph->command_list.frame_graph = frame_graph;
+
             // 1. acquire an appropriate command buffer
             switch (batch->queue_type) {
 				case zest_queue_graphics:
@@ -17546,9 +17553,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 zest_pass_group_t *grouped_pass = &frame_graph->final_passes.data[pass_index];
                 zest_execution_details_t *exe_details = &grouped_pass->execution_details;
 
-                frame_graph->command_list.submission_index = submission_index;
                 frame_graph->command_list.timeline_wait_stage = timeline_wait_stage;
-                frame_graph->command_list.queue_index = queue_index;
 
 				if (grouped_pass->flags & zest_pass_flag_sync_only) {
 					break;
@@ -17626,7 +17631,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                         continue;
                     }
                     frame_graph->command_list.pass_node = pass;
-                    frame_graph->command_list.frame_graph = frame_graph;
 					frame_graph->command_list.rendering_info.render_pass_key = exe_details->render_pass_key;
                     pass->execution_callback.callback(&frame_graph->command_list, pass->execution_callback.user_data);
                 }
@@ -23414,12 +23418,18 @@ zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zes
 }
 #endif
 
+#ifdef ZEST_METAL_IMPLEMENTATION
+zest_device zest_implsdl2_CreateMetalDevice(zest_window_data_t *window_data, zest_device_init_flags flags) {
+	(void)window_data;
+	zest_device_builder device_builder = zest_BeginMetalDeviceBuilder(flags);
+	return zest_EndDeviceBuilder(device_builder);
+}
+#endif
+
 zest_window_data_t zest_implsdl2_CreateWindow(int x, int y, int width, int height, zest_bool maximised, const char *title) {
     Uint32 flags = 0;
 #if defined(ZEST_VULKAN_IMPLEMENTATION)
     flags = SDL_WINDOW_VULKAN;
-#elif defined(ZEST_IMPLEMENT_METAL)
-    // flags = SDL_WINDOW_METAL; // Placeholder for Metal
 #endif
 
     if (maximised) {

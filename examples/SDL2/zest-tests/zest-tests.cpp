@@ -428,6 +428,10 @@ int main(int argc, char *argv[]) {
 	int metal_backend_total = 0;
 	int metal_backend_completed = 0;
 #ifdef ZEST_ENABLE_METAL
+	//Metal fixes its validation when the process makes its first window, which a windowed test does before its device
+	if (run_metal && !run_vulkan) {
+		zest_PrepareMetalValidation(MetalTestFlags());
+	}
 	if (run_metal && run_vulkan) {
 		ZEST_PRINT("=== Test suite run: Metal backend, in its own process ===");
 		metal_backend_completed = RunMetalSuiteInChildProcess(argv[0], &metal_backend_total);
