@@ -228,25 +228,7 @@ static zest_bool IsVulkanOnlyTest(const char *name) {
 #ifdef ZEST_ENABLE_METAL
 //The shared tests the Metal suite run leaves out, under what each group needs from the backend
 static const char *metal_pending_tests[] = {
-	//Transient images
-	"Transient Image",
-	"Image Barriers",
-	"Multi Reader Barrier",
-	"Depth Attachment",
-	"User Test Transient Dependency Ordering",
-	"Compute Test WAW Barrier",
-	"Resource Test Transient Aliasing Dependency",
-	"Versioned Transient",
-	"Cached Transient Persistence",
-	"Transient Placement Failure",
-	"Transient Placement Failure Retry",
-	"Arena Memory Bound",
-	"Arena Alternation",
-	"Arena Trim",
-	"Transient Report",
-	"Transient Mip Views Across Allocator Growth",
-	//Transient buffers
-	"User Test Buffer Output In Render Pass",
+	//Buffer copies in a frame graph
 	"Cached Transient Placement",
 	"Unbacked Transient Barrier",
 	"Intraframe Two Graphs",

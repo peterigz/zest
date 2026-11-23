@@ -36,7 +36,7 @@ Everything in `metal_m2_implementation.md` [Constraints_] holds: never commit, e
 
 - **Shared edits.** Only Task 1 touches shared files, and only two tests. After it, build `zest-tests` on Windows in Debug. The Windows suites are Peter's to run.
 - **Budget.** Vulkan and D3D12 get no new work. On Metal, a pass that copies takes one blit encoder inside one autorelease pool. A frame graph command allocates nothing from Zest's allocators. See [Cost_].
-- **Unretained references.** A frame graph batch's command buffer keeps nothing alive. A command recorded into one may only use objects Zest already holds until the frame in flight comes round: pool buffers, heaps, image textures, views. It never makes a temporary Metal object.
+- **Unretained references.** A frame graph batch's command buffer keeps nothing alive. A command recorded into one may only use objects Zest already holds until the frame in flight comes round: pool buffers, heaps, image textures, views. It never makes a temporary Metal object. Metal needs each of those objects to outlive the batch's completion, which a timeline wait sees to ([Settled_], "Batches stay unretained").
 - **Lazily created objects take a lock on creation and none on the read path**, as the design's [Lessons_] asks. That is the blit library, its pipelines and its samplers.
 - **Runs open no window** except the two windowed backend tests M2 added and the suite's own.
 
@@ -55,6 +55,12 @@ The implementer doesn't reopen these.
 - **The blit pipeline is built on first use**, not at device creation. The first build costs about 200 ms on a machine that has never compiled it and about 2 ms after ([Probe_]), and most apps never blit.
 - **Blit objects outlive a device reset.** The library, pipelines and samplers belong to the `MTLDevice`, which a reset keeps. `cleanup_device_backend` releases them.
 - **A resolve keeps its source.** The store action is store and resolve, as Vulkan's resolve leaves the multisampled image intact.
+- **Batches stay unretained, and a timeline wait settles them (Peter, 2026-11-23, during Phase 2: whichever is the most performant).**
+  - Metal's debug layer needs an object to outlive the completion of every command buffer with unretained references that used it. A shared event signalled last in a buffer is seen before Metal marks the buffer completed, and shared code frees a frame's or a flushed graph's objects straight after the wait on that event. In Metal's default error mode the layer's complaint aborts the process.
+  - Each committed batch keeps the last event and value it signals. A successful `zest__mtl_wait_for_timeline` reaps the device's batches, and so does `zest__mtl_wait_for_idle_device`. The reap waits for any batch whose signal has been seen before it reads and releases it.
+  - A batch committed while its context holds a drawable also keeps the drawable's texture until it's reaped. The drawable is the one object a batch uses that Zest doesn't free itself: the layer drops it once it has been shown.
+  - The device backend keeps its own list of context queues under `committed_lock`, as a wait on one thread must not walk another context's queue maps.
+  - Rejected: `commandBuffer`, which retains what it names. Measured on the Apple M2, no debug layer, 20,000 draws a buffer: an indexed draw costs 85 ns unretained and 103 to 120 ns retained, and a draw with a vertex buffer and a texture bound first costs 272 ns against 290 ns.
 
 ## [State_] Current state (verified 2026-11-23, Windows tree at 325b2f5)
 
@@ -162,7 +168,7 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 
 1. **An encoder is left open.** A blit encoder still open when a render pass begins, or at the commit, makes Metal abort the process (M2: "no pass ended" ended in exit -6). Probe: "Metal Frame Graph Buffer Copies" runs a transfer pass that copies and a render pass in one batch, and a graph that ends on a copy. Break it by not ending the encoder in `release_barrier`.
 2. **A transient image is placed over memory another still uses, or a backing is never freed.** Probes: "Metal Transient Images" aliases two transients in one graph and reads back what each pass wrote. "Metal Arena Backing" expects the residency set's `allocationCount`, the device's `memory_allocation_count` and Metal's allocated size back at their baselines after the context goes.
-3. **A frame graph command uses a temporary object.** With unretained references it is freed before the GPU reads it, and nothing reports. Probe: the frame graph tests run once under `NSZombieEnabled=YES MallocScribble=1`, and the plan's rule is that those commands make no Metal object.
+3. **A frame graph command uses a temporary object.** With unretained references it is freed before the GPU reads it. Since Phase 2 the debug layer's "destroyed while still required" record counts as a validation error, so a frame graph test fails on it when the timing shows it. Probe: the frame graph tests run once under `NSZombieEnabled=YES MallocScribble=1`, and the plan's rule is that those commands make no Metal object.
 4. **The blit lands flipped, in the wrong rect, or with the wrong filter.** Probe: "Metal Blit Image" repeats the probe's four pixel checks, with a marked top row.
 5. **The render target rule is wrong in either direction.** Too narrow raises Metal's "doesn't specify MTLTextureUsageRenderTarget". Too wide gives every texture the usage. Probe: "Metal Render Target Usage" checks the usage of the descriptor for each flag combination, and the clear tests cover an attachment, a storage image and an image that must report.
 6. **A copy between formats silently gives wrong bytes.** Probe: "Metal Image Mip Commands" copies between two formats of one layout and expects the bytes, and between `RGBA8Unorm` and `R32Float` and expects the report and an untouched destination.
@@ -214,11 +220,11 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`free_arena_backing(device, context, backing)`** removes the buffer or heap from the residency set, releases it, takes it off the count, and frees the backend and the pool.
 
 **Steps:**
-- [ ] Implement, replacing the two stubs.
-- [ ] Test "Metal Arena Backing", mirroring `zest-d3d12-tests.cpp:5208`: on a headless context, create and free a backing of each of the three kinds. While one exists the residency set's `allocationCount` and `memory_allocation_count` are one higher. A CPU backing's `mapped` takes a write and reads it back. After the context is destroyed, both counts and `metal_allocated_size()` equal their values from before.
-- [ ] Run each test of the pending "Transient buffers" group alone with the pending check off. One that passes with no Metal validation record comes off the list. Record what each of the others stops at.
-- [ ] Break it: skip the residency removal in `free_arena_backing` (the count check must fail), and never set `mapped` (the write must fail or crash inside the test).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Implement, replacing the two stubs.
+- [x] Test "Metal Arena Backing", mirroring `zest-d3d12-tests.cpp:5208`: on a headless context, create and free a backing of each of the three kinds. While one exists the residency set's `allocationCount` and `memory_allocation_count` are one higher. A CPU backing's `mapped` takes a write and reads it back. After the context is destroyed, both counts and `metal_allocated_size()` equal their values from before.
+- [x] Run each test of the pending "Transient buffers" group alone with the pending check off. One that passes with no Metal validation record comes off the list. Record what each of the others stops at.
+- [x] Break it: skip the residency removal in `free_arena_backing` (the count check must fail), and never set `mapped` (the write must fail or crash inside the test).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
 
 ### Task 3: Transient images
 
@@ -234,16 +240,16 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 - **`bind_image_arena(device, image, backing, offset)`** rebuilds the descriptor from the image, its `info.layer_count`, the kept sample count and `info.flags`, places the texture in the backing's heap at the offset, and sets `image->layout` to undefined. A nil texture reports and returns false.
 
 **Steps:**
-- [ ] Implement, replacing the three stubs.
-- [ ] Test "Metal Transient Images", mirroring `zest-d3d12-tests.cpp:5381`, on a headless context with command graphs:
+- [x] Implement, replacing the three stubs.
+- [x] Test "Metal Transient Images", mirroring `zest-d3d12-tests.cpp:5381`, on a headless context with command graphs:
   - A graph with one transient colour target cleared in a pass, and a transfer pass that copies it to an imported image with `zest_cmd_CopyImageMip`. Until Task 5 that copy reports, so this step first checks only that the graph compiles, places and flushes with 0 validation errors. Task 5 adds the readback.
   - The same graph run 6 times: the transient's texture is the same object from the second run on, and `metal_allocated_size()` after the sixth equals the fourth.
   - A graph with two transients of different sizes used in passes that don't overlap: both land in one arena, and the second run reuses both textures.
   - A transient with the CPU transfer hint: the graph reports a transient resource failure and one report is recorded.
-- [ ] Run each test of the pending "Transient images" group alone with the pending check off. One that passes comes off the list. Record what each of the others stops at.
-- [ ] Break it: place every transient at offset 0 (the reuse or the readback must fail once Task 5 lands, so this one is rerun there), and return a category that differs per format (the one-arena check must fail).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`.
-- [ ] Phase report. Restore the Mac clone.
+- [x] Run each test of the pending "Transient images" group alone with the pending check off. One that passes comes off the list. Record what each of the others stops at.
+- [x] Break it: place every transient at offset 0 (the reuse or the readback must fail once Task 5 lands, so this one is rerun there), and return a category that differs per format (the one-arena check must fail).
+- [x] Build and run `--platform metal`, then with `--shader-validation`.
+- [x] Phase report. Restore the Mac clone.
 
 ## [Phase_3] Copies in a frame graph
 
@@ -394,7 +400,7 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 **Files:** `zest-tests.cpp:230-317`. `metal_m3_implementation.md`, `metal_platform_layer_implementation.md`.
 
 **Steps:**
-- [ ] Sweep every test still in the "Transient images" and "Transient buffers" groups, and the "Shader compiling" group once more, each alone in its own process with the pending check off. One that passes with no Metal validation record comes off. Regroup what stays under what the sweep saw it stop at.
+- [ ] Sweep every test still on the pending list, each alone in its own process with the pending check off. One that passes with no Metal validation record comes off. Regroup what stays under what the sweep saw it stop at. A test with its own context create info is judged in the whole suite, as `--test` runs the first test it matches on the default context ([Built_], Phase 2).
 - [ ] Check the done line: every test in `zest-resource-management-tests.cpp` runs on Metal except those the sweep shows need a shader. List them by name.
 - [ ] The final check on the Mac: every target with Metal on and with Metal off, `zest-objc-compile-check`, `--platform all`, `--platform metal --shader-validation`, one zombie and `MallocScribble` run, and `zest-clear-screen --metal --validate --frames 240`. Expected: the Vulkan lines at the baseline, both Metal lines full, `validation errors: 0`.
 - [ ] Build `zest-tests` and `zest-c-compile-check` on Windows in Debug. Expected: clean.
@@ -410,10 +416,12 @@ All three were taken on 2026-11-23: Peter went with the recommendations. They ar
 | Per copy command | Unchanged | One encoder call per region. No allocation, no lock |
 | `zest_cmd_ImageClear`, a mip blit between formats | Unchanged | One render pass each, on the context's descriptor. The blit adds one array search of at most 16 entries with no lock |
 | A graph with none of these | Unchanged | One pointer test in `release_barrier` and `end_command_buffer` |
+| Per batch, from Phase 2 | Unchanged | Two takes of the device's committed lock, at the batch's start and at its commit, and one retain and release each of its ordering event and, in a frame, the drawable's texture. Nothing per draw |
+| Per successful timeline wait, from Phase 2 | Unchanged | One walk of the device's context queues under the lock. A batch whose signal has been seen and isn't marked completed yet is waited for, which takes microseconds |
 | Immediate commands | Unchanged | One render pass per mip per layer for a clear. A fill of a mixed value and an update each take one staging buffer |
 | First blit to a format | | The library and pipeline build, under the lock: about 200 ms the first time ever on a machine, about 2 ms after |
 
-**Memory:** `zest_mtl_image_backend_t` grows by 4 bytes, the command list backend by one pointer. The device backend gains one library, two samplers, a mutex and 16 format and pipeline pairs. An arena backing is one buffer or heap in the residency set. No struct in `zest.h` grows.
+**Memory:** `zest_mtl_image_backend_t` grows by 4 bytes, the command list backend by one pointer. The device backend gains one library, two samplers, a mutex and 16 format and pipeline pairs. An arena backing is one buffer or heap in the residency set. No struct in `zest.h` grows. From Phase 2: a committed batch is 32 bytes where it was 8, each context queue backend gains 24 bytes, and the device backend a mutex and a pointer.
 
 ## [Testing_] Testing
 
@@ -469,3 +477,92 @@ One part per phase, in the order they were built.
 **Shared edits, for Peter's Windows run**
 - `zest-resource-management-tests.cpp`: one condition and its comment.
 - `zest-device-reset-tests.cpp`: one condition and its comment.
+
+### Phase 2: transient arenas (2026-11-23, on top of commit fc6e870, built and run on the Mac over SSH)
+
+**What changed**
+- `zest_metal.h`:
+  - `zest__mtl_create_arena_backing` and `zest__mtl_free_arena_backing`, in `Buffer_and_memory`.
+  - `zest__mtl_new_frame_graph_image_backend`, `zest__mtl_create_transient_image_unbound` and `zest__mtl_bind_image_arena`, in `Images`. `zest_mtl_image_backend_t` gains `sample_count`. 45 stubs remain.
+  - `zest_mtl_committed_batch_t`, `zest__mtl_push_committed_batch` and `zest__mtl_reap_queue_batches`, and the device's `committed_lock` and list of context queues ([Settled_], "Batches stay unretained").
+  - `zest__mtl_wait_for_timeline` reaps the device's batches when its wait succeeds, and `zest__mtl_wait_for_idle_device` when it's done.
+  - `zest__mtl_frame_drawable_texture`, which gives each committed batch the drawable texture it holds.
+  - Both commits of a batch are inside an autorelease pool.
+  - The validation reader counts the debug layer's "being destroyed while still required" record, which has no title ending in Validation (`ZEST__MTL_DESTROYED_IN_USE_MESSAGE`).
+- `zest-metal-tests.cpp`: "Metal Arena Backing" and "Metal Transient Images". `metal_read_native_texture`, which `metal_read_texture` now calls.
+- `zest-tests.cpp`: 17 tests are off `metal_pending_tests[]`, which now holds 61 in three groups.
+- `metal_platform_layer_implementation.md`: the Command pools row of [Mapping_] says what a timeline wait does.
+
+**The lifetime problem transient images exposed**
+- With only Zest holding a transient's texture, Metal's debug layer said "The following Metal object is being destroyed while still required to be alive by the command buffer" on every flushed command graph of a headless context, 8 of 8 in each of three runs.
+- The rule, from `spikes/metal/build/probe/probe_unretained.mm`, 200 repeats each: an object destroyed once its buffer's `waitUntilCompleted` has returned raises nothing. One destroyed once the event the buffer signals last has been seen raises the message, and without `MTL_DEBUG_LAYER_ERROR_MODE=nslog` the process aborts.
+- M2's reader didn't count the message, so no M2 test could fail on it.
+- The cost of the alternative, from `probe_retained_cost.mm`, is in [Settled_].
+- Peter chose between the two fixes during the phase: the most performant, which is the one built.
+- **The same message for a drawable's texture.** Once the reader counted it, "Metal Windowed Context" failed on it in 2 of about 45 runs of the Metal suites. With every command buffer labelled for one run, the buffer was a frame graph batch of a context's second frame, and the object a 320 wide drawable texture.
+  - Not reproduced by 600 context cycles on one window, 600 window resizes or 120 runs of the test on new windows, so what makes the layer drop that drawable early is not known. It has only been seen in the first "Metal Windowed Context" after "Metal Windowed Frames".
+  - Each batch committed in a frame now holds the drawable's texture until it's reaped, so the texture can't be destroyed before the batch has completed whatever the layer does.
+  - The message hasn't come back in 48 runs since. At 2 in 45 that would happen by chance about one time in nine, so the runs alone don't prove the fix. The argument does: Metal can't destroy an object a batch still holds.
+
+**A commit outside an autorelease pool**
+- With `--shader-validation`, one arena heap of 1 MB stayed allocated after the context of "Metal Transient Images" had gone, with the residency set and the allocation count back at their baselines.
+- Putting a graph's execution inside a pool cleared it, and of five backend call sites tried one at a time only the commit did (`spikes/metal/m3_sv_experiment2.py` and `m3_sv_experiment3.py`). With GPU validation on, `[command_buffer commit]` leaves an autoreleased object that holds what the batch used, and a thread with no pool never lets it go.
+- It is M2's code. No M2 check could show it, as no heap was freed while its device lived.
+
+**Results**
+- Mac at the end of the phase, Metal on:
+  - `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` build with no warning from Zest's files.
+  - `zest-tests --platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 71 / 71`, `Metal backend: 26 / 26`, exit 0, no VUID line.
+  - `zest-tests --platform metal` 28 times, once with `--shader-validation` and once with `NSZombieEnabled=YES MallocScribble=1`: 71 / 71 and 26 / 26 every time, with no Metal validation record in the suite's part of the log, no destroyed in use message and no zombie report.
+- Mac, Metal off: `zest-tests` and `zest-c-compile-check` build with no warning, and `zest-tests` gives 129 / 129 and 129 / 129, exit 0, no VUID line.
+- Windows: `zest-tests` and `zest-c-compile-check` build in Debug with no warning and no error. The suites were not run.
+
+**The pending list** (`spikes/metal/sweep_pending.py`, each test alone with the pending check off)
+- "Transient buffers" group, 8 tests: "User Test Buffer Output In Render Pass" passed and came off. The other 7 stop at `copy_buffer`, three of them at `upload_buffer` as well. The group is renamed "Buffer copies in a frame graph".
+- "Transient images" group, 16 tests: 15 passed alone. "Transient Mip Views Across Allocator Growth" failed alone on Metal, and fails alone on Vulkan in the same way: `--test` runs the first test it matches on the suite's first context, which is made with the default create info, so the test's 1 KB frame graph allocator is never used and never grows. In the whole suite it gets its own context and passes. All 16 came off.
+
+**Every new check was broken on purpose** (`spikes/metal/mutate_m2.py` with `mutations_m3_p2.py`, `mutations_m3_p2b.py` and `mutations_m3_p2c.py`, untracked)
+
+| Breakage | What failed |
+| --- | --- |
+| A freed backing's buffer, or its heap, stays in the residency set | "Metal Arena Backing" |
+| A CPU backing is never mapped | "Metal Arena Backing" |
+| A freed backing is never released | "Metal Arena Backing" |
+| A GPU backing is shared memory | "Metal Arena Backing" |
+| Every transient is placed at offset 0 | "Metal Transient Images" |
+| A transient's category differs by format | "Metal Transient Images" |
+| The sample count isn't kept for the bind | The process aborts inside "Metal Transient Images" |
+| A host visible transient is accepted | "Metal Transient Images" |
+| A retired transient's texture is never released | "Metal Transient Images" |
+| A timeline wait doesn't reap | "Metal Render Pass Clear", "Metal Transient Images" |
+| The reap doesn't wait for a batch whose signal was seen | "Metal Render Pass Clear", "Metal Transient Images" |
+| A timeline wait doesn't reap, and the destroyed in use message isn't counted | "Metal Render Pass Clear" only, which is what the reader's change is for |
+| A released batch keeps its ordering event | "Metal Transient Images" |
+| A context queue never joins the device's list | "Metal Render Pass Clear", "Metal Transient Images" |
+| A context queue never leaves the device's list | The process crashes in the suite under `MallocScribble=1`. Not run without it |
+| Only the newest context queue stays in the list | "Metal Transient Images" |
+| A released batch keeps the drawable's texture | "Metal Windowed Frames" |
+| The device's idle wait doesn't reap | "Metal Render Pass Clear" |
+| A batch holds no drawable texture | Nothing in one run. It guards the message seen in 2 of about 45 runs |
+| A frame graph batch is committed outside a pool | "Metal Transient Images", with `--shader-validation` |
+
+**Differences from the plan**
+- **Command graphs don't reuse a transient's texture.** A command graph isn't run again from the cache, so each flush on a headless context places a new texture in the same arena and retires it. "Metal Transient Images" checks that instead: the texture has one owner after the flush, and Metal's allocated size and the residency set's count are the same after the sixth run as after the fourth. Reuse across frames is what the shared "Cached Transient Persistence" test checks, and it passes on Metal.
+- **The test reads transients back now**, not from Task 5 on. A pass callback keeps each transient's texture, and the test reads it through its own blit once the graph has run. Task 5 still adds the copy through `zest_cmd_CopyImageMip`.
+- **The aliasing graph has three transients in two formats.** The first two are alive together and must be apart, and the third must take the first's offset. The second and third read back what their passes cleared them to.
+- **The host visible report names the hint the user set**, `zest_resource_usage_hint_cpu_transfer`, and points at an imported image with `zest_CopyBitmapToImage` or `zest_CopyImageToBitmap`. The plan asked for `zest__mtl_create_image`'s wording, which names a flag a transient's user never sets.
+- **The settle step, its lock and list, and the reader's change** are not in the plan. See above and [Settled_].
+- **Two M2 tests changed.**
+  - "Metal Render Pass Clear" expects no committed batch after a waited flush, where it expected the one just committed. It also flushes one graph with no timeline, which must leave its batch committed until the device's idle wait.
+  - "Metal Windowed Context" fails when Metal's allocated size grows across its last three cycles, not when it differs. It failed once in this phase with sizes of 8,912,896, 8,912,896 and 8,388,608, a fall, which is M2's one unexplained failure with its reason captured. M2's "a new view is made for every context" breakage still fails it.
+
+**Checks that can't fail yet**
+- Transient images with more than one sample: shared code only asks for one.
+- `zest__mtl_bind_image_arena` returning false for a texture Metal won't place: nothing makes Metal refuse.
+- A context queue left in the device's list, without `MallocScribble=1`.
+- A batch that doesn't hold its frame's drawable texture, in any one run.
+
+**Noticed and left alone**
+- `zest-tests --test` runs the first test it matches on the suite's first context, which `RunSuite` makes with the default create info before any test is registered. A test with its own create info only gets it when it isn't first. It's in the shared runner, so it wasn't changed. The sweep's results for a test run alone are read with that in mind.
+- What makes a `CAMetalLayer` drop a presented drawable's texture early.
+- `zest__mtl_collect_validation_messages` reaped every context's batches by walking shared code's queue maps from whichever thread asked for a validation count. It now walks the backend's list under the lock like every other reap, so that exposure of M2's is closed.

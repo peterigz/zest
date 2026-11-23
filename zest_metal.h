@@ -75,6 +75,7 @@ extern "C" {
 #define ZEST__MTL_VALIDATION_MESSAGE_SIZE 768		//Bytes kept of one validation record
 #define ZEST__MTL_VALIDATION_PENDING_COUNT 64		//Records the reader holds until a device collects them
 #define ZEST__MTL_VALIDATION_SYNC_LINE "\x1d" "Zest Metal validation sync"
+#define ZEST__MTL_DESTROYED_IN_USE_MESSAGE "The following Metal object is being destroyed while still required"	//How the debug layer opens its record of an object a command buffer outlived
 #define ZEST__MTL_SDL_VIEW_NAME "zest_metal_view"	//The name an SDL window keeps its Metal view under
 
 //What the rest of the backend switches on, read once from the device
@@ -91,10 +92,14 @@ typedef struct zest_mtl_feature_support_t {
 	zest_u64 max_buffer_length;					//Bytes
 } zest_mtl_feature_support_t;
 
+struct zest_mtl_context_queue_backend_t;
+
 typedef struct zest_mtl_device_backend_t {
 	id<MTLDevice> device;
 	id<MTLResidencySet> residency_set;			//Every pool buffer and heap, attached to every queue so no pass declares what it uses
 	pthread_mutex_t residency_lock;				//Pools are added and freed from any thread
+	pthread_mutex_t committed_lock;				//Guards the list below and every committed list in it, as a timeline wait on any thread reaps them all
+	struct zest_mtl_context_queue_backend_t *first_context_queue;	//Every context queue of the device
 	zest_mtl_feature_support_t support;
 	zest_bool api_validation;					//The debug layer answered the probe when this device was created
 	zest_bool shader_validation;
@@ -120,9 +125,20 @@ typedef struct zest_mtl_swapchain_backend_t {
 	MTLPixelFormat pixel_format;
 } zest_mtl_swapchain_backend_t;
 
+//Once the event reaches the value the batch's GPU work is over, which is a little before Metal marks the buffer completed
+typedef struct zest_mtl_committed_batch_t {
+	id<MTLCommandBuffer> command_buffer;
+	id<MTLSharedEvent> event;						//The last event the batch signals, retained as it can outlive its timeline here
+	zest_u64 value;
+	id<MTLTexture> drawable_texture;				//Retained, as a layer can drop a presented drawable before the batch that drew to it has completed
+} zest_mtl_committed_batch_t;
+
 typedef struct zest_mtl_context_queue_backend_t {
 	id<MTLCommandBuffer> command_buffer;			//The batch being recorded, nil between batches
-	id<MTLCommandBuffer> *committed[ZEST_MAX_FIF];	//The batches committed in each frame in flight, each held until it has finished and been read
+	zest_mtl_committed_batch_t *committed[ZEST_MAX_FIF];	//The batches committed in each frame in flight, each held until it has finished and been read
+	zest_device device;
+	struct zest_mtl_context_queue_backend_t *next_queue;		//The device's list of context queues
+	struct zest_mtl_context_queue_backend_t *previous_queue;
 } zest_mtl_context_queue_backend_t;
 
 //The events and values the next wave's batches wait on
@@ -184,6 +200,7 @@ typedef struct zest_mtl_device_memory_backend_t {
 
 typedef struct zest_mtl_image_backend_t {
 	id<MTLTexture> texture;
+	zest_uint sample_count;						//Transient images only, kept from sizing the image until it's placed in its arena
 } zest_mtl_image_backend_t;
 
 //A view of the whole image in its own type holds the image's texture, anything else a texture view
@@ -461,6 +478,9 @@ ZEST_PRIVATE void zest__mtl_cleanup_queues(zest_device device);
 ZEST_PRIVATE void zest__mtl_add_queue_manager_list(zest_device device, zest_device_queue_type queue_type, const zest_uint *family_order, zest_uint order_count);
 ZEST_PRIVATE void zest__mtl_release_immediate_queue(zest_queue queue, zest_bool gpu_finished);
 ZEST_PRIVATE zest_bool zest__mtl_finish_command_buffer(zest_device device, id<MTLCommandBuffer> command_buffer);
+ZEST_PRIVATE void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value);
+ZEST_PRIVATE id<MTLTexture> zest__mtl_frame_drawable_texture(zest_context context);
+ZEST_PRIVATE void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zest_bool release_all);
 ZEST_PRIVATE void zest__mtl_reap_command_buffers(zest_context context, zest_context_queue queue, zest_bool release_all);
 ZEST_PRIVATE void zest__mtl_reap_device_command_buffers(zest_device device);
 ZEST_PRIVATE void zest__mtl_add_to_residency_set(zest_device device, id<MTLAllocation> allocation);
@@ -535,8 +555,8 @@ ZEST_PRIVATE void zest__mtl_read_validation_line(const char *line, size_t length
 			reader->saw_api_enabled = ZEST_TRUE;
 		} else if (strcmp(message, "Metal GPU Validation Enabled") == 0) {
 			reader->saw_shader_enabled = ZEST_TRUE;
-		} else if (message_length >= 10 && strcmp(message + message_length - 10, "Validation") == 0) {
-			//Every debug layer record opens with a title ending in Validation, and its detail lines follow without a prefix
+		} else if ((message_length >= 10 && strcmp(message + message_length - 10, "Validation") == 0) || strncmp(message, ZEST__MTL_DESTROYED_IN_USE_MESSAGE, sizeof(ZEST__MTL_DESTROYED_IN_USE_MESSAGE) - 1) == 0) {
+			//A debug layer record opens with a title ending in Validation or with the destroyed in use message, and its detail lines follow without a prefix
 			if (reader->pending_count == ZEST__MTL_VALIDATION_PENDING_COUNT) {
 				reader->dropped_count++;
 			} else {
@@ -1633,11 +1653,14 @@ zest_bool zest__mtl_dummy_submit_for_present_only(zest_context context) {
 	[command_buffer encodeSignalEvent:ZEST_MTL_BACKEND(execution_timeline, frame_timeline)->event value:frame_timeline->current_value];
 	context->frame_sync_timeline[frame_in_flight] = frame_timeline;
 	ordering_timeline->current_value += 1;
-	[command_buffer encodeSignalEvent:ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event value:ordering_timeline->current_value];
+	id<MTLSharedEvent> ordering_event = ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event;
+	[command_buffer encodeSignalEvent:ordering_event value:ordering_timeline->current_value];
 	[command_buffer presentDrawable:backend->drawable];
 	backend->present_count++;
-	[command_buffer commit];
-	zest_vec_push(context->allocator, queue_backend->committed[frame_in_flight], command_buffer);
+	@autoreleasepool {
+		[command_buffer commit];
+	}
+	zest__mtl_push_committed_batch(context, graphics_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value);
 	return ZEST_TRUE;
 }
 // -- End Swapchain_presenting
@@ -1647,6 +1670,7 @@ void *zest__mtl_new_device_backend(zest_device device) {
 	zest_mtl_device_backend_t *backend = (zest_mtl_device_backend_t *)ZEST__ALLOCATE(device->allocator, sizeof(zest_mtl_device_backend_t));
 	*backend = ZEST__ZERO_INIT(zest_mtl_device_backend_t);
 	pthread_mutex_init(&backend->residency_lock, NULL);
+	pthread_mutex_init(&backend->committed_lock, NULL);
 	return backend;
 }
 
@@ -1701,8 +1725,15 @@ void *zest__mtl_new_swapchain_backend(zest_context context) {
 }
 
 void *zest__mtl_new_context_queue_backend(zest_context context) {
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
 	zest_mtl_context_queue_backend_t *backend = (zest_mtl_context_queue_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_mtl_context_queue_backend_t));
 	*backend = ZEST__ZERO_INIT(zest_mtl_context_queue_backend_t);
+	backend->device = context->device;
+	pthread_mutex_lock(&device_backend->committed_lock);
+	backend->next_queue = device_backend->first_context_queue;
+	if (backend->next_queue) backend->next_queue->previous_queue = backend;
+	device_backend->first_context_queue = backend;
+	pthread_mutex_unlock(&device_backend->committed_lock);
 	return backend;
 }
 
@@ -1748,6 +1779,7 @@ void zest__mtl_cleanup_device_backend(zest_device device) {
 	ZEST_MTL_RELEASE(backend->residency_set);
 	ZEST_MTL_RELEASE(backend->device);
 	pthread_mutex_destroy(&backend->residency_lock);
+	pthread_mutex_destroy(&backend->committed_lock);
 	ZEST__FREE(device->allocator, backend);
 	device->backend = NULL;
 }
@@ -1879,10 +1911,19 @@ void zest__mtl_destroy_context_surface(zest_context context) {
 void zest__mtl_cleanup_context_queue_backend(zest_context context, zest_context_queue context_queue) {
 	zest_mtl_context_queue_backend_t *backend = ZEST_MTL_BACKEND(context_queue, context_queue);
 	if (!backend) return;
-	zest__mtl_reap_command_buffers(context, context_queue, ZEST_TRUE);
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
+	pthread_mutex_lock(&device_backend->committed_lock);
+	zest__mtl_reap_queue_batches(backend, ZEST_TRUE);
 	zest_ForEachFrameInFlight(frame_in_flight) {
 		zest_vec_free(context->allocator, backend->committed[frame_in_flight]);
 	}
+	if (backend->previous_queue) {
+		backend->previous_queue->next_queue = backend->next_queue;
+	} else {
+		device_backend->first_context_queue = backend->next_queue;
+	}
+	if (backend->next_queue) backend->next_queue->previous_queue = backend->previous_queue;
+	pthread_mutex_unlock(&device_backend->committed_lock);
 	ZEST_MTL_RELEASE(backend->command_buffer);
 	ZEST__FREE(context->allocator, backend);
 	context_queue->backend = NULL;
@@ -1924,13 +1965,14 @@ void zest__mtl_cleanup_execution_timeline_backend(zest_execution_timeline timeli
 	timeline->backend = NULL;
 }
 
+//Shared code frees what a frame or a flushed graph used straight after a wait succeeds, so every batch the wait proved finished is completed and released first
 zest_semaphore_status zest__mtl_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout) {
 	zest_mtl_execution_timeline_backend_t *backend = ZEST_MTL_BACKEND(execution_timeline, timeline);
 	zest_u64 target_value = timeline->current_value;
-	if ([backend->event signaledValue] >= target_value) return zest_semaphore_status_success;
-	if (timeout == 0) return zest_semaphore_status_timeout;
+	zest_bool signalled = [backend->event signaledValue] >= target_value;
 	zest_microsecs wait_start = zest_Microsecs();
-	for (;;) {
+	while (!signalled) {
+		if (timeout == 0) return zest_semaphore_status_timeout;
 		//The event's own wait takes milliseconds, so an endless wait is a run of long ones
 		zest_u64 milliseconds = 60000;
 		if (timeout != ZEST__MTL_WAIT_FOREVER) {
@@ -1938,8 +1980,10 @@ zest_semaphore_status zest__mtl_wait_for_timeline(zest_execution_timeline timeli
 			if (elapsed >= timeout) return zest_semaphore_status_timeout;
 			milliseconds = (timeout - elapsed + 999) / 1000;
 		}
-		if ([backend->event waitUntilSignaledValue:target_value timeoutMS:milliseconds]) return zest_semaphore_status_success;
+		signalled = [backend->event waitUntilSignaledValue:target_value timeoutMS:milliseconds];
 	}
+	zest__mtl_reap_device_command_buffers(timeline->device);
+	return zest_semaphore_status_success;
 }
 zest_semaphore_status zest__mtl_wait_for_renderer_semaphore(zest_context context) {
 	zest_execution_timeline timeline = context->frame_sync_timeline[context->current_fif];
@@ -2053,24 +2097,45 @@ zest_bool zest__mtl_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_b
 	[encoder copyFromBuffer:zest__mtl_buffer_object(src_buffer) sourceOffset:(NSUInteger)(src_buffer->memory_offset + src_offset) toBuffer:zest__mtl_buffer_object(dst_buffer) destinationOffset:(NSUInteger)(dst_buffer->memory_offset + dst_offset) size:(NSUInteger)size];
 	return ZEST_TRUE;
 }
-//Reads and releases the queue's batches that have finished. With release_all, one still running is released unread.
-void zest__mtl_reap_command_buffers(zest_context context, zest_context_queue queue, zest_bool release_all) {
-	zest_mtl_context_queue_backend_t *backend = ZEST_MTL_BACKEND(context_queue, queue);
+//The texture of the drawable the context holds for this frame, or nil outside a frame and on a headless context
+id<MTLTexture> zest__mtl_frame_drawable_texture(zest_context context) {
+	if (!ZEST_MTL_BACKEND(context, context)->drawable) return nil;
+	return ZEST_MTL_BACKEND(image, &context->swapchain->images[0])->texture;
+}
+
+void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value) {
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
+	zest_mtl_committed_batch_t batch = { command_buffer, [event retain], value, [zest__mtl_frame_drawable_texture(context) retain] };
+	pthread_mutex_lock(&device_backend->committed_lock);
+	zest_vec_push(context->allocator, ZEST_MTL_BACKEND(context_queue, queue)->committed[frame_in_flight], batch);
+	pthread_mutex_unlock(&device_backend->committed_lock);
+}
+
+//Reads and releases the queue's batches that have finished, with the device's committed lock held. With release_all, one still running is released unread.
+void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zest_bool release_all) {
 	zest_ForEachFrameInFlight(frame_in_flight) {
-		id<MTLCommandBuffer> *committed = backend->committed[frame_in_flight];
+		zest_mtl_committed_batch_t *committed = backend->committed[frame_in_flight];
 		zest_uint committed_count = zest_vec_size(committed);
 		zest_uint kept_count = 0;
-		for (zest_uint buffer_index = 0; buffer_index != committed_count; ++buffer_index) {
-			id<MTLCommandBuffer> command_buffer = committed[buffer_index];
-			if ([command_buffer status] >= MTLCommandBufferStatusCompleted) {
+		for (zest_uint batch_index = 0; batch_index != committed_count; ++batch_index) {
+			zest_mtl_committed_batch_t batch = committed[batch_index];
+			zest_bool finished = [batch.command_buffer status] >= MTLCommandBufferStatusCompleted;
+			if (!finished && [batch.event signaledValue] >= batch.value) {
+				//Its work is over, and what it used can be destroyed once Metal has marked it completed, so that is waited for
+				[batch.command_buffer waitUntilCompleted];
+				finished = ZEST_TRUE;
+			}
+			if (finished) {
 				@autoreleasepool {
-					zest__mtl_finish_command_buffer(context->device, command_buffer);
+					zest__mtl_finish_command_buffer(backend->device, batch.command_buffer);
 				}
 			} else if (!release_all) {
-				committed[kept_count++] = command_buffer;
+				committed[kept_count++] = batch;
 				continue;
 			}
-			[command_buffer release];
+			[batch.command_buffer release];
+			[batch.event release];
+			[batch.drawable_texture release];
 		}
 		if (kept_count != committed_count) {
 			zest_vec_trim(committed, committed_count - kept_count);
@@ -2078,28 +2143,35 @@ void zest__mtl_reap_command_buffers(zest_context context, zest_context_queue que
 	}
 }
 
+void zest__mtl_reap_command_buffers(zest_context context, zest_context_queue queue, zest_bool release_all) {
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
+	pthread_mutex_lock(&device_backend->committed_lock);
+	zest__mtl_reap_queue_batches(ZEST_MTL_BACKEND(context_queue, queue), release_all);
+	pthread_mutex_unlock(&device_backend->committed_lock);
+}
+
+//Walks the backend's own list, as the contexts' queue maps belong to the threads that drive those contexts
 void zest__mtl_reap_device_command_buffers(zest_device device) {
-	zest_vec_foreach(context_index, device->contexts) {
-		zest_context context = device->contexts[context_index];
-		for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-			if (context->queues[queue_index]) {
-				zest__mtl_reap_command_buffers(context, context->queues[queue_index], ZEST_FALSE);
-			}
-			zest_map_foreach(graph_index, context->cached_frame_graph_queues[queue_index]) {
-				zest__mtl_reap_command_buffers(context, context->cached_frame_graph_queues[queue_index].data[graph_index], ZEST_FALSE);
-			}
-		}
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	pthread_mutex_lock(&device_backend->committed_lock);
+	for (zest_mtl_context_queue_backend_t *backend = device_backend->first_context_queue; backend; backend = backend->next_queue) {
+		zest__mtl_reap_queue_batches(backend, ZEST_FALSE);
 	}
+	pthread_mutex_unlock(&device_backend->committed_lock);
 }
 
 //Each batch takes a new command buffer from its device queue, so all a context queue keeps is the batches it has committed
 void zest__mtl_reset_queue_command_pool(zest_context context, zest_context_queue queue, zest_bool release_resources) {
 	zest_mtl_context_queue_backend_t *backend = ZEST_MTL_BACKEND(context_queue, queue);
-	zest__mtl_reap_command_buffers(context, queue, release_resources);
-	if (!release_resources) return;
-	zest_ForEachFrameInFlight(frame_in_flight) {
-		zest_vec_free(context->allocator, backend->committed[frame_in_flight]);
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
+	pthread_mutex_lock(&device_backend->committed_lock);
+	zest__mtl_reap_queue_batches(backend, release_resources);
+	if (release_resources) {
+		zest_ForEachFrameInFlight(frame_in_flight) {
+			zest_vec_free(context->allocator, backend->committed[frame_in_flight]);
+		}
 	}
+	pthread_mutex_unlock(&device_backend->committed_lock);
 }
 
 //A queue runs its command buffers in order, so an empty one that has finished means everything before it has too
@@ -2206,6 +2278,59 @@ zest_bool zest__mtl_create_device_memory(zest_device device, zest_size size_in_b
 	(void)backend_memory_bits;
 	memory->size = size_in_bytes;
 	return zest__mtl_create_image_heap(device, size_in_bytes, &ZEST_MTL_BACKEND(device_memory, memory)->heap);
+}
+
+//Arena backings have no buffer allocator, so they can't go through zest__mtl_cleanup_memory_pool_backend
+void zest__mtl_free_arena_backing(zest_device device, zest_context context, zest_device_memory_pool backing) {
+	zest_mtl_device_memory_pool_backend_t *backend = ZEST_MTL_BACKEND(device_memory_pool, backing);
+	if (backend->buffer) {
+		zest__mtl_remove_from_residency_set(device, backend->buffer);
+		ZEST_MTL_RELEASE(backend->buffer);
+		zest__atomic_fetch_add(&device->memory_allocation_count, -1);
+	}
+	if (backend->heap) {
+		zest__mtl_remove_from_residency_set(device, backend->heap);
+		ZEST_MTL_RELEASE(backend->heap);
+		zest__atomic_fetch_add(&device->memory_allocation_count, -1);
+	}
+	ZEST__FREE(context->allocator, backend);
+	ZEST__FREE(context->allocator, backing);
+}
+
+//A transient arena is one buffer or one heap that shared code packs a frame graph's transients into
+zest_device_memory_pool zest__mtl_create_arena_backing(zest_device device, zest_context context, zest_uint category, zest_size size) {
+	zest_device_memory_pool pool = (zest_device_memory_pool)ZEST__NEW(context->allocator, zest_device_memory_pool);
+	zest_mtl_device_memory_pool_backend_t *backend = (zest_mtl_device_memory_pool_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_mtl_device_memory_pool_backend_t));
+	*pool = ZEST__ZERO_INIT(zest_device_memory_pool_t);
+	*backend = ZEST__ZERO_INIT(zest_mtl_device_memory_pool_backend_t);
+	pool->magic = zest_INIT_MAGIC(zest_struct_type_device_memory_pool);
+	pool->device = device;
+	pool->backend = (zest_device_memory_pool_backend)backend;
+	pool->size = size;
+	zest_bool created = ZEST_FALSE;
+	if (category == ZEST_ARENA_CATEGORY_GPU_BUFFERS || category == ZEST_ARENA_CATEGORY_CPU_BUFFERS) {
+		zest_bool host_visible = category == ZEST_ARENA_CATEGORY_CPU_BUFFERS;
+		zest_memory_property_flags property_flags = host_visible ? zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit : zest_memory_property_device_local_bit;
+		ZEST_APPEND_LOG(device->log_path.str, "Allocating transient buffer arena, size: %llu, category: %u", (zest_ull)size, category);
+		backend->buffer = [ZEST_MTL_BACKEND(device, device)->device newBufferWithLength:(NSUInteger)size options:zest__mtl_buffer_options(property_flags)];
+		if (backend->buffer) {
+			zest__mtl_add_to_residency_set(device, backend->buffer);
+			zest__atomic_fetch_add(&device->memory_allocation_count, 1);
+			pool->alignment = ZEST_BUFFER_OFFSET_GRANULARITY;
+			pool->mapped = host_visible ? [backend->buffer contents] : NULL;
+			created = ZEST_TRUE;
+		} else {
+			ZEST_APPEND_LOG(device->log_path.str, "Metal couldn't allocate a buffer of %llu bytes for a transient arena.", (zest_ull)size);
+		}
+	} else {
+		ZEST_APPEND_LOG(device->log_path.str, "Allocating transient image arena, size: %llu, category: %u", (zest_ull)size, category);
+		created = zest__mtl_create_image_heap(device, size, &backend->heap);
+	}
+	if (!created) {
+		zest__mtl_free_arena_backing(device, context, pool);
+		return NULL;
+	}
+	return pool;
 }
 
 //Apple silicon has one pool of memory, so there is one heap to report
@@ -2436,6 +2561,8 @@ void zest__mtl_wait_for_idle_device(zest_device device) {
 			}
 		}
 	}
+	//Every batch has run by now, so each is completed and released before the caller frees what it used
+	zest__mtl_reap_device_command_buffers(device);
 }
 // -- End Device_OS
 
@@ -2602,6 +2729,53 @@ zest_bool zest__mtl_create_image(zest_device device, zest_context context, zest_
 	#ifdef ZEST_DEBUGGING
 	image->buffer_identifier = (void *)backend->texture;
 	#endif
+	return ZEST_TRUE;
+}
+
+void *zest__mtl_new_frame_graph_image_backend(zest_device device, zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image) {
+	(void)imported_image;
+	zest_mtl_image_backend_t *backend = allocator
+		? (zest_mtl_image_backend_t *)zest__linear_allocate(allocator, sizeof(zest_mtl_image_backend_t))
+		: (zest_mtl_image_backend_t *)ZEST__ALLOCATE(device->allocator, sizeof(zest_mtl_image_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_mtl_image_backend_t);
+	image->backend = (zest_image_backend)backend;
+	return backend;
+}
+
+//Metal has no unbound texture, so this only sizes the image and keeps the sample count for zest__mtl_bind_image_arena
+zest_bool zest__mtl_create_transient_image_unbound(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, zest_transient_memory_info_t *info) {
+	(void)context;
+	if (ZEST__FLAGGED(flags, zest_image_flag_host_visible)) {
+		ZEST_REPORT(device, zest_report_invalid_resource, "Metal images must be device local, so a transient image can't take zest_resource_usage_hint_cpu_transfer. Import an image and use zest_CopyBitmapToImage or zest_CopyImageToBitmap instead.");
+		return ZEST_FALSE;
+	}
+	MTLTextureDescriptor *descriptor = zest__mtl_new_texture_descriptor(device, image, layer_count, (zest_uint)num_samples, flags);
+	if (!descriptor) {
+		ZEST_REPORT(device, zest_report_invalid_resource, "Transient image format %i has no Metal equivalent on this device.", (int)image->info.format);
+		return ZEST_FALSE;
+	}
+	MTLSizeAndAlign requirement = [ZEST_MTL_BACKEND(device, device)->device heapTextureSizeAndAlignWithDescriptor:descriptor];
+	[descriptor release];
+	ZEST_MTL_BACKEND(image, image)->sample_count = (zest_uint)num_samples;
+	//Rounded up to the alignment so packed offsets stay aligned
+	info->size = (requirement.size + requirement.align - 1) & ~((zest_size)requirement.align - 1);
+	info->alignment = requirement.align;
+	//Any texture can be placed in any of the backend's heaps, so there is one category
+	info->category = ZEST_ARENA_CATEGORY_IMAGE_BASE;
+	return ZEST_TRUE;
+}
+
+zest_bool zest__mtl_bind_image_arena(zest_device device, zest_image image, zest_device_memory_pool backing, zest_size offset) {
+	zest_mtl_image_backend_t *backend = ZEST_MTL_BACKEND(image, image);
+	MTLTextureDescriptor *descriptor = zest__mtl_new_texture_descriptor(device, image, image->info.layer_count, backend->sample_count, image->info.flags);
+	backend->texture = descriptor ? [ZEST_MTL_BACKEND(device_memory_pool, backing)->heap newTextureWithDescriptor:descriptor offset:(NSUInteger)offset] : nil;
+	[descriptor release];
+	if (!backend->texture) {
+		ZEST_REPORT(device, zest_report_invalid_resource, "Metal couldn't place the transient image (format %i, %ux%ux%u, %u layers, %u mips, %u samples) in its arena at offset %llu.",
+			(int)image->info.format, image->info.extent.width, image->info.extent.height, image->info.extent.depth, image->info.layer_count, image->info.mip_levels, backend->sample_count, (zest_ull)offset);
+		return ZEST_FALSE;
+	}
+	image->layout = zest_image_layout_undefined;
 	return ZEST_TRUE;
 }
 
@@ -3038,7 +3212,7 @@ zest_bool zest__mtl_set_next_command_buffer(const zest_command_list command_list
 	backend->switched_queue = zest__acquire_context_queue(context, queue, command_list->queue_index);
 	zest_mtl_queue_backend_t *device_queue_backend = ZEST_MTL_BACKEND(queue, queue->queue);
 	@autoreleasepool {
-		//Zest keeps every resource a batch uses alive until its frame in flight comes round again
+		//Zest frees what a batch used only after a wait on a timeline, and that wait sees the batch completed first
 		queue_backend->command_buffer = [[device_queue_backend->queue commandBufferWithUnretainedReferences] retain];
 	}
 	if (!queue_backend->command_buffer) {
@@ -3215,7 +3389,8 @@ zest_bool zest__mtl_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_
 	}
 	zest_execution_timeline ordering_timeline = &context->queue_ordering_timelines[queue_index];
 	ordering_timeline->current_value += 1;
-	[command_buffer encodeSignalEvent:ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event value:ordering_timeline->current_value];
+	id<MTLSharedEvent> ordering_event = ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event;
+	[command_buffer encodeSignalEvent:ordering_event value:ordering_timeline->current_value];
 
 	//The compiler gives the render-finished reference to the batch that holds the frame's last write to the swapchain
 	zest_mtl_context_backend_t *context_backend = ZEST_MTL_BACKEND(context, context);
@@ -3228,8 +3403,11 @@ zest_bool zest__mtl_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_
 		}
 	}
 
-	[command_buffer commit];
-	zest_vec_push(context->allocator, queue_backend->committed[frame_in_flight], command_buffer);
+	//With GPU validation on, a commit leaves an autoreleased object that holds what the batch used, which a thread with no pool would never let go
+	@autoreleasepool {
+		[command_buffer commit];
+	}
+	zest__mtl_push_committed_batch(context, context_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value);
 	queue_backend->command_buffer = nil;
 	command_list_backend->command_buffer = nil;
 	ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
@@ -3384,13 +3562,8 @@ void *zest__mtl_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint sem
 // -- Unavailable_stubs
 //Every member the backend doesn't serve yet. A member leaves this section when its own section implements it.
 //Frame Graph Platform Commands
-void *zest__mtl_new_frame_graph_image_backend(zest_device device, zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("new_frame_graph_image_backend")); return NULL; }
 //Buffer and memory
 //Images
-zest_bool zest__mtl_create_transient_image_unbound(zest_device device, zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags, zest_transient_memory_info_t *info) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("create_transient_image_unbound")); }
-zest_bool zest__mtl_bind_image_arena(zest_device device, zest_image image, zest_device_memory_pool backing, zest_size offset) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("bind_image_arena")); }
-zest_device_memory_pool zest__mtl_create_arena_backing(zest_device device, zest_context context, zest_uint category, zest_size size) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("create_arena_backing")); return NULL; }
-void zest__mtl_free_arena_backing(zest_device device, zest_context context, zest_device_memory_pool backing) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("free_arena_backing")); }
 //Pipelines
 zest_bool zest__mtl_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) { return zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("build_pipeline")); }
 zest_bool zest__mtl_finish_compute(zest_device device, zest_compute compute) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("finish_compute")); }

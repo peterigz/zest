@@ -85,8 +85,8 @@ static void metal_bind_table(zest_device device, id<MTLComputeCommandEncoder> en
 	[encoder setBuffers:buffers offsets:offsets withRange:NSMakeRange(ZEST__MTL_BINDLESS_BUFFER_INDEX, zest_max_global_binding_number)];
 }
 
-//Reads one slice of one mip of an image back through a blit on a Zest queue
-static zest_bool metal_read_texture(zest_device device, zest_image image, zest_uint mip, zest_uint slice, zest_uint width, zest_uint height, zest_uint bytes_per_pixel, void *out_pixels) {
+//Reads one slice of one mip of a texture back through a blit on a Zest queue
+static zest_bool metal_read_native_texture(zest_device device, id<MTLTexture> texture, zest_uint mip, zest_uint slice, zest_uint width, zest_uint height, zest_uint bytes_per_pixel, void *out_pixels) {
 	zest_size size = (zest_size)width * height * bytes_per_pixel;
 	id<MTLBuffer> readback = [zest_GetMetalDevice(device) newBufferWithLength:(NSUInteger)size options:MTLResourceStorageModeShared];
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
@@ -94,7 +94,7 @@ static zest_bool metal_read_texture(zest_device device, zest_image image, zest_u
 		[readback release];
 		return ZEST_FALSE;
 	}
-	[zest__mtl_queue_blit_encoder(queue) copyFromTexture:ZEST_MTL_BACKEND(image, image)->texture sourceSlice:slice sourceLevel:mip sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
+	[zest__mtl_queue_blit_encoder(queue) copyFromTexture:texture sourceSlice:slice sourceLevel:mip sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(width, height, 1)
 		toBuffer:readback destinationOffset:0 destinationBytesPerRow:width * bytes_per_pixel destinationBytesPerImage:(NSUInteger)size];
 	zest_bool finished = zest_imm_EndCommandBuffer(queue);
 	if (finished) {
@@ -102,6 +102,10 @@ static zest_bool metal_read_texture(zest_device device, zest_image image, zest_u
 	}
 	[readback release];
 	return finished;
+}
+
+static zest_bool metal_read_texture(zest_device device, zest_image image, zest_uint mip, zest_uint slice, zest_uint width, zest_uint height, zest_uint bytes_per_pixel, void *out_pixels) {
+	return metal_read_native_texture(device, ZEST_MTL_BACKEND(image, image)->texture, mip, slice, width, height, bytes_per_pixel, out_pixels);
 }
 
 //Fills every layer of an image from one tightly packed block of pixels, one layer after another
@@ -948,9 +952,9 @@ int test_metal_render_pass_clear(void) {
 	failed |= image == NULL || depth_image == NULL || stencil_image == NULL;
 	for (int iteration = 0; iteration != 3 && !failed; ++iteration) {
 		failed |= run_metal_clear_graph(context, image, NULL, iteration == 1, ZEST_FALSE);
-		//Taking this batch's command buffer released the one before, which the wait below had let finish
-		if (!failed && metal_committed_count(context, "Clear") != 1) {
-			ZEST_PRINT("The Clear graph's queue holds %u committed command buffers after flush %i, where it should hold the one just committed.", metal_committed_count(context, "Clear"), iteration);
+		//The flush waited on the graph's timeline, and that wait completes and releases every batch whose last signal it has seen
+		if (!failed && metal_committed_count(context, "Clear") != 0) {
+			ZEST_PRINT("The Clear graph's queue holds %u committed command buffers after flush %i, where the wait should have released the one just committed.", metal_committed_count(context, "Clear"), iteration);
 			failed = 1;
 		}
 		zest_WaitForIdleDevice(device);
@@ -971,6 +975,23 @@ int test_metal_render_pass_clear(void) {
 		failed |= run_metal_clear_graph(context, image, NULL, ZEST_FALSE, ZEST_FALSE);
 		failed |= context->preferred_queue_index[slot] == preferred_index;
 		if (held_queue) zest__release_queue(held_queue);
+	}
+	if (!failed) {
+		//A flush with no timeline waits for nothing, so its batch stays committed until the device's idle wait completes and releases it
+		failed |= !zest_BeginCommandGraph(context, "Clear", 0);
+		zest_resource_node node = zest_ImportImageResource("Target", image, 0);
+		zest_BeginRenderPass("Clear Pass");
+		zest_ConnectOutput(node);
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_EndPass();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || zest_FlushFrameGraph(frame_graph) != zest_semaphore_status_success;
+		failed |= metal_committed_count(context, "Clear") != 1;
+		zest_WaitForIdleDevice(device);
+		if (metal_committed_count(context, "Clear") != 0) {
+			ZEST_PRINT("The Clear graph's queue holds %u committed command buffers after the device's idle wait, where the wait should have released them.", metal_committed_count(context, "Clear"));
+			failed = 1;
+		}
 	}
 	//The context's pass descriptor is reused, and must not keep the last pass's target alive once the image is freed
 	id<MTLTexture> target_texture = image ? [ZEST_MTL_BACKEND(image, image)->texture retain] : nil;
@@ -1016,6 +1037,353 @@ int test_metal_depth_readback(void) {
 		zest_FreeImageNow(depth_handle);
 	}
 	failed |= run_metal_image_round_trip(device, zest_format_r8g8b8a8_unorm, 16, 16, 4);
+	return failed | finish_metal_device(device);
+}
+
+//Each kind of transient arena backing is one allocation in the residency set, and all of it goes with the backing
+int test_metal_arena_backing(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	id<MTLResidencySet> residency_set = ZEST_MTL_BACKEND(device, device)->residency_set;
+	zest_size allocated_before = metal_allocated_size();
+	NSUInteger residency_before = [residency_set allocationCount];
+	int allocations_before = device->memory_allocation_count;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	if (context) {
+		const zest_uint categories[3] = { ZEST_ARENA_CATEGORY_GPU_BUFFERS, ZEST_ARENA_CATEGORY_CPU_BUFFERS, ZEST_ARENA_CATEGORY_IMAGE_BASE };
+		const zest_size backing_size = 1024 * 1024;
+		NSUInteger residency_with_context = [residency_set allocationCount];
+		int allocations_with_context = device->memory_allocation_count;
+		for (int category_index = 0; category_index != 3; ++category_index) {
+			zest_device_memory_pool backing = device->platform->create_arena_backing(device, context, categories[category_index], backing_size);
+			if (!backing) {
+				failed = 1;
+				continue;
+			}
+			zest_mtl_device_memory_pool_backend_t *backend = ZEST_MTL_BACKEND(device_memory_pool, backing);
+			failed |= backing->size != backing_size;
+			failed |= [residency_set allocationCount] != residency_with_context + 1;
+			failed |= device->memory_allocation_count != allocations_with_context + 1;
+			if (categories[category_index] == ZEST_ARENA_CATEGORY_IMAGE_BASE) {
+				failed |= backend->heap == nil || backend->buffer != nil || backing->mapped != NULL;
+				failed |= backend->heap && ([backend->heap size] < backing_size || [backend->heap type] != MTLHeapTypePlacement || ![residency_set containsAllocation:backend->heap]);
+			} else {
+				zest_bool host_visible = categories[category_index] == ZEST_ARENA_CATEGORY_CPU_BUFFERS;
+				failed |= backend->buffer == nil || backend->heap != nil || backing->alignment != ZEST_BUFFER_OFFSET_GRANULARITY;
+				if (backend->buffer) {
+					failed |= [backend->buffer length] != backing_size || ![residency_set containsAllocation:backend->buffer];
+					failed |= [backend->buffer storageMode] != (host_visible ? MTLStorageModeShared : MTLStorageModePrivate);
+					//A transient buffer is a proxy into the backing, so the buffer helpers reach the backing's buffer at the proxy's offset
+					zest_buffer_t proxy = {};
+					proxy.memory_pool = backing;
+					proxy.memory_offset = 256;
+					failed |= zest__mtl_buffer_object(&proxy) != backend->buffer;
+					failed |= zest__mtl_buffer_address(&proxy) != (zest_u64)[backend->buffer gpuAddress] + 256;
+				}
+				if (host_visible && backing->mapped) {
+					unsigned char *bytes = (unsigned char *)backing->mapped;
+					for (zest_size byte = 0; byte != backing_size; ++byte) bytes[byte] = (unsigned char)(byte * 7 + 3);
+					for (zest_size byte = 0; byte != backing_size; ++byte) failed |= bytes[byte] != (unsigned char)(byte * 7 + 3);
+				} else {
+					failed |= host_visible || backing->mapped != NULL;
+				}
+			}
+			device->platform->free_arena_backing(device, context, backing);
+			if ([residency_set allocationCount] != residency_with_context || device->memory_allocation_count != allocations_with_context) {
+				ZEST_PRINT("Freeing the arena backing of category %u left %lu allocations in the residency set and a count of %i, where there were %lu and %i.", categories[category_index],
+					(unsigned long)[residency_set allocationCount], device->memory_allocation_count, (unsigned long)residency_with_context, allocations_with_context);
+				failed = 1;
+			}
+		}
+		zest_DestroyContext(context);
+	}
+	failed |= [residency_set allocationCount] != residency_before || device->memory_allocation_count != allocations_before;
+	if (metal_allocated_size() != allocated_before) {
+		ZEST_PRINT("Metal's allocated size went from %llu to %llu across three arena backings and their context.", (zest_ull)allocated_before, (zest_ull)metal_allocated_size());
+		failed = 1;
+	}
+	return failed | finish_metal_device(device);
+}
+
+typedef struct MetalTransientCapture {
+	const char *name;
+	id<MTLTexture> texture;		//Retained here when held, as Zest retires a transient once its graph has run
+	zest_bool hold;
+	zest_bool reached;
+} MetalTransientCapture;
+
+static void metal_capture_transient(const zest_command_list command_list, void *user_data) {
+	MetalTransientCapture *capture = (MetalTransientCapture *)user_data;
+	zest_resource_node node = zest_GetPassInputResource(command_list, capture->name);
+	if (!node || !node->image.backend) return;
+	capture->reached = ZEST_TRUE;
+	if (capture->hold && !capture->texture) {
+		capture->texture = [ZEST_MTL_BACKEND(image, &node->image)->texture retain];
+	}
+}
+
+static zest_uint metal_image_arena_count(zest_context context) {
+	zest_uint count = 0;
+	zest_vec_foreach(arena_index, context->transient_arenas) {
+		count += context->transient_arenas[arena_index]->category >= ZEST_ARENA_CATEGORY_IMAGE_BASE;
+	}
+	return count;
+}
+
+//A texture hands its heap back autoreleased, and one left in a pool that never drains would keep the arena's memory allocated
+static zest_bool metal_texture_is_in_image_arena(zest_context context, id<MTLTexture> texture) {
+	zest_bool found = ZEST_FALSE;
+	@autoreleasepool {
+		id<MTLHeap> heap = [texture heap];
+		zest_vec_foreach(arena_index, context->transient_arenas) {
+			zest_transient_arena_t *arena = context->transient_arenas[arena_index];
+			if (arena->category < ZEST_ARENA_CATEGORY_IMAGE_BASE) continue;
+			zest_ForEachFrameInFlight(frame_in_flight) {
+				found |= arena->backing[frame_in_flight] && ZEST_MTL_BACKEND(device_memory_pool, arena->backing[frame_in_flight])->heap == heap;
+			}
+		}
+	}
+	return found;
+}
+
+static int metal_report_count(zest_device device, const char *text) {
+	int count = 0;
+	zest_map_foreach(report_index, device->reports) {
+		zest_report_t *report = &device->reports.data[report_index];
+		if (report->message.str && strstr(report->message.str, text)) count += report->count;
+	}
+	return count;
+}
+
+//Clears a 64x64 transient to blue, then clears the imported target to orange in a pass that reads the transient.
+//Hands back the status of the flush and, when it's asked for, the transient's texture, retained. Without that only Zest holds the transient.
+static zest_semaphore_status run_metal_transient_graph(zest_context context, zest_image target, zest_resource_usage_hint usage_hints, id<MTLTexture> *out_texture) {
+	MetalTransientCapture capture = { "Transient Target", nil, out_texture != NULL, ZEST_FALSE };
+	if (out_texture) *out_texture = nil;
+	if (!zest_BeginCommandGraph(context, "Transient Images", 0)) return zest_semaphore_status_error;
+	zest_image_resource_info_t transient_info = { zest_format_r8g8b8a8_unorm };
+	transient_info.usage_hints = usage_hints;
+	transient_info.width = 64;
+	transient_info.height = 64;
+	zest_resource_node transient = zest_AddTransientImageResource("Transient Target", &transient_info);
+	zest_resource_node target_node = zest_ImportImageResource("Target", target, 0);
+	zest_SetResourceClearColor(transient, 0.2f, 0.4f, 0.6f, 1.0f);
+	zest_SetResourceClearColor(target_node, 0.6f, 0.4f, 0.2f, 1.0f);
+
+	zest_BeginRenderPass("Write Transient");
+	zest_ConnectOutput(transient);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Read Transient");
+	zest_ConnectInput(transient);
+	zest_ConnectOutput(target_node);
+	zest_SetPassTask(metal_capture_transient, &capture);
+	zest_EndPass();
+
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success) return zest_semaphore_status_error;
+	zest_semaphore_status status = zest_FlushFrameGraphAndWait(frame_graph);
+	if (out_texture) *out_texture = capture.texture;
+	//A flush that worked without reaching the pass that reads the transient is not what the caller takes it for
+	return status == zest_semaphore_status_success && !capture.reached ? zest_semaphore_status_error : status;
+}
+
+//Three transients in two formats. The first two are alive together, and the third starts once the first is done with, so it can take the first's bytes.
+static int run_metal_transient_alias_graph(zest_context context, zest_image target) {
+	zest_device device = context->device;
+	MetalTransientCapture captures[3] = { { "First Transient", nil, ZEST_TRUE, ZEST_FALSE }, { "Second Transient", nil, ZEST_TRUE, ZEST_FALSE }, { "Third Transient", nil, ZEST_TRUE, ZEST_FALSE } };
+	if (!zest_BeginCommandGraph(context, "Transient Aliasing", 0)) return 1;
+	zest_image_resource_info_t colour_info = { zest_format_r8g8b8a8_unorm };
+	colour_info.width = 64;
+	colour_info.height = 64;
+	zest_image_resource_info_t float_info = { zest_format_r16g16b16a16_sfloat };
+	float_info.width = 32;
+	float_info.height = 32;
+	zest_resource_node first = zest_AddTransientImageResource("First Transient", &colour_info);
+	zest_resource_node second = zest_AddTransientImageResource("Second Transient", &float_info);
+	zest_resource_node third = zest_AddTransientImageResource("Third Transient", &colour_info);
+	zest_resource_node target_node = zest_ImportImageResource("Target", target, 0);
+	zest_SetResourceClearColor(first, 0.2f, 0.4f, 0.6f, 1.0f);
+	zest_SetResourceClearColor(second, 1.0f, 0.0f, 0.5f, 1.0f);
+	zest_SetResourceClearColor(third, 0.6f, 0.4f, 0.2f, 1.0f);
+	zest_SetResourceClearColor(target_node, 0.2f, 0.4f, 0.6f, 1.0f);
+
+	zest_BeginRenderPass("First Pass");
+	zest_ConnectOutput(first);
+	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Second Pass");
+	zest_ConnectInput(first);
+	zest_ConnectOutput(second);
+	zest_SetPassTask(metal_capture_transient, &captures[0]);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Third Pass");
+	zest_ConnectInput(second);
+	zest_ConnectOutput(third);
+	zest_SetPassTask(metal_capture_transient, &captures[1]);
+	zest_EndPass();
+
+	zest_BeginRenderPass("Fourth Pass");
+	zest_ConnectInput(third);
+	zest_ConnectOutput(target_node);
+	zest_SetPassTask(metal_capture_transient, &captures[2]);
+	zest_EndPass();
+
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	int failed = frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
+	failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	id<MTLTexture> first_texture = captures[0].texture;
+	id<MTLTexture> second_texture = captures[1].texture;
+	id<MTLTexture> third_texture = captures[2].texture;
+	if (!first_texture || !second_texture || !third_texture) {
+		ZEST_PRINT("The aliasing graph didn't reach all three of its transients.");
+		failed = 1;
+	} else {
+		NSUInteger first_offset = [first_texture heapOffset];
+		NSUInteger second_offset = [second_texture heapOffset];
+		NSUInteger third_offset = [third_texture heapOffset];
+		zest_bool one_heap = ZEST_FALSE;
+		@autoreleasepool {
+			id<MTLHeap> heap = [first_texture heap];
+			one_heap = heap != nil && [second_texture heap] == heap && [third_texture heap] == heap;
+		}
+		//The first two are in use in the same pass, so neither may start inside the other
+		zest_bool apart = first_offset + [first_texture allocatedSize] <= second_offset || second_offset + [second_texture allocatedSize] <= first_offset;
+		if (!one_heap || !apart || third_offset != first_offset || [second_texture pixelFormat] != MTLPixelFormatRGBA16Float) {
+			ZEST_PRINT("The aliasing graph placed its transients at offsets %lu, %lu and %lu with sizes %lu, %lu and %lu, %s. The first two must be apart and the third must take the first's place.",
+				(unsigned long)first_offset, (unsigned long)second_offset, (unsigned long)third_offset, (unsigned long)[first_texture allocatedSize], (unsigned long)[second_texture allocatedSize],
+				(unsigned long)[third_texture allocatedSize], one_heap ? "in one heap" : "in more than one heap");
+			failed = 1;
+		}
+		//Each still holds what its own pass cleared it to. The first's bytes went to the third.
+		unsigned short halves[32 * 32 * 4];
+		memset(halves, 0, sizeof(halves));
+		failed |= !metal_read_native_texture(device, second_texture, 0, 0, 32, 32, 8, halves);
+		for (zest_uint pixel = 0; pixel != 32 * 32; ++pixel) {
+			failed |= halves[pixel * 4] != 0x3C00 || halves[pixel * 4 + 1] != 0x0000 || halves[pixel * 4 + 2] != 0x3800 || halves[pixel * 4 + 3] != 0x3C00;
+		}
+		zest_uint pixels[64 * 64];
+		memset(pixels, 0, sizeof(pixels));
+		failed |= !metal_read_native_texture(device, third_texture, 0, 0, 64, 64, 4, pixels);
+		failed |= !metal_pixels_match(pixels, 64 * 64, metal_orange_expected);
+	}
+	for (int index = 0; index != 3; ++index) {
+		[captures[index].texture release];
+	}
+	zest_uint target_pixels[16 * 16];
+	memset(target_pixels, 0, sizeof(target_pixels));
+	failed |= !zest_CopyImageToBitmap(device, target, target_pixels);
+	failed |= !metal_pixels_match(target_pixels, 16 * 16, metal_blue_expected);
+	return failed;
+}
+
+int test_metal_transient_images(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	id<MTLResidencySet> residency_set = ZEST_MTL_BACKEND(device, device)->residency_set;
+	zest_image_handle target_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image target = zest_GetImage(target_handle);
+	if (!target) {
+		zest_DestroyDevice(device);
+		return 1;
+	}
+	//The first readback makes the device's staging pool, which stays, so the baselines are taken after one
+	zest_uint first_pixels[16 * 16];
+	int failed = !zest_CopyImageToBitmap(device, target, first_pixels);
+	zest_WaitForIdleDevice(device);
+	zest_size allocated_before = metal_allocated_size();
+	NSUInteger residency_before = [residency_set allocationCount];
+	int allocations_before = device->memory_allocation_count;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	failed |= context == NULL;
+	if (!failed) {
+		zest_size allocated_sizes[6];
+		NSUInteger residency_counts[6];
+		for (int run = 0; run != 6; ++run) {
+			id<MTLTexture> texture = nil;
+			failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, &texture) != zest_semaphore_status_success;
+			failed |= zest_GetValidationErrorCount(device) != 0;
+			if (!texture) {
+				ZEST_PRINT("Run %i of the transient graph never reached its transient.", run);
+				failed = 1;
+			} else {
+				//The graph has run and been waited for, so Zest has let go of the transient and its view
+				if ([texture retainCount] != 1) {
+					ZEST_PRINT("The transient of run %i still has %lu owners after its graph was flushed, where only this test should hold it.", run, (unsigned long)[texture retainCount]);
+					failed = 1;
+				}
+				failed |= [texture width] != 64 || [texture height] != 64 || [texture pixelFormat] != MTLPixelFormatRGBA8Unorm;
+				failed |= ([texture usage] & MTLTextureUsageRenderTarget) == 0 || !metal_texture_is_in_image_arena(context, texture);
+				zest_uint pixels[64 * 64];
+				memset(pixels, 0, sizeof(pixels));
+				failed |= !metal_read_native_texture(device, texture, 0, 0, 64, 64, 4, pixels);
+				failed |= !metal_pixels_match(pixels, 64 * 64, metal_blue_expected);
+				[texture release];
+			}
+			zest_uint target_pixels[16 * 16];
+			memset(target_pixels, 0, sizeof(target_pixels));
+			failed |= !zest_CopyImageToBitmap(device, target, target_pixels);
+			failed |= !metal_pixels_match(target_pixels, 16 * 16, metal_orange_expected);
+			zest_WaitForIdleDevice(device);
+			allocated_sizes[run] = metal_allocated_size();
+			residency_counts[run] = [residency_set allocationCount];
+		}
+		//Every run places a new texture in the arena the first runs made
+		if (allocated_sizes[5] != allocated_sizes[3] || residency_counts[5] != residency_counts[3]) {
+			ZEST_PRINT("Metal's allocated size went from %llu to %llu and the residency set from %lu to %lu allocations between the fourth and sixth run of one transient graph.",
+				(zest_ull)allocated_sizes[3], (zest_ull)allocated_sizes[5], (unsigned long)residency_counts[3], (unsigned long)residency_counts[5]);
+			failed = 1;
+		}
+		//With only Zest holding it, each transient is destroyed as soon as its flush has waited, which Metal allows once the batch that used it has completed
+		for (int run = 0; run != 8; ++run) {
+			failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
+		}
+		if (zest_GetValidationErrorCount(device) != 0) {
+			ZEST_PRINT("Eight transient graphs that only Zest held the transients of raised %u validation errors.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		//Every batch is committed with the ordering event it signals last, and gives it up when the batch is released
+		id<MTLSharedEvent> ordering_event = ZEST_MTL_BACKEND(execution_timeline, &context->queue_ordering_timelines[context->graphics_queue_index])->event;
+		if ([ordering_event retainCount] != 1) {
+			ZEST_PRINT("The graphics queue's ordering event has %lu owners once every batch has been released, where only its timeline should hold it.", (unsigned long)[ordering_event retainCount]);
+			failed = 1;
+		}
+		failed |= run_metal_transient_alias_graph(context, target);
+		if (metal_image_arena_count(context) != 1) {
+			ZEST_PRINT("The context has %u image arenas, where every transient image should share one.", metal_image_arena_count(context));
+			failed = 1;
+		}
+		//A transient image can't be host visible, so the graph fails where it places its transients and says why once
+		id<MTLTexture> refused_texture = nil;
+		failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_cpu_transfer, &refused_texture) != zest_semaphore_status_error;
+		failed |= refused_texture != nil;
+		[refused_texture release];
+		if (metal_report_count(device, "zest_resource_usage_hint_cpu_transfer") != 1) {
+			ZEST_PRINT("A host visible transient image was reported %i times, where it should be reported once.", metal_report_count(device, "zest_resource_usage_hint_cpu_transfer"));
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		//The refused graph left nothing behind that stops the next one
+		failed |= run_metal_transient_graph(context, target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (context) {
+		zest_DestroyContext(context);
+	}
+	if ([residency_set allocationCount] != residency_before || device->memory_allocation_count != allocations_before || metal_allocated_size() != allocated_before) {
+		ZEST_PRINT("After the context went the residency set holds %lu allocations, the device counts %i and Metal has %llu bytes allocated, where there were %lu, %i and %llu.",
+			(unsigned long)[residency_set allocationCount], device->memory_allocation_count, (zest_ull)metal_allocated_size(), (unsigned long)residency_before, allocations_before, (zest_ull)allocated_before);
+		failed = 1;
+	}
+	zest_FreeImageNow(target_handle);
 	return failed | finish_metal_device(device);
 }
 
@@ -1369,8 +1737,9 @@ int test_metal_windowed_context(void) {
 		}
 		allocated_sizes[cycle] = metal_allocated_size();
 	}
-	if (allocated_sizes[4] != allocated_sizes[3] || allocated_sizes[3] != allocated_sizes[2]) {
-		ZEST_PRINT("Metal's allocated size after the third, fourth and fifth windowed context was %llu, %llu and %llu.", (zest_ull)allocated_sizes[2], (zest_ull)allocated_sizes[3], (zest_ull)allocated_sizes[4]);
+	//Metal can hand a context's memory back a cycle late, so a fall is not a leak and only growth fails
+	if (allocated_sizes[4] > allocated_sizes[3] || allocated_sizes[3] > allocated_sizes[2]) {
+		ZEST_PRINT("Metal's allocated size grew across the third, fourth and fifth windowed context: %llu, %llu and %llu.", (zest_ull)allocated_sizes[2], (zest_ull)allocated_sizes[3], (zest_ull)allocated_sizes[4]);
 		failed = 1;
 	}
 	failed |= finish_metal_device(device);
@@ -1604,6 +1973,8 @@ static MetalTest metal_tests[] = {
 	{ "Metal Render Pass Actions", test_metal_render_pass_actions },
 	{ "Metal Render Pass Clear", test_metal_render_pass_clear },
 	{ "Metal Depth Readback", test_metal_depth_readback },
+	{ "Metal Arena Backing", test_metal_arena_backing },
+	{ "Metal Transient Images", test_metal_transient_images },
 	{ "Metal Swapchain Formats", test_metal_swapchain_formats },
 	{ "Metal Windowed Frames", test_metal_windowed_frames },
 	{ "Metal Windowed Context", test_metal_windowed_context },
