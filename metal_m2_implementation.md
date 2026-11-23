@@ -168,6 +168,10 @@ All five were taken as recommended. The implementer does not reopen them.
    - Taken: `dummy_submit_for_present_only` clears the drawable to the swapchain's clear colour in an empty render pass and presents it. A new drawable's contents are undefined, and the other backends present whatever the back buffer held.
    - Rejected: present it uncleared, which may flash stale pixels. Rejected: not presenting at all, which leaves the loop spinning with nothing to wait on.
 
+6. **One Metal view per SDL window (Peter, 2026-11-23, during Phase 3).** macOS keeps a `CAMetalLayer` for the rest of the process once `displaySyncEnabled` has been set to NO on it, with its drawables, even after its view is destroyed (As built, Phase 3). Vsync off is Zest's default, so a view per context leaves a window's worth of drawables behind for every context destroyed, and `zest_ResetDevice` destroys the context between every suite test.
+   - Taken: `create_window_surface` makes the SDL Metal view once per window, keeps it on the window with `SDL_SetWindowData` under `ZEST__MTL_SDL_VIEW_NAME`, and every later context on that window reuses it. `destroy_context_surface` leaves it in place. This replaces "`destroy_context_surface` destroys the SDL view" in [Settled_] and in Task 6, and the context backend has no `sdl_metal_view`.
+   - Rejected: a view per context as first planned, with the leak written up as a macOS limit.
+
 **Calls made without Peter (seen by Peter on 2026-11-23 with the plan, none changed)**
 - **`--test <text>` on the test runner.** `RegisterTest` skips any test whose name doesn't contain the text. Task 7 tries each pending suite test on its own, and a test that crashes then costs one process, not the run. About 10 lines in `zest-tests.cpp`, on every platform.
 - **In the Metal process the suite runs before the backend list.** The suite's window then exists before any Metal device, which is the order a real app has, so a missing `zest_PrepareMetalValidation` fails the run.
@@ -383,10 +387,10 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
 - `get_swapchain_identifier` returns the layer. `get_swapchain_wait_semaphore` and `get_swapchain_signal_semaphore` return NULL without reporting.
 
 **Steps:**
-- [ ] Implement.
-- [ ] Pure test "Metal Swapchain Formats": `b8g8r8a8_unorm` and `b8g8r8a8_srgb` pass through and return true, `r16g16b16a16_sfloat` passes through, `r8_unorm` gives BGRA8Unorm, reports `b8g8r8a8_unorm` and returns false.
-- [ ] Add test helpers to `zest-metal-tests.cpp`, mirroring `zest-d3d12-tests.cpp:3326-3394`: open and close a test window, and run one windowed frame (`zest_UpdateDevice`, `zest_BeginFrame`, a cached graph that imports the swapchain and clears it with `zest_EmptyRenderPass`, `zest_EndFrame`) that returns how long `zest_BeginFrame` took.
-- [ ] Test "Metal Windowed Frames", on its own 320x200 window, with the clear colour set to (0.1, 0.2, 0.3, 1). After every frame: `present_count` is 1 and the context holds no drawable. After every phase: 0 validation errors. Every `zest_BeginFrame` returns inside 500 ms.
+- [x] Implement.
+- [x] Pure test "Metal Swapchain Formats": `b8g8r8a8_unorm` and `b8g8r8a8_srgb` pass through and return true, `r16g16b16a16_sfloat` passes through, `r8_unorm` gives BGRA8Unorm, reports `b8g8r8a8_unorm` and returns false.
+- [x] Add test helpers to `zest-metal-tests.cpp`, mirroring `zest-d3d12-tests.cpp:3326-3394`: open and close a test window, and run one windowed frame (`zest_UpdateDevice`, `zest_BeginFrame`, a cached graph that imports the swapchain and clears it with `zest_EmptyRenderPass`, `zest_EndFrame`) that returns how long `zest_BeginFrame` took.
+- [x] Test "Metal Windowed Frames", on its own 320x200 window, with the clear colour set to (0.1, 0.2, 0.3, 1). After every frame: `present_count` is 1 and the context holds no drawable. After every phase: 0 validation errors. Every `zest_BeginFrame` returns inside 500 ms.
   - **10 frames.**
   - **Resize:** `SDL_SetWindowSize` to 400x300, frames until `zest_SwapchainWasRecreated` (at most 10), the extent equals the callback's framebuffer size. Re-apply the clear colour, 5 frames, back to 320x200 and repeat.
   - **Vsync:** both calls schedule a toggle (`zest.h:13820-13826`). Read the layer's `displaySyncEnabled`, call `zest_EnableVSync`, run 5 frames: the layer's value has flipped, it matches `zest_context_flag_vsync_enabled`, and no frame recreated. Call `zest_DisableVSync`, run 5 frames: it has flipped back.
@@ -397,10 +401,10 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
   - **No work:** 3 frames of `zest_BeginFrame` then `zest_EndFrame(context, 0)`.
   - **No end frame:** `zest_BeginFrame` twice with no `zest_EndFrame` between. The second fails with one validation error, which the test resets. `zest_EndFrame(context, 0)` then presents the held drawable, and 3 normal frames follow.
   - **Teardown:** destroy the context straight after the last `zest_EndFrame`, then the device, then the window.
-- [ ] Test "Metal Windowed Context": on one window and one device, create a windowed context, run 4 frames and destroy it, five times. Allocated size after the fifth equals the size after the fourth, and the same for the third.
-- [ ] Break each once: never release the drawable in `present_frame` (the 500 ms bound must fail), skip the size check in acquire (the resize phase must report), encode the present twice on the presenting batch (the count check must fail), leak the SDL view (the size check must fail).
-- [ ] Build and run `--platform metal`, with `--shader-validation`, and with zombies and `MallocScribble`. Expected: 23 / 23 and no zombie report.
-- [ ] Phase report. Restore the Mac clone.
+- [x] Test "Metal Windowed Context": on one window and one device, create a windowed context, run 4 frames and destroy it, five times. Allocated size after the fifth equals the size after the fourth, and the same for the third.
+- [x] Break each once: never release the drawable in `present_frame` (the 500 ms bound must fail), skip the size check in acquire (the resize phase must report), encode the present twice on the presenting batch (the count check must fail), leak the SDL view (the size check must fail).
+- [x] Build and run `--platform metal`, with `--shader-validation`, and with zombies and `MallocScribble`. Expected: 23 / 23 and no zombie report.
+- [x] Phase report. Restore the Mac clone.
 
 ## [Phase_4] The suite and the example
 
@@ -608,3 +612,76 @@ Each phase adds its part. Task 8 completes the section.
 - `zest_CopyImageToBitmap` on a depth image, above.
 - Shared code ignores what `begin_render_pass` returns and sets `began_rendering` regardless (`zest.h:17598-17610`), so a pass's callbacks run after a failed begin. The Metal viewport, scissor and clip hooks do nothing without an open encoder for that reason.
 - With the ordering signal dropped, the run ended with exit 1 and didn't hang at teardown, which [Decisions_] expected a blocked wait could do. What released the blocked batch wasn't looked into.
+
+### Phase 3: windows (2026-11-23, on top of commit 039033c, built and run on the Mac over SSH)
+
+**What changed**
+- `zest_metal.h`, 11 stubs replaced, 50 left:
+  - `#import <QuartzCore/CAMetalLayer.h>`, and `<SDL_metal.h>` when SDL is compiled in.
+  - The context backend's `layer` is a `CAMetalLayer *` and it gains `drawable` and `present_count`. `zest_mtl_swapchain_backend_t` holds the pixel format.
+  - `zest__mtl_swapchain_format` and `zest__mtl_layer_extent`.
+  - `create_window_surface`, `initialise_swapchain`, `new_swapchain_backend`, `cleanup_swapchain_backend`, `destroy_context_surface`.
+  - `acquire_swapchain_image`, `present_frame`, `dummy_submit_for_present_only`, and the present in `submit_frame_graph_batch`.
+  - `get_swapchain_identifier`, `get_swapchain_wait_semaphore`, `get_swapchain_signal_semaphore`.
+  - `initialise_context_backend` no longer refuses a windowed context.
+- `zest-metal-tests.cpp`: "Metal Swapchain Formats", "Metal Windowed Frames", "Metal Windowed Context", and the window and frame helpers they share.
+- No shared file changed, so there is nothing for a Windows run in this phase.
+
+**Results**
+- Metal on: `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` build with 0 warnings.
+- `--platform metal`: 23 / 23 on three runs in a row. With `--shader-validation`: 23 / 23. With `NSZombieEnabled=YES MallocScribble=1`: 23 / 23 and no zombie report.
+- `--platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal backend: 23 / 23`, exit 0, no VUID line.
+- Metal off: every target builds, 129 / 129 and 129 / 129, exit 0, no VUID line.
+
+**What the phase found out about macOS** (`spikes/metal/build/probe/probe_layer_owner.mm` on the Mac, untracked, SDL2 and Metal with no Zest)
+- **A layer that has had display sync turned off is never freed.** After `SDL_Metal_DestroyView`, a layer whose `displaySyncEnabled` was only ever YES is released and its drawables' memory comes back. One that was set to NO at any point keeps an owner and its memory, whether or not it presented a frame that way.
+  - None of these released it: setting it back to YES, a 4 second wait with the event loop pumped, presenting another frame, `removeFromSuperlayer`, toggling `presentsWithTransaction`.
+  - Setting the drawable size to 1x1 first cut what stays to about one drawable.
+  - Setting the layer's device to nil before destroying the view also keeps the layer.
+  - One view reused by six contexts in turn, alternating display sync, kept the allocated size flat. That is Decision 6.
+- **A drawable hands its texture out autoreleased.** Asked for outside an autorelease pool on a thread with no pool, every frame's texture keeps an owner, and the textures of an old size are never freed. Acquire takes the texture inside its pool.
+- **Held drawables didn't stall the layer with display sync off.** Four drawables taken and never presented left every `zest_BeginFrame` inside 500 ms. With display sync on, the same four fail the test.
+- **With display sync off, a presented drawable that is still retained doesn't stall the layer either.** It only shows as an owner left on the drawable.
+
+**Every new check was broken on purpose** (`spikes/metal/mutate_m2.py` with `mutations_p3.py`)
+
+| What was broken | Result |
+| --- | --- |
+| Drawable never released in `present_frame` | Windowed Frames fails |
+| Acquire checks neither size | Windowed Frames fails |
+| Present encoded twice on the presenting batch | Windowed Frames and Windowed Context fail |
+| Present never encoded on a batch | Windowed Frames and Windowed Context fail |
+| A frame with no work doesn't present | Windowed Frames fails |
+| A frame with no work drops the frame signal | Windowed Frames fails |
+| A vsync change never reaches the layer | Windowed Frames fails |
+| Acquire keeps a drawable an abandoned frame left | Windowed Frames fails |
+| Drawable texture taken outside the pool | Windowed Frames fails |
+| sRGB swapchain format not passed through | Swapchain Formats fails |
+| `present_frame` ignores a resize | Windowed Frames fails |
+| Release barrier records no layout | Windowed Frames and Windowed Context fail |
+| A new view is made for every context | Windowed Context fails |
+
+**Checks that can't fail yet**
+- **Either size check in acquire alone.** With only the layer check or only the drawable check, 23 / 23. Each covers the other in every case the test can make; the drawable check is there for a resize that lands between the two.
+- **`set_screensized_viewport`.** Made to do nothing, 23 / 23. The phase proves it raises no validation message. What it sets needs a draw. M4.
+- **The swapchain's image backend never freed** on a resize: 23 / 23. It is a block in the context's own allocator, which nothing in the test measures.
+- The fence and wave wait items from Phase 2 are unchanged.
+
+**Where it differs from the plan**
+- **Decision 6, one view per window**, above. The plan's "leak the SDL view" breakage became "a new view is made for every context".
+- **The 500 ms bound doesn't show a held drawable with vsync off**, so two checks were added in its place:
+  - "Metal Windowed Frames" keeps the first frame's drawable and expects to be its only owner ten frames later.
+  - An abandoned frames phase runs with vsync on: four frames that take a drawable and never present it, where the bound does apply.
+- **The plan's "No end frame" phase doesn't reach the release in acquire.** The second `zest_BeginFrame` is refused before it acquires, and `zest_EndFrame(context, 0)` then presents the first one's drawable. The phase is kept as written. The abandoned frames phase is what covers the release.
+- **Three checks were added to "Metal Windowed Frames":**
+  - A resize must fail the next `zest_BeginFrame`, so no pass runs at the old size.
+  - A resize between `zest_BeginFrame` and `zest_EndFrame` must recreate at the present.
+  - The allocated size after the third round of resizes must equal the second.
+- **Every frame is also checked for the swapchain image being back in the present layout**, which is what makes `release_barrier` able to fail.
+- **The queue switch phase doesn't make a batch wait on the ordering event.** Setting `preferred_queue_index` by hand gives the slot the queue asked for, so the acquire reports no switch. The phase shows frames run on either device queue. Phase 2's headless queue switch is what covers the ordering signal.
+- **A nil drawable and a present with no batch to carry it are reports, not validation errors**, under `zest_report_swapchain_not_acquired` and `zest_report_submission_failure`.
+
+**Noticed and left alone**
+- The SDL Metal view is never destroyed. It stays a subview of its window, and the handle SDL gave for it is not released when the window is destroyed. One small view per window for the life of the process.
+- Without SDL, the app's own layer has the same macOS behaviour, and what it does with the layer is the app's.
+- MoltenVK's layer was not checked for the same thing.

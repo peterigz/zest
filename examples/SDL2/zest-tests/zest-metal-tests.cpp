@@ -990,6 +990,365 @@ int test_metal_render_pass_clear(void) {
 	return failed | finish_metal_device(device);
 }
 
+int test_metal_swapchain_formats(void) {
+	MTLPixelFormat pixel_format = MTLPixelFormatInvalid;
+	zest_format reported = zest_format_undefined;
+	int failed = zest__mtl_swapchain_format(zest_format_b8g8r8a8_unorm, &pixel_format, &reported) != ZEST_TRUE;
+	failed |= pixel_format != MTLPixelFormatBGRA8Unorm || reported != zest_format_b8g8r8a8_unorm;
+	failed |= zest__mtl_swapchain_format(zest_format_b8g8r8a8_srgb, &pixel_format, &reported) != ZEST_TRUE;
+	failed |= pixel_format != MTLPixelFormatBGRA8Unorm_sRGB || reported != zest_format_b8g8r8a8_srgb;
+	failed |= zest__mtl_swapchain_format(zest_format_r16g16b16a16_sfloat, &pixel_format, &reported) != ZEST_TRUE;
+	failed |= pixel_format != MTLPixelFormatRGBA16Float || reported != zest_format_r16g16b16a16_sfloat;
+	failed |= zest__mtl_swapchain_format(zest_format_a2b10g10r10_unorm_pack32, &pixel_format, &reported) != ZEST_TRUE;
+	failed |= pixel_format != MTLPixelFormatRGB10A2Unorm || reported != zest_format_a2b10g10r10_unorm_pack32;
+	failed |= zest__mtl_swapchain_format(zest_format_r8_unorm, &pixel_format, &reported) != ZEST_FALSE;
+	failed |= pixel_format != MTLPixelFormatBGRA8Unorm || reported != zest_format_b8g8r8a8_unorm;
+	return failed;
+}
+
+//A window of its own, with SDL's video started first when nothing else has started it
+struct MetalTestWindow {
+	zest_window_data_t window_data;
+	zest_bool initialised_video;
+};
+
+static zest_bool metal_open_test_window(MetalTestWindow *window, const char *title) {
+	window->window_data = ZEST__ZERO_INIT(zest_window_data_t);
+	window->initialised_video = ZEST_FALSE;
+	if (SDL_WasInit(SDL_INIT_VIDEO) == 0) {
+		if (SDL_Init(SDL_INIT_VIDEO) != 0) return ZEST_FALSE;
+		window->initialised_video = ZEST_TRUE;
+	}
+	window->window_data = zest_implsdl2_CreateWindow(50, 50, 320, 200, 0, title);
+	return window->window_data.window_handle != NULL;
+}
+
+//zest_implsdl2_DestroyWindow needs a context, and the context is gone by now
+static void metal_close_test_window(MetalTestWindow *window) {
+	if (window->window_data.window_handle) {
+		SDL_DestroyWindow((SDL_Window *)window->window_data.window_handle);
+	}
+	if (window->initialised_video) {
+		SDL_QuitSubSystem(SDL_INIT_VIDEO);
+	}
+}
+
+static void metal_set_test_clear_color(zest_context context) {
+	zest_SetSwapchainClearColor(context, 0.1f, 0.2f, 0.3f, 1.0f);
+}
+
+static int metal_viewport_pass_count = 0;
+
+static void metal_screen_viewport_pass(const zest_command_list command_list, void *user_data) {
+	(void)user_data;
+	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+	metal_viewport_pass_count++;
+}
+
+struct MetalFrameRun {
+	int began_count;
+	int recreate_count;
+	int bad_present_count;			//Frames that didn't end with exactly one present encoded and the drawable let go
+	zest_microsecs slowest_begin;
+};
+
+//A frame that held on to its drawable makes a later zest_BeginFrame wait a second for the layer, so this is the bound that shows one
+static const zest_microsecs metal_begin_frame_limit = 500000;
+
+//A frame has to end with one present encoded, its drawable let go, and the swapchain image back in the present layout
+static void metal_check_frame_presented(zest_context context, MetalFrameRun *run) {
+	zest_mtl_context_backend_t *backend = ZEST_MTL_BACKEND(context, context);
+	zest_image_layout layout = context->swapchain->images[0].layout;
+	if (backend->present_count != 1 || backend->drawable != nil || layout != zest_image_layout_present) {
+		ZEST_PRINT("A frame ended with %u presents encoded, %s and the swapchain image in layout %i.", backend->present_count, backend->drawable ? "its drawable still held" : "no drawable held", (int)layout);
+		run->bad_present_count++;
+	}
+}
+
+//Ends a frame with a cached graph that imports the swapchain and clears it
+static void metal_end_windowed_frame(zest_context context, zest_bool set_viewport) {
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, &set_viewport, sizeof(set_viewport));
+	zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+	if (!frame_graph && zest_BeginFrameGraph(context, "Windowed Clear", &cache_key)) {
+		zest_ImportSwapchainResource();
+		zest_BeginRenderPass("Clear Swapchain");
+		zest_ConnectSwapChainOutput();
+		if (set_viewport) {
+			zest_SetPassTask(metal_screen_viewport_pass, 0);
+		} else {
+			zest_SetPassTask(zest_EmptyRenderPass, 0);
+		}
+		zest_EndPass();
+		frame_graph = zest_EndFrameGraph();
+	}
+	zest_EndFrame(context, frame_graph);
+}
+
+//One whole frame. Returns whether zest_BeginFrame acquired a drawable.
+static zest_bool run_metal_windowed_frame(zest_context context, zest_bool set_viewport, MetalFrameRun *run) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {}
+	zest_UpdateDevice(context->device);
+	zest_microsecs start = zest_Microsecs();
+	zest_bool began = zest_BeginFrame(context);
+	run->slowest_begin = ZEST__MAX(run->slowest_begin, zest_Microsecs() - start);
+	if (began) {
+		run->began_count++;
+		metal_end_windowed_frame(context, set_viewport);
+		metal_check_frame_presented(context, run);
+	}
+	if (zest_SwapchainWasRecreated(context)) {
+		run->recreate_count++;
+		//A recreate loses the clear colour
+		metal_set_test_clear_color(context);
+	}
+	return began;
+}
+
+static MetalFrameRun run_metal_windowed_frames(zest_context context, int frame_count, zest_bool stop_at_recreate) {
+	MetalFrameRun run = {};
+	for (int frame = 0; frame != frame_count; ++frame) {
+		run_metal_windowed_frame(context, ZEST_FALSE, &run);
+		if (stop_at_recreate && run.recreate_count) break;
+	}
+	return run;
+}
+
+//Every frame presented once and let its drawable go, no zest_BeginFrame stalled, and Metal's validation said nothing
+static int metal_frame_run_failed(zest_context context, const MetalFrameRun *run, const char *phase) {
+	int failed = run->bad_present_count != 0 || run->slowest_begin > metal_begin_frame_limit || zest_GetValidationErrorCount(context->device) != 0;
+	if (failed) {
+		ZEST_PRINT("Windowed phase %s: %i frames began, %i recreates, %i bad presents, slowest zest_BeginFrame %llu microseconds, %u validation errors.", phase, run->began_count, run->recreate_count, run->bad_present_count, (zest_ull)run->slowest_begin, zest_GetValidationErrorCount(context->device));
+	}
+	return failed;
+}
+
+static int metal_resize_test_window(zest_context context, SDL_Window *window, int width, int height) {
+	SDL_SetWindowSize(window, width, height);
+	MetalFrameRun run = run_metal_windowed_frames(context, 10, ZEST_TRUE);
+	//The first zest_BeginFrame after the resize has to see it, before any pass runs at the old size on a drawable of the new one
+	int failed = run.recreate_count != 1 || run.began_count != 0;
+	int framebuffer_width = 0, framebuffer_height = 0, window_width = 0, window_height = 0;
+	context->window_data.window_sizes_callback(&context->window_data, &framebuffer_width, &framebuffer_height, &window_width, &window_height);
+	zest_extent2d_t extent = zest_GetSwapChainExtent(context);
+	CGSize drawable_size = [ZEST_MTL_BACKEND(context, context)->layer drawableSize];
+	failed |= window_width != width || window_height != height;
+	failed |= extent.width != (zest_uint)framebuffer_width || extent.height != (zest_uint)framebuffer_height;
+	failed |= extent.width != (zest_uint)drawable_size.width || extent.height != (zest_uint)drawable_size.height;
+	failed |= metal_frame_run_failed(context, &run, "resize");
+	run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+	failed |= run.began_count != 5 || run.recreate_count != 0;
+	failed |= metal_frame_run_failed(context, &run, "after resize");
+	return failed;
+}
+
+//Both vsync calls schedule a toggle, which the layer takes in place with no new swapchain
+static int metal_toggle_test_vsync(zest_context context, zest_bool enable) {
+	CAMetalLayer *layer = ZEST_MTL_BACKEND(context, context)->layer;
+	BOOL sync_before = [layer displaySyncEnabled];
+	if (enable) {
+		zest_EnableVSync(context);
+	} else {
+		zest_DisableVSync(context);
+	}
+	MetalFrameRun run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+	int failed = run.began_count != 5 || run.recreate_count != 0;
+	failed |= [layer displaySyncEnabled] == sync_before;
+	failed |= ([layer displaySyncEnabled] == YES) != (ZEST__FLAGGED(context->flags, zest_context_flag_vsync_enabled) != 0);
+	failed |= metal_frame_run_failed(context, &run, "vsync");
+	return failed;
+}
+
+int test_metal_windowed_frames(void) {
+	MetalTestWindow window;
+	if (!metal_open_test_window(&window, "Metal Windowed Frames")) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	SDL_Window *sdl_window = (SDL_Window *)window.window_data.window_handle;
+	zest_device device = zest_implsdl2_CreateMetalDevice(&window.window_data, MetalTestFlags());
+	if (!device) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		metal_set_test_clear_color(context);
+		//The first frame's drawable is held on to here, to see who else still owns it once later frames have been shown
+		zest_UpdateDevice(device);
+		failed |= !zest_BeginFrame(context);
+		id<CAMetalDrawable> first_drawable = [ZEST_MTL_BACKEND(context, context)->drawable retain];
+		metal_end_windowed_frame(context, ZEST_FALSE);
+		MetalFrameRun run = run_metal_windowed_frames(context, 10, ZEST_FALSE);
+		failed |= run.began_count != 10 || run.recreate_count != 0;
+		failed |= metal_frame_run_failed(context, &run, "first frames");
+		zest_WaitForIdleDevice(device);
+		if ([first_drawable retainCount] != 1) {
+			ZEST_PRINT("The first frame's drawable still has %lu owners ten frames later, where only this test should hold it.", (unsigned long)[first_drawable retainCount]);
+			failed = 1;
+		}
+		[first_drawable release];
+		failed |= zest_GetSwapChainExtent(context).width < 320 || zest_GetSwapChainExtent(context).height < 200;
+
+		//Every resize gives the layer new drawables, and the old size's textures have to go once nothing shows them
+		zest_size resized_sizes[3];
+		for (int round = 0; round != 3; ++round) {
+			failed |= metal_resize_test_window(context, sdl_window, 400, 300);
+			failed |= metal_resize_test_window(context, sdl_window, 320, 200);
+			zest_WaitForIdleDevice(device);
+			resized_sizes[round] = metal_allocated_size();
+		}
+		if (resized_sizes[2] != resized_sizes[1]) {
+			ZEST_PRINT("Metal's allocated size went from %llu to %llu between the second and third round of resizes.", (zest_ull)resized_sizes[1], (zest_ull)resized_sizes[2]);
+			failed = 1;
+		}
+
+		failed |= metal_toggle_test_vsync(context, ZEST_TRUE);
+		failed |= metal_toggle_test_vsync(context, ZEST_FALSE);
+
+		//A minimised or hidden window's layer still hands out drawables
+		SDL_MinimizeWindow(sdl_window);
+		run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+		failed |= metal_frame_run_failed(context, &run, "minimised");
+		SDL_RestoreWindow(sdl_window);
+		run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+		failed |= metal_frame_run_failed(context, &run, "restored");
+		SDL_HideWindow(sdl_window);
+		run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+		failed |= metal_frame_run_failed(context, &run, "hidden");
+		SDL_ShowWindow(sdl_window);
+		run = run_metal_windowed_frames(context, 5, ZEST_FALSE);
+		failed |= metal_frame_run_failed(context, &run, "shown");
+
+		//The viewport and its scissor are the swapchain's size, which the drawable's has to match
+		run = ZEST__ZERO_INIT(MetalFrameRun);
+		metal_viewport_pass_count = 0;
+		for (int frame = 0; frame != 3; ++frame) {
+			run_metal_windowed_frame(context, ZEST_TRUE, &run);
+		}
+		failed |= run.began_count != 3 || metal_viewport_pass_count != 3;
+		failed |= metal_frame_run_failed(context, &run, "screen sized viewport");
+
+		//Frames run on whichever device queue the slot is given
+		zest_uint slot = context->graphics_queue_index;
+		run = ZEST__ZERO_INIT(MetalFrameRun);
+		for (int frame = 0; frame != 6; ++frame) {
+			zest_uint preferred_index = (zest_uint)(frame % 2);
+			context->preferred_queue_index[slot] = preferred_index;
+			context->has_preferred_queue[slot] = ZEST_TRUE;
+			failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
+			failed |= context->preferred_queue_index[slot] != preferred_index;
+		}
+		context->has_preferred_queue[slot] = ZEST_FALSE;
+		failed |= metal_frame_run_failed(context, &run, "queue switch");
+
+		//A frame with no work still clears and presents its drawable, and advances the frame timeline
+		run = ZEST__ZERO_INIT(MetalFrameRun);
+		for (int frame = 0; frame != 3; ++frame) {
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {}
+			zest_UpdateDevice(device);
+			zest_microsecs start = zest_Microsecs();
+			zest_bool began = zest_BeginFrame(context);
+			run.slowest_begin = ZEST__MAX(run.slowest_begin, zest_Microsecs() - start);
+			failed |= !began;
+			if (began) {
+				zest_EndFrame(context, 0);
+				metal_check_frame_presented(context, &run);
+			}
+		}
+		failed |= zest_WaitForSignal(&context->queue_ordering_timelines[slot], ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+		failed |= metal_frame_run_failed(context, &run, "no work");
+
+		//The swapchain can also go out of date between the acquire and the present, which is the present's to see
+		zest_UpdateDevice(device);
+		failed |= !zest_BeginFrame(context);
+		SDL_SetWindowSize(sdl_window, 360, 240);
+		metal_end_windowed_frame(context, ZEST_FALSE);
+		failed |= !zest_SwapchainWasRecreated(context);
+		metal_set_test_clear_color(context);
+		run = run_metal_windowed_frames(context, 3, ZEST_FALSE);
+		failed |= run.began_count != 3 || run.recreate_count != 0 || zest_GetSwapChainExtent(context).width != (zest_uint)[ZEST_MTL_BACKEND(context, context)->layer drawableSize].width;
+		failed |= metal_frame_run_failed(context, &run, "resize inside a frame");
+
+		//A frame that never reaches its present leaves the drawable with the context, and the next acquire has to let it go.
+		//With display sync on, a layer makes the frame after two held drawables wait a second.
+		failed |= metal_toggle_test_vsync(context, ZEST_TRUE);
+		run = ZEST__ZERO_INIT(MetalFrameRun);
+		for (int frame = 0; frame != 4; ++frame) {
+			zest_UpdateDevice(device);
+			zest_microsecs start = zest_Microsecs();
+			failed |= !zest_BeginFrame(context);
+			run.slowest_begin = ZEST__MAX(run.slowest_begin, zest_Microsecs() - start);
+			failed |= ZEST_MTL_BACKEND(context, context)->drawable == nil;
+			ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
+		}
+		for (int frame = 0; frame != 3; ++frame) {
+			failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
+		}
+		failed |= metal_frame_run_failed(context, &run, "abandoned frames");
+		failed |= metal_toggle_test_vsync(context, ZEST_FALSE);
+
+		//A second zest_BeginFrame with no zest_EndFrame is refused, and the drawable the first one took is still presented
+		run = ZEST__ZERO_INIT(MetalFrameRun);
+		zest_UpdateDevice(device);
+		failed |= !zest_BeginFrame(context);
+		zest_UpdateDevice(device);
+		failed |= zest_BeginFrame(context) != ZEST_FALSE;
+		failed |= zest_GetValidationErrorCount(device) != 1;
+		zest_ResetValidationErrors(device);
+		failed |= ZEST_MTL_BACKEND(context, context)->drawable == nil;
+		zest_EndFrame(context, 0);
+		metal_check_frame_presented(context, &run);
+		for (int frame = 0; frame != 3; ++frame) {
+			failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
+		}
+		failed |= metal_frame_run_failed(context, &run, "no end frame");
+		zest_DestroyContext(context);
+	}
+	failed |= finish_metal_device(device);
+	metal_close_test_window(&window);
+	return failed;
+}
+
+//A context's layer, its SDL view and its drawables must all go with it
+int test_metal_windowed_context(void) {
+	MetalTestWindow window;
+	if (!metal_open_test_window(&window, "Metal Windowed Context")) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	zest_device device = zest_implsdl2_CreateMetalDevice(&window.window_data, MetalTestFlags());
+	if (!device) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	zest_size allocated_sizes[5];
+	int failed = 0;
+	for (int cycle = 0; cycle != 5; ++cycle) {
+		zest_create_context_info_t info = zest_CreateContextInfo();
+		zest_context context = zest_CreateContext(device, &window.window_data, &info);
+		failed |= context == NULL;
+		if (context) {
+			metal_set_test_clear_color(context);
+			MetalFrameRun run = run_metal_windowed_frames(context, 4, ZEST_FALSE);
+			failed |= run.began_count != 4;
+			failed |= metal_frame_run_failed(context, &run, "context lifecycle");
+			zest_DestroyContext(context);
+		}
+		allocated_sizes[cycle] = metal_allocated_size();
+	}
+	if (allocated_sizes[4] != allocated_sizes[3] || allocated_sizes[3] != allocated_sizes[2]) {
+		ZEST_PRINT("Metal's allocated size after the third, fourth and fifth windowed context was %llu, %llu and %llu.", (zest_ull)allocated_sizes[2], (zest_ull)allocated_sizes[3], (zest_ull)allocated_sizes[4]);
+		failed = 1;
+	}
+	failed |= finish_metal_device(device);
+	metal_close_test_window(&window);
+	return failed;
+}
+
 static const char *metal_ordering_shaders = METAL_TEST_TABLE_TYPES
 	"struct Push { uint source_index; uint seed; };\n"
 	"struct Varyings { float4 position [[position]]; };\n"
@@ -1215,6 +1574,9 @@ static MetalTest metal_tests[] = {
 	{ "Metal Empty Command Graph", test_metal_empty_command_graph },
 	{ "Metal Render Pass Actions", test_metal_render_pass_actions },
 	{ "Metal Render Pass Clear", test_metal_render_pass_clear },
+	{ "Metal Swapchain Formats", test_metal_swapchain_formats },
+	{ "Metal Windowed Frames", test_metal_windowed_frames },
+	{ "Metal Windowed Context", test_metal_windowed_context },
 };
 
 int RunMetalSuite(int *total_out) {
