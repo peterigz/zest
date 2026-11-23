@@ -252,7 +252,7 @@ All three were taken as recommended. The details are under [Built_], Task 2.
 
 ## [Roadmap_] Milestones
 
-Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`.
+Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md` and M3's is `metal_m3_implementation.md`.
 
 | Milestone | Covers | Done when |
 | --- | --- | --- |

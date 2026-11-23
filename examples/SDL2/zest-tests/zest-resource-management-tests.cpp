@@ -3373,8 +3373,8 @@ int test__pooled_image_allocations(ZestTests *tests, Test *test) {
 	int failed_count = 0;
 	zest_device device = tests->device;
 
-	//The backend limit must have been captured at device init (D3D12 has no allocation count limit and reports 0)
-	if (tests->platform != zest_platform_d3d12 && device->max_memory_allocation_count == 0) failed_count++;
+	//The backend limit must have been captured at device init. Only Vulkan has an allocation count limit, and the others report 0.
+	if (tests->platform == zest_platform_vulkan && device->max_memory_allocation_count == 0) failed_count++;
 
 	int baseline = device->memory_allocation_count;
 	if (baseline <= 0) failed_count++;    //Pools/arenas created so far must have been counted

@@ -990,6 +990,35 @@ int test_metal_render_pass_clear(void) {
 	return failed | finish_metal_device(device);
 }
 
+//A depth image is refused before Metal is asked for a row of no bytes, and a colour image still reads back
+int test_metal_depth_readback(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	const zest_format depth_formats[2] = { zest_format_d32_sfloat, zest_format_d32_sfloat_s8_uint };
+	int failed = 0;
+	for (int format_index = 0; format_index != 2; ++format_index) {
+		zest_image_handle depth_handle = metal_create_clear_target(device, depth_formats[format_index], zest_image_preset_depth_attachment);
+		zest_image depth_image = zest_GetImage(depth_handle);
+		if (!depth_image) {
+			failed = 1;
+			continue;
+		}
+		float depths[16 * 16];
+		for (zest_uint index = 0; index != 16 * 16; ++index) depths[index] = 7.f;
+		failed |= zest_CopyImageToBitmap(device, depth_image, depths) != ZEST_FALSE;
+		//The one error is Zest's refusal. A message from Metal's own validation would make it two.
+		if (zest_GetValidationErrorCount(device) != 1) {
+			ZEST_PRINT("Reading back depth format %i raised %u validation errors, where only the refusal should be recorded.", (int)depth_formats[format_index], zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		for (zest_uint index = 0; index != 16 * 16; ++index) failed |= depths[index] != 7.f;
+		zest_ResetValidationErrors(device);
+		zest_FreeImageNow(depth_handle);
+	}
+	failed |= run_metal_image_round_trip(device, zest_format_r8g8b8a8_unorm, 16, 16, 4);
+	return failed | finish_metal_device(device);
+}
+
 int test_metal_swapchain_formats(void) {
 	MTLPixelFormat pixel_format = MTLPixelFormatInvalid;
 	zest_format reported = zest_format_undefined;
@@ -1574,6 +1603,7 @@ static MetalTest metal_tests[] = {
 	{ "Metal Empty Command Graph", test_metal_empty_command_graph },
 	{ "Metal Render Pass Actions", test_metal_render_pass_actions },
 	{ "Metal Render Pass Clear", test_metal_render_pass_clear },
+	{ "Metal Depth Readback", test_metal_depth_readback },
 	{ "Metal Swapchain Formats", test_metal_swapchain_formats },
 	{ "Metal Windowed Frames", test_metal_windowed_frames },
 	{ "Metal Windowed Context", test_metal_windowed_context },

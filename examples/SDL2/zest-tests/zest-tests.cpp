@@ -310,10 +310,6 @@ static const char *metal_pending_tests[] = {
 	"Slang Hot Reload",
 	"Slang Shadowing Module",
 	"Slang TimelineFX Strides",
-	//Expects a limit on the number of memory allocations on every platform but D3D12, and Metal has none either
-	"Resource Test Pooled Image Allocations",
-	//Expects instance extensions on every platform but D3D12, and Metal has none either
-	"Device Reset Pool Sizing",
 };
 
 static zest_bool IsMetalPendingTest(const char *name) {

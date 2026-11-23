@@ -2931,6 +2931,9 @@ zest_bool zest__mtl_copy_bitmap_to_image(zest_device device, void *bitmap, zest_
 
 //Reads the first depth slice of the first mip of the first layer, tightly packed
 zest_bool zest__mtl_copy_image_to_bitmap(zest_device device, zest_image src_image, void *pixels) {
+	//zest_GetFormatPixelData gives a depth format no pixel size, so there is no row size to hand Metal
+	ZEST_ASSERT_OR_VALIDATE(!zest__is_depth_stencil_format(src_image->info.format), device,
+		"zest_CopyImageToBitmap can't read a depth or stencil image on the Metal backend. Draw the depth into a colour image and read that instead.", ZEST_FALSE);
 	id<MTLTexture> texture = ZEST_MTL_BACKEND(image, src_image)->texture;
 	int channels, bytes_per_pixel, block_width, block_height, bytes_per_block;
 	zest_GetFormatPixelData(src_image->info.format, &channels, &bytes_per_pixel, &block_width, &block_height, &bytes_per_block);

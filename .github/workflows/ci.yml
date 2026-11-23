@@ -1,12 +1,13 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - '*.md'
+  #Off while the Metal backend is being built. Uncomment these six lines to run on every push to main again.
+  #push:
+  #  branches: [main]
+  #  paths-ignore:
+  #    - 'docs/**'
+  #    - 'mkdocs.yml'
+  #    - '*.md'
   pull_request:
     paths-ignore:
       - 'docs/**'

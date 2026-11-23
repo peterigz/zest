@@ -691,8 +691,8 @@ int test__device_reset_pool_sizing(ZestTests *tests, Test *test) {
 	snprintf(log_path, sizeof(log_path), "%s", device->log_path.str ? device->log_path.str : "");
 	snprintf(cached_shaders_path, sizeof(cached_shaders_path), "%s", device->cached_shaders_path.str ? device->cached_shaders_path.str : "");
 	zest_uint extension_count = zest_vec_size(device->extensions);
-	//A D3D12 device has no instance extensions
-	zest_bool expects_extensions = tests->platform != zest_platform_d3d12;
+	//Only a Vulkan device has instance extensions
+	zest_bool expects_extensions = tests->platform == zest_platform_vulkan;
 	if (!log_path[0] || !cached_shaders_path[0] || (expects_extensions && !extension_count)) {
 		ZEST_PRINT("\tPool sizing: the device has no log path, shader cache path or instance extensions before the reset");
 		failed_count++;
