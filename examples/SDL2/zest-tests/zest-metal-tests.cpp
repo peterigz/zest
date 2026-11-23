@@ -771,12 +771,221 @@ int test_metal_headless_context(void) {
 		zest_create_context_info_t info = zest_CreateContextInfo();
 		zest_context context = zest_CreateHeadlessContext(device, &info);
 		failed |= context == NULL;
-		if (context) zest_DestroyContext(context);
+		if (context) {
+			//An event holds no GPU memory, so a context that leaked its frame graph events only shows as an owner left on one
+			failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+			zest_frame_graph frame_graph = zest_EndFrameGraph();
+			failed |= frame_graph == NULL || zest_FlushFrameGraph(frame_graph) != zest_semaphore_status_success;
+			zest_frame_graph_semaphores semaphores = *zest_map_at(context->cached_frame_graph_semaphores, "Empty");
+			id<MTLSharedEvent> event = [ZEST_MTL_BACKEND(frame_graph_semaphores, semaphores)->events[0][0] retain];
+			zest_DestroyContext(context);
+			if (event == nil || [event retainCount] != 1) {
+				ZEST_PRINT("A destroyed context left %lu owners on a frame graph event, where only this test should hold it.", (unsigned long)[event retainCount]);
+				failed = 1;
+			}
+			[event release];
+		}
 		allocated_sizes[cycle] = (zest_size)[zest_GetMetalDevice(device) currentAllocatedSize];
 	}
 	if (allocated_sizes[2] != allocated_sizes[1]) {
 		ZEST_PRINT("Metal's allocated size went from %llu to %llu between the second and third headless context.", (zest_ull)allocated_sizes[1], (zest_ull)allocated_sizes[2]);
 		failed = 1;
+	}
+	return failed | finish_metal_device(device);
+}
+
+int test_metal_empty_command_graph(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	if (context) {
+		failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
+		failed |= frame_graph == NULL || ZEST__NOT_FLAGGED(zest_GetFrameGraphResult(frame_graph), zest_fgs_no_work_to_do);
+		if (frame_graph) {
+			failed |= zest_FlushFrameGraph(frame_graph) != zest_semaphore_status_success;
+		}
+		zest_DestroyContext(context);
+	}
+	return failed | finish_metal_device(device);
+}
+
+int test_metal_render_pass_actions(void) {
+	int failed = zest__mtl_load_action(zest_load_op_clear) != MTLLoadActionClear;
+	failed |= zest__mtl_load_action(zest_load_op_load) != MTLLoadActionLoad;
+	failed |= zest__mtl_load_action(zest_load_op_dont_care) != MTLLoadActionDontCare;
+	failed |= zest__mtl_store_action(zest_store_op_store) != MTLStoreActionStore;
+	failed |= zest__mtl_store_action(zest_store_op_dont_care) != MTLStoreActionDontCare;
+	//Inside the target
+	MTLScissorRect rect = zest__mtl_clamped_scissor(2, 3, 4, 5, 16, 16);
+	failed |= rect.x != 2 || rect.y != 3 || rect.width != 4 || rect.height != 5;
+	//Hanging off the right and bottom edges
+	rect = zest__mtl_clamped_scissor(10, 12, 100, 100, 16, 16);
+	failed |= rect.x != 10 || rect.y != 12 || rect.width != 6 || rect.height != 4;
+	//A negative origin loses what lies before the target
+	rect = zest__mtl_clamped_scissor(-4, -6, 10, 10, 16, 16);
+	failed |= rect.x != 0 || rect.y != 0 || rect.width != 6 || rect.height != 4;
+	//Wholly outside, past the far edges and before the near ones
+	rect = zest__mtl_clamped_scissor(20, 20, 8, 8, 16, 16);
+	failed |= rect.x != 0 || rect.y != 0 || rect.width != 0 || rect.height != 0;
+	rect = zest__mtl_clamped_scissor(-20, 0, 8, 8, 16, 16);
+	failed |= rect.x != 0 || rect.y != 0 || rect.width != 0 || rect.height != 0;
+	//A size at the 32 bit limit doesn't wrap
+	rect = zest__mtl_clamped_scissor(8, 8, 0xFFFFFFFFu, 0xFFFFFFFFu, 16, 16);
+	failed |= rect.x != 8 || rect.y != 8 || rect.width != 8 || rect.height != 8;
+	return failed;
+}
+
+static int metal_pixels_match(const zest_uint *pixels, zest_uint pixel_count, const int expected[4]) {
+	for (zest_uint index = 0; index != pixel_count; ++index) {
+		const unsigned char *channels = (const unsigned char *)&pixels[index];
+		for (int channel = 0; channel != 4; ++channel) {
+			if (abs((int)channels[channel] - expected[channel]) > 1) return 0;
+		}
+	}
+	return 1;
+}
+
+static const int metal_blue_expected[4] = { 51, 102, 153, 255 };
+static const int metal_orange_expected[4] = { 153, 102, 51, 255 };
+
+static zest_image_handle metal_create_clear_target(zest_device device, zest_format format, zest_image_flags flags) {
+	zest_image_info_t image_info = zest_CreateImageInfo(16, 16);
+	image_info.format = format;
+	image_info.flags = flags | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+static zest_uint metal_committed_count(zest_context context, const char *graph_name) {
+	zest_context_queue context_queue = *zest_map_at(context->cached_frame_graph_queues[context->graphics_queue_index], graph_name);
+	zest_uint count = 0;
+	zest_ForEachFrameInFlight(frame_in_flight) {
+		count += zest_vec_size(ZEST_MTL_BACKEND(context_queue, context_queue)->committed[frame_in_flight]);
+	}
+	return count;
+}
+
+//Sets a scissor that hangs off every edge of the 16x16 target, one wholly outside it, then a viewport and a clip that leaves the target
+static void metal_scissor_pass(const zest_command_list command_list, void *user_data) {
+	zest_scissor_rect_t scissor = ZEST__ZERO_INIT(zest_scissor_rect_t);
+	scissor.offset.x = -8;
+	scissor.offset.y = -8;
+	scissor.extent.width = 64;
+	scissor.extent.height = 64;
+	zest_cmd_Scissor(command_list, &scissor);
+	scissor.offset.x = 32;
+	scissor.offset.y = 32;
+	scissor.extent.width = 8;
+	scissor.extent.height = 8;
+	zest_cmd_Scissor(command_list, &scissor);
+	zest_viewport_t viewport = { 0.f, 0.f, 16.f, 16.f, 0.f, 1.f };
+	zest_cmd_ViewPort(command_list, &viewport);
+	zest_cmd_Clip(command_list, 4.f, 4.f, 64.f, 64.f, 0.f, 1.f);
+	*(int *)user_data += 1;
+}
+
+//Clears the image to blue, or orange, in a one pass command graph named "Clear", then reads it back and checks every pixel.
+//With a depth image the pass clears that too, to a depth the test puts in place of the 1.0 the API always asks for.
+static int run_metal_clear_graph(zest_context context, zest_image image, zest_image depth_image, zest_bool orange, zest_bool set_scissors) {
+	int callback_count = 0;
+	if (!zest_BeginCommandGraph(context, "Clear", 0)) return 1;
+	zest_resource_node node = zest_ImportImageResource("Target", image, 0);
+	if (orange) {
+		zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
+	} else {
+		zest_SetResourceClearColor(node, 0.2f, 0.4f, 0.6f, 1.0f);
+	}
+	zest_BeginRenderPass("Clear Pass");
+	zest_ConnectOutput(node);
+	if (depth_image) {
+		zest_ConnectOutput(zest_ImportImageResource("Depth", depth_image, 0));
+	}
+	if (set_scissors) {
+		zest_SetPassTask(metal_scissor_pass, &callback_count);
+	} else {
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+	}
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph) return 1;
+	if (depth_image) {
+		//1.0 is also what Metal clears depth to when it's told nothing, so only another value shows the clear depth is passed on
+		zest_map_foreach(pass_index, frame_graph->final_passes) {
+			frame_graph->final_passes.data[pass_index].execution_details.depth_attachment.clear_value.depth_stencil.depth = 0.25f;
+		}
+	}
+	int failed = zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+	failed |= set_scissors && callback_count != 1;
+	//The barrier is a record on Metal, and this is all it does
+	failed |= image->layout != zest_image_layout_color_attachment_optimal;
+	zest_uint pixels[16 * 16];
+	memset(pixels, 0, sizeof(pixels));
+	failed |= !zest_CopyImageToBitmap(context->device, image, pixels);
+	failed |= !metal_pixels_match(pixels, 16 * 16, orange ? metal_orange_expected : metal_blue_expected);
+	if (depth_image && depth_image->info.format == zest_format_d32_sfloat) {
+		float depths[16 * 16];
+		memset(depths, 0, sizeof(depths));
+		failed |= !metal_read_texture(context->device, depth_image, 0, 0, 16, 16, 4, depths);
+		for (zest_uint index = 0; index != 16 * 16; ++index) failed |= depths[index] != 0.25f;
+	}
+	return failed;
+}
+
+int test_metal_render_pass_clear(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	int failed = context == NULL;
+	zest_image_handle image_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image_handle depth_handle = metal_create_clear_target(device, device->depth_format, zest_image_preset_depth_attachment);
+	zest_image_handle stencil_handle = metal_create_clear_target(device, zest_format_d32_sfloat_s8_uint, zest_image_preset_depth_attachment);
+	zest_image image = zest_GetImage(image_handle);
+	zest_image depth_image = zest_GetImage(depth_handle);
+	zest_image stencil_image = zest_GetImage(stencil_handle);
+	failed |= image == NULL || depth_image == NULL || stencil_image == NULL;
+	for (int iteration = 0; iteration != 3 && !failed; ++iteration) {
+		failed |= run_metal_clear_graph(context, image, NULL, iteration == 1, ZEST_FALSE);
+		//Taking this batch's command buffer released the one before, which the wait below had let finish
+		if (!failed && metal_committed_count(context, "Clear") != 1) {
+			ZEST_PRINT("The Clear graph's queue holds %u committed command buffers after flush %i, where it should hold the one just committed.", metal_committed_count(context, "Clear"), iteration);
+			failed = 1;
+		}
+		zest_WaitForIdleDevice(device);
+	}
+	if (!failed) {
+		//A validation count reads and releases every batch that has finished
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		failed |= metal_committed_count(context, "Clear") != 0;
+		failed |= run_metal_clear_graph(context, image, depth_image, ZEST_TRUE, ZEST_FALSE);
+		//A format with stencil is attached as depth alone
+		failed |= run_metal_clear_graph(context, image, stencil_image, ZEST_FALSE, ZEST_FALSE);
+		failed |= run_metal_clear_graph(context, image, NULL, ZEST_TRUE, ZEST_TRUE);
+		//With the queue the context prefers held, the next batch runs on another and has to wait for the slot's last batch through its ordering event
+		zest_uint slot = context->graphics_queue_index;
+		zest_uint preferred_index = context->preferred_queue_index[slot];
+		zest_queue held_queue = zest__acquire_manager_queue(device->queue_families[context->graphics_family_index], preferred_index, ZEST_FALSE);
+		failed |= held_queue == NULL || held_queue->index != preferred_index;
+		failed |= run_metal_clear_graph(context, image, NULL, ZEST_FALSE, ZEST_FALSE);
+		failed |= context->preferred_queue_index[slot] == preferred_index;
+		if (held_queue) zest__release_queue(held_queue);
+	}
+	//The context's pass descriptor is reused, and must not keep the last pass's target alive once the image is freed
+	id<MTLTexture> target_texture = image ? [ZEST_MTL_BACKEND(image, image)->texture retain] : nil;
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	zest_FreeImageNow(image_handle);
+	zest_FreeImageNow(depth_handle);
+	zest_FreeImageNow(stencil_handle);
+	if (target_texture && [target_texture retainCount] != 1) {
+		ZEST_PRINT("The freed render target still has %lu owners, where only this test should hold it.", (unsigned long)[target_texture retainCount]);
+		failed = 1;
+	}
+	[target_texture release];
+	if (context) {
+		zest_DestroyContext(context);
 	}
 	return failed | finish_metal_device(device);
 }
@@ -1003,6 +1212,9 @@ static MetalTest metal_tests[] = {
 	{ "Metal Validation Reports", test_metal_validation_reports },
 	{ "Metal SDL Helpers", test_metal_sdl_helpers },
 	{ "Metal Device Reset", test_metal_device_reset },
+	{ "Metal Empty Command Graph", test_metal_empty_command_graph },
+	{ "Metal Render Pass Actions", test_metal_render_pass_actions },
+	{ "Metal Render Pass Clear", test_metal_render_pass_clear },
 };
 
 int RunMetalSuite(int *total_out) {

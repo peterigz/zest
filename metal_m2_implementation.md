@@ -301,10 +301,10 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
 - `get_resource_ptr` returns the resource's texture or pool buffer.
 
 **Steps:**
-- [ ] Implement, replacing the stubs and their registrations.
-- [ ] Test "Metal Empty Command Graph", mirroring `zest-d3d12-tests.cpp:3167`: on a headless context, `zest_BeginCommandGraph`, `zest_EndFrameGraph` with no passes. The result has `zest_fgs_no_work_to_do` and `zest_FlushFrameGraph` returns. Destroy the context and the device with 0 validation errors.
-- [ ] Break it: skip releasing the semaphores' events in `cleanup_frame_graph_semaphore`. "Metal Headless Context" compares allocated size across contexts, so give that test one empty command graph per context and confirm it now fails. This is the check M1 recorded as unable to fail.
-- [ ] Build and run `--platform metal`, then with `--shader-validation`. Expected: 18 / 18.
+- [x] Implement, replacing the stubs and their registrations.
+- [x] Test "Metal Empty Command Graph", mirroring `zest-d3d12-tests.cpp:3167`: on a headless context, `zest_BeginCommandGraph`, `zest_EndFrameGraph` with no passes. The result has `zest_fgs_no_work_to_do` and `zest_FlushFrameGraph` returns. Destroy the context and the device with 0 validation errors.
+- [x] Break it: skip releasing the semaphores' events in `cleanup_frame_graph_semaphore`. "Metal Headless Context" compares allocated size across contexts, so give that test one empty command graph per context and confirm it now fails. This is the check M1 recorded as unable to fail.
+- [x] Build and run `--platform metal`, then with `--shader-validation`. Expected: 18 / 18.
 
 ### Task 5: Barrier records, render passes, viewports and scissors
 
@@ -329,14 +329,14 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
 - `viewport`, `clip`, `scissor` and `set_screensized_viewport` act on the open render encoder and do nothing without one. A viewport is passed straight through, because the converted shaders flip Y themselves (Spike A). Every scissor goes through `zest__mtl_clamped_scissor`. The screen-sized one takes the swapchain's size, as D3D12's does (`zest_dx12.h:7349-7357`).
 
 **Steps:**
-- [ ] Implement.
-- [ ] Pure test "Metal Render Pass Actions": the five op mappings, and `zest__mtl_clamped_scissor` for a rect inside the target, one hanging off the right and bottom edges, one with a negative origin, and one wholly outside.
-- [ ] Test "Metal Render Pass Clear", mirroring `zest-d3d12-tests.cpp:3228`: a 16x16 `r8g8b8a8_unorm` colour attachment with `transfer_src`. Three times on one headless context: a command graph imports it, sets a clear colour (0.2, 0.4, 0.6 on the first and third, 0.6, 0.4, 0.2 on the second), clears it in a pass with `zest_EmptyRenderPass`, and `zest_FlushFrameGraphAndWait` returns success. Read the image back: every pixel is (51, 102, 153, 255) or (153, 102, 51, 255), within 1 per channel. After the third, the context queue's `committed` lists hold no more than the buffers still in flight.
-- [ ] Add a depth phase: the same pass with a 16x16 depth attachment in the device's depth format, cleared to 0.25. Read it back if the format has no stencil, otherwise only expect 0 validation errors. Record whether a depth and stencil format is accepted with no stencil attachment.
-- [ ] Add a scissor phase: a pass whose callback sets a scissor larger than the target, one wholly outside it, and a screen-sized viewport. Expected: 0 validation errors. Record whether Metal accepts the zero-area rect the outside case gives. If it doesn't, the hook keeps the last valid rect and the finding goes to M4's plan, since only a draw can show the difference.
-- [ ] Break each once: swap the two clear colour sources, drop the frame signal from submit (the flush must time out), skip the clamp (the scissor phase must report), never reap (the `committed` check must fail).
-- [ ] Build and run `--platform metal`, then with `--shader-validation`, then once with zombies and `MallocScribble`. Expected: 20 / 20 and no zombie report.
-- [ ] Phase report. Restore the Mac clone.
+- [x] Implement.
+- [x] Pure test "Metal Render Pass Actions": the five op mappings, and `zest__mtl_clamped_scissor` for a rect inside the target, one hanging off the right and bottom edges, one with a negative origin, and one wholly outside.
+- [x] Test "Metal Render Pass Clear", mirroring `zest-d3d12-tests.cpp:3228`: a 16x16 `r8g8b8a8_unorm` colour attachment with `transfer_src`. Three times on one headless context: a command graph imports it, sets a clear colour (0.2, 0.4, 0.6 on the first and third, 0.6, 0.4, 0.2 on the second), clears it in a pass with `zest_EmptyRenderPass`, and `zest_FlushFrameGraphAndWait` returns success. Read the image back: every pixel is (51, 102, 153, 255) or (153, 102, 51, 255), within 1 per channel. After the third, the context queue's `committed` lists hold no more than the buffers still in flight.
+- [x] Add a depth phase: the same pass with a 16x16 depth attachment in the device's depth format, cleared to 0.25. Read it back if the format has no stencil, otherwise only expect 0 validation errors. Record whether a depth and stencil format is accepted with no stencil attachment.
+- [x] Add a scissor phase: a pass whose callback sets a scissor larger than the target, one wholly outside it, and a screen-sized viewport. Expected: 0 validation errors. Record whether Metal accepts the zero-area rect the outside case gives. If it doesn't, the hook keeps the last valid rect and the finding goes to M4's plan, since only a draw can show the difference.
+- [x] Break each once: swap the two clear colour sources, drop the frame signal from submit (the flush must time out), skip the clamp (the scissor phase must report), never reap (the `committed` check must fail).
+- [x] Build and run `--platform metal`, then with `--shader-validation`, then once with zombies and `MallocScribble`. Expected: 20 / 20 and no zombie report.
+- [x] Phase report. Restore the Mac clone.
 
 ## [Phase_3] Windows
 
@@ -392,6 +392,7 @@ Nothing here needs a window. Both tasks are proven on headless contexts with `ze
   - **Vsync:** both calls schedule a toggle (`zest.h:13820-13826`). Read the layer's `displaySyncEnabled`, call `zest_EnableVSync`, run 5 frames: the layer's value has flipped, it matches `zest_context_flag_vsync_enabled`, and no frame recreated. Call `zest_DisableVSync`, run 5 frames: it has flipped back.
   - **Minimise:** `SDL_MinimizeWindow`, 5 frames, `SDL_RestoreWindow`, 5 frames.
   - **Hidden:** `SDL_HideWindow`, 5 frames, `SDL_ShowWindow`, 5 frames.
+  - **Screen-sized viewport:** 3 frames whose pass callback calls `zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f)`. It needs a swapchain, so Task 5's headless test couldn't cover it.
   - **Queue switch:** 6 frames alternating `context->preferred_queue_index[graphics slot]` between 0 and 1 with `has_preferred_queue` set, as the D3D12 test does.
   - **No work:** 3 frames of `zest_BeginFrame` then `zest_EndFrame(context, 0)`.
   - **No end frame:** `zest_BeginFrame` twice with no `zest_EndFrame` between. The second fails with one validation error, which the test resets. `zest_EndFrame(context, 0)` then presents the held drawable, and 3 normal frames follow.
@@ -539,3 +540,71 @@ Each phase adds its part. Task 8 completes the section.
 - `zest.h`: the three edits above. Only the first is compiled on Windows with a change in what runs: three assignments now happen once per batch instead of two per pass and one per callback. Vulkan and D3D12 read all three later than either place.
 - `zest-tests.cpp`: four lines inside `#ifdef ZEST_ENABLE_METAL`.
 - Expected on Windows: the four baseline lines in [Testing_], and `zest-clear-screen.exe --validate --frames 240` clean on each backend.
+
+### Phase 2: frame execution on headless contexts (2026-11-23, on top of commit 44a3242, built and run on the Mac over SSH)
+
+**What changed**
+- `zest_metal.h`, 26 stubs replaced, 61 left:
+  - Structs: `zest_mtl_execution_backend_t`, `zest_mtl_command_list_backend_t`, `zest_mtl_frame_graph_semaphores_backend_t`, `zest_mtl_submission_batch_backend_t`, `zest_mtl_frame_graph_image_barrier_t`, `zest_mtl_execution_barriers_backend_t`. The context queue backend gains `committed[ZEST_MAX_FIF]` and the context backend `render_pass_descriptor`.
+  - Command buffers: `set_next_command_buffer`, `begin_command_buffer`, `end_command_buffer`, `submit_frame_graph_batch`, `carry_over_semaphores`, `get_frame_graph_semaphores`, and the four `new_*_backend` members that go with them.
+  - `zest__mtl_reap_command_buffers` and `zest__mtl_reap_device_command_buffers`. `reset_queue_command_pool`, `cleanup_context_queue_backend` and `zest__mtl_collect_validation_messages` call them.
+  - Barriers: the two add hooks, `zest__mtl_apply_image_barriers`, `acquire_barrier` and `release_barrier`.
+  - Render passes: `begin_render_pass`, `end_render_pass`, `viewport`, `scissor`, `clip`, `set_screensized_viewport`, and the pure helpers `zest__mtl_load_action`, `zest__mtl_store_action` and `zest__mtl_clamped_scissor`.
+  - `bind_descriptor_sets`, `get_resource_ptr`, `get_final_signal_ptr`, `get_final_wait_ptr`, `cleanup_frame_graph_semaphore`.
+- `zest-metal-tests.cpp`: "Metal Empty Command Graph", "Metal Render Pass Actions" and "Metal Render Pass Clear". "Metal Headless Context" now runs an empty command graph on each context.
+- No shared file changed, so there is nothing for a Windows run in this phase.
+
+**Results**
+- Task 4 alone: `--platform metal` and `--platform metal --shader-validation` both `Metal backend: 18 / 18`.
+- End of the phase, Metal on:
+  - `zest-tests`, `zest-c-compile-check` and `zest-objc-compile-check` build with 0 warnings.
+  - `--platform metal`: 20 / 20. With `--shader-validation`: 20 / 20. With `NSZombieEnabled=YES MallocScribble=1`: 20 / 20 and no zombie report.
+  - `--platform all`: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal backend: 20 / 20`, exit 0, no VUID line.
+- Metal off: every target builds, 129 / 129 and 129 / 129, exit 0, no VUID line.
+
+**What the two unverified probe items turned out to be**
+- A depth attachment in `d32_sfloat_s8_uint` with no stencil attachment set is accepted with no validation message. "Metal Render Pass Clear" keeps the case.
+- A zero-area scissor rect, which is what a rect wholly outside the target clamps to, is accepted with no validation message. Whether it draws nothing, as Vulkan does, can only be shown with a draw.
+
+**Every new check was broken on purpose** (`spikes/metal/mutate_m2.py` on the Mac, untracked)
+
+| What was broken | Result |
+| --- | --- |
+| Frame graph events never released | Headless Context fails |
+| Clear colour sources swapped | The process crashes inside Render Pass Clear, on the headless context's missing swapchain |
+| Clear colour never passed on | Render Pass Clear fails |
+| Frame signal dropped from submit | Render Pass Clear fails, as the flush times out |
+| Ordering signal dropped from submit | Render Pass Clear fails in its queue switch phase |
+| Scissor not clamped | Render Pass Clear fails on Metal's validation message |
+| Scissor clamp ignores the far edges | Render Pass Actions and Render Pass Clear fail |
+| Finished batches never reaped | Render Pass Clear fails |
+| Batches reaped only by a validation count | Render Pass Clear fails |
+| A validation count doesn't reap | Render Pass Clear fails |
+| Clear depth never passed on | Render Pass Clear fails |
+| Acquire barrier records no layout | Render Pass Clear fails |
+| Clear load action maps to load | Render Pass Actions and Render Pass Clear fail |
+| Store action maps to don't care | Render Pass Actions and Render Pass Clear fail |
+| Pass descriptor keeps its textures | Render Pass Clear fails |
+| No pass ended by `end_render_pass` | Metal aborts the process at the commit, inside Render Pass Clear |
+
+**Checks that can't fail yet**
+- A pass that doesn't wait on the queue's fence, or doesn't update it: 20 / 20 either way. Nothing reads what an earlier pass wrote until there is a draw. M4.
+- The waits `begin_command_buffer` encodes. A missing wait changes no result while every graph has one wave and one pass. The wave waits need a graph with two waves on different queues (M5), and the ordering wait a pass that reads the slot's previous batch (M4). The ordering signal is covered, by the queue switch phase.
+- `release_barrier`. A one pass graph that imports its image has no release record. Phase 3's swapchain graphs have one, to the present layout.
+- `set_screensized_viewport`, until Phase 3.
+
+**Where it differs from the plan**
+- **"Metal Headless Context" counts owners of a frame graph event.** The plan expected the allocated size to show leaked events. A shared event holds no GPU memory, the same thing Phase 1 found for queues. The test keeps a reference to one event and expects to be its only owner once the context is destroyed.
+- **The depth phase overrides the clear depth inside the compiled graph.** `zest_ConnectOutput` always asks for a depth clear of 1.0 (`zest.h:19750`) and no public call changes it. 1.0 is also what Metal clears to when told nothing, so the test writes 0.25 into the pass's `depth_attachment.clear_value` before the flush.
+- **Depth is read back with the test's own blit.** `zest_CopyImageToBitmap` gives a depth format a row size of 0 on Metal, which Metal's validation rejects. That is M1 code and was left alone.
+- **The pass descriptor's textures are cleared straight after the encoder is made**, not only the attachments past the pass's count. The descriptor holds a reference to each texture, so a freed image's memory would otherwise stay until the context's next pass. "Metal Render Pass Clear" checks the freed target has no owner left.
+- **`end_render_pass` came in with Task 4**, because `end_command_buffer` calls it.
+- **The scissor phase uses `zest_cmd_ViewPort` and `zest_cmd_Clip` in place of the screen-sized viewport**, which asserts without a swapchain. Task 6's "Metal Windowed Frames" gained a phase for it.
+- **A queue switch phase was added to "Metal Render Pass Clear".** With the context's preferred device queue held, the next batch runs on another queue and waits on the slot's ordering event. It is what makes the ordering signal able to fail.
+- **`zest__mtl_collect_validation_messages` reaps even when the validation reader never started**, so a failed batch is reported without validation.
+- **"Metal Render Pass Clear" expects exactly one committed buffer after each flush and none after a validation count**, with a device idle wait between flushes so the count doesn't depend on timing.
+
+**Noticed and left alone**
+- `zest_CopyImageToBitmap` on a depth image, above.
+- Shared code ignores what `begin_render_pass` returns and sets `began_rendering` regardless (`zest.h:17598-17610`), so a pass's callbacks run after a failed begin. The Metal viewport, scissor and clip hooks do nothing without an open encoder for that reason.
+- With the ordering signal dropped, the run ended with exit 1 and didn't hang at teardown, which [Decisions_] expected a blocked wait could do. What released the blocked batch wasn't looked into.
