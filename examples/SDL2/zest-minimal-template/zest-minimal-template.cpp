@@ -3,6 +3,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #include <SDL.h>
 #include <zest.h>
 #include <string>
@@ -15,7 +18,7 @@
 	Minimal app with a frame graph that renders a hello world triangle to the swapchain.
 	The triangle needs no vertex or index buffers at all - the vertex shader generates the
 	positions and colors from the vertex index.
-	Arguments: --vulkan or --d3d12 selects the backend (D3D12 is the default when it's compiled in),
+	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 is the default when it's compiled in),
 	--frames N exits after N frames, --validate enables the validation layers and fails the run on
 	any validation error. See examples/Common/example_platform.h.
  */
@@ -30,7 +33,7 @@ struct minimal_app_t {
 void InitApp(minimal_app_t *app) {
 	//Compile the shaders. Paths are relative to the working directory, which is expected to
 	//be the root of the Zest repository. Each backend compiles its own shader language, so
-	//ExampleShaderPath picks shaders/hlsl on D3D12 and shaders/glsl on Vulkan.
+	//ExampleShaderPath picks shaders/hlsl on D3D12 and shaders/glsl on Vulkan and Metal.
 	const char *shader_folder = "examples/SDL2/zest-minimal-template/shaders";
 	char vert_path[256];
 	char frag_path[256];
@@ -121,7 +124,7 @@ void MainLoop(minimal_app_t *app) {
 
 int main(int argc, char *argv[]) {
 	minimal_app_t app = {};
-	//--vulkan, --d3d12, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
+	//--vulkan, --d3d12, --metal, --validate, --validate-sync and --frames N, see examples/Common/example_platform.h
 	app.options = ParseExampleOptions(argc, argv);
 
 	//Make a config struct where you can configure zest with some options

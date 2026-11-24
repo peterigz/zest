@@ -161,8 +161,8 @@ int test__pipeline_state_culling(ZestTests *tests, Test *test) {
 	int name_index = 0;
 	for (int i = 0; i < 4; i++) {
 		for (int j = 0; j < 2; j++) {
-			//D3D12 has no cull mode that culls both faces
-			if (tests->platform == zest_platform_d3d12 && cull_modes[i] == zest_cull_mode_front_and_back) {
+			//Neither D3D12 nor Metal has a cull mode that culls both faces
+			if ((tests->platform == zest_platform_d3d12 || tests->platform == zest_platform_metal) && cull_modes[i] == zest_cull_mode_front_and_back) {
 				name_index++;
 				continue;
 			}
@@ -1275,7 +1275,7 @@ int test__shader_binary_platform_mismatch(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-//Each backend defines its own platform macro when it compiles, and not the other's
+//Each backend defines its own platform macro when it compiles, and no other backend's
 int test__shader_platform_macro(ZestTests *tests, Test *test) {
 	static const char *glsl_needs_own =
 		"#version 450\n"
@@ -1292,6 +1292,20 @@ int test__shader_platform_macro(ZestTests *tests, Test *test) {
 		"#endif\n"
 		"void main() {}\n";
 	static const char *glsl_broken = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() { int value = ; }\n";
+	static const char *metal_needs_own =
+		"#version 450\n"
+		"layout(local_size_x = 1) in;\n"
+		"#ifndef ZEST_METAL\n"
+		"#error ZEST_METAL is missing\n"
+		"#endif\n"
+		"void main() {}\n";
+	static const char *metal_rejects_other =
+		"#version 450\n"
+		"layout(local_size_x = 1) in;\n"
+		"#if defined(ZEST_VULKAN) || defined(ZEST_D3D12)\n"
+		"#error ZEST_VULKAN or ZEST_D3D12 is defined\n"
+		"#endif\n"
+		"void main() {}\n";
 	static const char *hlsl_needs_own =
 		"#ifndef ZEST_D3D12\n"
 		"#error ZEST_D3D12 is missing\n"
@@ -1306,8 +1320,10 @@ int test__shader_platform_macro(ZestTests *tests, Test *test) {
 		"void main() {}\n";
 	static const char *hlsl_broken = "[numthreads(1, 1, 1)]\nvoid main() { int value = ; }\n";
 	zest_device device = tests->device;
-	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
-	const char *needs_own = hlsl ? hlsl_needs_own : glsl_needs_own;
+	zest_platform_type platform = zest_GetDevicePlatform(device);
+	zest_bool hlsl = platform == zest_platform_d3d12;
+	const char *needs_own = hlsl ? hlsl_needs_own : platform == zest_platform_metal ? metal_needs_own : glsl_needs_own;
+	const char *rejects_other = hlsl ? hlsl_rejects_other : platform == zest_platform_metal ? metal_rejects_other : glsl_rejects_other;
 	int failed_count = 0;
 
 	zest_shader_handle shader_handle = zest_CreateShader(device, hlsl ? hlsl_empty_compute : glsl_empty_compute, zest_compute_shader, "zest_platform_macro_test", NULL, ZEST_TRUE);
@@ -1315,7 +1331,7 @@ int test__shader_platform_macro(ZestTests *tests, Test *test) {
 		ZEST_PRINT("\tThe platform's own macro isn't defined");
 		failed_count++;
 	}
-	if (!compile_test_source(device, shader_handle, hlsl ? hlsl_rejects_other : glsl_rejects_other, NULL)) {
+	if (!compile_test_source(device, shader_handle, rejects_other, NULL)) {
 		ZEST_PRINT("\tThe other platform's macro is defined");
 		failed_count++;
 	}

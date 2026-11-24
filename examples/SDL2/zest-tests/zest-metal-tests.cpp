@@ -1,3 +1,4 @@
+#include <fts.h>
 #include <spawn.h>
 #include <sys/wait.h>
 
@@ -75,14 +76,7 @@ static id<MTLComputePipelineState> metal_new_compute_pipeline(zest_device device
 
 //Binds each slot's region of the device's bindless table at the index a converted shader expects it
 static void metal_bind_table(zest_device device, id<MTLComputeCommandEncoder> encoder) {
-	zest_mtl_descriptor_pool_backend_t *pool_backend = ZEST_MTL_BACKEND(descriptor_set, device->bindless_set)->pool;
-	id<MTLBuffer> buffers[zest_max_global_binding_number];
-	NSUInteger offsets[zest_max_global_binding_number];
-	for (zest_uint binding_number = 0; binding_number != zest_max_global_binding_number; ++binding_number) {
-		buffers[binding_number] = pool_backend->table;
-		offsets[binding_number] = (NSUInteger)pool_backend->regions.offsets[binding_number];
-	}
-	[encoder setBuffers:buffers offsets:offsets withRange:NSMakeRange(ZEST__MTL_BINDLESS_BUFFER_INDEX, zest_max_global_binding_number)];
+	zest__mtl_bind_table_to_compute_encoder(device, encoder);
 }
 
 //Reads one slice of one mip of a texture back through a blit on a Zest queue
@@ -1466,9 +1460,23 @@ int test_metal_transient_images(void) {
 	if (context) {
 		zest_DestroyContext(context);
 	}
-	if ([residency_set allocationCount] != residency_before || device->memory_allocation_count != allocations_before || metal_allocated_size() != allocated_before) {
-		ZEST_PRINT("After the context went the residency set holds %lu allocations, the device counts %i and Metal has %llu bytes allocated, where there were %lu, %i and %llu.",
-			(unsigned long)[residency_set allocationCount], device->memory_allocation_count, (zest_ull)metal_allocated_size(), (unsigned long)residency_before, allocations_before, (zest_ull)allocated_before);
+	if ([residency_set allocationCount] != residency_before || device->memory_allocation_count != allocations_before) {
+		ZEST_PRINT("After the context went the residency set holds %lu allocations and the device counts %i, where there were %lu and %i.", (unsigned long)[residency_set allocationCount], device->memory_allocation_count, (unsigned long)residency_before, allocations_before);
+		failed = 1;
+	}
+	//Metal can keep 256 KB of its own from the first aliasing graph in a process, even past the device, so only a second context's growth fails
+	zest_size allocated_after_first = metal_allocated_size();
+	zest_context second_context = zest_CreateHeadlessContext(device, &info);
+	failed |= second_context == NULL;
+	if (second_context) {
+		failed |= run_metal_transient_graph(second_context, target, copy_target, zest_resource_usage_hint_none, NULL) != zest_semaphore_status_success;
+		failed |= run_metal_transient_alias_graph(second_context, target);
+		zest_WaitForIdleDevice(device);
+		zest_DestroyContext(second_context);
+	}
+	if ([residency_set allocationCount] != residency_before || device->memory_allocation_count != allocations_before || metal_allocated_size() != allocated_after_first) {
+		ZEST_PRINT("After a second context went the residency set holds %lu allocations, the device counts %i and Metal has %llu bytes allocated, where there were %lu, %i and %llu after the first. Before the first there were %llu bytes.",
+			(unsigned long)[residency_set allocationCount], device->memory_allocation_count, (zest_ull)metal_allocated_size(), (unsigned long)residency_before, allocations_before, (zest_ull)allocated_after_first, (zest_ull)allocated_before);
 		failed = 1;
 	}
 	zest_FreeImageNow(target_handle);
@@ -3409,6 +3417,1629 @@ int test_metal_validation_reports(void) {
 	return failed | finish_metal_device(device);
 }
 
+#define METAL_SPIRV_MAGIC 0x07230203
+#define METAL_COMPILE_SOURCE_COUNT 8
+#define METAL_COMPILE_THREAD_COUNT 4
+
+static const char *metal_compile_test_files[METAL_COMPILE_SOURCE_COUNT] = {
+	"buffer_verify.comp", "buffer_write.comp", "image_verify.comp", "image_write2.comp", "instance.vert", "instance.frag", "vertex.vert", "vertex.frag",
+};
+
+static const char *metal_macro_compute_source =
+	"#version 450\n"
+	"layout(local_size_x = 1) in;\n"
+	"#if FIRST != 3\n"
+	"#error FIRST must be 3\n"
+	"#endif\n"
+	"#ifndef SECOND\n"
+	"#error SECOND is missing\n"
+	"#endif\n"
+	"void main() {}\n";
+
+static const char *metal_stage_vertex_source =
+	"#version 450\n"
+	"layout(location = 0) in vec3 position;\n"
+	"void main() { gl_Position = vec4(position, 1.0); }\n";
+
+static const char *metal_stage_fragment_source =
+	"#version 450\n"
+	"layout(location = 0) out vec4 color;\n"
+	"void main() { color = vec4(1.0); }\n";
+
+static zest_shader_type metal_shader_type_of_file(const char *file_name) {
+	const char *extension = strrchr(file_name, '.');
+	if (strcmp(extension, ".vert") == 0) return zest_vertex_shader;
+	if (strcmp(extension, ".frag") == 0) return zest_fragment_shader;
+	return zest_compute_shader;
+}
+
+struct MetalCompileWorker {
+	zest_device device;
+	zest_file *sources;				//METAL_COMPILE_SOURCE_COUNT, in the order of metal_compile_test_files
+	zest_uint compiled_count;
+};
+
+//Each compile asks for the compiler as compile_shader does, so the first ones race to create it
+static void *metal_compile_worker(void *parameter) {
+	MetalCompileWorker *worker = (MetalCompileWorker *)parameter;
+	for (zest_uint source_index = 0; source_index != METAL_COMPILE_SOURCE_COUNT; ++source_index) {
+		const char *file_name = metal_compile_test_files[source_index];
+		shaderc_compiler_t compiler = zest__mtl_shader_compiler(worker->device);
+		if (!compiler) continue;
+		shaderc_compilation_result_t result = zest__mtl_compile_glsl(compiler, worker->sources[source_index], strlen(worker->sources[source_index]), metal_shader_type_of_file(file_name), file_name, NULL);
+		if (!result) continue;
+		zest_uint magic = 0;
+		if (shaderc_result_get_compilation_status(result) == shaderc_compilation_status_success && shaderc_result_get_length(result) >= sizeof(magic)) {
+			memcpy(&magic, shaderc_result_get_bytes(result), sizeof(magic));
+		}
+		if (magic == METAL_SPIRV_MAGIC) worker->compiled_count++;
+		shaderc_result_release(result);
+	}
+	return NULL;
+}
+
+int test_metal_shader_compile(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	//The threads below only race to create the compiler on a device that hasn't compiled yet
+	int failed = backend->shaderc_compiler != NULL;
+
+	zest_file sources[METAL_COMPILE_SOURCE_COUNT] = {};
+	for (zest_uint source_index = 0; source_index != METAL_COMPILE_SOURCE_COUNT; ++source_index) {
+		char path[256];
+		snprintf(path, sizeof(path), "examples/SDL2/zest-tests/shaders/glsl/%s", metal_compile_test_files[source_index]);
+		sources[source_index] = zest_ReadEntireFile(device, path, ZEST_TRUE);
+		failed |= sources[source_index] == NULL;
+	}
+	if (!failed) {
+		MetalCompileWorker workers[METAL_COMPILE_THREAD_COUNT] = {};
+		pthread_t threads[METAL_COMPILE_THREAD_COUNT];
+		zest_uint thread_count = 0;
+		for (; thread_count != METAL_COMPILE_THREAD_COUNT; ++thread_count) {
+			workers[thread_count].device = device;
+			workers[thread_count].sources = sources;
+			if (pthread_create(&threads[thread_count], NULL, metal_compile_worker, &workers[thread_count]) != 0) break;
+		}
+		zest_uint compiled_count = 0;
+		for (zest_uint thread = 0; thread != thread_count; ++thread) {
+			pthread_join(threads[thread], NULL);
+			compiled_count += workers[thread].compiled_count;
+		}
+		ZEST_PRINT("\t%u of %u concurrent compiles gave SPIR-V", compiled_count, METAL_COMPILE_THREAD_COUNT * METAL_COMPILE_SOURCE_COUNT);
+		failed |= compiled_count != METAL_COMPILE_THREAD_COUNT * METAL_COMPILE_SOURCE_COUNT;
+	}
+	for (zest_uint source_index = 0; source_index != METAL_COMPILE_SOURCE_COUNT; ++source_index) {
+		if (sources[source_index]) zest_FreeFile(device, sources[source_index]);
+	}
+
+	const char *stage_sources[3] = { metal_stage_vertex_source, metal_stage_fragment_source, glsl_empty_compute };
+	zest_shader_type stage_types[3] = { zest_vertex_shader, zest_fragment_shader, zest_compute_shader };
+	for (int stage = 0; stage != 3; ++stage) {
+		zest_shader_handle stage_handle = zest_CreateShader(device, stage_sources[stage], stage_types[stage], "zest_stage_test", NULL, ZEST_TRUE);
+		zest_uint magic = shader_binary_magic(zest_GetShader(stage_handle));
+		if (magic != METAL_SPIRV_MAGIC) ZEST_PRINT("\tStage %i compiled to a binary starting 0x%08X, not SPIR-V", stage, magic);
+		failed |= magic != METAL_SPIRV_MAGIC;
+		zest_FreeShader(stage_handle);
+	}
+
+	//One macro with a value and one without
+	zest_shader_handle macro_handle = zest_CreateShader(device, glsl_empty_compute, zest_compute_shader, "zest_macro_test", NULL, ZEST_TRUE);
+	zest_shader_options options = zest_CreateShaderOptions(device);
+	zest_AddMacroDefinition(options, "FIRST", "3");
+	zest_AddMacroDefinition(options, "SECOND", NULL);
+	failed |= !compile_test_source(device, macro_handle, metal_macro_compute_source, options);
+	zest_shader macro_shader = zest_GetShader(macro_handle);
+	char *binary_before = macro_shader->binary;
+	zest_size size_before = macro_shader->binary_size;
+	zest_key hash_before = zest_Hash(macro_shader->binary, (zest_uint)size_before, ZEST_HASH_SEED);
+
+	//A failed compile keeps the last binary, names its error, and isn't a validation error
+	zest_shader_options no_macros = zest_CreateShaderOptions(device);
+	ZEST_PRINT("\tThe next shader compilation error is expected");
+	failed |= zest_CompileShader(macro_handle, no_macros) != ZEST_FALSE;
+	zest_FreeShaderOptions(no_macros);
+	failed |= macro_shader->binary != binary_before || macro_shader->binary_size != size_before || zest_Hash(macro_shader->binary, (zest_uint)size_before, ZEST_HASH_SEED) != hash_before;
+	failed |= zest_GetShaderLastError(macro_handle)[0] == 0;
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	failed |= !zest_CompileShader(macro_handle, options);
+	failed |= zest_GetShaderLastError(macro_handle)[0] != 0;
+	zest_FreeShaderOptions(options);
+	zest_FreeShader(macro_handle);
+	return failed | finish_metal_device(device);
+}
+
+static const char *metal_reflect_vertex_source =
+	"#version 450\n"
+	"layout(location = 0) in vec3 position;\n"
+	"layout(location = 1) in vec2 uv;\n"
+	"layout(location = 3) in vec4 color;\n"
+	"void main() { gl_Position = vec4(position + vec3(uv, 0.0), 1.0) * color; }\n";
+
+static const char *metal_constant_index_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(set = 0, binding = 0) uniform sampler constant_samplers[];\n"
+	"layout(set = 0, binding = 1) uniform texture2D textures[];\n"
+	"layout(push_constant) uniform constants { uint texture_index; } push;\n"
+	"layout(location = 0) out vec4 color;\n"
+	"void main() { color = texture(sampler2D(textures[push.texture_index], constant_samplers[1]), vec2(0.5)); }\n";
+
+static const char *metal_buffer_length_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(local_size_x = 1) in;\n"
+	"layout(set = 0, binding = 5) buffer words_buffer { uint values[]; } words[];\n"
+	"layout(push_constant) uniform constants { uint buffer_index; } push;\n"
+	"void main() { words[push.buffer_index].values[0] = words[push.buffer_index].values.length(); }\n";
+
+//Compiles GLSL into one of the test's shaders and converts its SPIR-V
+static zest_bool metal_convert_source(zest_device device, zest_shader_handle shader_handle, const char *source, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	if (!compile_test_source(device, shader_handle, source, NULL)) {
+		snprintf(out_error, error_size, "%s", zest_GetShaderLastError(shader_handle));
+		return ZEST_FALSE;
+	}
+	zest_shader shader = zest_GetShader(shader_handle);
+	return zest__mtl_shader_function(device, shader, shader->type, out_function, out_error, error_size);
+}
+
+static zest_bool metal_convert_file(zest_device device, zest_shader_handle shader_handle, const char *path, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	zest_file source = zest_ReadEntireFile(device, path, ZEST_TRUE);
+	if (!source) {
+		snprintf(out_error, error_size, "The file couldn't be read.");
+		return ZEST_FALSE;
+	}
+	zest_bool converted = metal_convert_source(device, shader_handle, source, out_function, out_error, error_size);
+	zest_FreeFile(device, source);
+	return converted;
+}
+
+//Every GLSL file under examples, so a new example's shaders are converted too. Returns how many of the two alias shaders converted.
+static int metal_convert_example_shaders(zest_device device, zest_shader_handle *stage_handles, zest_uint *out_found_count, zest_uint *out_converted_count) {
+	char examples_folder[] = "examples";
+	char *roots[] = { examples_folder, NULL };
+	FTS *walk = fts_open(roots, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+	if (!walk) return 0;
+	int alias_count = 0;
+	FTSENT *entry = NULL;
+	while ((entry = fts_read(walk)) != NULL) {
+		if (entry->fts_info != FTS_F) continue;
+		const char *extension = strrchr(entry->fts_name, '.');
+		if (!extension) continue;
+		zest_shader_type type = zest_compute_shader;
+		if (strcmp(extension, ".vert") == 0) type = zest_vertex_shader;
+		else if (strcmp(extension, ".frag") == 0) type = zest_fragment_shader;
+		else if (strcmp(extension, ".comp") != 0) continue;
+		(*out_found_count)++;
+		zest_mtl_shader_function_t function = {};
+		char error[1024];
+		if (!metal_convert_file(device, stage_handles[type], entry->fts_path, &function, error, sizeof(error))) {
+			ZEST_PRINT("\t%s didn't convert: %s", entry->fts_path, error);
+			continue;
+		}
+		(*out_converted_count)++;
+		if (strstr(entry->fts_path, "zest-cascading-shadows/shaders/glsl/scene.frag") || strstr(entry->fts_path, "zest-pbr-deferred/shaders/glsl/deferred_lighting.frag")) alias_count++;
+	}
+	fts_close(walk);
+	return alias_count;
+}
+
+int test_metal_shader_conversion(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	int failed = 0;
+	char error[1024];
+	zest_shader_handle stage_handles[3];
+	stage_handles[zest_vertex_shader] = zest_CreateShader(device, metal_stage_vertex_source, zest_vertex_shader, "zest_conversion_vertex", NULL, ZEST_TRUE);
+	stage_handles[zest_fragment_shader] = zest_CreateShader(device, metal_stage_fragment_source, zest_fragment_shader, "zest_conversion_fragment", NULL, ZEST_TRUE);
+	stage_handles[zest_compute_shader] = zest_CreateShader(device, glsl_empty_compute, zest_compute_shader, "zest_conversion_compute", NULL, ZEST_TRUE);
+
+	//The cost of a shader's first conversion, then of finding it in the cache
+	zest_file timed_source = zest_ReadEntireFile(device, "examples/SDL2/zest-pbr-texture/shaders/glsl/pbr_texture.frag", ZEST_TRUE);
+	failed |= !timed_source || !compile_test_source(device, stage_handles[zest_fragment_shader], timed_source, NULL);
+	if (timed_source) zest_FreeFile(device, timed_source);
+	zest_shader fragment_shader = zest_GetShader(stage_handles[zest_fragment_shader]);
+	zest_mtl_shader_function_t first = {};
+	zest_mtl_shader_function_t again = {};
+	zest_microsecs first_start = zest_Microsecs();
+	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, &first, error, sizeof(error));
+	zest_microsecs first_time = zest_Microsecs() - first_start;
+	zest_microsecs again_start = zest_Microsecs();
+	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, &again, error, sizeof(error));
+	zest_microsecs again_time = zest_Microsecs() - again_start;
+	ZEST_PRINT("\tpbr_texture.frag converted in %llu us, and came from the cache in %llu us", (unsigned long long)first_time, (unsigned long long)again_time);
+	failed |= !first.function || again.function != first.function || zest_map_size(backend->shader_functions) != 1;
+
+	//Another binary is another entry
+	zest_mtl_shader_function_t other = {};
+	failed |= !metal_convert_source(device, stage_handles[zest_fragment_shader], metal_stage_fragment_source, &other, error, sizeof(error));
+	failed |= other.function == first.function || zest_map_size(backend->shader_functions) != 2;
+
+	zest_uint found_count = 0;
+	zest_uint converted_count = 0;
+	zest_microsecs walk_start = zest_Microsecs();
+	int alias_count = metal_convert_example_shaders(device, stage_handles, &found_count, &converted_count);
+	zest_microsecs walk_time = zest_Microsecs() - walk_start;
+	ZEST_PRINT("\t%u of %u example shaders converted, %i of the 2 alias shaders among them, %u distinct in the cache", converted_count, found_count, alias_count, zest_map_size(backend->shader_functions));
+	ZEST_PRINT("\tEach took %llu us on average to compile from GLSL and convert", (unsigned long long)(found_count ? walk_time / found_count : 0));
+	failed |= found_count == 0 || converted_count != found_count || alias_count != 2;
+
+	zest_mtl_shader_function_t function = {};
+	failed |= !metal_convert_file(device, stage_handles[zest_compute_shader], "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", &function, error, sizeof(error));
+	failed |= function.local_size[0] != 8 || function.local_size[1] != 8 || function.local_size[2] != 1;
+	failed |= !metal_convert_file(device, stage_handles[zest_compute_shader], "examples/SDL2/zest-tests/shaders/glsl/stride_check.comp", &function, error, sizeof(error));
+	failed |= function.local_size[0] != 64 || function.local_size[1] != 1 || function.local_size[2] != 1;
+
+	failed |= !metal_convert_source(device, stage_handles[zest_vertex_shader], metal_reflect_vertex_source, &function, error, sizeof(error));
+	ZEST_PRINT("\tVertex inputs at locations 0, 1 and 3 give the mask 0x%X", function.vertex_input_mask);
+	failed |= function.vertex_input_mask != 0xB;
+
+	//A sized set 0 array and .length() on a bindless buffer are refused, with an error that says what to change
+	zest_bool constant_index_converted = metal_convert_source(device, stage_handles[zest_fragment_shader], metal_constant_index_source, &function, error, sizeof(error));
+	ZEST_PRINT("\tConstant index: %s", constant_index_converted ? "converted" : error);
+	failed |= constant_index_converted || !strstr(error, "constant_samplers");
+	zest_bool length_converted = metal_convert_source(device, stage_handles[zest_compute_shader], metal_buffer_length_source, &function, error, sizeof(error));
+	ZEST_PRINT("\tBuffer length: %s", length_converted ? "converted" : error);
+	failed |= length_converted || !strstr(error, "OpArrayLength");
+
+	//16 bytes that start like SPIR-V
+	zest_shader compute_shader = zest_GetShader(stage_handles[zest_compute_shader]);
+	zest_uint short_binary[4] = { METAL_SPIRV_MAGIC, 0x00010000, 0, 0 };
+	zest_vec_resize(device->allocator, compute_shader->binary, sizeof(short_binary));
+	memcpy(compute_shader->binary, short_binary, sizeof(short_binary));
+	compute_shader->binary_size = sizeof(short_binary);
+	zest_bool short_converted = zest__mtl_shader_function(device, compute_shader, zest_compute_shader, &function, error, sizeof(error));
+	ZEST_PRINT("\tShort binary: %s", short_converted ? "converted" : error);
+	failed |= short_converted;
+
+	for (int stage = 0; stage != 3; ++stage) {
+		zest_FreeShader(stage_handles[stage]);
+	}
+	zest_ResetDevice(device);
+	failed |= zest_map_size(backend->shader_functions) != 0;
+	return failed | finish_metal_device(device);
+}
+
+static const char *metal_translation_vertex_source =
+	"#version 450\n"
+	"layout(location = 0) in vec3 position;\n"
+	"layout(location = 1) in vec2 uv;\n"
+	"layout(location = 2) in vec4 color;\n"
+	"void main() { gl_Position = vec4(position + vec3(uv, float(gl_InstanceIndex)), 1.0) * color; }\n";
+
+static const char *metal_no_input_vertex_source =
+	"#version 450\n"
+	"void main() { gl_Position = vec4(float(gl_VertexIndex & 1), float(gl_VertexIndex >> 1), 0.0, 1.0); }\n";
+
+static const char *metal_position_vertex_source =
+	"#version 450\n"
+	"layout(location = 0) in vec3 position;\n"
+	"void main() { gl_Position = vec4(position, 1.0); }\n";
+
+static zest_rendering_info_t metal_colour_rendering_info(zest_format depth_format) {
+	zest_rendering_info_t rendering_info = {};
+	rendering_info.color_attachment_count = 1;
+	rendering_info.color_attachment_formats[0] = zest_format_r8g8b8a8_unorm;
+	rendering_info.depth_attachment_format = depth_format;
+	return rendering_info;
+}
+
+//Location 3 sits on a per instance binding that the translation vertex shader never reads
+static zest_pipeline_template metal_translation_template(zest_device device, const char *name, zest_bool with_uv) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_AddVertexInputBindingDescription(pipeline_template, 0, 36, zest_input_rate_vertex);
+	zest_AddVertexInputBindingDescription(pipeline_template, 1, 16, zest_input_rate_instance);
+	zest_AddVertexAttribute(pipeline_template, 0, 0, zest_format_r32g32b32_sfloat, 0);
+	if (with_uv) zest_AddVertexAttribute(pipeline_template, 0, 1, zest_format_r32g32_sfloat, 12);
+	zest_AddVertexAttribute(pipeline_template, 0, 2, zest_format_r8g8b8a8_unorm, 20);
+	zest_AddVertexAttribute(pipeline_template, 1, 3, zest_format_r32g32b32a32_sfloat, 0);
+	return pipeline_template;
+}
+
+//What a description gave, kept until the next description or the end of the test
+struct MetalDescription {
+	MTLRenderPipelineDescriptor *descriptor;
+	MTLDepthStencilDescriptor *depth_stencil;
+	zest_mtl_pipeline_backend_t backend;
+	zest_key key;
+	char error[1024];
+};
+
+static zest_bool metal_describe(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_mtl_shader_function_t *vertex_function, const zest_mtl_shader_function_t *fragment_function, MetalDescription *out_description) {
+	[out_description->descriptor release];
+	[out_description->depth_stencil release];
+	out_description->descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+	out_description->depth_stencil = [[MTLDepthStencilDescriptor alloc] init];
+	out_description->backend = {};
+	out_description->error[0] = 0;
+	return zest__mtl_pipeline_description(device, pipeline_template, rendering_info, vertex_function, fragment_function, out_description->descriptor, out_description->depth_stencil, &out_description->backend, &out_description->key, out_description->error, sizeof(out_description->error));
+}
+
+static MTLVertexAttributeDescriptor *metal_described_attribute(MetalDescription *description, zest_uint location) {
+	return [[[description->descriptor vertexDescriptor] attributes] objectAtIndexedSubscript:location];
+}
+
+static MTLVertexBufferLayoutDescriptor *metal_described_layout(MetalDescription *description, zest_uint binding) {
+	return [[[description->descriptor vertexDescriptor] layouts] objectAtIndexedSubscript:binding];
+}
+
+static zest_bool metal_create_converted_shader(zest_device device, zest_shader_handle *out_handle, const char *source, const char *name, zest_shader_type type, zest_mtl_shader_function_t *out_function) {
+	char error[1024];
+	*out_handle = zest_CreateShader(device, source, type, name, NULL, ZEST_TRUE);
+	if (zest__mtl_shader_function(device, zest_GetShader(*out_handle), type, out_function, error, sizeof(error))) return ZEST_TRUE;
+	ZEST_PRINT("\t%s", error);
+	return ZEST_FALSE;
+}
+
+int test_metal_pipeline_state_translation(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_shader_handle handles[4];
+	zest_mtl_shader_function_t translation_function = {};
+	zest_mtl_shader_function_t simple_function = {};
+	zest_mtl_shader_function_t position_function = {};
+	zest_mtl_shader_function_t fragment_function = {};
+	int failed = !metal_create_converted_shader(device, &handles[0], metal_translation_vertex_source, "translation_vertex", zest_vertex_shader, &translation_function);
+	failed |= !metal_create_converted_shader(device, &handles[1], metal_no_input_vertex_source, "translation_simple", zest_vertex_shader, &simple_function);
+	failed |= !metal_create_converted_shader(device, &handles[2], metal_position_vertex_source, "translation_position", zest_vertex_shader, &position_function);
+	failed |= !metal_create_converted_shader(device, &handles[3], metal_stage_fragment_source, "translation_fragment", zest_fragment_shader, &fragment_function);
+	zest_rendering_info_t colour_only = metal_colour_rendering_info(zest_format_undefined);
+	zest_rendering_info_t with_depth = metal_colour_rendering_info(zest_format_d32_sfloat);
+	MetalDescription description = {};
+	@autoreleasepool {
+		//Vertex input
+		zest_pipeline_template input_template = metal_translation_template(device, "Translation Input", ZEST_TRUE);
+		if (metal_describe(device, input_template, &colour_only, &translation_function, NULL, &description)) {
+			failed |= [metal_described_attribute(&description, 0) format] != MTLVertexFormatFloat3 || [metal_described_attribute(&description, 1) format] != MTLVertexFormatFloat2;
+			failed |= [metal_described_attribute(&description, 2) format] != MTLVertexFormatUChar4Normalized || [metal_described_attribute(&description, 2) offset] != 20;
+			for (zest_uint location = 0; location != 3; ++location) {
+				failed |= [metal_described_attribute(&description, location) bufferIndex] != 0;
+			}
+			failed |= [metal_described_attribute(&description, 3) format] != MTLVertexFormatInvalid;
+			failed |= [metal_described_layout(&description, 0) stride] != 36 || [metal_described_layout(&description, 0) stepFunction] != MTLVertexStepFunctionPerVertex;
+		} else {
+			ZEST_PRINT("\t%s", description.error);
+			failed = 1;
+		}
+		input_template->attribute_descriptions[2].binding = 1;
+		if (metal_describe(device, input_template, &colour_only, &translation_function, NULL, &description)) {
+			MTLVertexBufferLayoutDescriptor *instance_layout = metal_described_layout(&description, 1);
+			failed |= [metal_described_attribute(&description, 2) bufferIndex] != 1;
+			failed |= [instance_layout stride] != 16 || [instance_layout stepFunction] != MTLVertexStepFunctionPerInstance || [instance_layout stepRate] != 1;
+		} else {
+			ZEST_PRINT("\t%s", description.error);
+			failed = 1;
+		}
+		//Half3, which D3D12 lacks, and a scaled format, which Metal lacks
+		input_template->attribute_descriptions[0].format = zest_format_r16g16b16_sfloat;
+		failed |= !metal_describe(device, input_template, &colour_only, &translation_function, NULL, &description) || [metal_described_attribute(&description, 0) format] != MTLVertexFormatHalf3;
+		input_template->attribute_descriptions[0].format = zest_format_r16g16b16a16_uscaled;
+		failed |= metal_describe(device, input_template, &colour_only, &translation_function, NULL, &description) || !strstr(description.error, "location 0");
+		ZEST_PRINT("\tScaled format: %s", description.error);
+		input_template->attribute_descriptions[0].format = zest_format_r32g32b32_sfloat;
+		//Binding 4 is where the push constants go
+		zest_AddVertexInputBindingDescription(input_template, 4, 16, zest_input_rate_vertex);
+		failed |= metal_describe(device, input_template, &colour_only, &translation_function, NULL, &description) || !strstr(description.error, "binding 4");
+		zest_FreePipelineTemplate(input_template);
+		zest_pipeline_template missing_template = metal_translation_template(device, "Translation Missing", ZEST_FALSE);
+		failed |= metal_describe(device, missing_template, &colour_only, &translation_function, NULL, &description) || !strstr(description.error, "location 1");
+		ZEST_PRINT("\tMissing attribute: %s", description.error);
+		zest_FreePipelineTemplate(missing_template);
+
+		//Blend, with the write mask's bits reversed
+		zest_pipeline_template state_template = zest_CreatePipelineTemplate(device, "Translation State");
+		zest_SetPipelineDisableVertexInput(state_template);
+		zest_color_blend_attachment_t *blend = &state_template->color_blend_attachment;
+		blend->blend_enable = ZEST_TRUE;
+		blend->src_color_blend_factor = zest_blend_factor_dst_color;
+		blend->dst_color_blend_factor = zest_blend_factor_one_minus_src_color;
+		blend->color_blend_op = zest_blend_op_reverse_subtract;
+		blend->alpha_blend_op = zest_blend_op_min;
+		blend->color_write_mask = zest_color_component_r_bit | zest_color_component_a_bit;
+		if (metal_describe(device, state_template, &colour_only, &simple_function, &fragment_function, &description)) {
+			MTLRenderPipelineColorAttachmentDescriptor *attachment = [[description.descriptor colorAttachments] objectAtIndexedSubscript:0];
+			failed |= ![attachment isBlendingEnabled] || [attachment pixelFormat] != MTLPixelFormatRGBA8Unorm;
+			failed |= [attachment sourceRGBBlendFactor] != MTLBlendFactorDestinationColor || [attachment destinationRGBBlendFactor] != MTLBlendFactorOneMinusSourceColor;
+			failed |= [attachment rgbBlendOperation] != MTLBlendOperationReverseSubtract || [attachment alphaBlendOperation] != MTLBlendOperationMin;
+			failed |= [attachment writeMask] != (MTLColorWriteMaskRed | MTLColorWriteMaskAlpha);
+		} else {
+			ZEST_PRINT("\t%s", description.error);
+			failed = 1;
+		}
+
+		//Depth, and the sample count of 0 the rendering info has
+		zest_SetPipelineDepthTest(state_template, ZEST_TRUE, ZEST_TRUE);
+		state_template->depth_stencil.depth_compare_op = zest_compare_op_less;
+		failed |= !metal_describe(device, state_template, &colour_only, &simple_function, &fragment_function, &description);
+		failed |= [description.depth_stencil depthCompareFunction] != MTLCompareFunctionAlways || [description.depth_stencil isDepthWriteEnabled];
+		failed |= [description.descriptor depthAttachmentPixelFormat] != MTLPixelFormatInvalid || [description.descriptor rasterSampleCount] != 1;
+		failed |= !metal_describe(device, state_template, &with_depth, &simple_function, &fragment_function, &description);
+		failed |= [description.depth_stencil depthCompareFunction] != MTLCompareFunctionLess || ![description.depth_stencil isDepthWriteEnabled];
+		failed |= [description.descriptor depthAttachmentPixelFormat] != MTLPixelFormatDepth32Float;
+
+		//Both front faces map straight across, and depth clamp is a clip mode
+		state_template->rasterization.front_face = zest_front_face_clockwise;
+		failed |= !metal_describe(device, state_template, &colour_only, &simple_function, &fragment_function, &description) || description.backend.winding != MTLWindingClockwise;
+		state_template->rasterization.front_face = zest_front_face_counter_clockwise;
+		failed |= !metal_describe(device, state_template, &colour_only, &simple_function, &fragment_function, &description) || description.backend.winding != MTLWindingCounterClockwise;
+		failed |= description.backend.depth_clip_mode != MTLDepthClipModeClip;
+		state_template->rasterization.depth_clamp_enable = ZEST_TRUE;
+		failed |= !metal_describe(device, state_template, &colour_only, &simple_function, &fragment_function, &description) || description.backend.depth_clip_mode != MTLDepthClipModeClamp;
+		zest_FreePipelineTemplate(state_template);
+
+		//Errors, each naming the state
+		const char *unsupported_states[11] = { "zest_cull_mode_front_and_back", "zest_polygon_mode_point", "zest_topology_triangle_fan", "zest_topology_line_list_with_adjacency", "zest_topology_line_strip_with_adjacency",
+			"zest_topology_triangle_list_with_adjacency", "zest_topology_triangle_strip_with_adjacency", "zest_topology_patch_list", "stencil_test_enable", "depth_bounds_test_enable", "view_mask" };
+		zest_topology unsupported_topologies[6] = { zest_topology_triangle_fan, zest_topology_line_list_with_adjacency, zest_topology_line_strip_with_adjacency, zest_topology_triangle_list_with_adjacency, zest_topology_triangle_strip_with_adjacency, zest_topology_patch_list };
+		for (int case_index = 0; case_index != 11; ++case_index) {
+			zest_pipeline_template error_template = zest_CreatePipelineTemplate(device, "Translation Error");
+			zest_SetPipelineDisableVertexInput(error_template);
+			if (case_index == 0) error_template->rasterization.cull_mode = zest_cull_mode_front_and_back;
+			else if (case_index == 1) error_template->rasterization.polygon_mode = zest_polygon_mode_point;
+			else if (case_index < 8) error_template->primitive_topology = unsupported_topologies[case_index - 2];
+			else if (case_index == 8) error_template->depth_stencil.stencil_test_enable = ZEST_TRUE;
+			else if (case_index == 9) error_template->depth_stencil.depth_bounds_test_enable = ZEST_TRUE;
+			else error_template->view_mask = 3;
+			if (metal_describe(device, error_template, &colour_only, &simple_function, &fragment_function, &description) || !strstr(description.error, unsupported_states[case_index])) {
+				ZEST_PRINT("\t%s wasn't refused by name", unsupported_states[case_index]);
+				failed = 1;
+			}
+			zest_FreePipelineTemplate(error_template);
+		}
+
+		//Metal takes a stride that isn't a multiple of 4, so the description doesn't refuse one
+		zest_pipeline_template stride_template = zest_CreatePipelineTemplate(device, "Translation Stride");
+		zest_AddVertexInputBindingDescription(stride_template, 0, 6, zest_input_rate_vertex);
+		zest_AddVertexAttribute(stride_template, 0, 0, zest_format_r16g16b16_sfloat, 0);
+		if (metal_describe(device, stride_template, &colour_only, &position_function, &fragment_function, &description)) {
+			NSError *stride_error = nil;
+			id<MTLRenderPipelineState> stride_state = [zest_GetMetalDevice(device) newRenderPipelineStateWithDescriptor:description.descriptor error:&stride_error];
+			if (!stride_state) ZEST_PRINT("\tA stride of 6: %s", stride_error ? [[stride_error localizedDescription] UTF8String] : "Metal gave no error");
+			failed |= stride_state == nil;
+			[stride_state release];
+		} else {
+			ZEST_PRINT("\tA stride of 6: %s", description.error);
+			failed = 1;
+		}
+		zest_FreePipelineTemplate(stride_template);
+		[description.descriptor release];
+		[description.depth_stencil release];
+	}
+	for (int handle_index = 0; handle_index != 4; ++handle_index) {
+		zest_FreeShader(handles[handle_index]);
+	}
+	return failed | finish_metal_device(device);
+}
+
+//A command list with no backend, which is all a pipeline build reads
+static zest_command_list_t metal_colour_command_list(zest_context context, zest_key render_pass_key, zest_format depth_format) {
+	zest_command_list_t command_list = ZEST__ZERO_INIT(zest_command_list_t);
+	command_list.context = context;
+	command_list.device = context->device;
+	command_list.rendering_info = metal_colour_rendering_info(depth_format);
+	command_list.rendering_info.render_pass_key = render_pass_key;
+	return command_list;
+}
+
+static zest_pipeline_template metal_no_input_template(zest_device device, const char *name, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, fragment_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	return pipeline_template;
+}
+
+static zest_mtl_pipeline_backend_t *metal_pipeline_backend(zest_pipeline pipeline) {
+	static zest_mtl_pipeline_backend_t empty_backend = {};
+	return pipeline ? ZEST_MTL_BACKEND(pipeline, pipeline) : &empty_backend;
+}
+
+#define METAL_PIPELINE_THREAD_COUNT 4
+
+struct MetalPipelineWorker {
+	zest_device device;
+	zest_pipeline_template pipeline_template;
+	zest_rendering_info_t rendering_info;
+	zest_mtl_shader_function_t vertex_function;
+	zest_mtl_shader_function_t fragment_function;
+	volatile int *start;					//Raised once every thread exists, so their cache misses overlap
+	id<MTLRenderPipelineState> pipeline_state;
+};
+
+static void *metal_pipeline_worker(void *parameter) {
+	MetalPipelineWorker *worker = (MetalPipelineWorker *)parameter;
+	while (!__atomic_load_n(worker->start, __ATOMIC_ACQUIRE)) {}
+	@autoreleasepool {
+		MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+		MTLDepthStencilDescriptor *depth_stencil = [[MTLDepthStencilDescriptor alloc] init];
+		zest_mtl_pipeline_backend_t backend = {};
+		zest_key key = 0;
+		char error[1024];
+		if (zest__mtl_pipeline_description(worker->device, worker->pipeline_template, &worker->rendering_info, &worker->vertex_function, &worker->fragment_function, descriptor, depth_stencil, &backend, &key, error, sizeof(error))) {
+			worker->pipeline_state = zest__mtl_render_pipeline_state(worker->device, key, descriptor, error, sizeof(error));
+		}
+		[descriptor release];
+		[depth_stencil release];
+	}
+	return NULL;
+}
+
+//Every thread asks for one new pipeline state at once, and all must get the one the cache keeps
+static int run_metal_concurrent_pipelines(zest_device device, zest_pipeline_template pipeline_template, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	MetalPipelineWorker workers[METAL_PIPELINE_THREAD_COUNT] = {};
+	pthread_t threads[METAL_PIPELINE_THREAD_COUNT];
+	volatile int start = 0;
+	char error[1024];
+	zest_mtl_shader_function_t vertex_function = {};
+	zest_mtl_shader_function_t fragment_function = {};
+	int failed = !zest__mtl_shader_function(device, zest_GetShader(vertex_shader), zest_vertex_shader, &vertex_function, error, sizeof(error));
+	failed |= !zest__mtl_shader_function(device, zest_GetShader(fragment_shader), zest_fragment_shader, &fragment_function, error, sizeof(error));
+	if (failed) return failed;
+	zest_uint state_count = zest_map_size(backend->render_pipeline_states);
+	zest_uint thread_count = 0;
+	for (; thread_count != METAL_PIPELINE_THREAD_COUNT; ++thread_count) {
+		MetalPipelineWorker *worker = &workers[thread_count];
+		worker->device = device;
+		worker->pipeline_template = pipeline_template;
+		worker->rendering_info = metal_colour_rendering_info(zest_format_undefined);
+		worker->vertex_function = vertex_function;
+		worker->fragment_function = fragment_function;
+		worker->start = &start;
+		if (pthread_create(&threads[thread_count], NULL, metal_pipeline_worker, worker) != 0) break;
+	}
+	__atomic_store_n(&start, 1, __ATOMIC_RELEASE);
+	for (zest_uint thread = 0; thread != thread_count; ++thread) {
+		pthread_join(threads[thread], NULL);
+		failed |= workers[thread].pipeline_state == nil || workers[thread].pipeline_state != workers[0].pipeline_state;
+	}
+	failed |= thread_count != METAL_PIPELINE_THREAD_COUNT || zest_map_size(backend->render_pipeline_states) != state_count + 1;
+	ZEST_PRINT("\t%u threads asked for one pipeline state and the cache grew by %u", thread_count, zest_map_size(backend->render_pipeline_states) - state_count);
+	return failed;
+}
+
+int test_metal_pipeline_cache(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_no_input_vertex_source, zest_vertex_shader, "cache_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_stage_fragment_source, zest_fragment_shader, "cache_fragment", NULL, ZEST_TRUE);
+
+	//Rendering infos that differ only in their render pass key share a pipeline state
+	zest_pipeline_template base_template = metal_no_input_template(device, "Cache Base", vertex_shader, fragment_shader);
+	zest_command_list_t first_list = metal_colour_command_list(context, 1, zest_format_undefined);
+	zest_command_list_t second_list = metal_colour_command_list(context, 2, zest_format_undefined);
+	zest_pipeline first_pipeline = zest_GetPipeline(base_template, &first_list);
+	zest_pipeline second_pipeline = zest_GetPipeline(base_template, &second_list);
+	id<MTLRenderPipelineState> first_state = metal_pipeline_backend(first_pipeline)->pipeline_state;
+	int failed = first_state == nil || second_pipeline == NULL || first_pipeline == second_pipeline || metal_pipeline_backend(second_pipeline)->pipeline_state != first_state;
+
+	zest_pipeline_template blend_template = zest_CopyPipelineTemplate("Cache Blend", base_template);
+	zest_SetPipelineBlend(blend_template, zest_AlphaBlendState());
+	id<MTLRenderPipelineState> blend_state = metal_pipeline_backend(zest_GetPipeline(blend_template, &first_list))->pipeline_state;
+	failed |= blend_state == nil || blend_state == first_state;
+
+	//What a swapchain recreate does
+	zest_uint state_count = zest_map_size(backend->render_pipeline_states);
+	zest__cleanup_pipelines(context);
+	zest_map_free(context->allocator, context->cached_pipelines);
+	zest_pipeline recreated_pipeline = zest_GetPipeline(base_template, &first_list);
+	failed |= metal_pipeline_backend(recreated_pipeline)->pipeline_state != first_state || zest_map_size(backend->render_pipeline_states) != state_count;
+	ZEST_PRINT("\t%u pipeline states cached after the recreate", zest_map_size(backend->render_pipeline_states));
+
+	zest_pipeline_template culled_template = zest_CopyPipelineTemplate("Cache Cull Both", base_template);
+	zest_SetPipelineCullMode(culled_template, zest_cull_mode_front_and_back);
+	zest_uint error_count = zest_GetValidationErrorCount(device);
+	failed |= zest_GetPipeline(culled_template, &first_list) != NULL || zest_GetValidationErrorCount(device) != error_count + 1 || zest_PipelineIsValid(culled_template);
+
+	//Two templates with the same depth settings share a depth-stencil state
+	zest_command_list_t depth_list = metal_colour_command_list(context, 3, zest_format_d32_sfloat);
+	zest_pipeline_template first_depth_template = zest_CopyPipelineTemplate("Cache Depth", base_template);
+	zest_pipeline_template second_depth_template = zest_CopyPipelineTemplate("Cache Depth Blend", blend_template);
+	zest_SetPipelineDepthTest(first_depth_template, ZEST_TRUE, ZEST_TRUE);
+	zest_SetPipelineDepthTest(second_depth_template, ZEST_TRUE, ZEST_TRUE);
+	id<MTLDepthStencilState> first_depth_state = metal_pipeline_backend(zest_GetPipeline(first_depth_template, &depth_list))->depth_stencil_state;
+	id<MTLDepthStencilState> second_depth_state = metal_pipeline_backend(zest_GetPipeline(second_depth_template, &depth_list))->depth_stencil_state;
+	failed |= first_depth_state == nil || first_depth_state != second_depth_state || first_depth_state == metal_pipeline_backend(recreated_pipeline)->depth_stencil_state;
+
+	zest_pipeline_template concurrent_template = zest_CopyPipelineTemplate("Cache Concurrent", base_template);
+	zest_SetPipelineBlend(concurrent_template, zest_AdditiveBlendState());
+	failed |= run_metal_concurrent_pipelines(device, concurrent_template, vertex_shader, fragment_shader);
+
+	zest_FreePipelineTemplate(base_template);
+	zest_FreePipelineTemplate(blend_template);
+	zest_FreePipelineTemplate(culled_template);
+	zest_FreePipelineTemplate(first_depth_template);
+	zest_FreePipelineTemplate(second_depth_template);
+	zest_FreePipelineTemplate(concurrent_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+
+	zest_ResetValidationErrors(device);
+	zest_ResetDevice(device);
+	failed |= zest_map_size(backend->render_pipeline_states) != 0;
+	for (int state_index = 0; state_index != ZEST__MTL_DEPTH_STENCIL_STATE_COUNT; ++state_index) {
+		failed |= backend->depth_stencil_states[state_index] != nil;
+	}
+	return failed | finish_metal_device(device);
+}
+
+struct MetalLazyDraws {
+	VertexDrawResources resources;
+	zest_pipeline_template wide_template;			//The vertex draw's pipeline with a stride of 24
+	zest_pipeline_template no_push_template;
+	zest_pipeline_template winding_templates[2];	//Back faces culled, clockwise then counter-clockwise, which share a pipeline state
+	zest_pipeline pipeline_after_blit;				//What the app had bound when the pass after the blit began
+	zest_pipeline recorded_after_blit;				//What that pass's encoder held then
+};
+
+//Pushes and buffers come before the pipeline. The wide pipeline then reads every other vertex from the same buffer, with no new bind.
+static void metal_lazy_order_task(const zest_command_list command_list, void *user_data) {
+	MetalLazyDraws *draws = (MetalLazyDraws *)user_data;
+	float left_tint[4] = { 1.f, 0.5f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, left_tint, sizeof(left_tint));
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	zest_pipeline wide_pipeline = zest_GetPipeline(draws->wide_template, command_list);
+	if (!pipeline || !wide_pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 0, 0);
+	//Vertices 2, 4 and 6: a triangle in the right half under the line from (8, 0) to (16, 16). Every vertex instead would draw over the left half.
+	float right_tint[4] = { 0.f, 1.f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, right_tint, sizeof(right_tint));
+	zest_cmd_BindPipeline(command_list, wide_pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 1, 0);
+}
+
+//Draws of nothing record nothing, as on Vulkan
+static void metal_lazy_no_push_task(const zest_command_list command_list, void *user_data) {
+	MetalLazyDraws *draws = (MetalLazyDraws *)user_data;
+	char push_data[ZEST_MAX_PUSH_SIZE];
+	memset(push_data, 0x3F, sizeof(push_data));
+	zest_cmd_SendPushConstants(command_list, push_data, sizeof(push_data));
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(draws->no_push_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+	zest_cmd_Draw(command_list, 0, 1, 0, 0);
+	zest_cmd_Draw(command_list, 3, 0, 0, 0);
+}
+
+//The clockwise pipeline keeps the triangle in the left half, and the counter-clockwise one, with the same pipeline state, culls it in the right
+static void metal_lazy_shared_state_task(const zest_command_list command_list, void *user_data) {
+	MetalLazyDraws *draws = (MetalLazyDraws *)user_data;
+	set_full_viewport(command_list);
+	zest_pipeline clockwise = zest_GetPipeline(draws->winding_templates[0], command_list);
+	zest_pipeline counter_clockwise = zest_GetPipeline(draws->winding_templates[1], command_list);
+	if (!clockwise || !counter_clockwise) return;
+	zest_scissor_rect_t left_half = zest_CreateRect2D(8, 16, 0, 0);
+	zest_scissor_rect_t right_half = zest_CreateRect2D(8, 16, 8, 0);
+	zest_cmd_Scissor(command_list, &left_half);
+	zest_cmd_BindPipeline(command_list, clockwise);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+	zest_cmd_Scissor(command_list, &right_half);
+	zest_cmd_BindPipeline(command_list, counter_clockwise);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static void metal_lazy_blit_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Blit Source");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Blit Destination");
+	zest_cmd_BlitImageMip(command_list, source, destination, 0, zest_shader_fragment_stage);
+}
+
+static void metal_lazy_after_blit_task(const zest_command_list command_list, void *user_data) {
+	MetalLazyDraws *draws = (MetalLazyDraws *)user_data;
+	draws->pipeline_after_blit = ZEST_MTL_BACKEND(command_list, command_list)->bind_state.pipeline;
+	draws->recorded_after_blit = ZEST_MTL_BACKEND(command_list, command_list)->bind_state.recorded_pipeline;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float left_tint[4] = { 0.5f, 1.f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, left_tint, sizeof(left_tint));
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 0, 0);
+	float right_tint[4] = { 1.f, 0.f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, right_tint, sizeof(right_tint));
+	zest_cmd_DrawIndexed(command_list, 6, 1, 0, 4, 0);
+}
+
+static void metal_lazy_no_pipeline_task(const zest_command_list command_list, void *user_data) {
+	set_full_viewport(command_list);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+//A draw, a blit that opens a render encoder of its own, then a draw into another target, all in one batch
+static int run_metal_blit_between_draws(zest_context context, MetalLazyDraws *draws, zest_image first_target, zest_image converted, zest_image second_target) {
+	if (!zest_BeginCommandGraph(context, "Lazy Blit", 0)) return 1;
+	zest_resource_node first = zest_ImportImageResource("Blit Source", first_target, 0);
+	zest_resource_node converted_node = zest_ImportImageResource("Blit Destination", converted, 0);
+	zest_resource_node second = zest_ImportImageResource("Second Target", second_target, 0);
+	zest_SetResourceClearColor(first, 0.f, 0.f, 0.f, 1.f);
+	zest_SetResourceClearColor(second, 0.f, 0.f, 0.f, 1.f);
+	zest_BeginRenderPass("Draw Before Blit");
+	zest_ConnectOutput(first);
+	zest_SetPassTask(vertex_draw_task, &draws->resources);
+	zest_EndPass();
+	zest_BeginTransferPass("Blit Between Draws");
+	zest_ConnectInput(first);
+	zest_ConnectOutput(converted_node);
+	zest_SetPassTask(metal_lazy_blit_task, NULL);
+	zest_EndPass();
+	zest_BeginRenderPass("Draw After Blit");
+	zest_ConnectInput(converted_node);
+	zest_ConnectOutput(second);
+	zest_SetPassTask(metal_lazy_after_blit_task, draws);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	zest_uint most_passes = 0;
+	zest_uint batch_count = frame_graph ? metal_graph_batch_count(frame_graph, &most_passes) : 0;
+	int failed = batch_count != 1 || most_passes != 3;
+	if (failed) ZEST_PRINT("\tThe draws and the blit went into %u batches with at most %u passes, where the test needs all three in one.", batch_count, most_passes);
+	return failed | (frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success);
+}
+
+static zest_pipeline_template metal_winding_template(zest_device device, const char *name, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader, zest_cull_mode cull_mode, zest_front_face front_face) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, fragment_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	zest_SetPipelineCullMode(pipeline_template, cull_mode);
+	zest_SetPipelineFrontFace(pipeline_template, front_face);
+	return pipeline_template;
+}
+
+static zest_bool metal_pixel_is(const zest_uint *pixels, zest_uint x, zest_uint y, const int expected[4]) {
+	const unsigned char *channels = (const unsigned char *)&pixels[y * 16 + x];
+	for (int channel = 0; channel != 4; ++channel) {
+		int difference = (int)channels[channel] - expected[channel];
+		if (difference > 1 || difference < -1) {
+			ZEST_PRINT("\tPixel (%u, %u) is (%u, %u, %u, %u), expected (%i, %i, %i, %i)", x, y, channels[0], channels[1], channels[2], channels[3], expected[0], expected[1], expected[2], expected[3]);
+			return ZEST_FALSE;
+		}
+	}
+	return ZEST_TRUE;
+}
+
+int test_metal_lazy_binding_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	MetalLazyDraws draws = {};
+	int failed = !create_vertex_draw_resources(device, &draws.resources);
+	draws.wide_template = zest_CopyPipelineTemplate("Lazy Wide", draws.resources.pipeline_template);
+	draws.wide_template->binding_descriptions[0].stride = 24;
+	zest_shader_handle winding_vertex = zest_CreateShader(device, winding_vertex_source, zest_vertex_shader, "lazy_winding_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle winding_fragment = zest_CreateShader(device, winding_fragment_source, zest_fragment_shader, "lazy_winding_fragment", NULL, ZEST_TRUE);
+	draws.no_push_template = metal_winding_template(device, "Lazy No Push", winding_vertex, winding_fragment, zest_cull_mode_none, zest_front_face_clockwise);
+	draws.winding_templates[0] = metal_winding_template(device, "Lazy Clockwise", winding_vertex, winding_fragment, zest_cull_mode_back, zest_front_face_clockwise);
+	draws.winding_templates[1] = metal_winding_template(device, "Lazy Counter Clockwise", winding_vertex, winding_fragment, zest_cull_mode_back, zest_front_face_counter_clockwise);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image_handle second_handle = create_draw_target(device);
+	zest_image_info_t converted_info = zest_CreateImageInfo(16, 16);
+	converted_info.format = zest_format_r16g16b16a16_sfloat;
+	converted_info.flags = zest_image_preset_storage | zest_image_flag_color_attachment;
+	zest_image_handle converted_handle = zest_CreateImage(device, &converted_info);
+	zest_image target = zest_GetImage(target_handle);
+	zest_image second = zest_GetImage(second_handle);
+	zest_image converted = zest_GetImage(converted_handle);
+	failed |= !target || !second || !converted;
+	const int black[4] = { 0, 0, 0, 255 };
+	zest_uint pixels[256];
+	if (!failed) {
+		failed |= render_draw_pass(context, "Lazy Order", target, ZEST_FALSE, metal_lazy_order_task, &draws, pixels);
+		const int wide_colour[4] = { 0, 128, 0, 255 };
+		failed |= !columns_hold(pixels, 0, 8, vertex_draw_left) || !metal_pixel_is(pixels, 9, 14, wide_colour) || !metal_pixel_is(pixels, 15, 2, black);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		failed |= render_draw_pass(context, "Lazy No Push", target, ZEST_FALSE, metal_lazy_no_push_task, &draws, pixels);
+		failed |= !winding_covers_triangle(winding_coverage(pixels));
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		failed |= render_draw_pass(context, "Lazy Shared State", target, ZEST_FALSE, metal_lazy_shared_state_task, &draws, pixels);
+		WindingCoverage coverage = winding_coverage(pixels);
+		zest_uint right_red_count = 0;
+		for (zest_uint y = 0; y != 16; ++y) {
+			for (zest_uint x = 8; x != 16; ++x) right_red_count += pixels[y * 16 + x] == 0xFF0000FF;
+		}
+		ZEST_PRINT("\tShared pipeline state: %u red pixels, %u of them in the culled right half", coverage.red_count, right_red_count);
+		failed |= coverage.red_count == 0 || right_red_count != 0 || coverage.other_count != 0;
+
+		failed |= run_metal_blit_between_draws(context, &draws, target, converted, second);
+		const int after_blit_left[4] = { 128, 128, 0, 255 };
+		const int after_blit_right[4] = { 255, 0, 0, 255 };
+		failed |= !zest_CopyImageToBitmap(device, second, pixels) || !columns_hold(pixels, 0, 8, after_blit_left) || !columns_hold(pixels, 8, 8, after_blit_right);
+		ZEST_PRINT("\tThe pass after the blit began with %s pipeline bound and %s recorded", draws.pipeline_after_blit ? "a" : "no", draws.recorded_after_blit ? "one" : "none");
+		failed |= draws.pipeline_after_blit == NULL || draws.recorded_after_blit != NULL;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		failed |= render_draw_pass(context, "Lazy No Pipeline", target, ZEST_FALSE, metal_lazy_no_pipeline_task, NULL, pixels);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1 || !columns_hold(pixels, 0, 16, black);
+		zest_ResetValidationErrors(device);
+	}
+	if (target) zest_FreeImageNow(target_handle);
+	if (second) zest_FreeImageNow(second_handle);
+	if (converted) zest_FreeImageNow(converted_handle);
+	zest_FreePipelineTemplate(draws.wide_template);
+	zest_FreePipelineTemplate(draws.no_push_template);
+	zest_FreePipelineTemplate(draws.winding_templates[0]);
+	zest_FreePipelineTemplate(draws.winding_templates[1]);
+	zest_FreeShader(winding_vertex);
+	zest_FreeShader(winding_fragment);
+	free_vertex_draw_resources(&draws.resources);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+#define METAL_IMMEDIATE_ELEMENTS 64
+#define METAL_BUFFER_WRITE_PATH "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp"
+
+//An 8x1x1 dispatch of buffer_write stores (x + added, 0, 0, 0) at element x, with the push sent before the bind as pbr_functions.cpp does
+static int run_metal_immediate_write(zest_device device, zest_device_queue_type queue_type, zest_compute compute, zest_buffer buffer, zest_uint buffer_index, float added) {
+	memset(zest_BufferData(buffer), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, queue_type);
+	if (!queue) return 1;
+	TestPushConstants push = {};
+	push.index1 = (int)buffer_index;
+	zest_imm_SendPushConstants(queue, &push, sizeof(push));
+	zest_imm_BindComputePipeline(queue, compute);
+	int failed = !zest_imm_DispatchCompute(queue, 8, 1, 1);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	const float *values = (const float *)zest_BufferData(buffer);
+	for (zest_uint element = 0; element != METAL_IMMEDIATE_ELEMENTS; ++element) {
+		const float *value = &values[element * 4];
+		if (value[0] != (float)element + added || value[1] != 0.f || value[2] != 0.f || value[3] != 0.f) {
+			ZEST_PRINT("\tElement %u holds (%f, %f, %f, %f), expected %f", element, value[0], value[1], value[2], value[3], (float)element + added);
+			return 1;
+		}
+	}
+	return failed;
+}
+
+int test_metal_immediate_compute(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, METAL_BUFFER_WRITE_PATH, "immediate_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Immediate Buffer Write", shader);
+	zest_compute compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &buffer_info);
+	int failed = compute == NULL || buffer == NULL;
+	zest_uint buffer_index = buffer ? zest_AcquireStorageBufferIndex(device, buffer) : ZEST_INVALID;
+	if (!failed) {
+		failed |= run_metal_immediate_write(device, zest_queue_graphics, compute, buffer, buffer_index, 0.f);
+		failed |= run_metal_immediate_write(device, zest_queue_compute, compute, buffer, buffer_index, 0.f);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//A dispatch of nothing records nothing, as on Vulkan
+		zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+		failed |= queue == NULL;
+		if (queue) {
+			zest_imm_BindComputePipeline(queue, compute);
+			failed |= !zest_imm_DispatchCompute(queue, 0, 1, 1);
+			failed |= !zest_imm_EndCommandBuffer(queue);
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		zest_uint error_count = zest_GetValidationErrorCount(device);
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
+		failed |= queue == NULL || zest_imm_DispatchCompute(queue, 1, 1, 1) != ZEST_FALSE;
+		failed |= queue == NULL || !zest_imm_EndCommandBuffer(queue);
+		failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+
+		queue = zest_imm_BeginCommandBuffer(device, zest_queue_transfer);
+		failed |= queue == NULL;
+		if (queue && !(queue->manager->type & zest_queue_compute)) {
+			error_count = zest_GetValidationErrorCount(device);
+			zest_imm_BindComputePipeline(queue, compute);
+			failed |= zest_imm_DispatchCompute(queue, 8, 1, 1) != ZEST_FALSE;
+			failed |= zest_GetValidationErrorCount(device) != error_count + 1;
+		} else {
+			ZEST_PRINT("\tThe transfer queue phase was skipped, as the queue given can run compute");
+			failed = 1;
+		}
+		if (queue) failed |= !zest_imm_EndCommandBuffer(queue);
+
+		//Hot reload, through the same compute handle
+		const char *hot_path = "zest_hot_reload_compute.comp";
+		zest_file original = zest_ReadEntireFile(device, METAL_BUFFER_WRITE_PATH, ZEST_TRUE);
+		const char *write_value = original ? strstr(original, "float(index)") : NULL;
+		failed |= write_value == NULL || !macro_test__write_file(hot_path, original, 0);
+		if (write_value) {
+			zest_shader_handle hot_shader = zest_CreateShaderFromFile(device, hot_path, "hot_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+			zest_SetShaderHotReload(hot_shader, ZEST_TRUE);
+			zest_compute_handle hot_handle = zest_CreateCompute(device, "Hot Buffer Write", hot_shader);
+			zest_compute hot_compute = hot_handle.value ? zest_GetCompute(hot_handle) : NULL;
+			failed |= hot_compute == NULL;
+			if (hot_compute) {
+				failed |= run_metal_immediate_write(device, zest_queue_compute, hot_compute, buffer, buffer_index, 0.f);
+				char edited[4096];
+				snprintf(edited, sizeof(edited), "%.*sfloat(index + 1000u)%s", (int)(write_value - original), original, write_value + strlen("float(index)"));
+				failed |= !macro_test__write_file(hot_path, edited, zest_GetShader(hot_shader)->last_mtime);
+				//The rebuild cleans up the compute's backend, which must let go of the old pipeline state
+				id<MTLComputePipelineState> old_state = [ZEST_MTL_BACKEND(compute, hot_compute)->pipeline_state retain];
+				zest_uint reload_count = zest_CheckShaderHotReload(device);
+				NSUInteger old_state_owners = metal_settled_owner_count(old_state);
+				ZEST_PRINT("\t%u shader reloaded, and the old pipeline state has %lu owners besides the test", reload_count, (unsigned long)(old_state_owners - 1));
+				failed |= reload_count != 1 || old_state_owners != 1 || ZEST_MTL_BACKEND(compute, hot_compute)->pipeline_state == old_state;
+				[old_state release];
+				failed |= run_metal_immediate_write(device, zest_queue_compute, hot_compute, buffer, buffer_index, 1000.f);
+				zest_FreeCompute(hot_handle);
+			}
+			zest_FreeShader(hot_shader);
+		}
+		remove(hot_path);
+		if (original) zest_FreeFile(device, original);
+		zest_ResetValidationErrors(device);
+	}
+	if (buffer) zest_FreeBufferNow(buffer);
+	if (compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	return failed | finish_metal_device(device);
+}
+
+static const char *metal_reads_descriptors_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;\n"
+	"layout(set = 0, binding = 0) uniform sampler samplers[];\n"
+	"layout(set = 0, binding = 1) uniform texture2D textures_2d[];\n"
+	"layout(set = 0, binding = 2) uniform textureCube textures_cube[];\n"
+	"layout(set = 0, binding = 3) uniform texture2DArray textures_array[];\n"
+	"layout(set = 0, binding = 4) uniform texture3D textures_3d[];\n"
+	"layout(std430, set = 0, binding = 5) readonly buffer raw_block { uint words[]; } raw_buffers[];\n"
+	"struct structured_element { uint index; uint padding0; uint padding1; uint padding2; vec4 padding3; vec4 padding4; };\n"
+	"layout(std430, set = 0, binding = 5) readonly buffer structured_block { structured_element elements[]; } structured_buffers[];\n"
+	"layout(std430, set = 0, binding = 5) buffer result_block { vec4 values[]; } result_buffers[];\n"
+	"layout(set = 0, binding = 6, rgba8) uniform writeonly image2D storage_images[];\n"
+	"layout(set = 0, binding = 7) uniform params_block { vec4 tint; uint add; } params[];\n"
+	"layout(set = 0, binding = 8) uniform textureCubeArray textures_cube_array[];\n"
+	"layout(push_constant) uniform push_block {\n"
+	"	uint sampler_index; uint texture_2d_index; uint texture_cube_index; uint texture_array_index; uint texture_3d_index; uint texture_cube_array_index;\n"
+	"	uint raw_index; uint structured_index; uint result_index; uint storage_image_index; uint uniform_index; uint structured_count; uint mip_view_index;\n"
+	"} pc;\n"
+	"void main() {\n"
+	"	ivec2 cell = ivec2(gl_GlobalInvocationID.xy);\n"
+	"	imageStore(storage_images[pc.storage_image_index], cell, vec4(float(cell.x) / 255.0, float(cell.y) / 255.0, 0.5, 1.0));\n"
+	"	if (cell.x != 0 || cell.y != 0) return;\n"
+	"	uint structured_sum = 0u;\n"
+	"	for (uint element = 0u; element != pc.structured_count; ++element) structured_sum += structured_buffers[pc.structured_index].elements[element].index;\n"
+	"	result_buffers[pc.result_index].values[0] = vec4(float(raw_buffers[pc.raw_index].words[0] + params[pc.uniform_index].add), params[pc.uniform_index].tint.xyz);\n"
+	"	result_buffers[pc.result_index].values[1] = textureLod(sampler2D(textures_2d[pc.texture_2d_index], samplers[pc.sampler_index]), vec2(0.5), 0.0);\n"
+	"	result_buffers[pc.result_index].values[2] = textureLod(samplerCube(textures_cube[pc.texture_cube_index], samplers[pc.sampler_index]), vec3(1.0, 0.0, 0.0), 0.0);\n"
+	"	result_buffers[pc.result_index].values[3] = textureLod(sampler2DArray(textures_array[pc.texture_array_index], samplers[pc.sampler_index]), vec3(0.5, 0.5, 1.0), 0.0);\n"
+	"	result_buffers[pc.result_index].values[4] = textureLod(sampler3D(textures_3d[pc.texture_3d_index], samplers[pc.sampler_index]), vec3(0.5), 0.0);\n"
+	"	result_buffers[pc.result_index].values[5] = textureLod(samplerCubeArray(textures_cube_array[pc.texture_cube_array_index], samplers[pc.sampler_index]), vec4(1.0, 0.0, 0.0, 1.0), 0.0);\n"
+	"	result_buffers[pc.result_index].values[6] = vec4(float(structured_sum), 0.0, 0.0, 0.0);\n"
+	"	result_buffers[pc.result_index].values[7] = texelFetch(sampler2D(textures_2d[pc.mip_view_index], samplers[pc.sampler_index]), ivec2(2, 5), 0);\n"
+	"}\n";
+
+#define METAL_STRUCTURED_COUNT 37
+
+struct MetalReadsPush {
+	zest_uint sampler_index;
+	zest_uint texture_2d_index;
+	zest_uint texture_cube_index;
+	zest_uint texture_array_index;
+	zest_uint texture_3d_index;
+	zest_uint texture_cube_array_index;
+	zest_uint raw_index;
+	zest_uint structured_index;
+	zest_uint result_index;
+	zest_uint storage_image_index;
+	zest_uint uniform_index;
+	zest_uint structured_count;
+	zest_uint mip_view_index;
+};
+
+struct MetalReadsTask {
+	zest_compute compute;
+	MetalReadsPush push;
+	zest_buffer copy_source;
+	zest_buffer copy_target;
+};
+
+//The first dispatch writes the decoy storage image, and the copy ends its encoder, so the mip view has to be declared again on a second one
+static void metal_reads_descriptors_task(const zest_command_list command_list, void *user_data) {
+	MetalReadsTask *task = (MetalReadsTask *)user_data;
+	MetalReadsPush decoy_push = task->push;
+	decoy_push.storage_image_index = task->push.storage_image_index + 1;
+	zest_cmd_BindComputePipeline(command_list, task->compute);
+	zest_cmd_SendPushConstants(command_list, &decoy_push, sizeof(decoy_push));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+	zest_cmd_CopyBuffer(command_list, task->copy_source, task->copy_target, 256);
+	zest_cmd_SendPushConstants(command_list, &task->push, sizeof(task->push));
+	zest_cmd_DispatchCompute(command_list, 1, 1, 1);
+}
+
+//One converted kernel reads every slot through the table the backend binds, with a decoy of its kind on either side
+int test_metal_compute_reads_descriptors(void) {
+	static const unsigned char decoy_colors[12 * 4] = { 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255 };
+	static const unsigned char cube_colors[6 * 4] = { 10, 20, 30, 255, 10, 20, 30, 255, 10, 20, 30, 255, 10, 20, 30, 255, 10, 20, 30, 255, 10, 20, 30, 255 };
+	static const unsigned char array_colors[2 * 4] = { 200, 0, 0, 255, 40, 50, 60, 255 };
+	static const unsigned char volume_color[4] = { 70, 80, 90, 255 };
+	static const unsigned char cube_array_colors[12 * 4] = { 0, 200, 0, 255, 0, 200, 0, 255, 0, 200, 0, 255, 0, 200, 0, 255, 0, 200, 0, 255, 0, 200, 0, 255, 100, 110, 120, 255, 100, 110, 120, 255, 100, 110, 120, 255, 100, 110, 120, 255, 100, 110, 120, 255, 100, 110, 120, 255 };
+	static const unsigned char two_texels[2 * 4] = { 255, 0, 0, 255, 0, 0, 255, 255 };
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle shader = zest_CreateShader(device, metal_reads_descriptors_source, zest_compute_shader, "reads_descriptors", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Reads Descriptors", shader);
+	MetalReadsTask task = {};
+	task.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+
+	//The real sampler blends the two texels of the 2D texture, where the decoy would return one of them
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	sampler_info.min_filter = zest_filter_linear;
+	sampler_info.mag_filter = zest_filter_linear;
+	sampler_info.address_mode_u = zest_sampler_address_mode_clamp_to_edge;
+	sampler_info.address_mode_v = zest_sampler_address_mode_clamp_to_edge;
+	sampler_info.address_mode_w = zest_sampler_address_mode_clamp_to_edge;
+	zest_sampler_handle sampler_handle = zest_CreateSampler(device, &sampler_info);
+	sampler_info.min_filter = zest_filter_nearest;
+	sampler_info.mag_filter = zest_filter_nearest;
+	zest_sampler_handle decoy_sampler_handle = zest_CreateSampler(device, &sampler_info);
+	zest_sampler sampler = zest_GetSampler(sampler_handle);
+	zest_sampler decoy_sampler = zest_GetSampler(decoy_sampler_handle);
+
+	zest_image_flags cube_flags = zest_image_preset_texture | zest_image_flag_cubemap;
+	zest_image_handle image_handles[11];
+	zest_image texture_2d = metal_create_solid_image(device, &image_handles[0], 2, 1, 1, zest_image_preset_texture, NULL);
+	zest_image texture_cube = metal_create_solid_image(device, &image_handles[1], 1, 1, 6, cube_flags, cube_colors);
+	zest_image texture_array = metal_create_solid_image(device, &image_handles[2], 1, 1, 2, zest_image_preset_texture, array_colors);
+	zest_image texture_3d = metal_create_solid_image(device, &image_handles[3], 1, 2, 1, zest_image_preset_texture_3d, volume_color);
+	zest_image texture_cube_array = metal_create_solid_image(device, &image_handles[4], 1, 1, 12, cube_flags, cube_array_colors);
+	zest_image decoy_2d = metal_create_solid_image(device, &image_handles[5], 2, 1, 1, zest_image_preset_texture, decoy_colors);
+	zest_image decoy_cube = metal_create_solid_image(device, &image_handles[6], 1, 1, 6, cube_flags, decoy_colors);
+	zest_image decoy_array = metal_create_solid_image(device, &image_handles[7], 1, 1, 2, zest_image_preset_texture, decoy_colors);
+	zest_image decoy_3d = metal_create_solid_image(device, &image_handles[8], 1, 2, 1, zest_image_preset_texture_3d, decoy_colors);
+	zest_image decoy_cube_array = metal_create_solid_image(device, &image_handles[9], 1, 1, 12, cube_flags, decoy_colors);
+	zest_image decoy_storage_image = metal_create_solid_image(device, &image_handles[10], 8, 1, 1, zest_image_preset_storage | zest_image_flag_transfer_src, NULL);
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.flags = zest_image_preset_storage | zest_image_flag_transfer_dst | zest_image_flag_transfer_src;
+	storage_info.mip_levels = 2;
+	zest_image_handle storage_handle = zest_CreateImage(device, &storage_info);
+	zest_image storage_image = zest_GetImage(storage_handle);
+	zest_image_handle mip_texture_handle = metal_create_mip_image(device, zest_format_r8g8b8a8_unorm);
+	zest_image mip_texture = zest_GetImage(mip_texture_handle);
+	int failed = task.compute == NULL || !sampler || !decoy_sampler || !storage_image || !mip_texture;
+	failed |= !texture_2d || !texture_cube || !texture_array || !texture_3d || !texture_cube_array;
+	failed |= !decoy_2d || !decoy_cube || !decoy_array || !decoy_3d || !decoy_cube_array || !decoy_storage_image;
+	zest_uint upload[256];
+	for (zest_uint pixel = 0; pixel != 256; ++pixel) upload[pixel] = 10u | (20u << 8) | (30u << 16) | (255u << 24);
+	if (!failed) {
+		unsigned char rows[2 * 2 * 4];
+		memcpy(rows, two_texels, 8);
+		memcpy(rows + 8, two_texels, 8);
+		failed |= !zest_CopyBitmapToImage(device, rows, sizeof(rows), texture_2d, 2, 2);
+		failed |= !zest_CopyBitmapToImage(device, upload, sizeof(upload), storage_image, 16, 16);
+		failed |= !metal_upload_mip_patterns(device, mip_texture, 43);
+	}
+
+	zest_buffer_info_t upload_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_cpu_to_gpu);
+	zest_buffer_info_t uniform_info = zest_CreateBufferInfo(zest_buffer_type_uniform, zest_memory_usage_cpu_to_gpu);
+	zest_buffer raw_buffer = zest_CreateBuffer(device, 256, &upload_info);
+	zest_buffer structured_buffer = zest_CreateBuffer(device, 48 * METAL_STRUCTURED_COUNT, &upload_info);
+	zest_buffer result_buffer = zest_CreateBuffer(device, 256, &upload_info);
+	zest_buffer decoy_buffer = zest_CreateBuffer(device, 48 * METAL_STRUCTURED_COUNT, &upload_info);
+	zest_buffer uniform_buffer = zest_CreateBuffer(device, 256, &uniform_info);
+	zest_buffer decoy_uniform_buffer = zest_CreateBuffer(device, 256, &uniform_info);
+	zest_buffer copy_target = zest_CreateBuffer(device, 256, &upload_info);
+	failed |= !raw_buffer || !structured_buffer || !result_buffer || !decoy_buffer || !uniform_buffer || !decoy_uniform_buffer || !copy_target;
+	zest_image_view_array_handle view_array_handle = {};
+	zest_image_view_array_handle texture_views_handle = {};
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	zest_uint views_listed_before = zest_vec_size(device_backend->texture_views);
+	if (!failed) {
+		memset(zest_BufferData(raw_buffer), 0, 256);
+		*(zest_uint *)zest_BufferData(raw_buffer) = 41;
+		unsigned char *structured_bytes = (unsigned char *)zest_BufferData(structured_buffer);
+		memset(structured_bytes, 0xCD, 48 * METAL_STRUCTURED_COUNT);
+		zest_uint expected_structured_sum = 0;
+		for (zest_uint element = 0; element != METAL_STRUCTURED_COUNT; ++element) {
+			memcpy(structured_bytes + element * 48, &element, sizeof(element));
+			expected_structured_sum += element;
+		}
+		//The decoys hold the most a wrong read could add up to, so they can't pass for the real thing
+		memset(zest_BufferData(decoy_buffer), 0x7F, 48 * METAL_STRUCTURED_COUNT);
+		memset(zest_BufferData(result_buffer), 0, 256);
+		float uniform_tint[4] = { 0.25f, 0.5f, 0.75f, 1.f };
+		zest_uint uniform_add = 1000;
+		memset(zest_BufferData(uniform_buffer), 0, 256);
+		memcpy(zest_BufferData(uniform_buffer), uniform_tint, sizeof(uniform_tint));
+		memcpy((char *)zest_BufferData(uniform_buffer) + 16, &uniform_add, sizeof(uniform_add));
+		memset(zest_BufferData(decoy_uniform_buffer), 0, 256);
+		memset(zest_BufferData(copy_target), 0, 256);
+		task.copy_source = raw_buffer;
+		task.copy_target = copy_target;
+
+		view_array_handle = zest_CreateImageViewsPerMip(device, storage_image);
+		zest_image_view_array view_array = view_array_handle.value ? zest_GetImageViewArray(view_array_handle) : NULL;
+		zest_uint *mip_indexes = view_array ? zest_AcquireImageMipIndexes(device, storage_image, view_array, zest_storage_image_binding, zest_descriptor_type_storage_image) : NULL;
+		failed |= zest_vec_size(mip_indexes) != 2;
+		texture_views_handle = zest_CreateImageViewsPerMip(device, mip_texture);
+		zest_image_view_array texture_views = texture_views_handle.value ? zest_GetImageViewArray(texture_views_handle) : NULL;
+		zest_uint *texture_mip_indexes = texture_views ? zest_AcquireImageMipIndexes(device, mip_texture, texture_views, zest_texture_2d_binding, zest_descriptor_type_sampled_image) : NULL;
+		failed |= zest_vec_size(texture_mip_indexes) != 3;
+		//Under shader validation all five mip views are listed, and every other image here is its own default view
+		failed |= zest_vec_size(device_backend->texture_views) != views_listed_before + (device_backend->declares_texture_views ? 5 : 0);
+
+		zest_descriptor_set set = device->bindless_set;
+		const zest_mtl_bindless_regions_t *regions = &ZEST_MTL_BACKEND(descriptor_set, set)->pool->regions;
+		zest_platform platform = device->platform;
+		zest_uint indexes[zest_max_global_binding_number];
+		for (zest_uint binding_number = 0; binding_number != zest_max_global_binding_number; ++binding_number) {
+			indexes[binding_number] = regions->counts[binding_number] / 2;
+			failed |= regions->counts[binding_number] < 16;
+		}
+		indexes[zest_storage_image_binding] = mip_indexes ? mip_indexes[1] : 0;
+		failed |= indexes[zest_storage_image_binding] == 0 || indexes[zest_storage_image_binding] + 1 >= regions->counts[zest_storage_image_binding];
+		if (!failed) {
+			for (int side = -1; side <= 1; side += 2) {
+				zest_uint offset = (zest_uint)side;
+				platform->update_bindless_image_descriptor(device, zest_sampler_binding, indexes[zest_sampler_binding] + offset, zest_descriptor_type_sampler, NULL, NULL, decoy_sampler, set);
+				platform->update_bindless_image_descriptor(device, zest_texture_2d_binding, indexes[zest_texture_2d_binding] + offset, zest_descriptor_type_sampled_image, decoy_2d, decoy_2d->default_view, NULL, set);
+				platform->update_bindless_image_descriptor(device, zest_texture_cube_binding, indexes[zest_texture_cube_binding] + offset, zest_descriptor_type_sampled_image, decoy_cube, decoy_cube->default_view, NULL, set);
+				platform->update_bindless_image_descriptor(device, zest_texture_array_binding, indexes[zest_texture_array_binding] + offset, zest_descriptor_type_sampled_image, decoy_array, decoy_array->default_view, NULL, set);
+				platform->update_bindless_image_descriptor(device, zest_texture_3d_binding, indexes[zest_texture_3d_binding] + offset, zest_descriptor_type_sampled_image, decoy_3d, decoy_3d->default_view, NULL, set);
+				platform->update_bindless_image_descriptor(device, zest_texture_cube_array_binding, indexes[zest_texture_cube_array_binding] + offset, zest_descriptor_type_sampled_image, decoy_cube_array, decoy_cube_array->default_view, NULL, set);
+				platform->update_bindless_image_descriptor(device, zest_storage_image_binding, indexes[zest_storage_image_binding] + offset, zest_descriptor_type_storage_image, decoy_storage_image, decoy_storage_image->default_view, NULL, set);
+				platform->update_bindless_uniform_buffer_descriptor(device, zest_uniform_buffer_binding, indexes[zest_uniform_buffer_binding] + offset, decoy_uniform_buffer, set);
+			}
+			//Slot 5 alternates decoys and the three real buffers: decoy, raw, decoy, structured, decoy, result, decoy
+			zest_uint buffer_base = indexes[zest_storage_buffer_binding];
+			zest_buffer slot_buffers[7] = { decoy_buffer, raw_buffer, decoy_buffer, structured_buffer, decoy_buffer, result_buffer, decoy_buffer };
+			for (zest_uint entry = 0; entry != 7; ++entry) {
+				platform->update_bindless_storage_buffer_descriptor(device, zest_storage_buffer_binding, buffer_base - 1 + entry, slot_buffers[entry], 0, set);
+			}
+			task.push.sampler_index = indexes[zest_sampler_binding];
+			task.push.texture_2d_index = indexes[zest_texture_2d_binding];
+			task.push.texture_cube_index = indexes[zest_texture_cube_binding];
+			task.push.texture_array_index = indexes[zest_texture_array_binding];
+			task.push.texture_3d_index = indexes[zest_texture_3d_binding];
+			task.push.texture_cube_array_index = indexes[zest_texture_cube_array_binding];
+			task.push.raw_index = buffer_base;
+			task.push.structured_index = buffer_base + 2;
+			task.push.result_index = buffer_base + 4;
+			task.push.storage_image_index = indexes[zest_storage_image_binding];
+			task.push.uniform_index = indexes[zest_uniform_buffer_binding];
+			task.push.structured_count = METAL_STRUCTURED_COUNT;
+			task.push.mip_view_index = texture_mip_indexes ? texture_mip_indexes[1] : 0;
+			platform->update_bindless_image_descriptor(device, zest_sampler_binding, task.push.sampler_index, zest_descriptor_type_sampler, NULL, NULL, sampler, set);
+			platform->update_bindless_image_descriptor(device, zest_texture_2d_binding, task.push.texture_2d_index, zest_descriptor_type_sampled_image, texture_2d, texture_2d->default_view, NULL, set);
+			platform->update_bindless_image_descriptor(device, zest_texture_cube_binding, task.push.texture_cube_index, zest_descriptor_type_sampled_image, texture_cube, texture_cube->default_view, NULL, set);
+			platform->update_bindless_image_descriptor(device, zest_texture_array_binding, task.push.texture_array_index, zest_descriptor_type_sampled_image, texture_array, texture_array->default_view, NULL, set);
+			platform->update_bindless_image_descriptor(device, zest_texture_3d_binding, task.push.texture_3d_index, zest_descriptor_type_sampled_image, texture_3d, texture_3d->default_view, NULL, set);
+			platform->update_bindless_image_descriptor(device, zest_texture_cube_array_binding, task.push.texture_cube_array_index, zest_descriptor_type_sampled_image, texture_cube_array, texture_cube_array->default_view, NULL, set);
+			platform->update_bindless_uniform_buffer_descriptor(device, zest_uniform_buffer_binding, task.push.uniform_index, uniform_buffer, set);
+
+			if (zest_BeginCommandGraph(context, "Reads Descriptors", 0)) {
+				zest_resource_node image_node = zest_ImportImageResource("Mip Image", storage_image, 0);
+				zest_BeginComputePass("Read Descriptors");
+				zest_ConnectOutput(image_node);
+				zest_SetPassTask(metal_reads_descriptors_task, &task);
+				zest_EndPass();
+				zest_frame_graph frame_graph = zest_EndFrameGraph();
+				failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+			} else {
+				failed = 1;
+			}
+			const float *results = (const float *)zest_BufferData(result_buffer);
+			ZEST_PRINT("\tRaw and uniform %.1f (expected 1041), 2D sample %.2f %.2f %.2f, structured sum %.0f (expected %u)", results[0], results[4], results[5], results[6], results[24], expected_structured_sum);
+			failed |= results[0] != 1041.f || results[1] != 0.25f || results[2] != 0.5f || results[3] != 0.75f;
+			//Half way between a red and a blue texel through the linear sampler
+			failed |= results[4] < 0.48f || results[4] > 0.52f || results[5] != 0.f || results[6] < 0.48f || results[6] > 0.52f;
+			failed |= !metal_color_near(results + 8, cube_colors);
+			failed |= !metal_color_near(results + 12, array_colors + 4);
+			failed |= !metal_color_near(results + 16, volume_color);
+			failed |= !metal_color_near(results + 20, cube_array_colors + 6 * 4);
+			failed |= results[24] != (float)expected_structured_sum;
+			unsigned char mip_pattern[8 * 8 * 4];
+			metal_mip_pattern(mip_pattern, 1, 43);
+			const unsigned char *expected_texel = mip_pattern + (5 * 8 + 2) * 4;
+			ZEST_PRINT("\tTexel (2, 5) through the mip 1 view %.0f %.0f %.0f %.0f (expected %u %u %u %u)", results[28] * 255.f, results[29] * 255.f, results[30] * 255.f, results[31] * 255.f, expected_texel[0], expected_texel[1], expected_texel[2], expected_texel[3]);
+			failed |= !metal_color_near(results + 28, expected_texel);
+			unsigned char mip_pixels[8 * 8 * 4];
+			memset(mip_pixels, 0, sizeof(mip_pixels));
+			failed |= !metal_read_texture(device, storage_image, 1, 0, 8, 8, 4, mip_pixels);
+			zest_uint wrong_written = 0;
+			for (int pixel = 0; pixel != 64; ++pixel) {
+				wrong_written += mip_pixels[pixel * 4 + 0] != pixel % 8 || mip_pixels[pixel * 4 + 1] != pixel / 8 || mip_pixels[pixel * 4 + 3] != 255;
+			}
+			unsigned char base_pixels[16 * 16 * 4];
+			memset(base_pixels, 0, sizeof(base_pixels));
+			failed |= !metal_read_texture(device, storage_image, 0, 0, 16, 16, 4, base_pixels);
+			zest_uint changed_base = 0;
+			for (int pixel = 0; pixel != 256; ++pixel) changed_base += memcmp(base_pixels + pixel * 4, &upload[pixel], 4) != 0;
+			const zest_uint *decoy_words = (const zest_uint *)zest_BufferData(decoy_buffer);
+			zest_uint changed_decoy = 0;
+			for (zest_uint word = 0; word != 48 * METAL_STRUCTURED_COUNT / 4; ++word) changed_decoy += decoy_words[word] != 0x7F7F7F7F;
+			ZEST_PRINT("\t%u of 64 mip 1 pixels wrong, %u of 256 mip 0 pixels changed, %u decoy buffer words changed", wrong_written, changed_base, changed_decoy);
+			failed |= wrong_written != 0 || changed_base != 0 || changed_decoy != 0;
+			failed |= *(const zest_uint *)zest_BufferData(copy_target) != 41;
+		}
+	}
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (view_array_handle.value) zest_FreeImageViewArrayNow(view_array_handle);
+	if (texture_views_handle.value) zest_FreeImageViewArrayNow(texture_views_handle);
+	failed |= zest_vec_size(device_backend->texture_views) != views_listed_before;
+	if (mip_texture) zest_FreeImageNow(mip_texture_handle);
+	zest_buffer buffers[7] = { raw_buffer, structured_buffer, result_buffer, decoy_buffer, uniform_buffer, decoy_uniform_buffer, copy_target };
+	for (int buffer_index = 0; buffer_index != 7; ++buffer_index) {
+		if (buffers[buffer_index]) zest_FreeBufferNow(buffers[buffer_index]);
+	}
+	if (storage_image) zest_FreeImageNow(storage_handle);
+	for (int image_index = 0; image_index != 11; ++image_index) {
+		if (image_handles[image_index].value) zest_FreeImageNow(image_handles[image_index]);
+	}
+	zest_FreeSamplerNow(sampler_handle);
+	zest_FreeSamplerNow(decoy_sampler_handle);
+	if (task.compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+static const char *metal_sample_vertex_source =
+	"#version 450\n"
+	"void main() {\n"
+	"	vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+	"	gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
+	"}\n";
+
+static const char *metal_sample_fragment_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(set = 0, binding = 0) uniform sampler samplers[];\n"
+	"layout(set = 0, binding = 1) uniform texture2D textures[];\n"
+	"layout(push_constant) uniform push_block { uint texture_index; uint sampler_index; } push;\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() { out_colour = texelFetch(sampler2D(textures[push.texture_index], samplers[push.sampler_index]), ivec2(gl_FragCoord.xy), 0); }\n";
+
+struct MetalEncoderOrder {
+	zest_pipeline_template pipeline_template;
+	zest_uint indexes[2];				//The source's texture index and the sampler's
+	zest_compute compute;
+	TestPushConstants pushes[2];		//Writing the first buffer, then the second
+	zest_buffer written_buffers[2];
+	zest_buffer readback_buffers[2];	//What the dispatch and copy pass copied out, then what the last transfer pass did
+};
+
+//Ends on a dispatch, so the render pass after it needs the compute encoder ended by the pass's release
+static void metal_order_dispatch_task(const zest_command_list command_list, void *user_data) {
+	MetalEncoderOrder *order = (MetalEncoderOrder *)user_data;
+	zest_cmd_BindComputePipeline(command_list, order->compute);
+	zest_cmd_SendPushConstants(command_list, &order->pushes[0], sizeof(order->pushes[0]));
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+}
+
+//A copy straight after a dispatch in one pass, so the blit encoder has to end the compute encoder
+static void metal_order_dispatch_copy_task(const zest_command_list command_list, void *user_data) {
+	MetalEncoderOrder *order = (MetalEncoderOrder *)user_data;
+	zest_cmd_BindComputePipeline(command_list, order->compute);
+	zest_cmd_SendPushConstants(command_list, &order->pushes[1], sizeof(order->pushes[1]));
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+	zest_cmd_CopyBuffer(command_list, order->written_buffers[1], order->readback_buffers[0], METAL_IMMEDIATE_ELEMENTS * 16);
+}
+
+static void metal_order_buffer_copy_task(const zest_command_list command_list, void *user_data) {
+	MetalEncoderOrder *order = (MetalEncoderOrder *)user_data;
+	zest_cmd_CopyBuffer(command_list, order->written_buffers[0], order->readback_buffers[1], METAL_IMMEDIATE_ELEMENTS * 16);
+}
+
+static zest_uint metal_elements_holding_index(zest_buffer buffer) {
+	const float *values = (const float *)zest_BufferData(buffer);
+	zest_uint matching_elements = 0;
+	for (zest_uint element = 0; element != METAL_IMMEDIATE_ELEMENTS; ++element) {
+		matching_elements += values[element * 4] == (float)element && values[element * 4 + 1] == 0.f && values[element * 4 + 2] == 0.f && values[element * 4 + 3] == 0.f;
+	}
+	return matching_elements;
+}
+
+static void metal_order_copy_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Order Source");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Order Destination");
+	zest_cmd_CopyImageMip(command_list, source, destination, 0, zest_shader_fragment_stage);
+}
+
+static void metal_order_readback_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node source = zest_GetPassInputResource(command_list, "Order Target");
+	zest_resource_node destination = zest_GetPassOutputResource(command_list, "Order Readback");
+	zest_cmd_CopyImageMip(command_list, source, destination, 0, zest_shader_fragment_stage);
+}
+
+static void metal_order_sample_task(const zest_command_list command_list, void *user_data) {
+	MetalEncoderOrder *order = (MetalEncoderOrder *)user_data;
+	set_full_viewport(command_list);
+	zest_pipeline pipeline = zest_GetPipeline(order->pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, order->indexes, sizeof(order->indexes));
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+struct MetalIndirectDraws {
+	VertexDrawResources resources;
+	zest_buffer commands;
+	zest_uint stride;
+	zest_uint draw_count;
+};
+
+static void metal_indirect_task(const zest_command_list command_list, void *user_data) {
+	MetalIndirectDraws *draws = (MetalIndirectDraws *)user_data;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draws->resources.vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_list, draws->resources.index_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draws->resources.pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	float tint[4] = { 1.f, 0.5f, 1.f, 1.f };
+	zest_cmd_SendPushConstants(command_list, tint, sizeof(tint));
+	zest_cmd_DrawIndexedIndirect(command_list, draws->commands, 0, draws->draw_count, draws->stride);
+}
+
+//Packed and padded commands both draw, a stride shorter than the command is refused, and no commands draws nothing
+int test_metal_indirect_draws(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	MetalIndirectDraws draws = {};
+	int failed = !create_vertex_draw_resources(device, &draws.resources);
+	zest_buffer_info_t indirect_info = zest_CreateBufferInfo(zest_buffer_type_indirect, zest_memory_usage_cpu_to_gpu);
+	draws.commands = zest_CreateBuffer(device, 64, &indirect_info);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image target = zest_GetImage(target_handle);
+	failed |= !draws.commands || !target;
+	if (!failed) {
+		const zest_draw_indexed_indirect_command_t left = { 6, 1, 0, 0, 0 };
+		const zest_draw_indexed_indirect_command_t right = { 6, 1, 0, 4, 0 };
+		const zest_uint strides[2] = { (zest_uint)sizeof(zest_draw_indexed_indirect_command_t), 32 };
+		const int black[4] = { 0, 0, 0, 255 };
+		zest_uint pixels[256];
+		draws.draw_count = 2;
+		for (int stride_index = 0; stride_index != 2; ++stride_index) {
+			char *commands = (char *)zest_BufferData(draws.commands);
+			memset(commands, 0, 64);
+			memcpy(commands, &left, sizeof(left));
+			memcpy(commands + strides[stride_index], &right, sizeof(right));
+			draws.stride = strides[stride_index];
+			failed |= render_draw_pass(context, "Indirect Stride", target, ZEST_FALSE, metal_indirect_task, &draws, pixels);
+			failed |= !columns_hold(pixels, 0, 16, vertex_draw_left);
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		draws.stride = 12;
+		failed |= render_draw_pass(context, "Indirect Short Stride", target, ZEST_FALSE, metal_indirect_task, &draws, pixels);
+		failed |= zest_GetValidationErrorCount(device) != 1 || !columns_hold(pixels, 0, 16, black);
+		draws.stride = 32;
+		draws.draw_count = 0;
+		failed |= render_draw_pass(context, "Indirect No Commands", target, ZEST_FALSE, metal_indirect_task, &draws, pixels);
+		failed |= zest_GetValidationErrorCount(device) != 1 || !columns_hold(pixels, 0, 16, black);
+		zest_ResetValidationErrors(device);
+	}
+	if (target) zest_FreeImageNow(target_handle);
+	if (draws.commands) zest_FreeBufferNow(draws.commands);
+	free_vertex_draw_resources(&draws.resources);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//Copies, dispatches and a render pass that samples what was copied, taking turns in one command buffer
+int test_metal_pass_encoder_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_image_info_t texture_info = zest_CreateImageInfo(16, 16);
+	texture_info.format = zest_format_r8g8b8a8_unorm;
+	texture_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+	zest_image_handle readback_handle = zest_CreateImage(device, &texture_info);
+	//The render pass samples the copy through a mip view, and a mip copy needs the pattern's mip count to match
+	texture_info.mip_levels = 2;
+	zest_image_handle pattern_handle = zest_CreateImage(device, &texture_info);
+	zest_image_handle copy_handle = zest_CreateImage(device, &texture_info);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image pattern = zest_GetImage(pattern_handle);
+	zest_image copy = zest_GetImage(copy_handle);
+	zest_image readback = zest_GetImage(readback_handle);
+	zest_image target = zest_GetImage(target_handle);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	zest_sampler_handle sampler_handle = zest_CreateSampler(device, &sampler_info);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_sample_vertex_source, zest_vertex_shader, "order_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_sample_fragment_source, zest_fragment_shader, "order_fragment", NULL, ZEST_TRUE);
+	MetalEncoderOrder order = {};
+	order.pipeline_template = metal_no_input_template(device, "Order Sample", vertex_shader, fragment_shader);
+	zest_shader_handle compute_shader = zest_CreateShaderFromFile(device, "examples/SDL2/zest-tests/shaders/glsl/buffer_write.comp", "order_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Order Buffer Write", compute_shader);
+	order.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	zest_buffer_info_t written_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer_info_t readback_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	int failed = !pattern || !copy || !readback || !target || !order.compute;
+	for (int buffer_index = 0; buffer_index != 2; ++buffer_index) {
+		order.written_buffers[buffer_index] = zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &written_info);
+		order.readback_buffers[buffer_index] = zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &readback_info);
+		failed |= !order.written_buffers[buffer_index] || !order.readback_buffers[buffer_index];
+	}
+	unsigned char pattern_bytes[16 * 16 * 4];
+	unsigned char zero_bytes[16 * 16 * 4] = {};
+	metal_mip_pattern(pattern_bytes, 0, 17);
+	//The copy starts as zeros, which also gives it the layout a sampled index needs
+	failed |= failed || !metal_upload_layers(device, pattern, pattern_bytes, sizeof(pattern_bytes), 1) || !metal_upload_layers(device, copy, zero_bytes, sizeof(zero_bytes), 1);
+	zest_image_view_array_handle copy_views_handle = {};
+	if (!failed) {
+		copy_views_handle = zest_CreateImageViewsPerMip(device, copy);
+		zest_image_view_array copy_views = copy_views_handle.value ? zest_GetImageViewArray(copy_views_handle) : NULL;
+		zest_uint *copy_mip_indexes = copy_views ? zest_AcquireImageMipIndexes(device, copy, copy_views, zest_texture_2d_binding, zest_descriptor_type_sampled_image) : NULL;
+		failed |= zest_vec_size(copy_mip_indexes) != 2;
+		order.indexes[0] = copy_mip_indexes ? copy_mip_indexes[0] : 0;
+		order.indexes[1] = zest_AcquireSamplerIndex(device, zest_GetSampler(sampler_handle));
+		zest_resource_node written_nodes[2];
+		zest_resource_node buffer_readback_nodes[2];
+		for (int buffer_index = 0; buffer_index != 2; ++buffer_index) {
+			order.pushes[buffer_index].index1 = (int)zest_AcquireStorageBufferIndex(device, order.written_buffers[buffer_index]);
+			memset(zest_BufferData(order.readback_buffers[buffer_index]), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
+		}
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginCommandGraph(context, "Pass Encoder Order", 0)) {
+			zest_resource_node pattern_node = zest_ImportImageResource("Order Source", pattern, 0);
+			zest_resource_node copy_node = zest_ImportImageResource("Order Destination", copy, 0);
+			zest_resource_node target_node = zest_ImportImageResource("Order Target", target, 0);
+			zest_resource_node readback_node = zest_ImportImageResource("Order Readback", readback, 0);
+			written_nodes[0] = zest_ImportBufferResource("Order First Written Buffer", order.written_buffers[0], 0);
+			written_nodes[1] = zest_ImportBufferResource("Order Second Written Buffer", order.written_buffers[1], 0);
+			buffer_readback_nodes[0] = zest_ImportBufferResource("Order First Buffer Readback", order.readback_buffers[0], 0);
+			buffer_readback_nodes[1] = zest_ImportBufferResource("Order Second Buffer Readback", order.readback_buffers[1], 0);
+			zest_SetResourceClearColor(target_node, 0.f, 0.f, 0.f, 1.f);
+			//Every pass reads what the one before it made, so each wave has one queue type and all six stay in the graphics batch
+			zest_BeginTransferPass("Copy The Pattern");
+			zest_ConnectInput(pattern_node);
+			zest_ConnectOutput(copy_node);
+			zest_SetPassTask(metal_order_copy_task, NULL);
+			zest_EndPass();
+			zest_BeginComputePass("Write A Buffer");
+			zest_ConnectInput(copy_node);
+			zest_ConnectOutput(written_nodes[0]);
+			zest_SetPassTask(metal_order_dispatch_task, &order);
+			zest_EndPass();
+			zest_BeginRenderPass("Sample The Copy");
+			zest_ConnectInput(copy_node);
+			zest_ConnectInput(written_nodes[0]);
+			zest_ConnectOutput(target_node);
+			zest_SetPassTask(metal_order_sample_task, &order);
+			zest_EndPass();
+			zest_BeginTransferPass("Copy What Was Drawn");
+			zest_ConnectInput(target_node);
+			zest_ConnectOutput(readback_node);
+			zest_SetPassTask(metal_order_readback_task, NULL);
+			zest_EndPass();
+			zest_BeginComputePass("Write And Copy A Buffer");
+			zest_ConnectInput(readback_node);
+			zest_ConnectOutput(written_nodes[1]);
+			zest_ConnectOutput(buffer_readback_nodes[0]);
+			zest_SetPassTask(metal_order_dispatch_copy_task, &order);
+			zest_EndPass();
+			zest_BeginTransferPass("Copy The First Buffer");
+			zest_ConnectInput(written_nodes[0]);
+			zest_ConnectInput(buffer_readback_nodes[0]);
+			zest_ConnectOutput(buffer_readback_nodes[1]);
+			zest_SetPassTask(metal_order_buffer_copy_task, &order);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_uint most_passes = 0;
+		zest_uint batch_count = frame_graph ? metal_graph_batch_count(frame_graph, &most_passes) : 0;
+		if (batch_count != 1 || most_passes != 6) {
+			ZEST_PRINT("\tThe six passes went into %u batches with at most %u passes, where the test needs all six in one.", batch_count, most_passes);
+			failed = 1;
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		unsigned char read_bytes[16 * 16 * 4];
+		memset(read_bytes, 0, sizeof(read_bytes));
+		failed |= !metal_read_texture(device, readback, 0, 0, 16, 16, 4, read_bytes);
+		zest_uint matching_bytes = 0;
+		for (zest_uint byte = 0; byte != sizeof(read_bytes); ++byte) matching_bytes += read_bytes[byte] == pattern_bytes[byte];
+		zest_uint copied_in_pass = metal_elements_holding_index(order.readback_buffers[0]);
+		zest_uint copied_after = metal_elements_holding_index(order.readback_buffers[1]);
+		ZEST_PRINT("\t%u of %u bytes of the image readback hold the pattern. Of %u elements, %u copied in the dispatch's pass and %u copied by a later pass hold their index.", matching_bytes, (zest_uint)sizeof(read_bytes), METAL_IMMEDIATE_ELEMENTS, copied_in_pass, copied_after);
+		failed |= matching_bytes != sizeof(read_bytes) || copied_in_pass != METAL_IMMEDIATE_ELEMENTS || copied_after != METAL_IMMEDIATE_ELEMENTS;
+	}
+	if (order.compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(compute_shader);
+	for (int buffer_index = 0; buffer_index != 2; ++buffer_index) {
+		if (order.written_buffers[buffer_index]) zest_FreeBufferNow(order.written_buffers[buffer_index]);
+		if (order.readback_buffers[buffer_index]) zest_FreeBufferNow(order.readback_buffers[buffer_index]);
+	}
+	zest_FreePipelineTemplate(order.pipeline_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+	zest_FreeSamplerNow(sampler_handle);
+	if (pattern) zest_FreeImageNow(pattern_handle);
+	if (copy_views_handle.value) zest_FreeImageViewArrayNow(copy_views_handle);
+	if (copy) zest_FreeImageNow(copy_handle);
+	if (readback) zest_FreeImageNow(readback_handle);
+	if (target) zest_FreeImageNow(target_handle);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//Text and a rectangle before each frame, which the frame's swapchain pass draws and then resets
+static int run_metal_overlay_frames(zest_context context, int frame_count) {
+	int failed = 0;
+	MetalFrameRun run = {};
+	for (int frame = 0; frame != frame_count; ++frame) {
+		zest_DrawDebugText(context, 4.0f, 4.0f, 0xFFFFFFFF, "Zest %d", frame);
+		zest_DrawDebugRect(context, 4.0f, 16.0f, 64.0f, 8.0f, 0xCC000000);
+		failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
+		failed |= context->db_overlay.vertex_count != 0;
+	}
+	failed |= metal_frame_run_failed(context, &run, "debug overlay");
+	return failed;
+}
+
+//The overlay's template is valid, and the context holds a pipeline built from it with a Metal pipeline state
+static int metal_overlay_pipeline_failed(zest_context context) {
+	int built_count = 0;
+	zest_map_foreach(pipeline_index, context->cached_pipelines) {
+		zest_pipeline pipeline = *zest_map_at_index(context->cached_pipelines, zest_map_index(context->cached_pipelines, pipeline_index));
+		built_count += pipeline->pipeline_template == context->db_overlay.pipeline && ZEST_MTL_BACKEND(pipeline, pipeline)->pipeline_state != nil;
+	}
+	int failed = !zest_PipelineIsValid(context->db_overlay.pipeline) || built_count != 1;
+	if (failed) ZEST_PRINT("The overlay's template is %s, and %i of the context's pipelines were built from it.", zest_PipelineIsValid(context->db_overlay.pipeline) ? "valid" : "invalid", built_count);
+	return failed;
+}
+
+int test_metal_debug_overlay(void) {
+	MetalTestWindow window;
+	if (!metal_open_test_window(&window, "Metal Debug Overlay")) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	zest_device device = zest_implsdl2_CreateMetalDevice(&window.window_data, MetalTestFlags());
+	if (!device) {
+		metal_close_test_window(&window);
+		return 1;
+	}
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	info.flags |= zest_context_init_flag_debug_overlay;
+	zest_context context = zest_CreateContext(device, &window.window_data, &info);
+	int failed = context == NULL;
+	if (context) {
+		metal_set_test_clear_color(context);
+		failed |= run_metal_overlay_frames(context, 8);
+		failed |= metal_overlay_pipeline_failed(context);
+		//The reset destroys the context and empties the function cache, so the next overlay context converts its shaders again
+		zest_ResetDevice(device);
+		context = zest_CreateContext(device, &window.window_data, &info);
+		failed |= context == NULL;
+		if (context) {
+			metal_set_test_clear_color(context);
+			failed |= run_metal_overlay_frames(context, 2);
+			failed |= metal_overlay_pipeline_failed(context);
+			zest_DestroyContext(context);
+		}
+	}
+	failed |= finish_metal_device(device);
+	metal_close_test_window(&window);
+	return failed;
+}
+
 static MetalTest metal_tests[] = {
 	{ "Metal Builder", test_metal_builder },
 	{ "Metal Device Lifecycle", test_metal_device_lifecycle },
@@ -3446,6 +5077,16 @@ static MetalTest metal_tests[] = {
 	{ "Metal Swapchain Formats", test_metal_swapchain_formats },
 	{ "Metal Windowed Frames", test_metal_windowed_frames },
 	{ "Metal Windowed Context", test_metal_windowed_context },
+	{ "Metal Shader Compile", test_metal_shader_compile },
+	{ "Metal Shader Conversion", test_metal_shader_conversion },
+	{ "Metal Pipeline State Translation", test_metal_pipeline_state_translation },
+	{ "Metal Pipeline Cache", test_metal_pipeline_cache },
+	{ "Metal Lazy Binding Order", test_metal_lazy_binding_order },
+	{ "Metal Pass Encoder Order", test_metal_pass_encoder_order },
+	{ "Metal Indirect Draws", test_metal_indirect_draws },
+	{ "Metal Immediate Compute", test_metal_immediate_compute },
+	{ "Metal Compute Reads Descriptors", test_metal_compute_reads_descriptors },
+	{ "Metal Debug Overlay", test_metal_debug_overlay },
 };
 
 int RunMetalSuite(int *total_out) {

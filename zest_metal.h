@@ -46,6 +46,8 @@ Zest Metal Implementation
 #if defined(SDL_MAJOR_VERSION)
 #include <SDL_metal.h>
 #endif
+#include <shaderc/shaderc.h>
+#include <spirv_cross/spirv_cross_c.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -84,6 +86,49 @@ static const char *zest__mtl_blit_shader_source =
 	"fragment float4 zest_blit_fragment(zest_blit_varyings varyings [[stage_in]], texture2d<float> source [[texture(0)]], sampler source_sampler [[sampler(0)]], constant zest_blit_constants &constants [[buffer(0)]]) {\n"
 	"	return source.sample(source_sampler, varyings.uv, level(constants.mip_level));\n"
 	"}\n";
+
+//The debug overlay's GLSL, the same as Vulkan's
+static const char *zest__mtl_shader_db_overlay_vert =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(push_constant) uniform imgui_push {\n"
+	"	vec4 transform;\n"
+	"	uint font_index;\n"
+	"	uint sampler_index;\n"
+	"} pc;\n"
+	"layout(location = 0) in vec2 in_position;\n"
+	"layout(location = 1) in vec2 in_tex_coord;\n"
+	"layout(location = 2) in vec4 in_color;\n"
+	"layout(location = 3) in uint in_character_index;\n"
+	"layout(location = 0) out vec4 out_color;\n"
+	"layout(location = 1) out vec2 out_uv;\n"
+	"layout(location = 2) out flat float out_layer;\n"
+	"void main() {\n"
+	"	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);\n"
+	"	out_uv = in_tex_coord;\n"
+	"	out_layer = float(in_character_index);\n"
+	"	out_color = in_color;\n"
+	"}\n";
+
+static const char *zest__mtl_shader_db_overlay_frag =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(location = 0) in vec4 in_color;\n"
+	"layout(location = 1) in vec2 in_uv;\n"
+	"layout(location = 2) in flat float in_layer;\n"
+	"layout(location = 0) out vec4 out_color;\n"
+	"layout(set = 0, binding = 0) uniform sampler samplers[];\n"
+	"layout(set = 0, binding = 1) uniform texture2D textures[];\n"
+	"layout(set = 0, binding = 3) uniform texture2DArray texture_arrays[];\n"
+	"layout(push_constant) uniform imgui_push {\n"
+	"	vec4 transform;\n"
+	"	uint texture_index;\n"
+	"	uint sampler_index;\n"
+	"} pc;\n"
+	"void main() {\n"
+	"	float alpha = texture(sampler2DArray(texture_arrays[pc.texture_index], samplers[pc.sampler_index]), vec3(in_uv, in_layer)).r;\n"
+	"	out_color = vec4(in_color.rgb, in_color.a * alpha);\n"
+	"}\n";
 // -- End Shader_code
 
 // -- Backend_structs
@@ -92,6 +137,8 @@ static const char *zest__mtl_blit_shader_source =
 #define ZEST__MTL_VERTEX_BUFFER_INDEX 0
 #define ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX 4
 #define ZEST__MTL_BINDLESS_BUFFER_INDEX 5
+#define ZEST__MTL_MAX_VERTEX_BINDINGS 4				//Vertex buffer binding N is buffer index N, and index 4 is the push constants
+#define ZEST__MTL_DEPTH_STENCIL_STATE_COUNT 16		//A compare function's eight values, with depth writes off and on
 #define ZEST__MTL_BINDLESS_ENTRY_SIZE 8				//Bytes: a texture's or sampler's resource ID, or a buffer's GPU address
 #define ZEST__MTL_WAIT_FOREVER (~(zest_microsecs)0)
 #define ZEST__MTL_VALIDATION_MESSAGE_SIZE 768		//Bytes kept of one validation record
@@ -123,6 +170,17 @@ typedef struct zest_mtl_blit_pipeline_t {
 	id<MTLRenderPipelineState> pipeline;
 } zest_mtl_blit_pipeline_t;
 
+//A converted shader, which the device keeps until a reset
+typedef struct zest_mtl_shader_function_t {
+	id<MTLLibrary> library;
+	id<MTLFunction> function;
+	zest_uint vertex_input_mask;				//Bit N: the vertex stage reads location N
+	zest_uint local_size[3];					//Threads per threadgroup, compute only
+} zest_mtl_shader_function_t;
+
+zest_hash_map(zest_mtl_shader_function_t) zest_mtl_shader_function_map;
+zest_hash_map(id<MTLRenderPipelineState>) zest_mtl_render_pipeline_map;
+
 typedef struct zest_mtl_device_backend_t {
 	id<MTLDevice> device;
 	id<MTLResidencySet> residency_set;			//Every pool buffer and heap, attached to every queue so no pass declares what it uses
@@ -134,17 +192,48 @@ typedef struct zest_mtl_device_backend_t {
 	volatile int blit_pipeline_count;			//Raised once an entry is whole, so the entries below it are read with no lock
 	id<MTLSamplerState> blit_samplers[2];		//Nearest, then linear
 	pthread_mutex_t blit_lock;					//Held only to build
+	shaderc_compiler_t shaderc_compiler;		//Created by the first compile, and kept across a device reset
+	pthread_mutex_t shader_compiler_lock;		//Held only to create the compiler
+	zest_mtl_shader_function_map shader_functions;	//Keyed by the SPIR-V's bytes and the stage, emptied by a reset
+	zest_mtl_render_pipeline_map render_pipeline_states;	//Keyed by what the description holds, emptied by a reset
+	id<MTLDepthStencilState> depth_stencil_states[ZEST__MTL_DEPTH_STENCIL_STATE_COUNT];	//Indexed by compare function * 2 + writes, emptied by a reset
+	pthread_mutex_t pipeline_lock;				//Guards the pipeline caches, and is never held while converting, compiling or building
+	id<MTLResource> *texture_views;				//Every texture view that isn't its image's own texture, listed only when declares_texture_views is set
+	zest_u64 texture_view_version;				//Raised by every change to the list, and 0 until a view is first listed
+	pthread_mutex_t texture_view_lock;			//Views are made and freed from any thread
 	zest_mtl_feature_support_t support;
 	zest_bool api_validation;					//The debug layer answered the probe when this device was created
 	zest_bool shader_validation;
 	zest_bool launcher_shader_validation;		//MTL_SHADER_VALIDATION was already set when this device was asked for
+	zest_bool declares_texture_views;			//Shader validation is on, and it drops reads and writes through a view of a heap texture the encoder hasn't declared
 } zest_mtl_device_backend_t;
+
+//The plain fields are what the app asked for, the recorded_ fields what the open encoder holds
+typedef struct zest_mtl_bind_state_t {
+	zest_pipeline pipeline;
+	zest_compute compute;
+	zest_pipeline recorded_pipeline;				//Pipelines that differ only in encoder state share a pipeline state, so this is compared
+	id<MTLComputePipelineState> recorded_compute_state;
+	zest_u64 declared_view_version;					//The texture view list the open encoder declared, 0 for none
+	zest_buffer vertex_buffers[ZEST__MTL_MAX_VERTEX_BINDINGS];
+	zest_uint vertex_buffer_dirty_mask;				//Bit N: binding N was bound since the open encoder last had it
+	zest_buffer index_buffer;
+	char push_data[ZEST_MAX_PUSH_SIZE];
+	zest_bool render_push_dirty;
+	zest_bool compute_push_dirty;
+	float depth_bias[3];							//Constant factor, clamp and slope from zest_cmd_SetDepthBias
+	zest_bool depth_bias_set;						//zest_cmd_SetDepthBias was called in this command list
+	zest_bool depth_bias_dirty;
+	zest_bool reported_missing_pipeline;
+} zest_mtl_bind_state_t;
 
 typedef struct zest_mtl_queue_backend_t {
 	id<MTLCommandQueue> queue;
 	id<MTLFence> fence;							//Every encoder on this queue waits on it when it opens and updates it when it ends
 	id<MTLCommandBuffer> command_buffer;		//The immediate command buffer being recorded, nil between them
 	id<MTLBlitCommandEncoder> blit_encoder;		//Opened by the first copy of an immediate command buffer
+	id<MTLComputeCommandEncoder> compute_encoder;	//Opened by the first dispatch of an immediate command buffer, and taking turns with the blit encoder
+	zest_mtl_bind_state_t bind_state;
 	zest_buffer *pending_staging_buffers;
 } zest_mtl_queue_backend_t;
 
@@ -186,12 +275,14 @@ typedef struct zest_mtl_command_list_backend_t {
 	id<MTLCommandBuffer> command_buffer;			//The batch being recorded, which its context queue owns
 	id<MTLRenderCommandEncoder> render_encoder;		//Open between a pass's begin and end
 	id<MTLBlitCommandEncoder> blit_encoder;			//Open from a pass's first copy until the pass ends
+	id<MTLComputeCommandEncoder> compute_encoder;	//Open from a pass's first dispatch until the pass ends or a copy needs the blit encoder
 	zest_context_queue context_queue;
 	id<MTLFence> fence;								//The fence of the device queue the batch runs on
 	zest_uint target_width;							//Size of the open pass's attachments, in pixels
 	zest_uint target_height;
 	zest_bool switched_queue;						//The batch's slot last ran on a different device queue
 	zest_mtl_execution_backend_t *execution;		//Set once a wave has been submitted
+	zest_mtl_bind_state_t bind_state;
 } zest_mtl_command_list_backend_t;
 
 //A wave's batch signals its slot's event, and the next wave's batches wait on it
@@ -241,6 +332,7 @@ typedef struct zest_mtl_image_backend_t {
 //A view of the whole image in its own type holds the image's texture, anything else a texture view
 typedef struct zest_mtl_image_view_backend_t {
 	id<MTLTexture> texture;
+	zest_device listed_device;					//Set while the texture is on the device's texture view list
 } zest_mtl_image_view_backend_t;
 
 typedef struct zest_mtl_sampler_backend_t {
@@ -271,6 +363,24 @@ typedef struct zest_mtl_descriptor_set_backend_t {
 typedef struct zest_mtl_pipeline_layout_backend_t {
 	zest_uint push_constant_size;
 } zest_mtl_pipeline_layout_backend_t;
+
+//The pipeline and depth-stencil states are borrowed from the device's caches. The rest is encoder state set when the pipeline is bound.
+typedef struct zest_mtl_pipeline_backend_t {
+	id<MTLRenderPipelineState> pipeline_state;
+	id<MTLDepthStencilState> depth_stencil_state;
+	MTLPrimitiveType primitive_type;
+	MTLCullMode cull_mode;
+	MTLWinding winding;
+	MTLTriangleFillMode fill_mode;
+	MTLDepthClipMode depth_clip_mode;
+	zest_bool depth_bias_enable;
+	float depth_bias[3];						//Constant factor, clamp and slope, from the template
+} zest_mtl_pipeline_backend_t;
+
+typedef struct zest_mtl_compute_backend_t {
+	id<MTLComputePipelineState> pipeline_state;	//Owned, and released with the compute
+	MTLSize threads_per_threadgroup;			//The shader's local size
+} zest_mtl_compute_backend_t;
 // -- End Backend_structs
 
 // -- Other_setup_structs
@@ -316,6 +426,28 @@ ZEST_API id<MTLDevice> zest_GetMetalDevice(zest_device device);
 //So call this before creating a window when the device will be created with validation flags, passing those flags.
 //It does nothing without zest_device_init_flag_enable_validation_layers, and a launcher that sets MTL_DEBUG_LAYER=1 doesn't need it.
 ZEST_API void zest_PrepareMetalValidation(zest_device_init_flags flags);
+
+//What a render pipeline state is made from, zeroed so its bytes key the device's cache
+typedef struct zest_mtl_pipeline_key_t {
+	id<MTLFunction> vertex_function;			//The function cache's own objects, which a reset frees with the pipeline cache
+	id<MTLFunction> fragment_function;
+	MTLPixelFormat color_formats[ZEST_MAX_ATTACHMENTS];
+	MTLPixelFormat depth_format;
+	zest_uint color_attachment_count;
+	zest_uint sample_count;
+	zest_bool rasterization_enabled;
+	zest_color_blend_attachment_t blend;
+} zest_mtl_pipeline_key_t;
+
+//One attribute the vertex shader reads, hashed with the key in location order
+typedef struct zest_mtl_vertex_input_key_t {
+	zest_uint location;
+	zest_uint format;							//MTLVertexFormat
+	zest_uint offset;
+	zest_uint binding;
+	zest_uint stride;
+	zest_uint input_rate;
+} zest_mtl_vertex_input_key_t;
 // -- End Other_setup_structs
 
 ZEST_PRIVATE void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform);
@@ -533,6 +665,8 @@ ZEST_PRIVATE MTLTextureDescriptor *zest__mtl_new_texture_descriptor(zest_device 
 ZEST_PRIVATE zest_bool zest__mtl_swizzle_is_identity(zest_component_mapping_t swizzle);
 ZEST_PRIVATE zest_component_mapping_t zest__mtl_image_swizzle(zest_image image);
 ZEST_PRIVATE id<MTLTexture> zest__mtl_new_view_texture(zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count);
+ZEST_PRIVATE void zest__mtl_list_texture_view(zest_device device, zest_image image, zest_mtl_image_view_backend_t *view_backend);
+ZEST_PRIVATE void zest__mtl_unlist_texture_view(zest_mtl_image_view_backend_t *view_backend);
 ZEST_PRIVATE id<MTLBlitCommandEncoder> zest__mtl_queue_blit_encoder(zest_queue queue);
 ZEST_PRIVATE void zest__mtl_end_queue_encoder(zest_queue queue);
 ZEST_PRIVATE id<MTLBlitCommandEncoder> zest__mtl_pass_blit_encoder(const zest_command_list command_list);
@@ -556,6 +690,38 @@ ZEST_PRIVATE MTLScissorRect zest__mtl_clamped_scissor(int x, int y, zest_uint wi
 ZEST_PRIVATE void zest__mtl_apply_image_barriers(const zest_mtl_frame_graph_image_barrier_t *records, zest_bool release);
 ZEST_PRIVATE void zest__mtl_compute_bindless_regions(const zest_uint *binding_counts, zest_mtl_bindless_regions_t *regions);
 ZEST_PRIVATE zest_u64 *zest__mtl_bindless_entry(zest_device device, zest_descriptor_set set, zest_uint binding_number, zest_uint array_index);
+ZEST_PRIVATE shaderc_shader_kind zest__mtl_shaderc_kind(zest_shader_type type);
+ZEST_PRIVATE shaderc_compiler_t zest__mtl_shader_compiler(zest_device device);
+ZEST_PRIVATE shaderc_compilation_result_t zest__mtl_compile_glsl(shaderc_compiler_t compiler, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options);
+ZEST_PRIVATE SpvExecutionModel zest__mtl_execution_model(zest_shader_type type);
+ZEST_PRIVATE zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const char *msl, const char *entry_point, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE void zest__mtl_release_pipeline_caches(zest_device device);
+ZEST_PRIVATE MTLVertexFormat zest__mtl_vertex_format(zest_format format);
+ZEST_PRIVATE MTLBlendFactor zest__mtl_blend_factor(zest_blend_factor factor);
+ZEST_PRIVATE MTLBlendOperation zest__mtl_blend_operation(zest_blend_op operation);
+ZEST_PRIVATE MTLCompareFunction zest__mtl_compare_function(zest_compare_op compare_op);
+ZEST_PRIVATE MTLColorWriteMask zest__mtl_color_write_mask(zest_color_component_flags mask);
+ZEST_PRIVATE MTLPrimitiveType zest__mtl_primitive_type(zest_topology topology);
+ZEST_PRIVATE zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_mtl_shader_function_t *vertex_function, const zest_mtl_shader_function_t *fragment_function, MTLRenderPipelineDescriptor *descriptor, MTLDepthStencilDescriptor *depth_stencil_descriptor, zest_mtl_pipeline_backend_t *out_backend, zest_key *out_key, char *out_error, zest_size error_size);
+ZEST_PRIVATE id<MTLRenderPipelineState> zest__mtl_render_pipeline_state(zest_device device, zest_key key, MTLRenderPipelineDescriptor *descriptor, char *out_error, zest_size error_size);
+ZEST_PRIVATE id<MTLDepthStencilState> zest__mtl_depth_stencil_state(zest_device device, MTLCompareFunction compare_function, zest_bool write_enabled);
+ZEST_PRIVATE void zest__mtl_invalidate_bind_state(zest_mtl_bind_state_t *state);
+ZEST_PRIVATE void zest__mtl_bind_table_to_render_encoder(zest_device device, id<MTLRenderCommandEncoder> encoder);
+ZEST_PRIVATE zest_bool zest__mtl_flush_render_state(const zest_command_list command_list);
+ZEST_PRIVATE void zest__mtl_draw_indirect_commands(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride, zest_bool indexed);
+ZEST_PRIVATE void zest__mtl_table_regions(zest_device device, id<MTLBuffer> *out_buffers, NSUInteger *out_offsets);
+ZEST_PRIVATE void zest__mtl_bind_table_to_compute_encoder(zest_device device, id<MTLComputeCommandEncoder> encoder);
+ZEST_PRIVATE id<MTLComputeCommandEncoder> zest__mtl_pass_compute_encoder(const zest_command_list command_list);
+ZEST_PRIVATE void zest__mtl_end_pass_compute_encoder(const zest_command_list command_list);
+ZEST_PRIVATE id<MTLComputeCommandEncoder> zest__mtl_queue_compute_encoder(zest_queue queue);
+ZEST_PRIVATE zest_bool zest__mtl_flush_compute_state(zest_device device, id<MTLComputeCommandEncoder> encoder, zest_mtl_bind_state_t *state);
+ZEST_PRIVATE void zest__mtl_declare_texture_views_to_compute_encoder(zest_device device, id<MTLComputeCommandEncoder> encoder, zest_mtl_bind_state_t *state);
+ZEST_PRIVATE void zest__mtl_declare_texture_views_to_render_encoder(zest_device device, id<MTLRenderCommandEncoder> encoder, zest_mtl_bind_state_t *state);
 
 // -- Error_logging
 //Reports a call the backend can't serve. A member with no device to report on only prints.
@@ -1043,6 +1209,162 @@ zest_bool zest__mtl_is_signed_integer_format(zest_format format) {
 			return ZEST_FALSE;
 	}
 }
+
+shaderc_shader_kind zest__mtl_shaderc_kind(zest_shader_type type) {
+	switch (type) {
+		case zest_vertex_shader:	return shaderc_vertex_shader;
+		case zest_fragment_shader:	return shaderc_fragment_shader;
+		case zest_compute_shader:	return shaderc_compute_shader;
+	}
+	ZEST_ASSERT(0, "zest__mtl_shaderc_kind was given a shader type it doesn't know.");
+	return shaderc_vertex_shader;
+}
+
+SpvExecutionModel zest__mtl_execution_model(zest_shader_type type) {
+	switch (type) {
+		case zest_vertex_shader:	return SpvExecutionModelVertex;
+		case zest_fragment_shader:	return SpvExecutionModelFragment;
+		case zest_compute_shader:	return SpvExecutionModelGLCompute;
+	}
+	ZEST_ASSERT(0, "zest__mtl_execution_model was given a shader type it doesn't know.");
+	return SpvExecutionModelVertex;
+}
+
+//Formats with no Metal vertex form, the scaled ones among them, give MTLVertexFormatInvalid
+MTLVertexFormat zest__mtl_vertex_format(zest_format format) {
+	switch (format) {
+		case zest_format_r8_unorm:						return MTLVertexFormatUCharNormalized;
+		case zest_format_r8_snorm:						return MTLVertexFormatCharNormalized;
+		case zest_format_r8_uint:						return MTLVertexFormatUChar;
+		case zest_format_r8_sint:						return MTLVertexFormatChar;
+		case zest_format_r8g8_unorm:					return MTLVertexFormatUChar2Normalized;
+		case zest_format_r8g8_snorm:					return MTLVertexFormatChar2Normalized;
+		case zest_format_r8g8_uint:						return MTLVertexFormatUChar2;
+		case zest_format_r8g8_sint:						return MTLVertexFormatChar2;
+		case zest_format_r8g8b8_unorm:					return MTLVertexFormatUChar3Normalized;
+		case zest_format_r8g8b8_snorm:					return MTLVertexFormatChar3Normalized;
+		case zest_format_r8g8b8_uint:					return MTLVertexFormatUChar3;
+		case zest_format_r8g8b8_sint:					return MTLVertexFormatChar3;
+		case zest_format_r8g8b8a8_unorm:				return MTLVertexFormatUChar4Normalized;
+		case zest_format_r8g8b8a8_snorm:				return MTLVertexFormatChar4Normalized;
+		case zest_format_r8g8b8a8_uint:					return MTLVertexFormatUChar4;
+		case zest_format_r8g8b8a8_sint:					return MTLVertexFormatChar4;
+		case zest_format_b8g8r8a8_unorm:				return MTLVertexFormatUChar4Normalized_BGRA;
+		//Packed into 32 bits with red lowest, which on a little-endian machine is the byte order of RGBA8
+		case zest_format_a8b8g8r8_unorm_pack32:			return MTLVertexFormatUChar4Normalized;
+		case zest_format_a8b8g8r8_snorm_pack32:			return MTLVertexFormatChar4Normalized;
+		case zest_format_a8b8g8r8_uint_pack32:			return MTLVertexFormatUChar4;
+		case zest_format_a8b8g8r8_sint_pack32:			return MTLVertexFormatChar4;
+		case zest_format_a2b10g10r10_unorm_pack32:		return MTLVertexFormatUInt1010102Normalized;
+		case zest_format_a2b10g10r10_snorm_pack32:		return MTLVertexFormatInt1010102Normalized;
+		case zest_format_r16_unorm:						return MTLVertexFormatUShortNormalized;
+		case zest_format_r16_snorm:						return MTLVertexFormatShortNormalized;
+		case zest_format_r16_uint:						return MTLVertexFormatUShort;
+		case zest_format_r16_sint:						return MTLVertexFormatShort;
+		case zest_format_r16_sfloat:					return MTLVertexFormatHalf;
+		case zest_format_r16g16_unorm:					return MTLVertexFormatUShort2Normalized;
+		case zest_format_r16g16_snorm:					return MTLVertexFormatShort2Normalized;
+		case zest_format_r16g16_uint:					return MTLVertexFormatUShort2;
+		case zest_format_r16g16_sint:					return MTLVertexFormatShort2;
+		case zest_format_r16g16_sfloat:					return MTLVertexFormatHalf2;
+		case zest_format_r16g16b16_unorm:				return MTLVertexFormatUShort3Normalized;
+		case zest_format_r16g16b16_snorm:				return MTLVertexFormatShort3Normalized;
+		case zest_format_r16g16b16_uint:				return MTLVertexFormatUShort3;
+		case zest_format_r16g16b16_sint:				return MTLVertexFormatShort3;
+		case zest_format_r16g16b16_sfloat:				return MTLVertexFormatHalf3;
+		case zest_format_r16g16b16a16_unorm:			return MTLVertexFormatUShort4Normalized;
+		case zest_format_r16g16b16a16_snorm:			return MTLVertexFormatShort4Normalized;
+		case zest_format_r16g16b16a16_uint:				return MTLVertexFormatUShort4;
+		case zest_format_r16g16b16a16_sint:				return MTLVertexFormatShort4;
+		case zest_format_r16g16b16a16_sfloat:			return MTLVertexFormatHalf4;
+		case zest_format_r32_uint:						return MTLVertexFormatUInt;
+		case zest_format_r32_sint:						return MTLVertexFormatInt;
+		case zest_format_r32_sfloat:					return MTLVertexFormatFloat;
+		case zest_format_r32g32_uint:					return MTLVertexFormatUInt2;
+		case zest_format_r32g32_sint:					return MTLVertexFormatInt2;
+		case zest_format_r32g32_sfloat:					return MTLVertexFormatFloat2;
+		case zest_format_r32g32b32_uint:				return MTLVertexFormatUInt3;
+		case zest_format_r32g32b32_sint:				return MTLVertexFormatInt3;
+		case zest_format_r32g32b32_sfloat:				return MTLVertexFormatFloat3;
+		case zest_format_r32g32b32a32_uint:				return MTLVertexFormatUInt4;
+		case zest_format_r32g32b32a32_sint:				return MTLVertexFormatInt4;
+		case zest_format_r32g32b32a32_sfloat:			return MTLVertexFormatFloat4;
+		case zest_format_b10g11r11_ufloat_pack32:		return MTLVertexFormatFloatRG11B10;
+		case zest_format_e5b9g9r9_ufloat_pack32:		return MTLVertexFormatFloatRGB9E5;
+		default:										return MTLVertexFormatInvalid;
+	}
+}
+
+MTLBlendFactor zest__mtl_blend_factor(zest_blend_factor factor) {
+	switch (factor) {
+		case zest_blend_factor_zero:						return MTLBlendFactorZero;
+		case zest_blend_factor_one:							return MTLBlendFactorOne;
+		case zest_blend_factor_src_color:					return MTLBlendFactorSourceColor;
+		case zest_blend_factor_one_minus_src_color:			return MTLBlendFactorOneMinusSourceColor;
+		case zest_blend_factor_dst_color:					return MTLBlendFactorDestinationColor;
+		case zest_blend_factor_one_minus_dst_color:			return MTLBlendFactorOneMinusDestinationColor;
+		case zest_blend_factor_src_alpha:					return MTLBlendFactorSourceAlpha;
+		case zest_blend_factor_one_minus_src_alpha:			return MTLBlendFactorOneMinusSourceAlpha;
+		case zest_blend_factor_dst_alpha:					return MTLBlendFactorDestinationAlpha;
+		case zest_blend_factor_one_minus_dst_alpha:			return MTLBlendFactorOneMinusDestinationAlpha;
+		case zest_blend_factor_constant_color:				return MTLBlendFactorBlendColor;
+		case zest_blend_factor_one_minus_constant_color:	return MTLBlendFactorOneMinusBlendColor;
+		case zest_blend_factor_constant_alpha:				return MTLBlendFactorBlendAlpha;
+		case zest_blend_factor_one_minus_constant_alpha:	return MTLBlendFactorOneMinusBlendAlpha;
+		case zest_blend_factor_src_alpha_saturate:			return MTLBlendFactorSourceAlphaSaturated;
+		case zest_blend_factor_src1_color:					return MTLBlendFactorSource1Color;
+		case zest_blend_factor_one_minus_src1_color:		return MTLBlendFactorOneMinusSource1Color;
+		case zest_blend_factor_src1_alpha:					return MTLBlendFactorSource1Alpha;
+		case zest_blend_factor_one_minus_src1_alpha:		return MTLBlendFactorOneMinusSource1Alpha;
+	}
+	return MTLBlendFactorOne;
+}
+
+MTLBlendOperation zest__mtl_blend_operation(zest_blend_op operation) {
+	switch (operation) {
+		case zest_blend_op_add:					return MTLBlendOperationAdd;
+		case zest_blend_op_subtract:			return MTLBlendOperationSubtract;
+		case zest_blend_op_reverse_subtract:	return MTLBlendOperationReverseSubtract;
+		case zest_blend_op_min:					return MTLBlendOperationMin;
+		case zest_blend_op_max:					return MTLBlendOperationMax;
+	}
+	return MTLBlendOperationAdd;
+}
+
+MTLCompareFunction zest__mtl_compare_function(zest_compare_op compare_op) {
+	switch (compare_op) {
+		case zest_compare_op_never:				return MTLCompareFunctionNever;
+		case zest_compare_op_less:				return MTLCompareFunctionLess;
+		case zest_compare_op_equal:				return MTLCompareFunctionEqual;
+		case zest_compare_op_less_or_equal:		return MTLCompareFunctionLessEqual;
+		case zest_compare_op_greater:			return MTLCompareFunctionGreater;
+		case zest_compare_op_not_equal:			return MTLCompareFunctionNotEqual;
+		case zest_compare_op_greater_or_equal:	return MTLCompareFunctionGreaterEqual;
+		case zest_compare_op_always:			return MTLCompareFunctionAlways;
+	}
+	return MTLCompareFunctionAlways;
+}
+
+//Metal puts red in the highest bit and Vulkan in the lowest
+MTLColorWriteMask zest__mtl_color_write_mask(zest_color_component_flags mask) {
+	MTLColorWriteMask write_mask = MTLColorWriteMaskNone;
+	if (mask & zest_color_component_r_bit) write_mask |= MTLColorWriteMaskRed;
+	if (mask & zest_color_component_g_bit) write_mask |= MTLColorWriteMaskGreen;
+	if (mask & zest_color_component_b_bit) write_mask |= MTLColorWriteMaskBlue;
+	if (mask & zest_color_component_a_bit) write_mask |= MTLColorWriteMaskAlpha;
+	return write_mask;
+}
+
+//The topologies Metal has no primitive for are refused before this is asked
+MTLPrimitiveType zest__mtl_primitive_type(zest_topology topology) {
+	switch (topology) {
+		case zest_topology_point_list:		return MTLPrimitiveTypePoint;
+		case zest_topology_line_list:		return MTLPrimitiveTypeLine;
+		case zest_topology_line_strip:		return MTLPrimitiveTypeLineStrip;
+		case zest_topology_triangle_strip:	return MTLPrimitiveTypeTriangleStrip;
+		default:							return MTLPrimitiveTypeTriangle;
+	}
+}
 // -- End Type_converters
 
 // -- Inline_helpers
@@ -1488,6 +1810,8 @@ zest_bool zest__mtl_initialise_device(zest_device device) {
 			return ZEST_FALSE;
 		}
 		zest__mtl_confirm_validation(device);
+		//MTL_SHADER_VALIDATION from the launcher turns shader validation on whether or not this device asked for validation
+		backend->declares_texture_views = backend->shader_validation || backend->launcher_shader_validation;
 
 		zest__mtl_query_feature_support(backend->device, &backend->support);
 		const char *missing = NULL;
@@ -1519,6 +1843,7 @@ zest_bool zest__mtl_reinit_logical_device(zest_device device) {
 	zest_WaitForIdleDevice(device);
 	zest__mtl_collect_validation_messages(device);
 	zest__mtl_cleanup_queues(device);
+	zest__mtl_release_pipeline_caches(device);
 	ZEST_MTL_RELEASE(backend->residency_set);
 	if (!zest__mtl_create_device_objects(device)) {
 		ZEST_APPEND_LOG(device->log_path.str, "The Metal device couldn't be reset, because its residency set or its command queues couldn't be created again.");
@@ -1752,6 +2077,9 @@ void *zest__mtl_new_device_backend(zest_device device) {
 	pthread_mutex_init(&backend->residency_lock, NULL);
 	pthread_mutex_init(&backend->committed_lock, NULL);
 	pthread_mutex_init(&backend->blit_lock, NULL);
+	pthread_mutex_init(&backend->shader_compiler_lock, NULL);
+	pthread_mutex_init(&backend->pipeline_lock, NULL);
+	pthread_mutex_init(&backend->texture_view_lock, NULL);
 	return backend;
 }
 
@@ -1863,11 +2191,17 @@ void zest__mtl_cleanup_device_backend(zest_device device) {
 	ZEST_MTL_RELEASE(backend->blit_samplers[0]);
 	ZEST_MTL_RELEASE(backend->blit_samplers[1]);
 	ZEST_MTL_RELEASE(backend->blit_library);
+	zest__mtl_release_pipeline_caches(device);
 	ZEST_MTL_RELEASE(backend->residency_set);
 	ZEST_MTL_RELEASE(backend->device);
+	if (backend->shaderc_compiler) shaderc_compiler_release(backend->shaderc_compiler);
+	zest_vec_free(device->allocator, backend->texture_views);
 	pthread_mutex_destroy(&backend->residency_lock);
 	pthread_mutex_destroy(&backend->committed_lock);
 	pthread_mutex_destroy(&backend->blit_lock);
+	pthread_mutex_destroy(&backend->shader_compiler_lock);
+	pthread_mutex_destroy(&backend->pipeline_lock);
+	pthread_mutex_destroy(&backend->texture_view_lock);
 	ZEST__FREE(device->allocator, backend);
 	device->backend = NULL;
 }
@@ -2134,6 +2468,7 @@ zest_queue zest__mtl_imm_begin_command_buffer(zest_device device, zest_device_qu
 		zest__mtl_release_immediate_queue(queue, ZEST_TRUE);
 		return NULL;
 	}
+	backend->bind_state = ZEST__ZERO_INIT(zest_mtl_bind_state_t);
 	return queue;
 }
 
@@ -2163,12 +2498,27 @@ zest_bool zest__mtl_imm_end_command_buffer(zest_queue queue) {
 id<MTLBlitCommandEncoder> zest__mtl_queue_blit_encoder(zest_queue queue) {
 	zest_mtl_queue_backend_t *backend = ZEST_MTL_BACKEND(queue, queue);
 	if (!backend->blit_encoder) {
+		zest__mtl_end_queue_encoder(queue);
 		@autoreleasepool {
 			backend->blit_encoder = [[backend->command_buffer blitCommandEncoder] retain];
 		}
 		[backend->blit_encoder waitForFence:backend->fence];
 	}
 	return backend->blit_encoder;
+}
+
+//A new compute encoder starts with nothing set, so whatever the app bound is sent again at the next dispatch
+id<MTLComputeCommandEncoder> zest__mtl_queue_compute_encoder(zest_queue queue) {
+	zest_mtl_queue_backend_t *backend = ZEST_MTL_BACKEND(queue, queue);
+	if (backend->compute_encoder) return backend->compute_encoder;
+	zest__mtl_end_queue_encoder(queue);
+	@autoreleasepool {
+		backend->compute_encoder = [[backend->command_buffer computeCommandEncoder] retain];
+	}
+	[backend->compute_encoder waitForFence:backend->fence];
+	zest__mtl_bind_table_to_compute_encoder(queue->device, backend->compute_encoder);
+	zest__mtl_invalidate_bind_state(&backend->bind_state);
+	return backend->compute_encoder;
 }
 
 void zest__mtl_end_queue_encoder(zest_queue queue) {
@@ -2178,6 +2528,43 @@ void zest__mtl_end_queue_encoder(zest_queue queue) {
 		[backend->blit_encoder endEncoding];
 		ZEST_MTL_RELEASE(backend->blit_encoder);
 	}
+	if (backend->compute_encoder) {
+		[backend->compute_encoder updateFence:backend->fence];
+		[backend->compute_encoder endEncoding];
+		ZEST_MTL_RELEASE(backend->compute_encoder);
+	}
+}
+
+void zest__mtl_imm_send_push_constants(zest_queue queue, void *data, zest_uint size) {
+	if (!queue) return;
+	zest_mtl_bind_state_t *state = &ZEST_MTL_BACKEND(queue, queue)->bind_state;
+	memcpy(state->push_data, data, ZEST__MIN(size, (zest_uint)ZEST_MAX_PUSH_SIZE));
+	state->render_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+}
+
+void zest__mtl_imm_bind_compute_pipeline(zest_queue queue, zest_compute compute) {
+	if (!queue) return;
+	ZEST_ASSERT_HANDLE(compute);		//Not a valid compute handle
+	ZEST_MTL_BACKEND(queue, queue)->bind_state.compute = compute;
+	queue->last_bound_compute = compute;
+}
+
+//A queue of the transfer family is refused, as on the other backends, though a Metal queue could run the dispatch
+zest_bool zest__mtl_imm_dispatch_compute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	if (!queue) return ZEST_FALSE;
+	zest_device device = queue->device;
+	ZEST_ASSERT_OR_VALIDATE(queue->last_bound_compute, device, "You must bind a compute pipeline by calling zest_imm_BindComputePipeline before calling this function", ZEST_FALSE);
+	if (!(queue->manager->type & zest_queue_compute)) {
+		return zest__mtl_report_unavailable(device, "zest_imm_DispatchCompute can't record on a transfer queue, as on the other backends. Begin the immediate commands on a compute or graphics queue.");
+	}
+	//Vulkan dispatches nothing for a count of 0
+	if (!group_count_x || !group_count_y || !group_count_z) return ZEST_TRUE;
+	zest_mtl_queue_backend_t *backend = ZEST_MTL_BACKEND(queue, queue);
+	id<MTLComputeCommandEncoder> encoder = zest__mtl_queue_compute_encoder(queue);
+	if (!zest__mtl_flush_compute_state(device, encoder, &backend->bind_state)) return ZEST_FALSE;
+	[encoder dispatchThreadgroups:MTLSizeMake(group_count_x, group_count_y, group_count_z) threadsPerThreadgroup:ZEST_MTL_BACKEND(compute, backend->bind_state.compute)->threads_per_threadgroup];
+	return ZEST_TRUE;
 }
 
 zest_bool zest__mtl_cmd_copy_buffer_one_time(zest_queue queue, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size, zest_size src_offset, zest_size dst_offset) {
@@ -2355,13 +2742,10 @@ void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zes
 		zest_uint kept_count = 0;
 		for (zest_uint batch_index = 0; batch_index != committed_count; ++batch_index) {
 			zest_mtl_committed_batch_t batch = committed[batch_index];
-			zest_bool finished = [batch.command_buffer status] >= MTLCommandBufferStatusCompleted;
-			if (!finished && [batch.event signaledValue] >= batch.value) {
-				//Its work is over, and what it used can be destroyed once Metal has marked it completed, so that is waited for
-				[batch.command_buffer waitUntilCompleted];
-				finished = ZEST_TRUE;
-			}
+			zest_bool finished = [batch.command_buffer status] >= MTLCommandBufferStatusCompleted || [batch.event signaledValue] >= batch.value;
 			if (finished) {
+				//The status reads completed before the completed handlers run, and the debug layer still uses the buffer's render targets in them
+				[batch.command_buffer waitUntilCompleted];
 				@autoreleasepool {
 					zest__mtl_finish_command_buffer(backend->device, batch.command_buffer);
 				}
@@ -2772,6 +3156,32 @@ void zest__mtl_cleanup_pipeline_layout_backend(zest_pipeline_layout layout) {
 	ZEST__FREE(layout->device->allocator, layout->backend);
 	layout->backend = NULL;
 }
+
+//Each slot's region of the table, which goes at the buffer index converted shaders read it from
+void zest__mtl_table_regions(zest_device device, id<MTLBuffer> *out_buffers, NSUInteger *out_offsets) {
+	zest_mtl_descriptor_pool_backend_t *pool_backend = ZEST_MTL_BACKEND(descriptor_set, device->bindless_set)->pool;
+	for (zest_uint slot = 0; slot != zest_max_global_binding_number; ++slot) {
+		out_buffers[slot] = pool_backend->table;
+		out_offsets[slot] = (NSUInteger)pool_backend->regions.offsets[slot];
+	}
+}
+
+//One ranged call per stage
+void zest__mtl_bind_table_to_render_encoder(zest_device device, id<MTLRenderCommandEncoder> encoder) {
+	id<MTLBuffer> buffers[zest_max_global_binding_number];
+	NSUInteger offsets[zest_max_global_binding_number];
+	zest__mtl_table_regions(device, buffers, offsets);
+	NSRange range = NSMakeRange(ZEST__MTL_BINDLESS_BUFFER_INDEX, zest_max_global_binding_number);
+	[encoder setVertexBuffers:buffers offsets:offsets withRange:range];
+	[encoder setFragmentBuffers:buffers offsets:offsets withRange:range];
+}
+
+void zest__mtl_bind_table_to_compute_encoder(zest_device device, id<MTLComputeCommandEncoder> encoder) {
+	id<MTLBuffer> buffers[zest_max_global_binding_number];
+	NSUInteger offsets[zest_max_global_binding_number];
+	zest__mtl_table_regions(device, buffers, offsets);
+	[encoder setBuffers:buffers offsets:offsets withRange:NSMakeRange(ZEST__MTL_BINDLESS_BUFFER_INDEX, zest_max_global_binding_number)];
+}
 // -- End Bindless_table
 
 // -- General_renderer
@@ -2803,6 +3213,322 @@ void zest__mtl_wait_for_idle_device(zest_device device) {
 // -- End Device_OS
 
 // -- Pipelines
+void *zest__mtl_new_pipeline_backend(zest_context context) {
+	zest_mtl_pipeline_backend_t *backend = (zest_mtl_pipeline_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_mtl_pipeline_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_mtl_pipeline_backend_t);
+	return backend;
+}
+
+//The states are borrowed from the device's caches, so there's nothing to release
+void zest__mtl_cleanup_pipeline_backend(zest_pipeline pipeline) {
+	if (!pipeline->backend) return;
+	ZEST__FREE(pipeline->context->allocator, pipeline->backend);
+	pipeline->backend = NULL;
+}
+
+zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	const char *stage_name = expected_type == zest_vertex_shader ? "vertex" : expected_type == zest_fragment_shader ? "fragment" : "compute";
+	zest_shader shader = shader_handle.value ? (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value) : NULL;
+	if (!shader || !shader->binary) {
+		snprintf(out_error, error_size, "The pipeline %s has no compiled %s shader.", pipeline_name, stage_name);
+		return ZEST_FALSE;
+	}
+	char shader_error[768];
+	if (!zest__mtl_shader_function(device, shader, expected_type, out_function, shader_error, sizeof(shader_error))) {
+		snprintf(out_error, error_size, "The pipeline %s can't use its %s shader. %s", pipeline_name, stage_name, shader_error);
+		return ZEST_FALSE;
+	}
+	return ZEST_TRUE;
+}
+
+//An attribute for every location the vertex shader reads, from the template. An attribute the shader doesn't read is left out.
+zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size) {
+	const char *name = pipeline_template->name;
+	zest_uint input_mask = vertex_function->vertex_input_mask;
+	if (pipeline_template->no_vertex_input) {
+		if (input_mask) {
+			snprintf(out_error, error_size, "The pipeline %s has vertex input turned off, but its vertex shader reads location %u. Remove the input or turn vertex input on.", name, (zest_uint)__builtin_ctz(input_mask));
+			return ZEST_FALSE;
+		}
+		[descriptor setVertexDescriptor:nil];
+		return ZEST_TRUE;
+	}
+	zest_vec_foreach(binding_index, pipeline_template->binding_descriptions) {
+		if (pipeline_template->binding_descriptions[binding_index].binding >= ZEST__MTL_MAX_VERTEX_BINDINGS) {
+			snprintf(out_error, error_size, "The pipeline %s uses vertex binding %u, and the Metal backend has bindings 0 to %u, as the next buffer index holds the push constants.", name, pipeline_template->binding_descriptions[binding_index].binding, ZEST__MTL_MAX_VERTEX_BINDINGS - 1);
+			return ZEST_FALSE;
+		}
+	}
+	MTLVertexDescriptor *vertex_descriptor = [MTLVertexDescriptor vertexDescriptor];
+	for (zest_uint location = 0; input_mask >> location; ++location) {
+		if (!(input_mask & (1u << location))) continue;
+		const zest_vertex_attribute_desc_t *attribute = NULL;
+		zest_vec_foreach(attribute_index, pipeline_template->attribute_descriptions) {
+			if (pipeline_template->attribute_descriptions[attribute_index].location == location) {
+				attribute = &pipeline_template->attribute_descriptions[attribute_index];
+				break;
+			}
+		}
+		if (!attribute) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex shader reads location %u, which has no vertex attribute in the template. Add one with zest_AddVertexAttribute.", name, location);
+			return ZEST_FALSE;
+		}
+		const zest_vertex_binding_desc_t *binding = NULL;
+		zest_vec_foreach(binding_index, pipeline_template->binding_descriptions) {
+			if (pipeline_template->binding_descriptions[binding_index].binding == attribute->binding) {
+				binding = &pipeline_template->binding_descriptions[binding_index];
+				break;
+			}
+		}
+		if (!binding) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex attribute at location %u uses binding %u, which has no binding description. Add one with zest_AddVertexInputBindingDescription.", name, location, attribute->binding);
+			return ZEST_FALSE;
+		}
+		MTLVertexFormat format = zest__mtl_vertex_format(attribute->format);
+		if (format == MTLVertexFormatInvalid) {
+			snprintf(out_error, error_size, "The pipeline %s's vertex attribute at location %u has zest_format %u, which has no Metal vertex format. Scaled formats have none.", name, location, (zest_uint)attribute->format);
+			return ZEST_FALSE;
+		}
+		MTLVertexAttributeDescriptor *attribute_descriptor = [[vertex_descriptor attributes] objectAtIndexedSubscript:location];
+		[attribute_descriptor setFormat:format];
+		[attribute_descriptor setOffset:attribute->offset];
+		[attribute_descriptor setBufferIndex:ZEST__MTL_VERTEX_BUFFER_INDEX + attribute->binding];
+		MTLVertexBufferLayoutDescriptor *layout = [[vertex_descriptor layouts] objectAtIndexedSubscript:ZEST__MTL_VERTEX_BUFFER_INDEX + binding->binding];
+		[layout setStride:binding->stride];
+		[layout setStepFunction:binding->input_rate == zest_input_rate_instance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex];
+		[layout setStepRate:1];
+		zest_mtl_vertex_input_key_t input_key = { location, (zest_uint)format, attribute->offset, attribute->binding, binding->stride, (zest_uint)binding->input_rate };
+		zest__hasher_add(hasher, &input_key, sizeof(input_key));
+	}
+	[descriptor setVertexDescriptor:vertex_descriptor];
+	return ZEST_TRUE;
+}
+
+//Fills both descriptors, the encoder state and the cache key, and makes no Metal object. The caller holds an autorelease pool.
+zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_mtl_shader_function_t *vertex_function, const zest_mtl_shader_function_t *fragment_function, MTLRenderPipelineDescriptor *descriptor, MTLDepthStencilDescriptor *depth_stencil_descriptor, zest_mtl_pipeline_backend_t *out_backend, zest_key *out_key, char *out_error, zest_size error_size) {
+	(void)device;
+	const char *name = pipeline_template->name;
+	const zest_rasterization_state_t *rasterization = &pipeline_template->rasterization;
+	const zest_depth_stencil_state_t *depth_stencil = &pipeline_template->depth_stencil;
+	zest_topology topology = pipeline_template->primitive_topology;
+	const char *unsupported = NULL;
+	if (rasterization->cull_mode == zest_cull_mode_front_and_back) unsupported = "zest_cull_mode_front_and_back";
+	else if (rasterization->polygon_mode == zest_polygon_mode_point) unsupported = "zest_polygon_mode_point";
+	else if (topology == zest_topology_triangle_fan) unsupported = "zest_topology_triangle_fan";
+	else if (topology == zest_topology_line_list_with_adjacency) unsupported = "zest_topology_line_list_with_adjacency";
+	else if (topology == zest_topology_line_strip_with_adjacency) unsupported = "zest_topology_line_strip_with_adjacency";
+	else if (topology == zest_topology_triangle_list_with_adjacency) unsupported = "zest_topology_triangle_list_with_adjacency";
+	else if (topology == zest_topology_triangle_strip_with_adjacency) unsupported = "zest_topology_triangle_strip_with_adjacency";
+	else if (topology == zest_topology_patch_list) unsupported = "zest_topology_patch_list";
+	else if (depth_stencil->stencil_test_enable) unsupported = "stencil_test_enable";
+	else if (depth_stencil->depth_bounds_test_enable) unsupported = "depth_bounds_test_enable";
+	if (unsupported) {
+		snprintf(out_error, error_size, "The pipeline %s uses %s, which the Metal backend doesn't support.", name, unsupported);
+		return ZEST_FALSE;
+	}
+	if (pipeline_template->view_mask) {
+		snprintf(out_error, error_size, "The pipeline %s has a view_mask, and the Metal backend can't draw more than one view yet.", name);
+		return ZEST_FALSE;
+	}
+
+	zest_hasher_t hasher;
+	zest__hash_initialise(&hasher, ZEST_HASH_SEED);
+	if (!zest__mtl_vertex_description(pipeline_template, vertex_function, descriptor, &hasher, out_error, error_size)) return ZEST_FALSE;
+	[descriptor setVertexFunction:vertex_function->function];
+	[descriptor setFragmentFunction:fragment_function ? fragment_function->function : nil];
+
+	zest_mtl_pipeline_key_t key;
+	memset(&key, 0, sizeof(key));
+	key.vertex_function = vertex_function->function;
+	key.fragment_function = fragment_function ? fragment_function->function : nil;
+	key.blend = pipeline_template->color_blend_attachment;
+	const zest_color_blend_attachment_t *blend = &pipeline_template->color_blend_attachment;
+	key.color_attachment_count = ZEST__MIN(rendering_info->color_attachment_count, (zest_uint)ZEST_MAX_ATTACHMENTS);
+	//Every attachment takes the template's one blend state, as on Vulkan
+	for (zest_uint attachment_index = 0; attachment_index != key.color_attachment_count; ++attachment_index) {
+		MTLRenderPipelineColorAttachmentDescriptor *attachment = [[descriptor colorAttachments] objectAtIndexedSubscript:attachment_index];
+		key.color_formats[attachment_index] = zest__mtl_pixel_format(rendering_info->color_attachment_formats[attachment_index]);
+		[attachment setPixelFormat:key.color_formats[attachment_index]];
+		[attachment setBlendingEnabled:blend->blend_enable ? YES : NO];
+		[attachment setSourceRGBBlendFactor:zest__mtl_blend_factor(blend->src_color_blend_factor)];
+		[attachment setDestinationRGBBlendFactor:zest__mtl_blend_factor(blend->dst_color_blend_factor)];
+		[attachment setRgbBlendOperation:zest__mtl_blend_operation(blend->color_blend_op)];
+		[attachment setSourceAlphaBlendFactor:zest__mtl_blend_factor(blend->src_alpha_blend_factor)];
+		[attachment setDestinationAlphaBlendFactor:zest__mtl_blend_factor(blend->dst_alpha_blend_factor)];
+		[attachment setAlphaBlendOperation:zest__mtl_blend_operation(blend->alpha_blend_op)];
+		[attachment setWriteMask:zest__mtl_color_write_mask(blend->color_write_mask)];
+	}
+	zest_bool has_depth = rendering_info->depth_attachment_format != zest_format_undefined;
+	//The pass attaches only the depth plane of a depth-stencil image, so the stencil format stays invalid
+	key.depth_format = has_depth ? zest__mtl_pixel_format(rendering_info->depth_attachment_format) : MTLPixelFormatInvalid;
+	[descriptor setDepthAttachmentPixelFormat:key.depth_format];
+	key.sample_count = rendering_info->sample_count ? (zest_uint)rendering_info->sample_count : 1;
+	[descriptor setRasterSampleCount:key.sample_count];
+	key.rasterization_enabled = rasterization->rasterizer_discard_enable ? ZEST_FALSE : ZEST_TRUE;
+	[descriptor setRasterizationEnabled:key.rasterization_enabled ? YES : NO];
+	zest__hasher_add(&hasher, &key, sizeof(key));
+	*out_key = (zest_key)zest__get_hash(&hasher);
+
+	//Vulkan passes every fragment when a depth test has no depth attachment
+	zest_bool depth_test = depth_stencil->depth_test_enable && has_depth;
+	[depth_stencil_descriptor setDepthCompareFunction:depth_test ? zest__mtl_compare_function(depth_stencil->depth_compare_op) : MTLCompareFunctionAlways];
+	[depth_stencil_descriptor setDepthWriteEnabled:depth_test && depth_stencil->depth_write_enable ? YES : NO];
+
+	out_backend->primitive_type = zest__mtl_primitive_type(topology);
+	out_backend->cull_mode = rasterization->cull_mode == zest_cull_mode_front ? MTLCullModeFront : rasterization->cull_mode == zest_cull_mode_back ? MTLCullModeBack : MTLCullModeNone;
+	//The converted vertex stage flips Y, which keeps the winding Vulkan sees
+	out_backend->winding = rasterization->front_face == zest_front_face_clockwise ? MTLWindingClockwise : MTLWindingCounterClockwise;
+	out_backend->fill_mode = rasterization->polygon_mode == zest_polygon_mode_line ? MTLTriangleFillModeLines : MTLTriangleFillModeFill;
+	out_backend->depth_clip_mode = rasterization->depth_clamp_enable ? MTLDepthClipModeClamp : MTLDepthClipModeClip;
+	out_backend->depth_bias_enable = rasterization->depth_bias_enable;
+	out_backend->depth_bias[0] = rasterization->depth_bias_constant_factor;
+	out_backend->depth_bias[1] = rasterization->depth_bias_clamp;
+	out_backend->depth_bias[2] = rasterization->depth_bias_slope_factor;
+	return ZEST_TRUE;
+}
+
+//Thread safe. The state is built outside the lock, and a thread that loses the race to cache it takes the cached one.
+id<MTLRenderPipelineState> zest__mtl_render_pipeline_state(zest_device device, zest_key key, MTLRenderPipelineDescriptor *descriptor, char *out_error, zest_size error_size) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	id<MTLRenderPipelineState> pipeline_state = nil;
+	pthread_mutex_lock(&backend->pipeline_lock);
+	if (zest_map_valid_key(backend->render_pipeline_states, key)) pipeline_state = *zest_map_at_key(backend->render_pipeline_states, key);
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	if (pipeline_state) return pipeline_state;
+	NSError *error = nil;
+	pipeline_state = [backend->device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+	if (!pipeline_state) {
+		snprintf(out_error, error_size, "%s", error ? [[error localizedDescription] UTF8String] : "Metal gave no error.");
+		return nil;
+	}
+	id<MTLRenderPipelineState> cached_state = nil;
+	pthread_mutex_lock(&backend->pipeline_lock);
+	if (zest_map_valid_key(backend->render_pipeline_states, key)) {
+		cached_state = *zest_map_at_key(backend->render_pipeline_states, key);
+	} else {
+		zest_map_insert_key(device->allocator, backend->render_pipeline_states, key, pipeline_state);
+	}
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	if (cached_state) {
+		[pipeline_state release];
+		return cached_state;
+	}
+	return pipeline_state;
+}
+
+//Thread safe, as above. Nil only when Metal can't make one.
+id<MTLDepthStencilState> zest__mtl_depth_stencil_state(zest_device device, MTLCompareFunction compare_function, zest_bool write_enabled) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	zest_uint state_index = (zest_uint)compare_function * 2 + (write_enabled ? 1 : 0);
+	ZEST_ASSERT(state_index < ZEST__MTL_DEPTH_STENCIL_STATE_COUNT, "zest__mtl_depth_stencil_state was given a compare function Metal doesn't have.");
+	pthread_mutex_lock(&backend->pipeline_lock);
+	id<MTLDepthStencilState> depth_stencil_state = backend->depth_stencil_states[state_index];
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	if (depth_stencil_state) return depth_stencil_state;
+	MTLDepthStencilDescriptor *descriptor = [[MTLDepthStencilDescriptor alloc] init];
+	[descriptor setDepthCompareFunction:compare_function];
+	[descriptor setDepthWriteEnabled:write_enabled ? YES : NO];
+	depth_stencil_state = [backend->device newDepthStencilStateWithDescriptor:descriptor];
+	[descriptor release];
+	if (!depth_stencil_state) return nil;
+	id<MTLDepthStencilState> cached_state = nil;
+	pthread_mutex_lock(&backend->pipeline_lock);
+	if (backend->depth_stencil_states[state_index]) {
+		cached_state = backend->depth_stencil_states[state_index];
+	} else {
+		backend->depth_stencil_states[state_index] = depth_stencil_state;
+	}
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	if (cached_state) {
+		[depth_stencil_state release];
+		return cached_state;
+	}
+	return depth_stencil_state;
+}
+
+//Reads only the rendering info, context and device of the command list, as the pipeline tests pass one with no backend
+zest_bool zest__mtl_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
+	zest_device device = command_list->context->device;
+	zest_pipeline_template pipeline_template = pipeline->pipeline_template;
+	zest_mtl_pipeline_backend_t *backend = ZEST_MTL_BACKEND(pipeline, pipeline);
+	const char *name = pipeline_template->name;
+	char error[1024];
+	zest_mtl_shader_function_t vertex_function;
+	zest_mtl_shader_function_t fragment_function;
+	zest_bool has_fragment = pipeline_template->fragment_shader.value != 0;
+	zest_bool built = zest__mtl_pipeline_shader_function(device, pipeline_template->vertex_shader, zest_vertex_shader, name, &vertex_function, error, sizeof(error));
+	if (built && has_fragment) built = zest__mtl_pipeline_shader_function(device, pipeline_template->fragment_shader, zest_fragment_shader, name, &fragment_function, error, sizeof(error));
+	if (built) {
+		@autoreleasepool {
+			MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+			MTLDepthStencilDescriptor *depth_stencil_descriptor = [[MTLDepthStencilDescriptor alloc] init];
+			zest_key key = 0;
+			built = zest__mtl_pipeline_description(device, pipeline_template, &command_list->rendering_info, &vertex_function, has_fragment ? &fragment_function : NULL, descriptor, depth_stencil_descriptor, backend, &key, error, sizeof(error));
+			if (built) {
+				char state_error[768];
+				backend->pipeline_state = zest__mtl_render_pipeline_state(device, key, descriptor, state_error, sizeof(state_error));
+				backend->depth_stencil_state = backend->pipeline_state ? zest__mtl_depth_stencil_state(device, [depth_stencil_descriptor depthCompareFunction], [depth_stencil_descriptor isDepthWriteEnabled]) : nil;
+				if (!backend->pipeline_state) {
+					snprintf(error, sizeof(error), "Metal couldn't create the pipeline %s: %s", name, state_error);
+					built = ZEST_FALSE;
+				} else if (!backend->depth_stencil_state) {
+					snprintf(error, sizeof(error), "Metal couldn't create the depth-stencil state of the pipeline %s.", name);
+					built = ZEST_FALSE;
+				}
+			}
+			[descriptor release];
+			[depth_stencil_descriptor release];
+		}
+	}
+	if (!built) {
+		zest__log_validation_error(device, error);
+		return ZEST_FALSE;
+	}
+	ZEST_APPEND_LOG(device->log_path.str, "Built pipeline %s", name);
+	ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
+	return ZEST_TRUE;
+}
+
+void *zest__mtl_new_compute_backend(zest_device device) {
+	zest_mtl_compute_backend_t *backend = (zest_mtl_compute_backend_t *)ZEST__ALLOCATE(device->allocator, sizeof(zest_mtl_compute_backend_t));
+	*backend = ZEST__ZERO_INIT(zest_mtl_compute_backend_t);
+	return backend;
+}
+
+//Zest frees a compute only once no frame in flight can still be using it
+void zest__mtl_cleanup_compute_backend(zest_compute compute) {
+	if (!compute->backend) return;
+	zest_device device = (zest_device)compute->handle.store->origin;
+	ZEST_MTL_RELEASE(ZEST_MTL_BACKEND(compute, compute)->pipeline_state);
+	ZEST__FREE(device->allocator, compute->backend);
+	compute->backend = NULL;
+}
+
+//The compute owns its pipeline state rather than borrowing one from a cache, as computes outlive a resize
+zest_bool zest__mtl_finish_compute(zest_device device, zest_compute compute) {
+	zest_mtl_compute_backend_t *backend = ZEST_MTL_BACKEND(compute, compute);
+	zest_shader shader = compute->shader.value ? (zest_shader)zest__get_store_resource_checked(compute->shader.store, compute->shader.value) : NULL;
+	const char *name = shader ? shader->name.str : "with no shader";
+	char error[1024];
+	zest_mtl_shader_function_t function;
+	if (!zest__mtl_pipeline_shader_function(device, compute->shader, zest_compute_shader, name, &function, error, sizeof(error))) {
+		zest__log_validation_error(device, error);
+		return ZEST_FALSE;
+	}
+	@autoreleasepool {
+		NSError *pipeline_error = nil;
+		backend->pipeline_state = [ZEST_MTL_BACKEND(device, device)->device newComputePipelineStateWithFunction:function.function error:&pipeline_error];
+		if (!backend->pipeline_state) {
+			snprintf(error, sizeof(error), "Metal couldn't create the compute pipeline %s: %s", name, pipeline_error ? [[pipeline_error localizedDescription] UTF8String] : "no error given");
+		}
+	}
+	if (!backend->pipeline_state) {
+		zest__log_validation_error(device, error);
+		return ZEST_FALSE;
+	}
+	backend->threads_per_threadgroup = MTLSizeMake(function.local_size[0], function.local_size[1], function.local_size[2]);
+	return ZEST_TRUE;
+}
 // -- End Pipelines
 
 // -- Images
@@ -3265,6 +3991,32 @@ id<MTLTexture> zest__mtl_new_view_texture(zest_image image, zest_image_view_type
 	return [texture newTextureViewWithPixelFormat:[texture pixelFormat] textureType:texture_type levels:levels slices:slices swizzle:channels];
 }
 
+//Shader validation drops reads and writes through a view of a heap texture unless the encoder declares the view, so compute and render encoders declare these
+void zest__mtl_list_texture_view(zest_device device, zest_image image, zest_mtl_image_view_backend_t *view_backend) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	if (!backend->declares_texture_views || view_backend->texture == ZEST_MTL_BACKEND(image, image)->texture) return;
+	pthread_mutex_lock(&backend->texture_view_lock);
+	zest_vec_push(device->allocator, backend->texture_views, view_backend->texture);
+	__atomic_store_n(&backend->texture_view_version, backend->texture_view_version + 1, __ATOMIC_RELEASE);
+	pthread_mutex_unlock(&backend->texture_view_lock);
+	view_backend->listed_device = device;
+}
+
+void zest__mtl_unlist_texture_view(zest_mtl_image_view_backend_t *view_backend) {
+	if (!view_backend->listed_device) return;
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, view_backend->listed_device);
+	pthread_mutex_lock(&backend->texture_view_lock);
+	zest_vec_foreach(view_index, backend->texture_views) {
+		if (backend->texture_views[view_index] != view_backend->texture) continue;
+		backend->texture_views[view_index] = zest_vec_back(backend->texture_views);
+		zest_vec_clip(backend->texture_views);
+		break;
+	}
+	__atomic_store_n(&backend->texture_view_version, backend->texture_view_version + 1, __ATOMIC_RELEASE);
+	pthread_mutex_unlock(&backend->texture_view_lock);
+	view_backend->listed_device = NULL;
+}
+
 zest_image_view_t *zest__mtl_create_image_view(zest_device device, zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator) {
 	zest_size total_size = sizeof(zest_image_view_t) + sizeof(zest_mtl_image_view_backend_t);
 	void *memory = NULL;
@@ -3291,12 +4043,14 @@ zest_image_view_t *zest__mtl_create_image_view(zest_device device, zest_image im
 		}
 		return NULL;
 	}
+	zest__mtl_list_texture_view(device, image, backend);
 	return image_view;
 }
 
 void zest__mtl_cleanup_image_view_backend(zest_image_view view) {
 	zest_mtl_image_view_backend_t *backend = ZEST_MTL_BACKEND(image_view, view);
 	if (!backend) return;
+	zest__mtl_unlist_texture_view(backend);
 	ZEST_MTL_RELEASE(backend->texture);
 }
 
@@ -3305,6 +4059,7 @@ void zest__mtl_cleanup_image_view_array_backend(zest_image_view_array view_array
 	for (zest_uint mip_index = 0; mip_index != view_array->count; ++mip_index) {
 		zest_mtl_image_view_backend_t *backend = ZEST_MTL_BACKEND(image_view, &view_array->views[mip_index]);
 		if (backend) {
+			zest__mtl_unlist_texture_view(backend);
 			ZEST_MTL_RELEASE(backend->texture);
 		}
 	}
@@ -3351,6 +4106,9 @@ zest_image_view_array zest__mtl_create_image_views_per_mip(zest_device device, z
 			}
 			return NULL;
 		}
+	}
+	for (zest_uint mip_index = 0; mip_index != mip_count; ++mip_index) {
+		zest__mtl_list_texture_view(device, image, &backend_array[mip_index]);
 	}
 	return view_array;
 }
@@ -3678,6 +4436,8 @@ zest_bool zest__mtl_begin_command_buffer(const zest_command_list command_list) {
 	if (backend->switched_queue && ordering_timeline->current_value > 0) {
 		[command_buffer encodeWaitForEvent:ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event value:ordering_timeline->current_value];
 	}
+	//A new command buffer has nothing bound, as on Vulkan
+	backend->bind_state = ZEST__ZERO_INIT(zest_mtl_bind_state_t);
 	return ZEST_TRUE;
 }
 
@@ -3698,6 +4458,7 @@ id<MTLBlitCommandEncoder> zest__mtl_pass_blit_encoder(const zest_command_list co
 		zest__mtl_report_unavailable(command_list->context->device, "Copies can't be recorded inside a render pass on the Metal backend. Record them in a transfer pass.");
 		return nil;
 	}
+	zest__mtl_end_pass_compute_encoder(command_list);
 	@autoreleasepool {
 		backend->blit_encoder = [[backend->command_buffer blitCommandEncoder] retain];
 	}
@@ -3713,9 +4474,37 @@ void zest__mtl_end_pass_blit_encoder(const zest_command_list command_list) {
 	ZEST_MTL_RELEASE(backend->blit_encoder);
 }
 
+//A pass's dispatches share one compute encoder, which its first dispatch opens. Like a copy, a dispatch can't go inside a render pass.
+id<MTLComputeCommandEncoder> zest__mtl_pass_compute_encoder(const zest_command_list command_list) {
+	zest_device device = command_list->context->device;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	if (backend->compute_encoder) return backend->compute_encoder;
+	if (backend->render_encoder) {
+		zest__mtl_report_unavailable(device, "Dispatches can't be recorded inside a render pass on the Metal backend. Record them in a compute pass.");
+		return nil;
+	}
+	zest__mtl_end_pass_blit_encoder(command_list);
+	@autoreleasepool {
+		backend->compute_encoder = [[backend->command_buffer computeCommandEncoder] retain];
+	}
+	[backend->compute_encoder waitForFence:backend->fence];
+	zest__mtl_bind_table_to_compute_encoder(device, backend->compute_encoder);
+	zest__mtl_invalidate_bind_state(&backend->bind_state);
+	return backend->compute_encoder;
+}
+
+void zest__mtl_end_pass_compute_encoder(const zest_command_list command_list) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	if (!backend->compute_encoder) return;
+	[backend->compute_encoder updateFence:backend->fence];
+	[backend->compute_encoder endEncoding];
+	ZEST_MTL_RELEASE(backend->compute_encoder);
+}
+
 //The commit is the submission's, so this only closes what a failed execution left open
 void zest__mtl_end_command_buffer(const zest_command_list command_list) {
 	zest__mtl_end_pass_blit_encoder(command_list);
+	zest__mtl_end_pass_compute_encoder(command_list);
 	zest__mtl_end_render_pass(command_list);
 }
 
@@ -3739,9 +4528,10 @@ void zest__mtl_acquire_barrier(const zest_command_list command_list, zest_execut
 	zest__mtl_apply_image_barriers(ZEST_MTL_BACKEND(execution_barriers, &exe_details->barriers)->acquire_images, ZEST_FALSE);
 }
 
-//A transfer pass has no end of its own, so this is where the encoder its copies opened is ended
+//Transfer and compute passes have no end of their own, so this is where the encoder their copies or dispatches opened is ended
 void zest__mtl_release_barrier(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest__mtl_end_pass_blit_encoder(command_list);
+	zest__mtl_end_pass_compute_encoder(command_list);
 	zest__mtl_apply_image_barriers(ZEST_MTL_BACKEND(execution_barriers, &exe_details->barriers)->release_images, ZEST_TRUE);
 }
 
@@ -3803,6 +4593,9 @@ zest_bool zest__mtl_begin_render_pass(const zest_command_list command_list, zest
 	[backend->render_encoder waitForFence:backend->fence beforeStages:MTLRenderStageVertex];
 	backend->target_width = (zest_uint)[first_texture width];
 	backend->target_height = (zest_uint)[first_texture height];
+	zest__mtl_bind_table_to_render_encoder(context->device, backend->render_encoder);
+	//A Metal encoder starts with nothing set, so whatever the app bound is sent again at the next draw
+	zest__mtl_invalidate_bind_state(&backend->bind_state);
 	return ZEST_TRUE;
 }
 
@@ -3884,10 +4677,110 @@ void zest__mtl_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_sub
 	}
 	ZEST_MTL_BACKEND(command_list, &frame_graph->command_list)->execution = execution_backend;
 }
+
+//Keeps what the app asked for, so the next draw or dispatch sends all of it to the new encoder
+void zest__mtl_invalidate_bind_state(zest_mtl_bind_state_t *state) {
+	state->recorded_pipeline = NULL;
+	state->recorded_compute_state = nil;
+	state->declared_view_version = 0;
+	state->vertex_buffer_dirty_mask = (1u << ZEST__MTL_MAX_VERTEX_BINDINGS) - 1;
+	state->render_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+	state->depth_bias_dirty = ZEST_TRUE;
+}
+
+//Sends what the app asked for that the open render encoder doesn't hold yet. False skips the draw, which is reported once per command list.
+zest_bool zest__mtl_flush_render_state(const zest_command_list command_list) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_mtl_bind_state_t *state = &backend->bind_state;
+	id<MTLRenderCommandEncoder> encoder = backend->render_encoder;
+	if (!encoder || !state->pipeline) {
+		if (state->reported_missing_pipeline) return ZEST_FALSE;
+		state->reported_missing_pipeline = ZEST_TRUE;
+		ZEST_ASSERT_OR_VALIDATE(ZEST_FALSE, command_list->context->device, encoder ? "A draw was recorded with no pipeline bound. Call zest_cmd_BindPipeline before drawing." : "A draw was recorded outside a render pass. Record draws in a render pass's callback.", ZEST_FALSE);
+		return ZEST_FALSE;
+	}
+	zest_mtl_pipeline_backend_t *pipeline_backend = ZEST_MTL_BACKEND(pipeline, state->pipeline);
+	if (state->recorded_pipeline != state->pipeline) {
+		[encoder setRenderPipelineState:pipeline_backend->pipeline_state];
+		[encoder setDepthStencilState:pipeline_backend->depth_stencil_state];
+		[encoder setCullMode:pipeline_backend->cull_mode];
+		[encoder setFrontFacingWinding:pipeline_backend->winding];
+		[encoder setTriangleFillMode:pipeline_backend->fill_mode];
+		[encoder setDepthClipMode:pipeline_backend->depth_clip_mode];
+		state->recorded_pipeline = state->pipeline;
+		state->depth_bias_dirty = ZEST_TRUE;
+	}
+	if (state->render_push_dirty) {
+		[encoder setVertexBytes:state->push_data length:ZEST_MAX_PUSH_SIZE atIndex:ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX];
+		[encoder setFragmentBytes:state->push_data length:ZEST_MAX_PUSH_SIZE atIndex:ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX];
+		state->render_push_dirty = ZEST_FALSE;
+	}
+	for (zest_uint dirty_mask = state->vertex_buffer_dirty_mask; dirty_mask; dirty_mask &= dirty_mask - 1) {
+		zest_uint binding = (zest_uint)__builtin_ctz(dirty_mask);
+		zest_buffer buffer = state->vertex_buffers[binding];
+		if (buffer) [encoder setVertexBuffer:zest__mtl_buffer_object(buffer) offset:(NSUInteger)buffer->memory_offset atIndex:ZEST__MTL_VERTEX_BUFFER_INDEX + binding];
+	}
+	state->vertex_buffer_dirty_mask = 0;
+	if (state->depth_bias_dirty) {
+		//A pipeline without depth bias draws with none, and one with it takes zest_cmd_SetDepthBias's values once they're set
+		const float *bias = state->depth_bias_set ? state->depth_bias : pipeline_backend->depth_bias;
+		if (pipeline_backend->depth_bias_enable) [encoder setDepthBias:bias[0] slopeScale:bias[2] clamp:bias[1]];
+		else [encoder setDepthBias:0.f slopeScale:0.f clamp:0.f];
+		state->depth_bias_dirty = ZEST_FALSE;
+	}
+	zest_device device = command_list->context->device;
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	if (device_backend->declares_texture_views && state->declared_view_version != __atomic_load_n(&device_backend->texture_view_version, __ATOMIC_ACQUIRE)) {
+		zest__mtl_declare_texture_views_to_render_encoder(device, encoder, state);
+	}
+	return ZEST_TRUE;
+}
+
+//Sends what a dispatch needs that the compute encoder doesn't hold yet, for a frame graph or an immediate command buffer
+zest_bool zest__mtl_flush_compute_state(zest_device device, id<MTLComputeCommandEncoder> encoder, zest_mtl_bind_state_t *state) {
+	if (!state->compute || !state->compute->backend) {
+		ZEST_ASSERT_OR_VALIDATE(ZEST_FALSE, device, "A dispatch was recorded with no compute pipeline bound. Call zest_cmd_BindComputePipeline before dispatching.", ZEST_FALSE);
+		return ZEST_FALSE;
+	}
+	zest_mtl_compute_backend_t *compute_backend = ZEST_MTL_BACKEND(compute, state->compute);
+	if (state->recorded_compute_state != compute_backend->pipeline_state) {
+		[encoder setComputePipelineState:compute_backend->pipeline_state];
+		state->recorded_compute_state = compute_backend->pipeline_state;
+	}
+	if (state->compute_push_dirty) {
+		[encoder setBytes:state->push_data length:ZEST_MAX_PUSH_SIZE atIndex:ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX];
+		state->compute_push_dirty = ZEST_FALSE;
+	}
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	if (device_backend->declares_texture_views && state->declared_view_version != __atomic_load_n(&device_backend->texture_view_version, __ATOMIC_ACQUIRE)) {
+		zest__mtl_declare_texture_views_to_compute_encoder(device, encoder, state);
+	}
+	return ZEST_TRUE;
+}
+
+//Declared again when a view is made after the encoder's last declaration, as a task can ask for a transient image's mip views between dispatches
+void zest__mtl_declare_texture_views_to_compute_encoder(zest_device device, id<MTLComputeCommandEncoder> encoder, zest_mtl_bind_state_t *state) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	pthread_mutex_lock(&backend->texture_view_lock);
+	zest_uint view_count = zest_vec_size(backend->texture_views);
+	if (view_count) [encoder useResources:backend->texture_views count:view_count usage:MTLResourceUsageRead | MTLResourceUsageWrite];
+	state->declared_view_version = backend->texture_view_version;
+	pthread_mutex_unlock(&backend->texture_view_lock);
+}
+
+void zest__mtl_declare_texture_views_to_render_encoder(zest_device device, id<MTLRenderCommandEncoder> encoder, zest_mtl_bind_state_t *state) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	pthread_mutex_lock(&backend->texture_view_lock);
+	zest_uint view_count = zest_vec_size(backend->texture_views);
+	if (view_count) [encoder useResources:backend->texture_views count:view_count usage:MTLResourceUsageRead | MTLResourceUsageWrite stages:MTLRenderStageVertex | MTLRenderStageFragment];
+	state->declared_view_version = backend->texture_view_version;
+	pthread_mutex_unlock(&backend->texture_view_lock);
+}
 // -- End Internal_Frame_graph_context_functions
 
 // -- Frame_graph_context_functions
-//Records nothing, as the bindless table is the only set there is and it's bound when a pipeline is
+//Records nothing, as the bindless table is the only set there is and it's bound whenever a render encoder opens
 void zest__mtl_bind_descriptor_sets(const zest_command_list command_list, zest_pipeline_bind_point bind_point, zest_pipeline_layout layout, zest_descriptor_set *descriptor_sets, zest_uint set_count, zest_uint first_set) {
 	(void)bind_point;
 	(void)layout;
@@ -3927,6 +4820,149 @@ void zest__mtl_set_screensized_viewport(const zest_command_list command_list, fl
 	//Must be called from a pass callback of a graph that renders to the swapchain
 	zest_swapchain swapchain = command_list->frame_graph->swapchain;
 	zest__mtl_clip(command_list, 0.f, 0.f, (float)swapchain->size.width, (float)swapchain->size.height, min_depth, max_depth);
+}
+
+void zest__mtl_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) {
+	zest_bool built = pipeline && pipeline->backend && ZEST_MTL_BACKEND(pipeline, pipeline)->pipeline_state;
+	ZEST_ASSERT_OR_VALIDATE(built, command_list->context->device, "zest_cmd_BindPipeline was given a pipeline that wasn't built. Check what zest_GetPipeline returned before binding it.", );
+	if (!built) return;
+	ZEST_MTL_BACKEND(command_list, command_list)->bind_state.pipeline = pipeline;
+}
+
+//Shared code passes the device's layout, and the converted shaders read their push block from one 128 byte buffer in every stage
+void zest__mtl_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size) {
+	(void)layout;
+	zest_mtl_bind_state_t *state = &ZEST_MTL_BACKEND(command_list, command_list)->bind_state;
+	memcpy(state->push_data, data, ZEST__MIN(size, (zest_uint)ZEST_MAX_PUSH_SIZE));
+	state->render_push_dirty = ZEST_TRUE;
+	state->compute_push_dirty = ZEST_TRUE;
+}
+
+void zest__mtl_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
+	(void)binding_count;
+	if (first_binding >= ZEST__MTL_MAX_VERTEX_BINDINGS) {
+		zest__log_validation_error(command_list->context->device, "A vertex buffer was bound past binding 3, and the Metal backend has bindings 0 to 3, as the next buffer index holds the push constants.");
+		return;
+	}
+	zest_mtl_bind_state_t *state = &ZEST_MTL_BACKEND(command_list, command_list)->bind_state;
+	state->vertex_buffers[first_binding] = buffer;
+	state->vertex_buffer_dirty_mask |= 1u << first_binding;
+}
+
+//Metal takes the index buffer with each indexed draw, so binding only records it
+void zest__mtl_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer) {
+	ZEST_MTL_BACKEND(command_list, command_list)->bind_state.index_buffer = buffer;
+}
+
+void zest__mtl_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT(layer->vertex_data);	//There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
+	zest__mtl_bind_vertex_buffer(command_list, 0, 1, layer->vertex_data);
+}
+
+void zest__mtl_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT(layer->index_data);		//There's no index data in the buffer. Did you call zest_AddMeshToLayer?
+	ZEST_MTL_BACKEND(command_list, command_list)->bind_state.index_buffer = layer->index_data;
+}
+
+void zest__mtl_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) {
+	zest_mtl_bind_state_t *state = &ZEST_MTL_BACKEND(command_list, command_list)->bind_state;
+	state->depth_bias[0] = factor;
+	state->depth_bias[1] = clamp;
+	state->depth_bias[2] = slope;
+	state->depth_bias_set = ZEST_TRUE;
+	state->depth_bias_dirty = ZEST_TRUE;
+}
+
+//Vulkan draws nothing for a count of 0, and Metal's debug layer refuses one
+void zest__mtl_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
+	if (!vertex_count || !instance_count) return;
+	if (!zest__mtl_flush_render_state(command_list)) return;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
+	[backend->render_encoder drawPrimitives:primitive_type vertexStart:first_vertex vertexCount:vertex_count instanceCount:instance_count baseInstance:first_instance];
+}
+
+//Indices are always 32-bit in Zest
+void zest__mtl_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
+	if (!index_count || !instance_count) return;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_buffer index_buffer = backend->bind_state.index_buffer;
+	ZEST_ASSERT_OR_VALIDATE(index_buffer, command_list->context->device, "zest_cmd_DrawIndexed was recorded with no index buffer bound. Call zest_cmd_BindIndexBuffer before drawing.", );
+	if (!index_buffer || !zest__mtl_flush_render_state(command_list)) return;
+	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
+	NSUInteger index_offset = (NSUInteger)(index_buffer->memory_offset + (zest_size)first_index * sizeof(zest_uint));
+	[backend->render_encoder drawIndexedPrimitives:primitive_type indexCount:index_count indexType:MTLIndexTypeUInt32 indexBuffer:zest__mtl_buffer_object(index_buffer) indexBufferOffset:index_offset
+		instanceCount:instance_count baseVertex:vertex_offset baseInstance:first_instance];
+}
+
+//The instruction's instances, each drawing vertex_count vertices, as Vulkan's does
+void zest__mtl_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+	zest__mtl_draw(command_list, vertex_count, instruction->total_indexes, 0, instruction->start_index);
+}
+
+//Metal's indirect arguments have Vulkan's layout but no draw count, so each command is its own call. The offset counts commands, not bytes.
+void zest__mtl_draw_indirect_commands(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride, zest_bool indexed) {
+	zest_device device = command_list->context->device;
+	zest_uint command_size = indexed ? (zest_uint)sizeof(zest_draw_indexed_indirect_command_t) : (zest_uint)sizeof(zest_draw_indirect_command_t);
+	if (stride < command_size || stride % 4 != 0) {
+		char message[256];
+		snprintf(message, sizeof(message), "%s was given a stride of %u bytes, so it was skipped. On Metal the stride must be a multiple of 4 and at least %u, the size of the command.", indexed ? "zest_cmd_DrawIndexedIndirect" : "zest_cmd_DrawIndirect", stride, command_size);
+		zest__log_validation_error(device, message);
+		return;
+	}
+	if (!draw_count) return;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_buffer index_buffer = backend->bind_state.index_buffer;
+	if (indexed) {
+		ZEST_ASSERT_OR_VALIDATE(index_buffer, device, "zest_cmd_DrawIndexedIndirect was recorded with no index buffer bound. Call zest_cmd_BindIndexBuffer before drawing.", );
+		if (!index_buffer) return;
+	}
+	if (!zest__mtl_flush_render_state(command_list)) return;
+	id<MTLRenderCommandEncoder> encoder = backend->render_encoder;
+	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
+	id<MTLBuffer> indirect_buffer = zest__mtl_buffer_object(buffer);
+	for (zest_uint draw = 0; draw != draw_count; ++draw) {
+		NSUInteger indirect_offset = (NSUInteger)(buffer->memory_offset + (offset + draw) * stride);
+		if (indexed) {
+			[encoder drawIndexedPrimitives:primitive_type indexType:MTLIndexTypeUInt32 indexBuffer:zest__mtl_buffer_object(index_buffer) indexBufferOffset:(NSUInteger)index_buffer->memory_offset indirectBuffer:indirect_buffer indirectBufferOffset:indirect_offset];
+		} else {
+			[encoder drawPrimitives:primitive_type indirectBuffer:indirect_buffer indirectBufferOffset:indirect_offset];
+		}
+	}
+}
+
+void zest__mtl_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute) {
+	ZEST_MTL_BACKEND(command_list, command_list)->bind_state.compute = compute;
+}
+
+//A list on a queue of the transfer family is refused, as on the other backends, though a Metal queue could run the dispatch
+void zest__mtl_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	zest_device device = command_list->context->device;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	if (!(backend->context_queue->queue_manager->type & zest_queue_compute)) {
+		zest__mtl_report_unavailable(device, "A dispatch can't be recorded on a transfer queue list, as on the other backends. Record it in a compute pass.");
+		return;
+	}
+	//Vulkan dispatches nothing for a count of 0
+	if (!group_count_x || !group_count_y || !group_count_z) return;
+	id<MTLComputeCommandEncoder> encoder = zest__mtl_pass_compute_encoder(command_list);
+	if (!encoder || !zest__mtl_flush_compute_state(device, encoder, &backend->bind_state)) return;
+	[encoder dispatchThreadgroups:MTLSizeMake(group_count_x, group_count_y, group_count_z) threadsPerThreadgroup:ZEST_MTL_BACKEND(compute, backend->bind_state.compute)->threads_per_threadgroup];
+}
+
+//A compute encoder runs its dispatches in the order they were encoded, and the queue's fence orders encoders, so there's nothing to record
+void zest__mtl_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) {
+	(void)command_list;
+	(void)resource;
+	(void)base_mip;
+}
+
+void zest__mtl_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest__mtl_draw_indirect_commands(command_list, buffer, offset, draw_count, stride, ZEST_TRUE);
+}
+
+void zest__mtl_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) {
+	zest__mtl_draw_indirect_commands(command_list, buffer, offset, draw_count, stride, ZEST_FALSE);
 }
 
 void zest__mtl_copy_buffer(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size) {
@@ -3995,6 +5031,7 @@ void zest__mtl_blit_image_mip(const zest_command_list command_list, zest_resourc
 	id<MTLRenderPipelineState> pipeline = zest__mtl_blit_pipeline(device, [destination_texture pixelFormat]);
 	if (!pipeline) return;
 	zest__mtl_end_pass_blit_encoder(command_list);
+	zest__mtl_end_pass_compute_encoder(command_list);
 	zest_uint mip_width = ZEST__MAX(source->info.extent.width >> mip_to_blit, 1u);
 	zest_uint mip_height = ZEST__MAX(source->info.extent.height >> mip_to_blit, 1u);
 	const float whole_rect[4] = { 0.f, 0.f, 1.f, 1.f };
@@ -4011,12 +5048,296 @@ zest_bool zest__mtl_image_clear(const zest_command_list command_list, zest_image
 	ZEST_ASSERT_OR_VALIDATE(!backend->render_encoder, context->device, "zest_cmd_ImageClear can't be called inside a render pass on the Metal backend. Clear the image with the pass's clear load op, or in a transfer pass.", ZEST_FALSE);
 	if (backend->render_encoder) return ZEST_FALSE;
 	zest__mtl_end_pass_blit_encoder(command_list);
+	zest__mtl_end_pass_compute_encoder(command_list);
 	zest_clear_value_t zero_value = ZEST__ZERO_INIT(zest_clear_value_t);
 	return zest__mtl_record_clear(context->device, backend->command_buffer, backend->fence, ZEST_MTL_BACKEND(context, context)->render_pass_descriptor, image, zero_value, 1, 1);
 }
 // -- End Frame_graph_context_functions
 
 // -- Shader_compiling
+//shaderc compiles on one compiler from several threads at once, so only creating it takes the lock
+shaderc_compiler_t zest__mtl_shader_compiler(zest_device device) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	shaderc_compiler_t compiler = __atomic_load_n(&backend->shaderc_compiler, __ATOMIC_ACQUIRE);
+	if (compiler) return compiler;
+	pthread_mutex_lock(&backend->shader_compiler_lock);
+	compiler = backend->shaderc_compiler;
+	if (!compiler) {
+		compiler = shaderc_compiler_initialize();
+		__atomic_store_n(&backend->shaderc_compiler, compiler, __ATOMIC_RELEASE);
+	}
+	pthread_mutex_unlock(&backend->shader_compiler_lock);
+	return compiler;
+}
+
+//GLSL to SPIR-V with ZEST_METAL defined, then the options' macros. NULL when shaderc couldn't run at all.
+shaderc_compilation_result_t zest__mtl_compile_glsl(shaderc_compiler_t compiler, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options) {
+	shaderc_compile_options_t compile_options = shaderc_compile_options_initialize();
+	if (!compile_options) return NULL;
+	shaderc_compile_options_add_macro_definition(compile_options, "ZEST_METAL", 10, "1", 1);
+	if (options) {
+		zest_vec_foreach(macro_index, options->macro_definitions) {
+			zest_macro_definition_t *definition = &options->macro_definitions[macro_index];
+			shaderc_compile_options_add_macro_definition(compile_options, definition->name.str, zest_TextLength(&definition->name), definition->value.str, zest_TextLength(&definition->value));
+		}
+	}
+	shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, source, (size_t)source_length, zest__mtl_shaderc_kind(type), name, "main", compile_options);
+	shaderc_compile_options_release(compile_options);
+	return result;
+}
+
+zest_bool zest__mtl_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) {
+	shaderc_compiler_t compiler = zest__mtl_shader_compiler(device);
+	if (!compiler) {
+		ZEST_APPEND_LOG(device->log_path.str, "Shader %s couldn't be validated, as the shader compiler couldn't be created.", name);
+		return ZEST_FALSE;
+	}
+	shaderc_compilation_result_t result = zest__mtl_compile_glsl(compiler, shader_code, strlen(shader_code), type, name, NULL);
+	zest_bool compiled = result && shaderc_result_get_compilation_status(result) == shaderc_compilation_status_success;
+	if (!compiled) {
+		const char *error = result ? shaderc_result_get_error_message(result) : NULL;
+		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, error ? error : "the compiler gave no result");
+		ZEST_ALERT("Shader compilation failed: %s, %s", name, error ? error : "the compiler gave no result");
+	}
+	if (result) shaderc_result_release(result);
+	return compiled;
+}
+
+//Compiles the shader's own source and type, as Vulkan's does. A failure keeps the last binary, which hot reload relies on.
+zest_bool zest__mtl_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options) {
+	zest_device device = (zest_device)shader->handle.store->origin;
+	shaderc_compiler_t compiler = zest__mtl_shader_compiler(device);
+	if (!compiler) {
+		zest_SetText(device->allocator, &shader->last_error, "The shader compiler couldn't be created.");
+		ZEST_APPEND_LOG(device->log_path.str, "Shader %s couldn't be compiled, as the shader compiler couldn't be created.", name);
+		return ZEST_FALSE;
+	}
+	shaderc_compilation_result_t result = zest__mtl_compile_glsl(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, name, options);
+	if (!result || shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+		const char *error = result ? shaderc_result_get_error_message(result) : NULL;
+		if (!error || !error[0]) error = "the compiler gave no error message";
+		zest_SetText(device->allocator, &shader->last_error, error);
+		ZEST_APPEND_LOG(device->log_path.str, "Shader compilation failed: %s, %s", name, error);
+		ZEST_ALERT("Shader compilation failed: %s, %s", name, error);
+		if (result) shaderc_result_release(result);
+		return ZEST_FALSE;
+	}
+	zest_FreeText(device->allocator, &shader->last_error);
+	zest_uint binary_size = (zest_uint)shaderc_result_get_length(result);
+	zest_vec_resize(device->allocator, shader->binary, binary_size);
+	memcpy(shader->binary, shaderc_result_get_bytes(result), binary_size);
+	shader->binary_size = binary_size;
+	shaderc_result_release(result);
+	return ZEST_TRUE;
+}
+
+zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, char *out_error, zest_size error_size) {
+	const char *error = spvc_context_get_last_error_string(context);
+	snprintf(out_error, error_size, "Shader %s couldn't be converted to MSL: %s", shader->name.str, error && error[0] ? error : "SPIRV-Cross gave no error text.");
+	return ZEST_FALSE;
+}
+
+//SPIR-V to MSL with every resource where the backend binds it. The MSL and the entry point's name live until the context is destroyed.
+zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size) {
+	static const spvc_resource_type set_resource_types[] = { SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, SPVC_RESOURCE_TYPE_STORAGE_BUFFER, SPVC_RESOURCE_TYPE_SEPARATE_IMAGE, SPVC_RESOURCE_TYPE_SEPARATE_SAMPLERS, SPVC_RESOURCE_TYPE_STORAGE_IMAGE, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE };
+	spvc_parsed_ir parsed_ir = NULL;
+	spvc_compiler compiler = NULL;
+	spvc_compiler_options options = NULL;
+	if (spvc_context_parse_spirv(context, (const SpvId *)shader->binary, shader->binary_size / sizeof(SpvId), &parsed_ir) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	if (spvc_context_create_compiler(context, SPVC_BACKEND_MSL, parsed_ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+
+	SpvExecutionModel model = zest__mtl_execution_model(expected_type);
+	const spvc_entry_point *entry_points = NULL;
+	size_t entry_point_count = 0;
+	if (spvc_compiler_get_entry_points(compiler, &entry_points, &entry_point_count) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	const char *entry_point = NULL;
+	for (size_t entry_index = 0; entry_index != entry_point_count && !entry_point; ++entry_index) {
+		if (entry_points[entry_index].execution_model == model) entry_point = entry_points[entry_index].name;
+	}
+	if (!entry_point) {
+		snprintf(out_error, error_size, "Shader %s has no %s entry point.", shader->name.str, expected_type == zest_vertex_shader ? "vertex" : expected_type == zest_fragment_shader ? "fragment" : "compute");
+		return ZEST_FALSE;
+	}
+	if (spvc_compiler_set_entry_point(compiler, entry_point, model) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+
+	if (spvc_compiler_create_compiler_options(compiler, &options) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_MSL_VERSION, SPVC_MAKE_MSL_VERSION(3, 1, 0));
+	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_MSL_PLATFORM, SPVC_MSL_PLATFORM_MACOS);
+	spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_MSL_ARGUMENT_BUFFERS, SPVC_TRUE);
+	//1 is tier 2
+	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_MSL_ARGUMENT_BUFFERS_TIER, 1);
+	spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
+	if (spvc_compiler_install_compiler_options(compiler, options) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+
+	//Each slot of set 0 is a buffer of the table's addresses and resource IDs, and a count of 0 keeps its array runtime sized
+	if (spvc_compiler_msl_add_discrete_descriptor_set(compiler, 0) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	for (zest_uint slot = 0; slot != zest_max_global_binding_number; ++slot) {
+		spvc_msl_resource_binding_2 slot_binding;
+		spvc_msl_resource_binding_init_2(&slot_binding);
+		slot_binding.stage = model;
+		slot_binding.desc_set = 0;
+		slot_binding.binding = slot;
+		slot_binding.count = 0;
+		slot_binding.msl_buffer = ZEST__MTL_BINDLESS_BUFFER_INDEX + slot;
+		slot_binding.msl_texture = ZEST__MTL_BINDLESS_BUFFER_INDEX + slot;
+		slot_binding.msl_sampler = ZEST__MTL_BINDLESS_BUFFER_INDEX + slot;
+		if (spvc_compiler_msl_add_resource_binding_2(compiler, &slot_binding) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	}
+	spvc_msl_resource_binding_2 push_binding;
+	spvc_msl_resource_binding_init_2(&push_binding);
+	push_binding.stage = model;
+	push_binding.desc_set = SPVC_MSL_PUSH_CONSTANT_DESC_SET;
+	push_binding.binding = SPVC_MSL_PUSH_CONSTANT_BINDING;
+	push_binding.msl_buffer = ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX;
+	if (spvc_compiler_msl_add_resource_binding_2(compiler, &push_binding) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+
+	spvc_resources resources = NULL;
+	spvc_set active_variables = NULL;
+	spvc_resources active_resources = NULL;
+	if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	if (spvc_compiler_get_active_interface_variables(compiler, &active_variables) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	if (spvc_compiler_create_shader_resources_for_active_variables(compiler, &active_resources, active_variables) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	//A resource the entry point never uses doesn't reach the MSL, so only a used one can be sized wrongly
+	for (size_t type_index = 0; type_index != sizeof(set_resource_types) / sizeof(set_resource_types[0]); ++type_index) {
+		const spvc_reflected_resource *list = NULL;
+		size_t list_count = 0;
+		spvc_resources_get_resource_list_for_type(active_resources, set_resource_types[type_index], &list, &list_count);
+		for (size_t resource = 0; resource != list_count; ++resource) {
+			if (spvc_compiler_get_decoration(compiler, list[resource].id, SpvDecorationDescriptorSet) != 0) continue;
+			spvc_type type = spvc_compiler_get_type_handle(compiler, list[resource].type_id);
+			unsigned dimensions = spvc_type_get_num_array_dimensions(type);
+			if (dimensions != 0 && spvc_type_get_array_dimension(type, dimensions - 1) == 0) continue;
+			snprintf(out_error, error_size, "Shader %s declares %s in set 0 with a fixed size, which the Metal backend can't serve from the bindless table. Declare it as a runtime array ([]) and index it with a variable, as glslang gives an array indexed only by constants a fixed size.", shader->name.str, list[resource].name);
+			return ZEST_FALSE;
+		}
+	}
+
+	if (expected_type == zest_vertex_shader) {
+		const spvc_reflected_resource *inputs = NULL;
+		size_t input_count = 0;
+		spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &inputs, &input_count);
+		for (size_t input = 0; input != input_count; ++input) {
+			unsigned location = spvc_compiler_get_decoration(compiler, inputs[input].id, SpvDecorationLocation);
+			spvc_type type = spvc_compiler_get_type_handle(compiler, inputs[input].type_id);
+			//A matrix takes a location per column and an array one per element, as on Vulkan
+			unsigned location_count = spvc_type_get_columns(type);
+			for (unsigned dimension = 0; dimension != spvc_type_get_num_array_dimensions(type); ++dimension) {
+				location_count *= spvc_type_get_array_dimension(type, dimension);
+			}
+			if (location + location_count > 31) {
+				snprintf(out_error, error_size, "Shader %s reads vertex input location %u, and Metal has vertex attributes 0 to 30.", shader->name.str, location + location_count - 1);
+				return ZEST_FALSE;
+			}
+			out_function->vertex_input_mask |= ((1u << location_count) - 1) << location;
+		}
+	} else if (expected_type == zest_compute_shader) {
+		for (unsigned axis = 0; axis != 3; ++axis) {
+			out_function->local_size[axis] = spvc_compiler_get_execution_mode_argument_by_index(compiler, SpvExecutionModeLocalSize, axis);
+		}
+	}
+
+	if (spvc_compiler_compile(compiler, out_msl) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	*out_entry_point = spvc_compiler_get_cleansed_entry_point_name(compiler, entry_point, model);
+	if (!*out_entry_point) return zest__mtl_conversion_error(context, shader, out_error, error_size);
+	return ZEST_TRUE;
+}
+
+//The library and function come back retained
+zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const char *msl, const char *entry_point, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	@autoreleasepool {
+		NSString *source = [NSString stringWithUTF8String:msl];
+		//SPIRV-Cross declares the pointer that two uniform block types at one binding share as constant, which its own descriptor array won't take
+		source = [source stringByReplacingOccurrencesOfString:@"constant void* spvBufferAliasSet" withString:@"device const void* spvBufferAliasSet"];
+		MTLCompileOptions *compile_options = [[MTLCompileOptions alloc] init];
+		[compile_options setLanguageVersion:MTLLanguageVersion3_1];
+		NSError *error = nil;
+		out_function->library = [backend->device newLibraryWithSource:source options:compile_options error:&error];
+		[compile_options release];
+		if (!out_function->library) {
+			snprintf(out_error, error_size, "Metal couldn't compile shader %s once it was converted to MSL: %s", shader->name.str, error ? [[error localizedDescription] UTF8String] : "no error given");
+			return ZEST_FALSE;
+		}
+		//A shader with specialisation constants only gives a pipeline from a specialised function, and no values keeps the SPIR-V's defaults
+		MTLFunctionConstantValues *constant_values = [[MTLFunctionConstantValues alloc] init];
+		out_function->function = [out_function->library newFunctionWithName:[NSString stringWithUTF8String:entry_point] constantValues:constant_values error:&error];
+		[constant_values release];
+		if (!out_function->function) {
+			snprintf(out_error, error_size, "Shader %s has no function %s once it was converted to MSL: %s", shader->name.str, entry_point, error ? [[error localizedDescription] UTF8String] : "no error given");
+			ZEST_MTL_RELEASE(out_function->library);
+			return ZEST_FALSE;
+		}
+	}
+	return ZEST_TRUE;
+}
+
+//Converts a shader the first time a pipeline needs it. The objects copied out are borrowed until a device reset.
+zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	if (!shader->binary || shader->binary_size < sizeof(SpvId)) {
+		snprintf(out_error, error_size, "Shader %s has no SPIR-V to convert to MSL.", shader->name.str);
+		return ZEST_FALSE;
+	}
+	zest_key key = zest_Hash(shader->binary, shader->binary_size, ZEST_HASH_SEED + (zest_ull)expected_type);
+	pthread_mutex_lock(&backend->pipeline_lock);
+	zest_bool cached = zest_map_valid_key(backend->shader_functions, key);
+	if (cached) *out_function = *zest_map_at_key(backend->shader_functions, key);
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	if (cached) return ZEST_TRUE;
+
+	zest_mtl_shader_function_t function = ZEST__ZERO_INIT(zest_mtl_shader_function_t);
+	spvc_context context = NULL;
+	if (spvc_context_create(&context) != SPVC_SUCCESS) {
+		snprintf(out_error, error_size, "Shader %s couldn't be converted to MSL, as SPIRV-Cross couldn't create a context.", shader->name.str);
+		return ZEST_FALSE;
+	}
+	const char *msl = NULL;
+	const char *entry_point = NULL;
+	zest_bool created = zest__mtl_convert_spirv(context, shader, expected_type, &function, &msl, &entry_point, out_error, error_size) && zest__mtl_compile_msl(device, shader, msl, entry_point, &function, out_error, error_size);
+	spvc_context_destroy(context);
+	if (!created) return ZEST_FALSE;
+
+	//A thread that converted the same SPIR-V first wins, and this one's objects go
+	zest_mtl_shader_function_t duplicate = ZEST__ZERO_INIT(zest_mtl_shader_function_t);
+	pthread_mutex_lock(&backend->pipeline_lock);
+	if (zest_map_valid_key(backend->shader_functions, key)) {
+		duplicate = function;
+		function = *zest_map_at_key(backend->shader_functions, key);
+	} else {
+		zest_map_insert_key(device->allocator, backend->shader_functions, key, function);
+	}
+	pthread_mutex_unlock(&backend->pipeline_lock);
+	ZEST_MTL_RELEASE(duplicate.function);
+	ZEST_MTL_RELEASE(duplicate.library);
+	*out_function = function;
+	return ZEST_TRUE;
+}
+
+//The device is idle, or being destroyed, whenever this runs
+void zest__mtl_release_pipeline_caches(zest_device device) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	zest_map_foreach(function_index, backend->shader_functions) {
+		zest_mtl_shader_function_t *function = &backend->shader_functions.data[zest_map_index(backend->shader_functions, function_index)];
+		ZEST_MTL_RELEASE(function->function);
+		ZEST_MTL_RELEASE(function->library);
+	}
+	zest_map_free(device->allocator, backend->shader_functions);
+	zest_map_foreach(state_index, backend->render_pipeline_states) {
+		ZEST_MTL_RELEASE(backend->render_pipeline_states.data[zest_map_index(backend->render_pipeline_states, state_index)]);
+	}
+	zest_map_free(device->allocator, backend->render_pipeline_states);
+	for (int state_index = 0; state_index != ZEST__MTL_DEPTH_STENCIL_STATE_COUNT; ++state_index) {
+		ZEST_MTL_RELEASE(backend->depth_stencil_states[state_index]);
+	}
+}
+
+zest_shader_handle zest__mtl_get_db_overlay_vertex_shader(zest_device device) {
+	return zest_CreateShader(device, zest__mtl_shader_db_overlay_vert, zest_vertex_shader, "DB Overlay Vertex", NULL, ZEST_TRUE);
+}
+
+zest_shader_handle zest__mtl_get_db_overlay_fragment_shader(zest_device device) {
+	return zest_CreateShader(device, zest__mtl_shader_db_overlay_frag, zest_fragment_shader, "DB Overlay Fragment", NULL, ZEST_TRUE);
+}
 // -- End Shader_compiling
 
 // -- GPU_Profiling_backend
@@ -4106,25 +5427,14 @@ void *zest__mtl_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint sem
 //Buffer and memory
 //Images
 //Pipelines
-zest_bool zest__mtl_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) { return zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("build_pipeline")); }
-zest_bool zest__mtl_finish_compute(zest_device device, zest_compute compute) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("finish_compute")); }
 //Semaphores
 //Set layouts
 //Command buffers/queues
 //General Context
 zest_sample_count_flags zest__mtl_get_msaa_sample_count(zest_context context) { zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("get_msaa_sample_count")); return zest_sample_count_1_bit; }
-zest_shader_handle zest__mtl_get_db_overlay_vertex_shader(zest_device device) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("get_db_overlay_vertex_shader")); return ZEST__ZERO_INIT(zest_shader_handle); }
-zest_shader_handle zest__mtl_get_db_overlay_fragment_shader(zest_device device) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("get_db_overlay_fragment_shader")); return ZEST__ZERO_INIT(zest_shader_handle); }
 //Device/OS
-//Shader Compiling
-zest_bool zest__mtl_validate_shader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) { return zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("validate_shader")); }
-zest_bool zest__mtl_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options) { return zest__mtl_report_unavailable((zest_device)shader->handle.store->origin, ZEST__MTL_UNAVAILABLE("compile_shader")); }
 //Create backends
-void *zest__mtl_new_pipeline_backend(zest_context context) { zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("new_pipeline_backend")); return NULL; }
-void *zest__mtl_new_compute_backend(zest_device device) { zest__mtl_report_unavailable(device, ZEST__MTL_UNAVAILABLE("new_compute_backend")); return NULL; }
 //Cleanup backends
-void zest__mtl_cleanup_compute_backend(zest_compute compute) { zest__mtl_report_unavailable((zest_device)compute->handle.store->origin, ZEST__MTL_UNAVAILABLE("cleanup_compute_backend")); }
-void zest__mtl_cleanup_pipeline_backend(zest_pipeline pipeline) { zest__mtl_report_unavailable(pipeline->context->device, ZEST__MTL_UNAVAILABLE("cleanup_pipeline_backend")); }
 //GPU Profiling
 zest_bool zest__mtl_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) { return zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("create_gpu_profiler_backend")); }
 void zest__mtl_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler) { zest__mtl_report_unavailable(NULL, ZEST__MTL_UNAVAILABLE("cleanup_gpu_profiler_backend")); }
@@ -4135,25 +5445,7 @@ zest_bool zest__mtl_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_
 void zest__mtl_create_test_render_pass(zest_device device, const zest_command_list_t *command_list) {
 }
 //Command recording
-void zest__mtl_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("insert_compute_image_barrier")); }
-void zest__mtl_bind_pipeline(const zest_command_list command_list, zest_pipeline pipeline) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_pipeline")); }
-void zest__mtl_bind_compute_pipeline(const zest_command_list command_list, zest_compute compute) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_compute_pipeline")); }
-void zest__mtl_bind_vertex_buffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_vertex_buffer")); }
-void zest__mtl_bind_index_buffer(const zest_command_list command_list, zest_buffer buffer) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_index_buffer")); }
-void zest__mtl_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_mesh_vertex_buffer")); }
-void zest__mtl_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("bind_mesh_index_buffer")); }
-void zest__mtl_dispatch_compute(const zest_command_list command_list, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("dispatch_compute")); }
-void zest__mtl_send_push_constants(const zest_command_list command_list, zest_pipeline_layout layout, void *data, zest_uint size) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("send_push_constants")); }
-void zest__mtl_draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("draw")); }
-void zest__mtl_draw_layer_instruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("draw_layer_instruction")); }
-void zest__mtl_draw_indexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("draw_indexed")); }
-void zest__mtl_draw_indexed_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("draw_indexed_indirect")); }
-void zest__mtl_draw_indirect(const zest_command_list command_list, zest_buffer buffer, zest_size offset, zest_uint draw_count, zest_uint stride) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("draw_indirect")); }
-void zest__mtl_set_depth_bias(const zest_command_list command_list, float factor, float clamp, float slope) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("set_depth_bias")); }
 //Immediate commands
-void zest__mtl_imm_send_push_constants(zest_queue queue, void *data, zest_uint size) { zest__mtl_report_unavailable(queue->device, ZEST__MTL_UNAVAILABLE("imm_send_push_constants")); }
-void zest__mtl_imm_bind_compute_pipeline(zest_queue queue, zest_compute compute) { zest__mtl_report_unavailable(queue->device, ZEST__MTL_UNAVAILABLE("imm_bind_compute_pipeline")); }
-zest_bool zest__mtl_imm_dispatch_compute(zest_queue queue, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) { return zest__mtl_report_unavailable(queue->device, ZEST__MTL_UNAVAILABLE("imm_dispatch_compute")); }
 // -- End Unavailable_stubs
 
 #ifdef __cplusplus

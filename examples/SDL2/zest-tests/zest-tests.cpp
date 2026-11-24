@@ -228,56 +228,8 @@ static zest_bool IsVulkanOnlyTest(const char *name) {
 #ifdef ZEST_ENABLE_METAL
 //The shared tests the Metal suite run leaves out, under what each group needs from the backend
 static const char *metal_pending_tests[] = {
-	//A context with GPU profiling and the debug overlay, which need GPU timestamps and the overlay's shaders
+	//A context with GPU profiling, which needs GPU timestamps
 	"GPU Profiler Timestamps",
-	//Shader compiling, which every test with a pipeline, a draw or a compute dispatch starts from
-	"Buffer Read/Write",
-	"Image Write/Read",
-	"Multi Queue Sync",
-	"Stress Test Transient Buffers",
-	"Stress Test Transient Images",
-	"Stress Test All Transients",
-	"Stress Test Multi Queue",
-	"Pipeline Test State Depth",
-	"Pipeline Test State Blending",
-	"Pipeline Test State Culling",
-	"Pipeline Test State Topology",
-	"Pipeline Test State Polygon Mode",
-	"Pipeline Test State Front Face",
-	"Pipeline Test State Vertex Input",
-	"Pipeline Test State MultiBlend",
-	"Pipeline Test State Rasterization",
-	"Pipeline Test Winding Coverage",
-	"Pipeline Test Vertex Draw",
-	"Pipeline Test Depth Bias",
-	"Pipeline Test Indirect Draw",
-	"Pipeline Test ImGui Shaders",
-	"Shader Cache Invalidation",
-	"Shader Binary Platform Mismatch",
-	"Shader Platform Macro",
-	"Resource Test Compute Shader Resources",
-	"Compute Test Frame Graph and Execute",
-	"Compute Test Timeline Wait External",
-	"Compute Test Immediate Execute Cached",
-	"Compute Test Mipmap Chain",
-	"Compute Test Multiple Timeline Signals",
-	"Compute Test Read Modify Write",
-	"Compute Test Only Graph",
-	"Compute Test Immediate Execute No Wait",
-	"Compute Test Flush Compile Failure No Hang",
-	"Compute Test Headless Flush And Wait",
-	"Resource Test Stride Aligned Buffers",
-	"Frame Graph Transfer Image Output",
-	"Frame Graph Transfer Queue Mip Copy",
-	"Multi Queue Cached Handoff",
-	"Cached Imported Image",
-	"Cached Imported Image Async",
-	"Multi Queue Imported Handback",
-	"Frame Graph Transient Structured Buffer",
-	"Layer Test Instance Draw",
-	"Layer Test Frame In Flight",
-	"Shader Hot Reload Keeps Macros",
-	"Device Reset Memory Stability",
 	//Shader compiling from Slang
 	"Slang Variants And Linking",
 	"Slang Compile Failures",
@@ -442,10 +394,7 @@ int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const
 		ZEST_PRINT("\033[33mWARNING: dynamic rendering is not supported on this device, this run will use the legacy render pass path instead.\033[0m");
 	}
 
-	//Initialise Zest
 	tests.window_data = *window_data;
-	tests.context = zest_CreateContext(tests.device, window_data, &create_info);
-
 	InitialiseTests(&tests);
 	//InitialiseSpecificTests(&tests);
 
@@ -456,6 +405,9 @@ int RunSuite(zest_platform_type platform, zest_window_data_t *window_data, const
 		*total_out = 0;
 		return 0;
 	}
+
+	//The first test runs on this context, so it's made from that test's create info as RunTests makes every other one
+	tests.context = zest_CreateContext(tests.device, window_data, &tests.tests[0].create_info);
 
 	int completed_tests = RunTests(&tests);
 	*total_out = tests.test_count;

@@ -136,23 +136,23 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Queue families | Three `MTLCommandQueue`s reported as families 0 graphics, 1 compute, 2 transfer, with D3D12's explicit acquire lists (Decision 2) | Task 7 |
 | Timelines, queue ordering | `MTLSharedEvent`. A command buffer encodes its waits first (`encodeWaitForEvent:value:`) and its signals last (`encodeSignalEvent:value:`). CPU waits use `waitUntilSignaledValue:timeoutMS:` | Spike B, confirmed |
 | Binary semaphores | Not needed. The swapchain semaphore hooks return NULL | |
-| Command pools | Nothing to pool. Each batch takes a command buffer with unretained references, since Zest already defers frees past the frame in flight. Metal needs an object to outlive its buffer's completion, which comes a little after the event a wait sees, so a successful timeline wait, and the device's idle wait, first wait for every batch whose last signal has been seen and release it. A batch also holds its frame's drawable texture until then, as the layer drops a drawable once it has been shown | M2, M3 |
-| Passes | One encoder at a time per command buffer. Render passes open a render encoder from a descriptor carrying the load and store ops. Compute and transfer passes switch lazily between a compute and a blit encoder as commands need them | M2, M4 |
+| Command pools | Nothing to pool. Each batch takes a command buffer with unretained references, since Zest already defers frees past the frame in flight. Metal's debug layer needs an object to outlive its buffer's completed handlers. Those run after the buffer reads as completed, which itself comes a little after the event a wait sees. So a successful timeline wait, and the device's idle wait, call `waitUntilCompleted` on every batch they release, whatever its status says. A batch also holds its frame's drawable texture until then, as the layer drops a drawable once it has been shown | M2, M3, M4 |
+| Passes | One encoder at a time per command buffer. Render passes open a render encoder from a descriptor carrying the load and store ops. Compute and transfer passes switch lazily between a compute and a blit encoder as commands need them | M2, M4, confirmed |
 | Buffer pools | One untracked `MTLBuffer` per pool, suballocated by TLSF. Host-visible pools are shared storage and always mapped. Device-local pools are private | Task 8 |
 | Image pools, dedicated images, transient arenas | Private, untracked placement `MTLHeap`s. An image is a texture placed at the pool offset with `newTextureWithDescriptor:offset:`, and two textures may share a range | Spike B, confirmed |
-| Residency | One `MTLResidencySet` per device holding every pool buffer and heap, attached to all queues. No `useResource` anywhere, including for GPU writes through the bindless table. A resource missing from the set reads and writes wrong, silently unless shader validation is on, when the command buffer's `logs` name the access as not resident | Spike B, confirmed |
+| Residency | One `MTLResidencySet` per device holding every pool buffer and heap, attached to all queues. No `useResource` for any pool buffer or heap, including for GPU writes through the bindless table. A resource missing from the set reads and writes wrong, silently unless shader validation is on, when the command buffer's `logs` name the access as not resident. Shader validation also drops reads and writes through a view of a heap texture that the encoder hasn't declared, so under shader validation only, every render and compute encoder declares the device's texture views with `useResources` | Spike B, confirmed, M4 |
 | Ordering inside a queue | One `MTLFence` per queue. Each encoder waits on it when it opens and updates it when it ends, which serialises passes inside a command buffer and across command buffers on that queue. Without it untracked passes do run out of order. Refined from the barrier records only if profiling shows a cost | Spike B confirmed, M5 |
 | Image layouts | None. The backend tracks the Zest layout so `get_image_raw_layout` and the layout tests work | Task 9 |
 | Crossing queues | The shared event orders the handoff. No barrier on either side | M5 |
 | Views | `newTextureView` objects. `MTLTextureUsagePixelFormatView` only on images that need a view of another format | Task 9 |
 | The bindless set | One shared-storage `MTLBuffer` with a fixed region per slot. Every entry is 8 bytes: an image or sampler is its `gpuResourceID`, a buffer is `gpuAddress + offset`. Set 0 is converted as discrete bindings, so slot N's region binds at buffer index 5 + N, all nine with one ranged call per stage | Spike A, confirmed |
 | Structured buffer indexes | The same as raw ones, as on Vulkan. MSL pointers carry the type | Spike A, confirmed |
-| Shader creation | shaderc for GLSL (`ZEST_METAL=1` defined), then SPIRV-Cross to MSL, then `newLibraryWithSource`. The function is always taken with `newFunctionWithName:constantValues:error:`, which a shader with specialisation constants needs. Cached per shader for the device's life | Spike A, M4 |
+| Shader creation | shaderc for GLSL (`ZEST_METAL=1` defined), then SPIRV-Cross to MSL, then `newLibraryWithSource`. The function is always taken with `newFunctionWithName:constantValues:error:`, which a shader with specialisation constants needs. Converted when a pipeline or compute first needs it, and cached by the SPIR-V's bytes until a device reset, as a binary can arrive without `compile_shader` | Spike A, M4, confirmed |
 | Clip space | SPIRV-Cross flips Y in the vertex stage, so positions land on Vulkan's pixels with a plain viewport. Front face maps straight across: clockwise is `MTLWindingClockwise` | Spike A, confirmed |
-| Push constants | `setVertexBytes`, `setFragmentBytes` and the compute `setBytes` at flush, at buffer index 4. No upload ring | Spike A, M4 |
+| Push constants | `setVertexBytes`, `setFragmentBytes` and the compute `setBytes` at flush, at buffer index 4. No upload ring | Spike A, M4, confirmed |
 | Compute local size | Read from the SPIR-V and passed to `dispatchThreadgroups` | Spike A, confirmed |
-| Pipelines | Built lazily from the rendering info, with a device-wide cache keyed by contents. Depth-stencil state is its own cached object. Cull mode, winding, depth bias and topology are encoder or draw state | M4 |
-| Indirect draws | One native call per draw, looped over `draw_count`. Metal's indirect argument structs have Vulkan's field order *(unverified)* | M5 |
+| Pipelines | Built lazily from the rendering info, with a device-wide cache keyed by contents that a device reset empties. Depth-stencil state is its own cached object, one of 16. Cull mode, winding, fill mode, depth clip, depth bias and topology are encoder or draw state | M4, confirmed |
+| Indirect draws | One native call per draw, looped over `draw_count`. Metal's indirect argument structs have Vulkan's field order | M4, confirmed |
 | Mip generation | The blit encoder's `generateMipmaps` | Task 9 |
 | Scaled blits | A built-in pipeline whose shaders are MSL text in `zest_metal.h`, so it needs neither shaderc nor SPIRV-Cross | M3 |
 | Clears outside a pass | A render pass with a clear load op and no draws where the image can be a target, otherwise a copy from zeroed staging | M3 |
@@ -252,7 +252,7 @@ All three were taken as recommended. The details are under [Built_], Task 2.
 
 ## [Roadmap_] Milestones
 
-Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md` and M3's is `metal_m3_implementation.md`.
+Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`, M3's `metal_m3_implementation.md` and M4's `metal_m4_implementation.md`.
 
 | Milestone | Covers | Done when |
 | --- | --- | --- |
@@ -899,3 +899,19 @@ Planned and recorded in `metal_m3_implementation.md`. Its [Built_] has every res
   - A sampler with Metal's default mip filter reads mip 0 whatever level the shader asks for.
   - With the Mac's screen locked a `CAMetalLayer` hands out no drawable, so the windowed tests fail on a one second `zest_BeginFrame`.
 - Each MoltenVK suite leaves about 247 MB allocated on the Metal device after its Zest device is destroyed. What holds it is not known.
+
+### M4: pipelines (2026-11-24, on top of commit f6ddb18, not yet committed)
+
+Planned and recorded in `metal_m4_implementation.md`. Its [Built_] has every result, breakage and difference from its plan, the pending list mapped to milestones, and the questions for M5's plan.
+
+- The backend compiles GLSL with shaderc and `ZEST_METAL=1`, and converts the SPIR-V to MSL with SPIRV-Cross when a pipeline or compute first needs it, cached by the SPIR-V's bytes. It builds render and compute pipelines from device caches keyed by content, and draws, draws indirectly and dispatches through bind state flushed before each draw or dispatch. The debug overlay draws, and `zest-minimal-template --metal` draws its triangle.
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 129 / 129`, `Legacy render pass: 129 / 129`, `Metal suite: 124 / 124`, and 46 Metal backend tests, of which "Metal Windowed Frames" needs the screen unlocked. 8 shared tests are pending: "GPU Profiler Timestamps" needs GPU timestamps, and the 7 Slang tests aren't built on the Mac.
+- The pipeline, layer, stress, compute, frame graph and device-reset tests all pass on Metal, so M5's done line is met before M5 starts.
+- `zest_metal.h` has 6 stubs left of M1's 88: `get_msaa_sample_count` and the five GPU profiler members.
+- What M4 learnt that later milestones rely on:
+  - A command buffer reads as completed before its completed handlers run, and Metal's debug layer still uses the buffer's render targets in them. Only once `waitUntilCompleted` has returned can what the buffer used be freed.
+  - Shader validation drops reads and writes through a view of a heap texture that the encoder hasn't declared with `useResource`, though the heap is in the residency set. Without shader validation they work. It accepts a declaration from an earlier encoder in the same command buffer.
+  - Adding texture views to the residency set grew Metal's allocated size by 2 MB per device lifecycle, for no reason found.
+  - Metal can keep 256 KB of its own from the first aliasing graph in a process, even past the device, depending on what ran before. A test of Metal's allocated size compares two cycles, not one against the size before it.
+  - No test yet catches a missing fence wait or update on any encoder.
+  - `zest_FlushFrameGraph` releases an unwaited command graph's transient bindless indexes, so the next graph can rewrite them before the GPU reads them. Every backend has the race, and Metal's shader validation is the first thing to report it.
