@@ -555,6 +555,23 @@ int test__compute_only_graph(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+struct NoWaitWrite {
+	ZestTests *tests;
+	zest_uint buffer_index;
+};
+
+//As zest_WriteBufferCompute, keeping the bindless index the transient buffer was given
+static void no_wait_write_buffer(const zest_command_list command_list, void *user_data) {
+	NoWaitWrite *write = (NoWaitWrite *)user_data;
+	zest_resource_node write_buffer = zest_GetPassOutputResource(command_list, "Write Buffer");
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(write->tests->compute_write));
+	TestPushConstants push = {};
+	write->buffer_index = zest_GetTransientBufferBindlessIndex(command_list, write_buffer);
+	push.index1 = (int)write->buffer_index;
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(TestPushConstants));
+	zest_cmd_DispatchCompute(command_list, (1000 + 7) / 8, 1, 1);
+}
+
 /*
 Test immediate execute no wait: Fire-and-forget pattern.
 Execute immediate graph but don't wait, execute another graph.
@@ -577,6 +594,8 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 	// Create timeline for final wait only
 	zest_execution_timeline final_timeline = zest_CreateExecutionTimeline(tests->device);
+	NoWaitWrite first_write = { tests, ZEST_INVALID };
+	NoWaitWrite second_write = { tests, ZEST_INVALID };
 
 	// Execute first graph without waiting
 	if (zest_BeginCommandGraph(tests->context, "Fire and Forget 1", 0)) {
@@ -587,7 +606,7 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 		zest_BeginComputePass("Write Pass 1");
 		zest_ConnectOutput(buffer);
-		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_SetPassTask(no_wait_write_buffer, &first_write);
 		zest_EndPass();
 
 		// Don't wait - just execute
@@ -605,13 +624,19 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 
 		zest_BeginComputePass("Write Pass 2");
 		zest_ConnectOutput(buffer);
-		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_SetPassTask(no_wait_write_buffer, &second_write);
 		zest_EndPass();
 
 		// Don't wait here either
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		zest_FlushFrameGraph(frame_graph);
+	}
+
+	//The first graph may still be running, so the index its transient buffer was given can't go to the second graph's
+	if (first_write.buffer_index == second_write.buffer_index) {
+		ZEST_PRINT("The two unwaited graphs' transient buffers were both given bindless index %u.", first_write.buffer_index);
+		test->result = 1;
 	}
 
 	zest_semaphore_status status = zest_semaphore_status_success;

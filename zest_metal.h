@@ -137,6 +137,7 @@ static const char *zest__mtl_shader_db_overlay_frag =
 #define ZEST__MTL_VERTEX_BUFFER_INDEX 0
 #define ZEST__MTL_PUSH_CONSTANT_BUFFER_INDEX 4
 #define ZEST__MTL_BINDLESS_BUFFER_INDEX 5
+#define ZEST__MTL_VIEW_MASK_BUFFER_INDEX 24			//The first view and the view count, 8 bytes, for a multiview pipeline's stages
 #define ZEST__MTL_MAX_VERTEX_BINDINGS 4				//Vertex buffer binding N is buffer index N, and index 4 is the push constants
 #define ZEST__MTL_DEPTH_STENCIL_STATE_COUNT 16		//A compare function's eight values, with depth writes off and on
 #define ZEST__MTL_BINDLESS_ENTRY_SIZE 8				//Bytes: a texture's or sampler's resource ID, or a buffer's GPU address
@@ -375,6 +376,7 @@ typedef struct zest_mtl_pipeline_backend_t {
 	MTLDepthClipMode depth_clip_mode;
 	zest_bool depth_bias_enable;
 	float depth_bias[3];						//Constant factor, clamp and slope, from the template
+	zest_uint view_count;						//1, or the views a multiview pipeline draws as instances
 } zest_mtl_pipeline_backend_t;
 
 typedef struct zest_mtl_compute_backend_t {
@@ -437,6 +439,8 @@ typedef struct zest_mtl_pipeline_key_t {
 	zest_uint sample_count;
 	zest_bool rasterization_enabled;
 	zest_color_blend_attachment_t blend;
+	zest_uint view_count;
+	MTLPrimitiveTopologyClass input_topology;	//Unspecified unless the pipeline draws views into layers
 } zest_mtl_pipeline_key_t;
 
 //One attribute the vertex shader reads, hashed with the key in location order
@@ -695,9 +699,9 @@ ZEST_PRIVATE shaderc_compiler_t zest__mtl_shader_compiler(zest_device device);
 ZEST_PRIVATE shaderc_compilation_result_t zest__mtl_compile_glsl(shaderc_compiler_t compiler, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options);
 ZEST_PRIVATE SpvExecutionModel zest__mtl_execution_model(zest_shader_type type);
 ZEST_PRIVATE zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, char *out_error, zest_size error_size);
-ZEST_PRIVATE zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size);
 ZEST_PRIVATE zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const char *msl, const char *entry_point, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
-ZEST_PRIVATE zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
 ZEST_PRIVATE void zest__mtl_release_pipeline_caches(zest_device device);
 ZEST_PRIVATE MTLVertexFormat zest__mtl_vertex_format(zest_format format);
 ZEST_PRIVATE MTLBlendFactor zest__mtl_blend_factor(zest_blend_factor factor);
@@ -705,8 +709,9 @@ ZEST_PRIVATE MTLBlendOperation zest__mtl_blend_operation(zest_blend_op operation
 ZEST_PRIVATE MTLCompareFunction zest__mtl_compare_function(zest_compare_op compare_op);
 ZEST_PRIVATE MTLColorWriteMask zest__mtl_color_write_mask(zest_color_component_flags mask);
 ZEST_PRIVATE MTLPrimitiveType zest__mtl_primitive_type(zest_topology topology);
-ZEST_PRIVATE zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
-ZEST_PRIVATE zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size);
+ZEST_PRIVATE MTLPrimitiveTopologyClass zest__mtl_primitive_topology_class(zest_topology topology);
+ZEST_PRIVATE zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, zest_bool multiview, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, zest_uint view_count, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size);
 ZEST_PRIVATE zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_template pipeline_template, const zest_rendering_info_t *rendering_info, const zest_mtl_shader_function_t *vertex_function, const zest_mtl_shader_function_t *fragment_function, MTLRenderPipelineDescriptor *descriptor, MTLDepthStencilDescriptor *depth_stencil_descriptor, zest_mtl_pipeline_backend_t *out_backend, zest_key *out_key, char *out_error, zest_size error_size);
 ZEST_PRIVATE id<MTLRenderPipelineState> zest__mtl_render_pipeline_state(zest_device device, zest_key key, MTLRenderPipelineDescriptor *descriptor, char *out_error, zest_size error_size);
 ZEST_PRIVATE id<MTLDepthStencilState> zest__mtl_depth_stencil_state(zest_device device, MTLCompareFunction compare_function, zest_bool write_enabled);
@@ -1365,6 +1370,15 @@ MTLPrimitiveType zest__mtl_primitive_type(zest_topology topology) {
 		default:							return MTLPrimitiveTypeTriangle;
 	}
 }
+
+MTLPrimitiveTopologyClass zest__mtl_primitive_topology_class(zest_topology topology) {
+	switch (topology) {
+		case zest_topology_point_list:		return MTLPrimitiveTopologyClassPoint;
+		case zest_topology_line_list:
+		case zest_topology_line_strip:		return MTLPrimitiveTopologyClassLine;
+		default:							return MTLPrimitiveTopologyClassTriangle;
+	}
+}
 // -- End Type_converters
 
 // -- Inline_helpers
@@ -1693,7 +1707,8 @@ zest_bool zest__mtl_query_device_capabilities(zest_device device) {
 	zest__resolve_enabled_capabilities(device, supported);
 
 	device->max_image_size = 16384;
-	device->max_multiview_view_count = 1;
+	//Views are instances, so this is what MoltenVK reports on the same GPUs
+	device->max_multiview_view_count = 32;
 	//The values D3D12 reports, so offsets padded for one backend fit the others
 	device->min_uniform_buffer_offset_alignment = 256;
 	device->min_storage_buffer_offset_alignment = 16;
@@ -3226,7 +3241,7 @@ void zest__mtl_cleanup_pipeline_backend(zest_pipeline pipeline) {
 	pipeline->backend = NULL;
 }
 
-zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_handle shader_handle, zest_shader_type expected_type, zest_bool multiview, const char *pipeline_name, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
 	const char *stage_name = expected_type == zest_vertex_shader ? "vertex" : expected_type == zest_fragment_shader ? "fragment" : "compute";
 	zest_shader shader = shader_handle.value ? (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value) : NULL;
 	if (!shader || !shader->binary) {
@@ -3234,7 +3249,7 @@ zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_han
 		return ZEST_FALSE;
 	}
 	char shader_error[768];
-	if (!zest__mtl_shader_function(device, shader, expected_type, out_function, shader_error, sizeof(shader_error))) {
+	if (!zest__mtl_shader_function(device, shader, expected_type, multiview, out_function, shader_error, sizeof(shader_error))) {
 		snprintf(out_error, error_size, "The pipeline %s can't use its %s shader. %s", pipeline_name, stage_name, shader_error);
 		return ZEST_FALSE;
 	}
@@ -3242,7 +3257,7 @@ zest_bool zest__mtl_pipeline_shader_function(zest_device device, zest_shader_han
 }
 
 //An attribute for every location the vertex shader reads, from the template. An attribute the shader doesn't read is left out.
-zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size) {
+zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template, const zest_mtl_shader_function_t *vertex_function, zest_uint view_count, MTLRenderPipelineDescriptor *descriptor, zest_hasher_t *hasher, char *out_error, zest_size error_size) {
 	const char *name = pipeline_template->name;
 	zest_uint input_mask = vertex_function->vertex_input_mask;
 	if (pipeline_template->no_vertex_input) {
@@ -3296,7 +3311,8 @@ zest_bool zest__mtl_vertex_description(zest_pipeline_template pipeline_template,
 		MTLVertexBufferLayoutDescriptor *layout = [[vertex_descriptor layouts] objectAtIndexedSubscript:ZEST__MTL_VERTEX_BUFFER_INDEX + binding->binding];
 		[layout setStride:binding->stride];
 		[layout setStepFunction:binding->input_rate == zest_input_rate_instance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex];
-		[layout setStepRate:1];
+		//Each view is an instance, so an instance's data steps once per view count of them
+		[layout setStepRate:binding->input_rate == zest_input_rate_instance ? view_count : 1];
 		zest_mtl_vertex_input_key_t input_key = { location, (zest_uint)format, attribute->offset, attribute->binding, binding->stride, (zest_uint)binding->input_rate };
 		zest__hasher_add(hasher, &input_key, sizeof(input_key));
 	}
@@ -3326,14 +3342,15 @@ zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_templ
 		snprintf(out_error, error_size, "The pipeline %s uses %s, which the Metal backend doesn't support.", name, unsupported);
 		return ZEST_FALSE;
 	}
-	if (pipeline_template->view_mask) {
-		snprintf(out_error, error_size, "The pipeline %s has a view_mask, and the Metal backend can't draw more than one view yet.", name);
+	if (pipeline_template->view_mask != rendering_info->view_mask) {
+		snprintf(out_error, error_size, "The pipeline %s draws %u views but its render pass has %u. They must match, as on Vulkan.", name, zloc__count_bits(pipeline_template->view_mask), zloc__count_bits(rendering_info->view_mask));
 		return ZEST_FALSE;
 	}
+	zest_uint view_count = pipeline_template->view_mask ? zloc__count_bits(pipeline_template->view_mask) : 1;
 
 	zest_hasher_t hasher;
 	zest__hash_initialise(&hasher, ZEST_HASH_SEED);
-	if (!zest__mtl_vertex_description(pipeline_template, vertex_function, descriptor, &hasher, out_error, error_size)) return ZEST_FALSE;
+	if (!zest__mtl_vertex_description(pipeline_template, vertex_function, view_count, descriptor, &hasher, out_error, error_size)) return ZEST_FALSE;
 	[descriptor setVertexFunction:vertex_function->function];
 	[descriptor setFragmentFunction:fragment_function ? fragment_function->function : nil];
 
@@ -3366,6 +3383,10 @@ zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_templ
 	[descriptor setRasterSampleCount:key.sample_count];
 	key.rasterization_enabled = rasterization->rasterizer_discard_enable ? ZEST_FALSE : ZEST_TRUE;
 	[descriptor setRasterizationEnabled:key.rasterization_enabled ? YES : NO];
+	key.view_count = view_count;
+	//Metal won't build a vertex function that writes the layer without its input topology
+	key.input_topology = view_count > 1 ? zest__mtl_primitive_topology_class(topology) : MTLPrimitiveTopologyClassUnspecified;
+	[descriptor setInputPrimitiveTopology:key.input_topology];
 	zest__hasher_add(&hasher, &key, sizeof(key));
 	*out_key = (zest_key)zest__get_hash(&hasher);
 
@@ -3384,6 +3405,7 @@ zest_bool zest__mtl_pipeline_description(zest_device device, zest_pipeline_templ
 	out_backend->depth_bias[0] = rasterization->depth_bias_constant_factor;
 	out_backend->depth_bias[1] = rasterization->depth_bias_clamp;
 	out_backend->depth_bias[2] = rasterization->depth_bias_slope_factor;
+	out_backend->view_count = view_count;
 	return ZEST_TRUE;
 }
 
@@ -3456,8 +3478,9 @@ zest_bool zest__mtl_build_pipeline(zest_pipeline pipeline, zest_command_list com
 	zest_mtl_shader_function_t vertex_function;
 	zest_mtl_shader_function_t fragment_function;
 	zest_bool has_fragment = pipeline_template->fragment_shader.value != 0;
-	zest_bool built = zest__mtl_pipeline_shader_function(device, pipeline_template->vertex_shader, zest_vertex_shader, name, &vertex_function, error, sizeof(error));
-	if (built && has_fragment) built = zest__mtl_pipeline_shader_function(device, pipeline_template->fragment_shader, zest_fragment_shader, name, &fragment_function, error, sizeof(error));
+	zest_bool multiview = pipeline_template->view_mask != 0;
+	zest_bool built = zest__mtl_pipeline_shader_function(device, pipeline_template->vertex_shader, zest_vertex_shader, multiview, name, &vertex_function, error, sizeof(error));
+	if (built && has_fragment) built = zest__mtl_pipeline_shader_function(device, pipeline_template->fragment_shader, zest_fragment_shader, multiview, name, &fragment_function, error, sizeof(error));
 	if (built) {
 		@autoreleasepool {
 			MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
@@ -3511,7 +3534,7 @@ zest_bool zest__mtl_finish_compute(zest_device device, zest_compute compute) {
 	const char *name = shader ? shader->name.str : "with no shader";
 	char error[1024];
 	zest_mtl_shader_function_t function;
-	if (!zest__mtl_pipeline_shader_function(device, compute->shader, zest_compute_shader, name, &function, error, sizeof(error))) {
+	if (!zest__mtl_pipeline_shader_function(device, compute->shader, zest_compute_shader, ZEST_FALSE, name, &function, error, sizeof(error))) {
 		zest__log_validation_error(device, error);
 		return ZEST_FALSE;
 	}
@@ -4549,9 +4572,7 @@ zest_bool zest__mtl_begin_render_pass(const zest_command_list command_list, zest
 	if (has_resolve) {
 		return zest__mtl_report_unavailable(context->device, "The Metal backend can't resolve a multisampled attachment yet. Use zest_BeginVulkanDeviceBuilder on macOS until it can.");
 	}
-	if (exe_details->rendering_info.view_mask) {
-		return zest__mtl_report_unavailable(context->device, "The Metal backend can't render to more than one layer in a pass yet. Use zest_BeginVulkanDeviceBuilder on macOS until it can.");
-	}
+	zest_uint view_mask = exe_details->rendering_info.view_mask;
 	id<MTLTexture> first_texture = nil;
 	@autoreleasepool {
 		for (zest_uint attachment_index = 0; attachment_index != color_attachment_count; ++attachment_index) {
@@ -4577,6 +4598,8 @@ zest_bool zest__mtl_begin_render_pass(const zest_command_list command_list, zest
 			[attachment setClearDepth:info->clear_value.depth_stencil.depth];
 			if (!first_texture) first_texture = texture;
 		}
+		//Each view draws into the layer of its index
+		if (view_mask) [descriptor setRenderTargetArrayLength:zloc__count_bits(view_mask)];
 		backend->render_encoder = [[backend->command_buffer renderCommandEncoderWithDescriptor:descriptor] retain];
 		//The descriptor holds a reference to each texture, which would keep a freed image's memory until the context's next pass
 		for (zest_uint attachment_index = 0; attachment_index != color_attachment_count; ++attachment_index) {
@@ -4585,6 +4608,8 @@ zest_bool zest__mtl_begin_render_pass(const zest_command_list command_list, zest
 		if (has_depth) {
 			[[descriptor depthAttachment] setTexture:nil];
 		}
+		//The descriptor is shared, so a layered pass leaves nothing behind for the next pass, clear or blit
+		if (view_mask) [descriptor setRenderTargetArrayLength:0];
 	}
 	if (!backend->render_encoder) {
 		ZEST_REPORT(context->device, zest_report_render_pass_skipped, "Metal couldn't open a render pass on a frame graph batch.");
@@ -4708,6 +4733,12 @@ zest_bool zest__mtl_flush_render_state(const zest_command_list command_list) {
 		[encoder setFrontFacingWinding:pipeline_backend->winding];
 		[encoder setTriangleFillMode:pipeline_backend->fill_mode];
 		[encoder setDepthClipMode:pipeline_backend->depth_clip_mode];
+		if (pipeline_backend->view_count > 1) {
+			//The converted stages split each instance into a view and an instance with these
+			zest_uint view_mask[2] = { 0, pipeline_backend->view_count };
+			[encoder setVertexBytes:view_mask length:sizeof(view_mask) atIndex:ZEST__MTL_VIEW_MASK_BUFFER_INDEX];
+			[encoder setFragmentBytes:view_mask length:sizeof(view_mask) atIndex:ZEST__MTL_VIEW_MASK_BUFFER_INDEX];
+		}
 		state->recorded_pipeline = state->pipeline;
 		state->depth_bias_dirty = ZEST_TRUE;
 	}
@@ -4878,8 +4909,8 @@ void zest__mtl_draw(const zest_command_list command_list, zest_uint vertex_count
 	if (!vertex_count || !instance_count) return;
 	if (!zest__mtl_flush_render_state(command_list)) return;
 	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
-	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
-	[backend->render_encoder drawPrimitives:primitive_type vertexStart:first_vertex vertexCount:vertex_count instanceCount:instance_count baseInstance:first_instance];
+	zest_mtl_pipeline_backend_t *pipeline_backend = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline);
+	[backend->render_encoder drawPrimitives:pipeline_backend->primitive_type vertexStart:first_vertex vertexCount:vertex_count instanceCount:instance_count * pipeline_backend->view_count baseInstance:first_instance];
 }
 
 //Indices are always 32-bit in Zest
@@ -4889,10 +4920,10 @@ void zest__mtl_draw_indexed(const zest_command_list command_list, zest_uint inde
 	zest_buffer index_buffer = backend->bind_state.index_buffer;
 	ZEST_ASSERT_OR_VALIDATE(index_buffer, command_list->context->device, "zest_cmd_DrawIndexed was recorded with no index buffer bound. Call zest_cmd_BindIndexBuffer before drawing.", );
 	if (!index_buffer || !zest__mtl_flush_render_state(command_list)) return;
-	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
+	zest_mtl_pipeline_backend_t *pipeline_backend = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline);
 	NSUInteger index_offset = (NSUInteger)(index_buffer->memory_offset + (zest_size)first_index * sizeof(zest_uint));
-	[backend->render_encoder drawIndexedPrimitives:primitive_type indexCount:index_count indexType:MTLIndexTypeUInt32 indexBuffer:zest__mtl_buffer_object(index_buffer) indexBufferOffset:index_offset
-		instanceCount:instance_count baseVertex:vertex_offset baseInstance:first_instance];
+	[backend->render_encoder drawIndexedPrimitives:pipeline_backend->primitive_type indexCount:index_count indexType:MTLIndexTypeUInt32 indexBuffer:zest__mtl_buffer_object(index_buffer) indexBufferOffset:index_offset
+		instanceCount:instance_count * pipeline_backend->view_count baseVertex:vertex_offset baseInstance:first_instance];
 }
 
 //The instruction's instances, each drawing vertex_count vertices, as Vulkan's does
@@ -4918,8 +4949,15 @@ void zest__mtl_draw_indirect_commands(const zest_command_list command_list, zest
 		if (!index_buffer) return;
 	}
 	if (!zest__mtl_flush_render_state(command_list)) return;
+	zest_mtl_pipeline_backend_t *pipeline_backend = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline);
+	if (pipeline_backend->view_count > 1) {
+		char message[256];
+		snprintf(message, sizeof(message), "%s can't draw in a multiview pass on the Metal backend, as each view is an instance and the instance count is in the GPU buffer. Use zest_cmd_Draw or zest_cmd_DrawIndexed.", indexed ? "zest_cmd_DrawIndexedIndirect" : "zest_cmd_DrawIndirect");
+		zest__log_validation_error(device, message);
+		return;
+	}
 	id<MTLRenderCommandEncoder> encoder = backend->render_encoder;
-	MTLPrimitiveType primitive_type = ZEST_MTL_BACKEND(pipeline, backend->bind_state.pipeline)->primitive_type;
+	MTLPrimitiveType primitive_type = pipeline_backend->primitive_type;
 	id<MTLBuffer> indirect_buffer = zest__mtl_buffer_object(buffer);
 	for (zest_uint draw = 0; draw != draw_count; ++draw) {
 		NSUInteger indirect_offset = (NSUInteger)(buffer->memory_offset + (offset + draw) * stride);
@@ -5138,7 +5176,7 @@ zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, c
 }
 
 //SPIR-V to MSL with every resource where the backend binds it. The MSL and the entry point's name live until the context is destroyed.
-zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size) {
+zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size) {
 	static const spvc_resource_type set_resource_types[] = { SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, SPVC_RESOURCE_TYPE_STORAGE_BUFFER, SPVC_RESOURCE_TYPE_SEPARATE_IMAGE, SPVC_RESOURCE_TYPE_SEPARATE_SAMPLERS, SPVC_RESOURCE_TYPE_STORAGE_IMAGE, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE };
 	spvc_parsed_ir parsed_ir = NULL;
 	spvc_compiler compiler = NULL;
@@ -5167,6 +5205,14 @@ zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest
 	//1 is tier 2
 	spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_MSL_ARGUMENT_BUFFERS_TIER, 1);
 	spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
+	if (multiview) {
+		//Each view is an instance, written to the layer of its index
+		spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_MSL_MULTIVIEW, SPVC_TRUE);
+		spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_MSL_VIEW_MASK_BUFFER_INDEX, ZEST__MTL_VIEW_MASK_BUFFER_INDEX);
+	} else {
+		//Otherwise a shader that reads gl_ViewIndex declares a layer output it never writes, which Metal won't build without an input topology
+		spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_MSL_MULTIVIEW_LAYERED_RENDERING, SPVC_FALSE);
+	}
 	if (spvc_compiler_install_compiler_options(compiler, options) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
 
 	//Each slot of set 0 is a buffer of the table's addresses and resource IDs, and a count of 0 keeps its array runtime sized
@@ -5272,13 +5318,14 @@ zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const ch
 }
 
 //Converts a shader the first time a pipeline needs it. The objects copied out are borrowed until a device reset.
-zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
 	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
 	if (!shader->binary || shader->binary_size < sizeof(SpvId)) {
 		snprintf(out_error, error_size, "Shader %s has no SPIR-V to convert to MSL.", shader->name.str);
 		return ZEST_FALSE;
 	}
-	zest_key key = zest_Hash(shader->binary, shader->binary_size, ZEST_HASH_SEED + (zest_ull)expected_type);
+	//One SPIR-V converts differently for a multiview pipeline, so the flag keys it with the stage
+	zest_key key = zest_Hash(shader->binary, shader->binary_size, ZEST_HASH_SEED + (zest_ull)expected_type * 2 + (multiview ? 1 : 0));
 	pthread_mutex_lock(&backend->pipeline_lock);
 	zest_bool cached = zest_map_valid_key(backend->shader_functions, key);
 	if (cached) *out_function = *zest_map_at_key(backend->shader_functions, key);
@@ -5293,7 +5340,7 @@ zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest
 	}
 	const char *msl = NULL;
 	const char *entry_point = NULL;
-	zest_bool created = zest__mtl_convert_spirv(context, shader, expected_type, &function, &msl, &entry_point, out_error, error_size) && zest__mtl_compile_msl(device, shader, msl, entry_point, &function, out_error, error_size);
+	zest_bool created = zest__mtl_convert_spirv(context, shader, expected_type, multiview, &function, &msl, &entry_point, out_error, error_size) && zest__mtl_compile_msl(device, shader, msl, entry_point, &function, out_error, error_size);
 	spvc_context_destroy(context);
 	if (!created) return ZEST_FALSE;
 

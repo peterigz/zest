@@ -1764,6 +1764,69 @@ int test__transient_mip_views_allocator_growth(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+#define CACHED_GROWTH_ALLOCATOR_SIZE zloc__KILOBYTE(64)
+#define CACHED_GROWTH_PASS_COUNT 64
+
+//Caching a graph gives its frame in flight slot a new frame graph allocator, which must still grow for a later,
+//larger graph in that slot. The context's frame graph allocator holds the cached graph but not the large one.
+int test__cached_graph_allocator_growth(ZestTests *tests, Test *test) {
+	static zest_uint cached_fif;
+	static int grown_graph_count;
+	if (test->frame_count == 0) {
+		cached_fif = ZEST_INVALID;
+		grown_graph_count = 0;
+	}
+	zest_context context = tests->context;
+	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(context)) {
+		zest_uint fif = zest_CurrentFIF(context);
+		zest_frame_graph frame_graph = NULL;
+		if (fif == cached_fif) {
+			if (zest_BeginFrameGraph(context, "Large Graph", 0)) {
+				zest_ImportSwapchainResource();
+				for (int pass = 0; pass != CACHED_GROWTH_PASS_COUNT; ++pass) {
+					zest_BeginRenderPass("Pass");
+					zest_ConnectSwapChainOutput();
+					zest_SetPassTask(zest_EmptyRenderPass, NULL);
+					zest_EndPass();
+				}
+				frame_graph = zest_EndFrameGraph();
+			}
+			if (context->frame_graph_allocator[fif].next) {
+				grown_graph_count++;
+			}
+		} else {
+			frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
+			if (frame_graph) {
+				test->cache_count++;
+			} else if (zest_BeginFrameGraph(context, "Cached Graph", &cache_key)) {
+				zest_ImportSwapchainResource();
+				zest_BeginRenderPass("Pass");
+				zest_ConnectSwapChainOutput();
+				zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				zest_EndPass();
+				frame_graph = zest_EndFrameGraph();
+				//A slot that can't grow would stop the run at the builder's assert when the large graph is built
+				if (zest_GetCachedFrameGraph(context, &cache_key) != frame_graph || context->frame_graph_allocator[fif].user_data != context) {
+					test->result |= 4;
+				} else {
+					cached_fif = fif;
+				}
+			}
+		}
+		zest_EndFrame(context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	//The test proves nothing unless the large graph grew the allocator that caching replaced
+	if (test->frame_count == test->run_count && (grown_graph_count == 0 || test->cache_count == 0)) {
+		test->result |= 2;
+	}
+	return test->result;
+}
+
 int test__cached_transient_placement(ZestTests *tests, Test *test) {
 	static StalePlacementState state;
 	if (test->frame_count == 0) {

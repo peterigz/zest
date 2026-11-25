@@ -141,9 +141,9 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Buffer pools | One untracked `MTLBuffer` per pool, suballocated by TLSF. Host-visible pools are shared storage and always mapped. Device-local pools are private | Task 8 |
 | Image pools, dedicated images, transient arenas | Private, untracked placement `MTLHeap`s. An image is a texture placed at the pool offset with `newTextureWithDescriptor:offset:`, and two textures may share a range | Spike B, confirmed |
 | Residency | One `MTLResidencySet` per device holding every pool buffer and heap, attached to all queues. No `useResource` for any pool buffer or heap, including for GPU writes through the bindless table. A resource missing from the set reads and writes wrong, silently unless shader validation is on, when the command buffer's `logs` name the access as not resident. Shader validation also drops reads and writes through a view of a heap texture that the encoder hasn't declared, so under shader validation only, every render and compute encoder declares the device's texture views with `useResources` | Spike B, confirmed, M4 |
-| Ordering inside a queue | One `MTLFence` per queue. Each encoder waits on it when it opens and updates it when it ends, which serialises passes inside a command buffer and across command buffers on that queue. Without it untracked passes do run out of order. Refined from the barrier records only if profiling shows a cost | Spike B confirmed, M5 |
+| Ordering inside a queue | One `MTLFence` per queue. Each encoder waits on it when it opens and updates it when it ends, which serialises passes inside a command buffer and across command buffers on that queue. Without it untracked passes do run out of order. Refined from the barrier records only if profiling shows a cost | Spike B, M5, confirmed |
 | Image layouts | None. The backend tracks the Zest layout so `get_image_raw_layout` and the layout tests work | Task 9 |
-| Crossing queues | The shared event orders the handoff. No barrier on either side | M5 |
+| Crossing queues | The shared event orders the handoff. No barrier on either side. A batch whose queue slot moved to another device queue first waits on the slot's ordering event | M5, confirmed |
 | Views | `newTextureView` objects. `MTLTextureUsagePixelFormatView` only on images that need a view of another format | Task 9 |
 | The bindless set | One shared-storage `MTLBuffer` with a fixed region per slot. Every entry is 8 bytes: an image or sampler is its `gpuResourceID`, a buffer is `gpuAddress + offset`. Set 0 is converted as discrete bindings, so slot N's region binds at buffer index 5 + N, all nine with one ranged call per stage | Spike A, confirmed |
 | Structured buffer indexes | The same as raw ones, as on Vulkan. MSL pointers carry the type | Spike A, confirmed |
@@ -153,6 +153,7 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Compute local size | Read from the SPIR-V and passed to `dispatchThreadgroups` | Spike A, confirmed |
 | Pipelines | Built lazily from the rendering info, with a device-wide cache keyed by contents that a device reset empties. Depth-stencil state is its own cached object, one of 16. Cull mode, winding, fill mode, depth clip, depth bias and topology are encoder or draw state | M4, confirmed |
 | Indirect draws | One native call per draw, looped over `draw_count`. Metal's indirect argument structs have Vulkan's field order | M4, confirmed |
+| Multiview | Each view is an instance in layered rendering, from SPIRV-Cross's multiview conversion. The backend multiplies the instance count and every per-instance step rate by the view count, sends the first view and the count at buffer index 24, sets `renderTargetArrayLength`, and gives a multiview pipeline its `inputPrimitiveTopology`. Up to 32 views. An indirect draw in a multiview pass is refused, as its instance count is in a GPU buffer. Vertex amplification takes at most 2 views | M5, confirmed |
 | Mip generation | The blit encoder's `generateMipmaps` | Task 9 |
 | Scaled blits | A built-in pipeline whose shaders are MSL text in `zest_metal.h`, so it needs neither shaderc nor SPIRV-Cross | M3 |
 | Clears outside a pass | A render pass with a clear load op and no draws where the image can be a target, otherwise a copy from zeroed staging | M3 |
@@ -252,15 +253,15 @@ All three were taken as recommended. The details are under [Built_], Task 2.
 
 ## [Roadmap_] Milestones
 
-Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`, M3's `metal_m3_implementation.md` and M4's `metal_m4_implementation.md`.
+Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`, M3's `metal_m3_implementation.md`, M4's `metal_m4_implementation.md` and M5's `metal_m5_implementation.md`.
 
 | Milestone | Covers | Done when |
 | --- | --- | --- |
 | **M1** Spikes, groundwork, device | The three spikes. CMake and shared wiring. `zest_metal.h` with every member stubbed. Device, queues, shared events, immediate command buffers. Buffer pools, heaps, residency. Formats, images, views, samplers, uploads with mips, readback. The bindless table. Headless contexts. The Metal backend test list | A Metal device and a headless context create and destroy with validation silent and allocated size back at its baseline, an image with pixels reads back unchanged, and the Mac's Vulkan runs match Task 1's baseline |
 | **M2** Swapchain and frames | Window helpers, `CAMetalLayer`, acquire, present, resize. Per-batch command buffers, render passes with load and store ops, shared-event submission, the fence chain. `reinit_logical_device`. The Metal suite run joins `RunSuite` with its pending list | An app clears the window to a colour on Metal, resizes and shuts down clean |
 | **M3** Memory and resources | Transient arenas and unbound transient images. Buffer copies and uploads. Storage and uniform buffer entries, storage images, per-mip views. The MSL blit pipeline, `image_clear`, the remaining immediate functions except push constants and compute | The resource-management tests pass on Metal, apart from those that need compute |
-| **M4** Pipelines | shaderc and SPIRV-Cross inside the backend, the conversion cache, render and compute pipelines, lazy bind, draws, dispatch, push constants, the debug overlay, `--metal` on the minimal template | The pipeline and layer tests pass on Metal and the minimal template draws |
-| **M5** Full frame graph | Multi-queue and async compute over shared events, transient aliasing, cached graphs, indirect draws, multiview, the device-reset tests | The frame graph, stress, compute and device-reset tests pass on Metal |
+| **M4** Pipelines | shaderc and SPIRV-Cross inside the backend, the conversion cache, render and compute pipelines, lazy bind, draws, indirect draws, dispatch, push constants, the debug overlay, `--metal` on the minimal template | The pipeline and layer tests pass on Metal and the minimal template draws |
+| **M5** Full frame graph | Multi-queue and async compute over shared events, transient aliasing, cached graphs, multiview, the device-reset tests | The frame graph, stress, compute and device-reset tests pass on Metal |
 | **M6** Parity | `ZEST_METAL` in the Slang integration, ImGui, the TimelineFX examples, every example through `example_platform.h` with `--metal`, the pending list cut down to permanent exclusions | The suite passes on both Mac backends and every example runs on Metal with a non-zero draw count. `ZEST_ENABLE_METAL` then defaults to on for Apple |
 | **M7** Polish | GPU timestamps, markers and labels, command buffer error reports, an `msl/` text cache so a warm start skips shaderc and SPIRV-Cross, MSL as a shader input, user docs, a `metal-backend` skill, the README line | The overlay shows GPU timings, an Xcode capture shows pass names, a second launch compiles no GLSL, and a test draws with a hand-written MSL shader |
 
@@ -900,7 +901,7 @@ Planned and recorded in `metal_m3_implementation.md`. Its [Built_] has every res
   - With the Mac's screen locked a `CAMetalLayer` hands out no drawable, so the windowed tests fail on a one second `zest_BeginFrame`.
 - Each MoltenVK suite leaves about 247 MB allocated on the Metal device after its Zest device is destroyed. What holds it is not known.
 
-### M4: pipelines (2026-11-24, on top of commit f6ddb18, not yet committed)
+### M4: pipelines (2026-11-24, commit 41ed835)
 
 Planned and recorded in `metal_m4_implementation.md`. Its [Built_] has every result, breakage and difference from its plan, the pending list mapped to milestones, and the questions for M5's plan.
 
@@ -915,3 +916,25 @@ Planned and recorded in `metal_m4_implementation.md`. Its [Built_] has every res
   - Metal can keep 256 KB of its own from the first aliasing graph in a process, even past the device, depending on what ran before. A test of Metal's allocated size compares two cycles, not one against the size before it.
   - No test yet catches a missing fence wait or update on any encoder.
   - `zest_FlushFrameGraph` releases an unwaited command graph's transient bindless indexes, so the next graph can rewrite them before the GPU reads them. Every backend has the race, and Metal's shader validation is the first thing to report it.
+
+### M5: full frame graph (2026-11-24, on top of commit 41ed835, not yet committed)
+
+Planned and recorded in `metal_m5_implementation.md`. Its [Built_] has every result, breakage and difference from its plan, and the questions for M6's plan.
+
+- A multiview pass draws each view as an instance into the layer of its index, up to 32 views, with per-instance data and first instances right. A pipeline whose view count differs from its pass's is refused, as on D3D12, and so is an indirect draw in a multiview pass. A single view pipeline built from a shader that reads `gl_ViewIndex`, such as `depthpass.vert`, builds now, which it didn't before.
+- Three backend tests make a missing GPU wait fail: between the queues of a wave, when a queue slot moves to another device queue, and every fence wait and update of the frame graph's pass encoders. None found an ordering bug.
+- Shared changes in `zest.h`, every backend:
+  - An unwaited command graph flush defers its transient bindless indexes to the context's lists for the frame in flight, so shader validation now passes the whole Metal suite. Its per-mip views are still destroyed at the flush, which the API comment and the frame-graph skill document.
+  - `zest_SetPipelineViewCount` gives 32 views a mask of `0xFFFFFFFF`, where it gave 0.
+  - A builder allocator that can't grow, such as a command graph's, asserts when it runs out and names `frame_graph_allocator_size`.
+  - Caching a graph keeps its frame in flight allocator able to grow. New shared test: "Cached Graph Allocator Growth".
+  - The "Cannot cache the frame graph" alert shows only for a graph with a cache key, and names `frame_graph_allocator_size`.
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 130 / 130`, `Legacy render pass: 130 / 130`, `Metal suite: 125 / 125`, `Metal backend: 51 / 51`. The same Metal lines with shader validation. The pending list is unchanged: "GPU Profiler Timestamps" and the 7 Slang tests.
+- `zest_metal.h` still has M4's 6 stubs: `get_msaa_sample_count` and the five GPU profiler members.
+- What M5 learnt that later milestones rely on:
+  - Metal runs the other queues while one waits on a shared event, so a test can hold one queue without stalling the rest.
+  - The reap's `waitUntilCompleted` blocks until a slot's earlier batch really ends, so a missing GPU wait between a slot's batches doesn't show in CPU timing. A test has to check the GPU's own signals.
+  - A queue slot moves to another device queue only when the one it used last is busy. Setting `preferred_queue_index` doesn't move it.
+  - Metal won't build a vertex function that writes `[[render_target_array_index]]` without `inputPrimitiveTopology`. With SPIRV-Cross's layered rendering on, a single view conversion of a shader that reads `gl_ViewIndex` declares that output and never writes it.
+  - A fence call is only testable when the passes it orders overlap: a spin before the write and a read late in the next pass.
+  - A command graph's builder allocator doesn't grow. The fence test's 96 pass graph overflowed the default 256 KB after 72 passes, so it sets 2 MB. Running out now stops at an assert naming `frame_graph_allocator_size`, where it crashed before.

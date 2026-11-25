@@ -5628,6 +5628,9 @@ ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, 
 ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph(void);
+//Execute a command graph. Without a signal timeline the flush can't wait for the GPU: transient bindless indexes are then kept until the frame in
+//flight comes round, but the per-mip views from zest_GetTransientSampledMipBindlessIndexes are destroyed straight away, so a graph that uses
+//them must be flushed with zest_FlushFrameGraphAndWait or signal a timeline with zest_SignalTimeline.
 ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
 //Flush a command graph and wait for its GPU work to complete before returning. If the graph has no
 //signal timeline one is attached automatically (a reusable timeline owned by the context), so the
@@ -10618,6 +10621,7 @@ void *zest__linear_allocate(zloc_linear_allocator_t *allocator, zest_size size) 
 		zloc_AddNextLinearAllocator(allocator, next);
 		data = zloc_LinearAllocation(allocator, size);
 	}
+	ZEST_ASSERT(data, "A frame graph ran out of builder memory in an allocator that can't grow, such as a command graph's. Raise frame_graph_allocator_size in the context's create info.");
 	return data;
 }
 
@@ -12947,7 +12951,7 @@ void zest_SetPipelineViewCount(zest_pipeline_template pipeline_template, zest_ui
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	view_count = ZEST__MIN(view_count, pipeline_template->device->max_multiview_view_count);
 	view_count = ZEST__MAX(1, view_count);
-	pipeline_template->view_mask = (1u << view_count) - 1;
+	pipeline_template->view_mask = view_count >= 32 ? 0xFFFFFFFFu : (1u << view_count) - 1;
 }
 
 void zest_SetPipelineLayout(zest_pipeline_template pipeline_template, zest_pipeline_layout layout) {
@@ -15361,15 +15365,15 @@ zest_bool zest__using_legacy_render_pass(zest_device device) {
 void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
+    if (!frame_graph->cache_key) return;    //Only cache if there's a key
+    if (frame_graph->error_status) return;  //Don't cache a frame graph that had errors
 	//Don't cache the frame graph if the frame graph allocator had to be increased in size.
 	zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
 	if (allocator->next) {
 		zest_size capacity = zloc_GetLinearAllocatorCapacity(allocator);
-		ZEST_ALERT("Cannot cache the frame graph this frame as the frame graph allocator was not big enough. Consider increasing the size of the frame graph allocator by setting frame_graph_allocation_size in the create info of the context when you create it. The current capacity of the frame graph after being grown is %llu bytes.", capacity);
+		ZEST_ALERT("Cannot cache the frame graph this frame as the frame graph allocator was not big enough. Consider increasing the size of the frame graph allocator by setting frame_graph_allocator_size in the create info of the context when you create it. The current capacity of the frame graph after being grown is %llu bytes.", capacity);
 		return;
 	}
-    if (!frame_graph->cache_key) return;    //Only cache if there's a key
-    if (frame_graph->error_status) return;  //Don't cache a frame graph that had errors
 	/*
 	Improvement required here: If you execute multiple frame graphs in a frame and one is cached but the 
 	prior frame graphs were not cached then this doesn't currently take into account the fact that the start
@@ -15395,8 +15399,11 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     };
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_cached);
 	void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
+	void *allocator_user_data = allocator->user_data;
 	int result = zloc_InitialiseLinearAllocator(allocator, frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 	ZEST_ASSERT(result, "Unable to allocate a new frame graph allocator.");
+	//Initialising clears the user data, and a frame in flight allocator needs its context there to grow
+	zloc_SetLinearAllocatorUserData(allocator, allocator_user_data);
     if (zest_map_valid_key(context->cached_frame_graphs, frame_graph->cache_key)) {
         zest_cached_frame_graph_t *cached_graph = zest_map_at_key(context->cached_frame_graphs, frame_graph->cache_key);
 		//The graph being replaced holds persistent transient images and arena checkouts - retire
@@ -17099,6 +17106,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	ZEST_ASSERT_HANDLE(frame_graph); 	//Not a valid frame graph
 	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph), "zest_FlushCommandGraph should only be called for a command graph created with zest_BeginCommandGraph.");
 	zest_semaphore_status status = zest_semaphore_status_success;
+	zest_bool gpu_finished = ZEST_TRUE;		//False once the graph has run, until a wait proves its GPU work is over
 	ZEST__UNFLAG(frame_graph->error_status, ZEST_FGS_RETRYABLE);
 	//A graph carrying no work, or any fatal compile/placement error, must not be executed. Critically
 	//we must also skip the timeline wait below: a graph that never submits never signals, so waiting on
@@ -17111,6 +17119,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	} else if (zest__execute_frame_graph(context, frame_graph)) {
 		//Command graphs never reach zest_EndFrame, and queue exclusivity only matters while submitting, so release before waiting
 		zest__release_context_queues(context);
+		gpu_finished = ZEST_FALSE;
 		if (frame_graph->signal_timeline) {
 			//In debug builds use a large-but-finite timeout so a genuine hang surfaces as a
 			//diagnosable report instead of freezing the process indefinitely.
@@ -17124,6 +17133,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 				ZEST_REPORT(context->device, zest_report_submission_failure, "Timed out waiting for the signal timeline of command graph [%s]. The GPU work either hung or is taking longer than the debug wait timeout. Execution will continue but results may not be ready.", frame_graph->name);
 			}
 			if (status == zest_semaphore_status_success) {
+				gpu_finished = ZEST_TRUE;
 				//The wait proves this graph's GPU work is complete, so its arena checkouts can be
 				//made re-checkout-able immediately instead of waiting for the FIF slot to cycle.
 				//Without this, a loop of flushed command graphs between frames (loading phases)
@@ -17165,6 +17175,14 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 		//error rather than waiting on a timeline that will never be signalled.
 		zest__release_context_queues(context);
 		status = zest_semaphore_status_error;
+	}
+	if (!gpu_finished) {
+		//Without a wait the GPU may still read through these, so they go with the context's other deferred releases for this frame in flight
+		zest_binding_index_for_release_t *indexes = frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif];
+		zest_vec_foreach(index, indexes) {
+			zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], indexes[index]);
+		}
+		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]);
 	}
 	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif])) {
 		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]) {

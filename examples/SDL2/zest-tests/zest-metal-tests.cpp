@@ -3580,7 +3580,7 @@ static zest_bool metal_convert_source(zest_device device, zest_shader_handle sha
 		return ZEST_FALSE;
 	}
 	zest_shader shader = zest_GetShader(shader_handle);
-	return zest__mtl_shader_function(device, shader, shader->type, out_function, out_error, error_size);
+	return zest__mtl_shader_function(device, shader, shader->type, ZEST_FALSE, out_function, out_error, error_size);
 }
 
 static zest_bool metal_convert_file(zest_device device, zest_shader_handle shader_handle, const char *path, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
@@ -3643,10 +3643,10 @@ int test_metal_shader_conversion(void) {
 	zest_mtl_shader_function_t first = {};
 	zest_mtl_shader_function_t again = {};
 	zest_microsecs first_start = zest_Microsecs();
-	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, &first, error, sizeof(error));
+	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, ZEST_FALSE, &first, error, sizeof(error));
 	zest_microsecs first_time = zest_Microsecs() - first_start;
 	zest_microsecs again_start = zest_Microsecs();
-	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, &again, error, sizeof(error));
+	failed |= !zest__mtl_shader_function(device, fragment_shader, zest_fragment_shader, ZEST_FALSE, &again, error, sizeof(error));
 	zest_microsecs again_time = zest_Microsecs() - again_start;
 	ZEST_PRINT("\tpbr_texture.frag converted in %llu us, and came from the cache in %llu us", (unsigned long long)first_time, (unsigned long long)again_time);
 	failed |= !first.function || again.function != first.function || zest_map_size(backend->shader_functions) != 1;
@@ -3689,7 +3689,7 @@ int test_metal_shader_conversion(void) {
 	zest_vec_resize(device->allocator, compute_shader->binary, sizeof(short_binary));
 	memcpy(compute_shader->binary, short_binary, sizeof(short_binary));
 	compute_shader->binary_size = sizeof(short_binary);
-	zest_bool short_converted = zest__mtl_shader_function(device, compute_shader, zest_compute_shader, &function, error, sizeof(error));
+	zest_bool short_converted = zest__mtl_shader_function(device, compute_shader, zest_compute_shader, ZEST_FALSE, &function, error, sizeof(error));
 	ZEST_PRINT("\tShort binary: %s", short_converted ? "converted" : error);
 	failed |= short_converted;
 
@@ -3767,7 +3767,7 @@ static MTLVertexBufferLayoutDescriptor *metal_described_layout(MetalDescription 
 static zest_bool metal_create_converted_shader(zest_device device, zest_shader_handle *out_handle, const char *source, const char *name, zest_shader_type type, zest_mtl_shader_function_t *out_function) {
 	char error[1024];
 	*out_handle = zest_CreateShader(device, source, type, name, NULL, ZEST_TRUE);
-	if (zest__mtl_shader_function(device, zest_GetShader(*out_handle), type, out_function, error, sizeof(error))) return ZEST_TRUE;
+	if (zest__mtl_shader_function(device, zest_GetShader(*out_handle), type, ZEST_FALSE, out_function, error, sizeof(error))) return ZEST_TRUE;
 	ZEST_PRINT("\t%s", error);
 	return ZEST_FALSE;
 }
@@ -3870,7 +3870,7 @@ int test_metal_pipeline_state_translation(void) {
 
 		//Errors, each naming the state
 		const char *unsupported_states[11] = { "zest_cull_mode_front_and_back", "zest_polygon_mode_point", "zest_topology_triangle_fan", "zest_topology_line_list_with_adjacency", "zest_topology_line_strip_with_adjacency",
-			"zest_topology_triangle_list_with_adjacency", "zest_topology_triangle_strip_with_adjacency", "zest_topology_patch_list", "stencil_test_enable", "depth_bounds_test_enable", "view_mask" };
+			"zest_topology_triangle_list_with_adjacency", "zest_topology_triangle_strip_with_adjacency", "zest_topology_patch_list", "stencil_test_enable", "depth_bounds_test_enable", "draws 2 views but its render pass has 0" };
 		zest_topology unsupported_topologies[6] = { zest_topology_triangle_fan, zest_topology_line_list_with_adjacency, zest_topology_line_strip_with_adjacency, zest_topology_triangle_list_with_adjacency, zest_topology_triangle_strip_with_adjacency, zest_topology_patch_list };
 		for (int case_index = 0; case_index != 11; ++case_index) {
 			zest_pipeline_template error_template = zest_CreatePipelineTemplate(device, "Translation Error");
@@ -3974,8 +3974,8 @@ static int run_metal_concurrent_pipelines(zest_device device, zest_pipeline_temp
 	char error[1024];
 	zest_mtl_shader_function_t vertex_function = {};
 	zest_mtl_shader_function_t fragment_function = {};
-	int failed = !zest__mtl_shader_function(device, zest_GetShader(vertex_shader), zest_vertex_shader, &vertex_function, error, sizeof(error));
-	failed |= !zest__mtl_shader_function(device, zest_GetShader(fragment_shader), zest_fragment_shader, &fragment_function, error, sizeof(error));
+	int failed = !zest__mtl_shader_function(device, zest_GetShader(vertex_shader), zest_vertex_shader, ZEST_FALSE, &vertex_function, error, sizeof(error));
+	failed |= !zest__mtl_shader_function(device, zest_GetShader(fragment_shader), zest_fragment_shader, ZEST_FALSE, &fragment_function, error, sizeof(error));
 	if (failed) return failed;
 	zest_uint state_count = zest_map_size(backend->render_pipeline_states);
 	zest_uint thread_count = 0;
@@ -5040,6 +5040,943 @@ int test_metal_debug_overlay(void) {
 	return failed;
 }
 
+#define METAL_GATE_DELAY 200000			//Microseconds a gate holds its queue
+#define METAL_CROSS_WORD_COUNT 256
+
+//A queue held behind a command buffer that waits for the gate's event, which a thread sets after a delay
+struct MetalGate {
+	id<MTLSharedEvent> event;			//The held queue waits for value 1
+	pthread_t thread;
+	zest_bool thread_started;
+	zest_microsecs delay;				//How long the thread waits before it opens the gate
+	id<MTLSharedEvent> watched_event;	//Read just before the gate opens, when set
+	zest_u64 watched_value;
+	zest_bool watched_reached;
+};
+
+static void *metal_gate_thread(void *user_data) {
+	MetalGate *gate = (MetalGate *)user_data;
+	struct timespec wait_time = { (time_t)(gate->delay / 1000000), (long)(gate->delay % 1000000) * 1000 };
+	nanosleep(&wait_time, NULL);
+	if (gate->watched_event) gate->watched_reached = [gate->watched_event signaledValue] >= gate->watched_value;
+	[gate->event setSignaledValue:1];
+	return NULL;
+}
+
+//Everything committed to the queue after this waits until the gate opens
+static zest_bool metal_close_gate(zest_device device, MetalGate *gate, id<MTLCommandQueue> native_queue) {
+	gate->event = [zest_GetMetalDevice(device) newSharedEvent];
+	if (!gate->event) return ZEST_FALSE;
+	@autoreleasepool {
+		id<MTLCommandBuffer> command_buffer = [native_queue commandBuffer];
+		[command_buffer encodeWaitForEvent:gate->event value:1];
+		[command_buffer commit];
+	}
+	return ZEST_TRUE;
+}
+
+static zest_bool metal_open_gate_after(MetalGate *gate, zest_microsecs delay) {
+	gate->delay = delay;
+	gate->thread_started = pthread_create(&gate->thread, NULL, metal_gate_thread, gate) == 0;
+	return gate->thread_started;
+}
+
+//Opens the gate if it's still closed, so a failed check never leaves a queue held
+static void metal_finish_gate(MetalGate *gate) {
+	if (gate->thread_started) {
+		pthread_join(gate->thread, NULL);
+		gate->thread_started = ZEST_FALSE;
+	}
+	if (gate->event && [gate->event signaledValue] < 1) [gate->event setSignaledValue:1];
+	ZEST_MTL_RELEASE(gate->event);
+}
+
+//The family that owns the queue, or ZEST_INVALID
+static zest_uint metal_queue_family(zest_device device, id<MTLCommandQueue> native_queue) {
+	zest_vec_foreach(family_index, device->queue_families) {
+		zest_queue_manager manager = device->queue_families[family_index];
+		zest_vec_foreach(queue_index, manager->queues) {
+			if (ZEST_MTL_BACKEND(queue, &manager->queues[queue_index])->queue == native_queue) return (zest_uint)family_index;
+		}
+	}
+	return ZEST_INVALID;
+}
+
+//The queue the batch being recorded will be committed to
+static id<MTLCommandQueue> metal_task_queue(const zest_command_list command_list) {
+	id<MTLCommandQueue> native_queue = nil;
+	@autoreleasepool {
+		native_queue = [ZEST_MTL_BACKEND(command_list, command_list)->command_buffer commandQueue];
+	}
+	return native_queue;
+}
+
+//The record that hands the named image between queues, from the release or the acquire side, in a pass on the given queue type
+static const zest_mtl_frame_graph_image_barrier_t *metal_crossing_record(zest_frame_graph frame_graph, const char *name, zest_bool acquire, zest_device_queue_type queue_type) {
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		if (pass_group->compiled_queue_info.queue_type != queue_type) continue;
+		zest_mtl_execution_barriers_backend_t *backend = ZEST_MTL_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		zest_mtl_frame_graph_image_barrier_t *records = acquire ? backend->acquire_images : backend->release_images;
+		zest_vec_foreach(record_index, records) {
+			if (records[record_index].crosses_queues && strcmp(records[record_index].resource->name, name) == 0) return &records[record_index];
+		}
+	}
+	return NULL;
+}
+
+struct MetalCrossQueue {
+	zest_compute compute;
+	zest_uint image_index;					//The storage image's, for image_write2.comp
+	zest_buffer staging_buffer;
+	zest_buffer buffer;
+	id<MTLCommandQueue> compute_queue;		//The queue each pass's batch was committed to
+	id<MTLCommandQueue> transfer_queue;
+	id<MTLCommandQueue> render_queue;
+};
+
+static void metal_cross_queue_write_task(const zest_command_list command_list, void *user_data) {
+	MetalCrossQueue *cross = (MetalCrossQueue *)user_data;
+	cross->compute_queue = metal_task_queue(command_list);
+	TestPushConstants push = {};
+	push.index1 = (int)cross->image_index;
+	zest_cmd_BindComputePipeline(command_list, cross->compute);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, 2, 2, 1);
+}
+
+static void metal_cross_queue_copy_task(const zest_command_list command_list, void *user_data) {
+	MetalCrossQueue *cross = (MetalCrossQueue *)user_data;
+	cross->transfer_queue = metal_task_queue(command_list);
+	zest_cmd_CopyBuffer(command_list, cross->staging_buffer, cross->buffer, sizeof(zest_uint) * METAL_CROSS_WORD_COUNT);
+}
+
+static void metal_cross_queue_render_task(const zest_command_list command_list, void *user_data) {
+	((MetalCrossQueue *)user_data)->render_queue = metal_task_queue(command_list);
+}
+
+//A compute pass and a transfer pass share the first wave, so they run on the compute and transfer queues, and a render pass on the graphics
+//queue reads both. A gate holds the compute queue: the transfer batch finishes while it's held, and the render batch only once it opens.
+int test_metal_cross_queue_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, "examples/SDL2/zest-tests/shaders/glsl/image_write2.comp", "cross_queue_image_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Cross Queue Image Write", shader);
+	zest_uint words[METAL_CROSS_WORD_COUNT];
+	for (zest_uint index = 0; index != METAL_CROSS_WORD_COUNT; ++index) words[index] = index * 7u + 3u;
+	MetalCrossQueue cross = {};
+	cross.compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	cross.staging_buffer = zest_CreateStagingBuffer(device, sizeof(words), words);
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_gpu_to_cpu);
+	cross.buffer = zest_CreateBuffer(device, sizeof(words), &buffer_info);
+	zest_image_info_t storage_info = zest_CreateImageInfo(16, 16);
+	storage_info.format = zest_format_r8g8b8a8_unorm;
+	storage_info.flags = zest_image_preset_storage;
+	zest_image_handle storage_handle = zest_CreateImage(device, &storage_info);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_image storage_image = zest_GetImage(storage_handle);
+	zest_image target = zest_GetImage(target_handle);
+	MetalGate gate = {};
+	int failed = !cross.compute || !cross.staging_buffer || !cross.buffer || !storage_image || !target;
+	zest_frame_graph frame_graph = NULL;
+	if (!failed) {
+		cross.image_index = zest_AcquireStorageImageIndex(device, storage_image, zest_storage_image_binding);
+		memset(zest_BufferData(cross.buffer), 0, sizeof(words));
+		//The compute slot takes queue 0 of its family, which the gate holds
+		zest_uint compute_slot = context->compute_queue_index;
+		context->preferred_queue_index[compute_slot] = 0;
+		context->has_preferred_queue[compute_slot] = ZEST_TRUE;
+		zest_queue held_queue = &device->queue_families[context->compute_family_index]->queues[0];
+		failed |= !metal_close_gate(device, &gate, ZEST_MTL_BACKEND(queue, held_queue)->queue);
+		if (!failed && zest_BeginCommandGraph(context, "Cross Queue Order", 0)) {
+			zest_resource_node image_node = zest_ImportImageResource("Cross Image", storage_image, 0);
+			zest_resource_node buffer_node = zest_ImportBufferResource("Cross Buffer", cross.buffer, 0);
+			zest_resource_node target_node = zest_ImportImageResource("Cross Target", target, 0);
+			zest_BeginComputePass("Cross Compute");
+			zest_ConnectOutput(image_node);
+			zest_SetPassTask(metal_cross_queue_write_task, &cross);
+			zest_EndPass();
+			zest_BeginTransferPass("Cross Transfer");
+			zest_ConnectOutput(buffer_node);
+			zest_SetPassTask(metal_cross_queue_copy_task, &cross);
+			zest_EndPass();
+			zest_BeginRenderPass("Cross Render");
+			zest_ConnectInput(image_node);
+			zest_ConnectInput(buffer_node);
+			zest_ConnectOutput(target_node);
+			zest_SetPassTask(metal_cross_queue_render_task, &cross);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		failed |= frame_graph == NULL;
+	}
+	if (frame_graph) {
+		zest_uint frame_in_flight = context->current_fif;
+		zest_uint transfer_slot = context->transfer_queue_index;
+		zest_wave_submission_t *first_wave = zest_vec_size(frame_graph->submissions) ? &frame_graph->submissions[0] : NULL;
+		zest_bool wave_crosses = first_wave && first_wave->batches[context->compute_queue_index].magic && first_wave->batches[transfer_slot].magic;
+		//The compiler records the crossing when the graph is built, and the flush frees the memory the records are in
+		const zest_mtl_frame_graph_image_barrier_t *release = metal_crossing_record(frame_graph, "Cross Image", ZEST_FALSE, zest_queue_compute);
+		const zest_mtl_frame_graph_image_barrier_t *acquire = metal_crossing_record(frame_graph, "Cross Image", ZEST_TRUE, zest_queue_graphics);
+		zest_image_layout handed_layout = acquire ? acquire->new_layout : zest_image_layout_undefined;
+		if (!wave_crosses || !release || !acquire) {
+			ZEST_PRINT("\tThe first wave %s a compute and a transfer batch, and the image has %s release and %s acquire record that crosses queues.", wave_crosses ? "holds" : "doesn't hold", release ? "a" : "no", acquire ? "an" : "no");
+			failed = 1;
+		}
+		//The transfer batch signals its wave event once, and the thread looks for that while the compute queue is still held
+		zest_mtl_frame_graph_semaphores_backend_t *semaphores_backend = ZEST_MTL_BACKEND(frame_graph_semaphores, frame_graph->semaphores);
+		gate.watched_event = semaphores_backend->events[frame_in_flight][transfer_slot];
+		gate.watched_value = frame_graph->semaphores->values[frame_in_flight][transfer_slot] + 1;
+		zest_microsecs start = zest_Microsecs();
+		if (!metal_open_gate_after(&gate, METAL_GATE_DELAY)) {
+			//The ended graph still has to be flushed, and with no thread to open the gate it would wait on the held queue for good
+			[gate.event setSignaledValue:1];
+			failed = 1;
+		}
+		failed |= zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		zest_microsecs elapsed = zest_Microsecs() - start;
+		zest_bool gate_was_open = [gate.event signaledValue] == 1;
+		metal_finish_gate(&gate);
+		if (!gate_was_open || elapsed < METAL_GATE_DELAY || !gate.watched_reached) {
+			ZEST_PRINT("\tThe flush returned after %llu us with the gate %s, and the transfer batch %s while the compute queue was held.", (zest_ull)elapsed, gate_was_open ? "open" : "still closed", gate.watched_reached ? "had finished" : "hadn't finished");
+			failed = 1;
+		}
+		zest_uint compute_family = metal_queue_family(device, cross.compute_queue);
+		zest_uint transfer_family = metal_queue_family(device, cross.transfer_queue);
+		zest_uint render_family = metal_queue_family(device, cross.render_queue);
+		zest_bool held_queue_ran = cross.compute_queue == ZEST_MTL_BACKEND(queue, &device->queue_families[context->compute_family_index]->queues[0])->queue;
+		if (compute_family != context->compute_family_index || transfer_family != context->transfer_family_index || render_family != context->graphics_family_index || !held_queue_ran) {
+			ZEST_PRINT("\tThe compute, transfer and render passes ran on queues of families %u, %u and %u, where %u, %u and %u were expected, and the compute pass %s on the held queue.",
+				compute_family, transfer_family, render_family, context->compute_family_index, context->transfer_family_index, context->graphics_family_index, held_queue_ran ? "ran" : "didn't run");
+			failed = 1;
+		}
+		//A release to another queue leaves the layout to the acquire
+		if (storage_image->layout != handed_layout) {
+			ZEST_PRINT("\tThe image's layout is %u after the graph, where the acquire on the graphics queue set %u.", (zest_uint)storage_image->layout, (zest_uint)handed_layout);
+			failed = 1;
+		}
+		failed |= memcmp(zest_BufferData(cross.buffer), words, sizeof(words)) != 0;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	metal_finish_gate(&gate);
+	if (storage_image) zest_FreeImageNow(storage_handle);
+	if (target) zest_FreeImageNow(target_handle);
+	if (cross.buffer) zest_FreeBufferNow(cross.buffer);
+	if (cross.staging_buffer) zest_FreeBufferNow(cross.staging_buffer);
+	if (cross.compute) zest_FreeCompute(compute_handle);
+	zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+struct MetalQueueSwitch {
+	zest_image image;
+	id<MTLCommandQueue> native_queue;		//The queue the clear's batch was committed to
+};
+
+static void metal_queue_switch_task(const zest_command_list command_list, void *user_data) {
+	((MetalQueueSwitch *)user_data)->native_queue = metal_task_queue(command_list);
+}
+
+//Clears the image in a render pass on the graphics slot. Without wait_for_gpu the flush returns once the batch is committed.
+static zest_semaphore_status metal_flush_switch_clear(zest_context context, const char *name, MetalQueueSwitch *clear, float red, float green, zest_bool wait_for_gpu) {
+	if (!zest_BeginCommandGraph(context, name, 0)) return zest_semaphore_status_error;
+	zest_resource_node node = zest_ImportImageResource("Switch Target", clear->image, 0);
+	zest_SetResourceClearColor(node, red, green, 0.f, 1.f);
+	zest_BeginRenderPass(name);
+	zest_ConnectOutput(node);
+	zest_SetPassTask(metal_queue_switch_task, clear);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph) return zest_semaphore_status_error;
+	return wait_for_gpu ? zest_FlushFrameGraphAndWait(frame_graph) : zest_FlushFrameGraph(frame_graph);
+}
+
+//Graph A clears on the graphics family's queue 0 behind a gate. The test then holds queue 0, so graph B's slot takes queue 1, and B must not finish
+//before the gate opens.
+int test_metal_queue_switch_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_image_handle first_handle = create_draw_target(device);
+	zest_image_handle second_handle = create_draw_target(device);
+	MetalQueueSwitch first = { zest_GetImage(first_handle), nil };
+	MetalQueueSwitch second = { zest_GetImage(second_handle), nil };
+	zest_uint slot = context->graphics_queue_index;
+	zest_queue_manager graphics_family = device->queue_families[context->graphics_family_index];
+	id<MTLCommandQueue> first_queue = ZEST_MTL_BACKEND(queue, &graphics_family->queues[0])->queue;
+	id<MTLCommandQueue> second_queue = ZEST_MTL_BACKEND(queue, &graphics_family->queues[1])->queue;
+	MetalGate gate = {};
+	zest_queue held_queue = NULL;
+	int failed = !first.image || !second.image;
+	if (!failed) {
+		context->preferred_queue_index[slot] = 0;
+		context->has_preferred_queue[slot] = ZEST_TRUE;
+		failed |= !metal_close_gate(device, &gate, first_queue);
+		failed |= failed || metal_flush_switch_clear(context, "Switch First", &first, 1.f, 0.f, ZEST_FALSE) != zest_semaphore_status_success;
+		//A slot moves to another queue only when the one it used last is busy
+		held_queue = zest__acquire_manager_queue(graphics_family, 0, ZEST_FALSE);
+		failed |= held_queue == NULL || held_queue->index != 0;
+		//The reap waits for the first clear once the slot's ordering event passes it, so the flush's timing can't show the order. The second
+		//clear's own signal can: it must not be reached while the gate holds the first.
+		zest_execution_timeline second_timeline = zest_GetUtilityTimeline(context);
+		gate.watched_event = ZEST_MTL_BACKEND(execution_timeline, second_timeline)->event;
+		gate.watched_value = second_timeline->current_value + 1;
+		failed |= !metal_open_gate_after(&gate, METAL_GATE_DELAY);
+		failed |= failed || metal_flush_switch_clear(context, "Switch Second", &second, 0.f, 1.f, ZEST_TRUE) != zest_semaphore_status_success;
+		metal_finish_gate(&gate);
+		if (held_queue) zest__release_queue(held_queue);
+		if (first.native_queue != first_queue || second.native_queue != second_queue) {
+			ZEST_PRINT("\tThe first clear ran on %s and the second on %s, where queues 0 and 1 of the graphics family were expected.",
+				first.native_queue == first_queue ? "queue 0" : "another queue", second.native_queue == second_queue ? "queue 1" : "another queue");
+			failed = 1;
+		}
+		if (gate.watched_reached) {
+			ZEST_PRINT("\tThe second clear finished while the gate still held the first.");
+			failed = 1;
+		}
+		failed |= zest_WaitForSignal(&context->queue_ordering_timelines[slot], ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+		const int red[4] = { 255, 0, 0, 255 };
+		const int green[4] = { 0, 255, 0, 255 };
+		zest_uint pixels[256];
+		failed |= !zest_CopyImageToBitmap(device, first.image, pixels) || !columns_hold(pixels, 0, 16, red);
+		failed |= !zest_CopyImageToBitmap(device, second.image, pixels) || !columns_hold(pixels, 0, 16, green);
+		//The first flush can't wait, which a headless context reports once
+		failed |= metal_report_count(device, "without a signal timeline") != 1;
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		context->has_preferred_queue[slot] = ZEST_FALSE;
+	}
+	metal_finish_gate(&gate);
+	if (first.image) zest_FreeImageNow(first_handle);
+	if (second.image) zest_FreeImageNow(second_handle);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+#define METAL_FENCE_ITERATIONS 32
+#define METAL_FENCE_GRAPHS 8
+#define METAL_FENCE_WORDS 65536
+#define METAL_FENCE_RESULT_WORDS 3			//Per iteration: the first and last copied word, then the first written word
+#define METAL_FENCE_WRITE_SPIN 64			//Steps each compute thread takes before it writes
+#define METAL_FENCE_READ_SPIN 20000			//Steps the reading fragment takes before it reads the written buffer
+
+//The spin keeps the kernel busy long enough for a pass that doesn't wait for it to read the buffer first. The mask is always 0, which the compiler
+//can't know, so the store has to come after the spin.
+static const char *metal_fence_write_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(local_size_x = 64) in;\n"
+	"layout(push_constant) uniform push_block { uint buffer_index; uint seed; uint spin; uint mask; } push;\n"
+	"layout(std430, set = 0, binding = 5) buffer Words { uint values[]; } buffers[];\n"
+	"void main() {\n"
+	"	uint value = gl_GlobalInvocationID.x;\n"
+	"	for (uint step = 0u; step != push.spin; ++step) value = value * 1664525u + 1013904223u;\n"
+	"	buffers[push.buffer_index].values[gl_GlobalInvocationID.x] = push.seed + (value & push.mask);\n"
+	"}\n";
+
+//One fragment reads the copy straight away, then spins and reads the written buffer, which the next compute pass overwrites
+static const char *metal_fence_read_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(push_constant) uniform push_block { uint written_index; uint copied_index; uint results_index; uint iteration; uint word_count; uint spin; uint mask; } push;\n"
+	"layout(std430, set = 0, binding = 5) buffer Words { uint values[]; } buffers[];\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() {\n"
+	"	if (gl_FragCoord.x < 1.0 && gl_FragCoord.y < 1.0) {\n"
+	"		uint first = push.iteration * 3u;\n"
+	"		buffers[push.results_index].values[first] = buffers[push.copied_index].values[0];\n"
+	"		buffers[push.results_index].values[first + 1u] = buffers[push.copied_index].values[push.word_count - 1u];\n"
+	"		uint value = push.iteration;\n"
+	"		for (uint step = 0u; step != push.spin; ++step) value = value * 1664525u + 1013904223u;\n"
+	"		buffers[push.results_index].values[first + 2u] = buffers[push.written_index].values[value & push.mask];\n"
+	"	}\n"
+	"	out_colour = vec4(1.0);\n"
+	"}\n";
+
+struct MetalFenceOrder;
+
+struct MetalFenceStep {
+	MetalFenceOrder *order;
+	zest_uint iteration;
+};
+
+struct MetalFenceOrder {
+	zest_compute compute;
+	zest_pipeline_template pipeline_template;
+	zest_buffer written;					//Every word holds the iteration's seed after its compute pass
+	zest_buffer copied;						//The transfer pass's copy of the written buffer, which the render pass reads
+	zest_buffer results;					//METAL_FENCE_RESULT_WORDS per iteration, from the render pass
+	zest_uint written_index;
+	zest_uint copied_index;
+	zest_uint results_index;
+	zest_uint seed_base;
+	MetalFenceStep steps[METAL_FENCE_ITERATIONS];
+	char target_names[METAL_FENCE_ITERATIONS][24];
+};
+
+static void metal_fence_write_task(const zest_command_list command_list, void *user_data) {
+	MetalFenceStep *step = (MetalFenceStep *)user_data;
+	zest_uint push[4] = { step->order->written_index, step->order->seed_base + step->iteration, METAL_FENCE_WRITE_SPIN, 0 };
+	zest_cmd_BindComputePipeline(command_list, step->order->compute);
+	zest_cmd_SendPushConstants(command_list, push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, METAL_FENCE_WORDS / 64, 1, 1);
+}
+
+static void metal_fence_copy_task(const zest_command_list command_list, void *user_data) {
+	MetalFenceStep *step = (MetalFenceStep *)user_data;
+	zest_cmd_CopyBuffer(command_list, step->order->written, step->order->copied, METAL_FENCE_WORDS * sizeof(zest_uint));
+}
+
+static void metal_fence_read_task(const zest_command_list command_list, void *user_data) {
+	MetalFenceStep *step = (MetalFenceStep *)user_data;
+	zest_viewport_t viewport = zest_CreateViewport(0.f, 0.f, 8.f, 8.f, 0.f, 1.f);
+	zest_scissor_rect_t scissor = zest_CreateRect2D(8, 8, 0, 0);
+	zest_cmd_ViewPort(command_list, &viewport);
+	zest_cmd_Scissor(command_list, &scissor);
+	zest_pipeline pipeline = zest_GetPipeline(step->order->pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_uint push[7] = { step->order->written_index, step->order->copied_index, step->order->results_index, step->iteration, METAL_FENCE_WORDS, METAL_FENCE_READ_SPIN, 0 };
+	zest_cmd_SendPushConstants(command_list, push, sizeof(push));
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+//Each iteration writes, copies and reads, and the next one overwrites what the last one read, all in one batch on the graphics queue
+static zest_frame_graph metal_build_fence_graph(zest_context context, MetalFenceOrder *order) {
+	if (!zest_BeginCommandGraph(context, "Fence Order", 0)) return NULL;
+	zest_resource_node written_node = zest_ImportBufferResource("Fence Written", order->written, 0);
+	zest_resource_node copied_node = zest_ImportBufferResource("Fence Copied", order->copied, 0);
+	zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
+	target_info.width = 8;
+	target_info.height = 8;
+	zest_resource_node previous_target = NULL;
+	for (zest_uint iteration = 0; iteration != METAL_FENCE_ITERATIONS; ++iteration) {
+		//Render passes with the same outputs merge into one, so each draws to a target of its own, which the next iteration's compute pass reads
+		zest_resource_node target = zest_AddTransientImageResource(order->target_names[iteration], &target_info);
+		zest_FlagResourceAsEssential(target);
+		zest_BeginComputePass("Fence Write");
+		if (previous_target) zest_ConnectInput(previous_target);
+		zest_ConnectOutput(written_node);
+		zest_SetPassTask(metal_fence_write_task, &order->steps[iteration]);
+		zest_EndPass();
+		zest_BeginTransferPass("Fence Copy");
+		zest_ConnectInput(written_node);
+		zest_ConnectOutput(copied_node);
+		zest_SetPassTask(metal_fence_copy_task, &order->steps[iteration]);
+		zest_EndPass();
+		zest_BeginRenderPass("Fence Read");
+		zest_ConnectInput(copied_node);
+		zest_ConnectOutput(target);
+		zest_SetPassTask(metal_fence_read_task, &order->steps[iteration]);
+		zest_EndPass();
+		previous_target = target;
+	}
+	return zest_EndFrameGraph();
+}
+
+//Compute, copy and render passes take turns on one queue with nothing but the queue's fence to order them. Metal runs them out of order without
+//it, which would leave a result word holding another iteration's seed.
+int test_metal_frame_graph_fence_order(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	//A command graph's builder allocator doesn't grow, and 96 passes need more than the default
+	info.frame_graph_allocator_size = zloc__MEGABYTE(2);
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	MetalFenceOrder fence_order = {};
+	MetalFenceOrder *order = &fence_order;
+	zest_shader_handle compute_shader = zest_CreateShader(device, metal_fence_write_source, zest_compute_shader, "fence_write", NULL, ZEST_TRUE);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_sample_vertex_source, zest_vertex_shader, "fence_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_fence_read_source, zest_fragment_shader, "fence_read", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = zest_CreateCompute(device, "Fence Write", compute_shader);
+	order->compute = compute_handle.value ? zest_GetCompute(compute_handle) : NULL;
+	order->pipeline_template = metal_no_input_template(device, "Fence Read", vertex_shader, fragment_shader);
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer_info_t results_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	order->written = zest_CreateBuffer(device, METAL_FENCE_WORDS * sizeof(zest_uint), &device_info);
+	order->copied = zest_CreateBuffer(device, METAL_FENCE_WORDS * sizeof(zest_uint), &device_info);
+	order->results = zest_CreateBuffer(device, METAL_FENCE_ITERATIONS * METAL_FENCE_RESULT_WORDS * sizeof(zest_uint), &results_info);
+	int failed = !order->compute || !order->written || !order->copied || !order->results;
+	if (!failed) {
+		order->written_index = zest_AcquireStorageBufferIndex(device, order->written);
+		order->copied_index = zest_AcquireStorageBufferIndex(device, order->copied);
+		order->results_index = zest_AcquireStorageBufferIndex(device, order->results);
+		for (zest_uint iteration = 0; iteration != METAL_FENCE_ITERATIONS; ++iteration) {
+			order->steps[iteration].order = order;
+			order->steps[iteration].iteration = iteration;
+			snprintf(order->target_names[iteration], sizeof(order->target_names[iteration]), "Fence Target %u", iteration);
+		}
+		zest_uint wrong_chains = 0;
+		for (zest_uint graph_index = 0; graph_index != METAL_FENCE_GRAPHS && !failed; ++graph_index) {
+			order->seed_base = (graph_index + 1) * 1000;
+			memset(zest_BufferData(order->results), 0xFF, METAL_FENCE_ITERATIONS * METAL_FENCE_RESULT_WORDS * sizeof(zest_uint));
+			zest_frame_graph frame_graph = metal_build_fence_graph(context, order);
+			zest_uint most_passes = 0;
+			zest_uint batch_count = frame_graph ? metal_graph_batch_count(frame_graph, &most_passes) : 0;
+			zest_uint pass_count = frame_graph ? zest_GetFrameGraphFinalPassCount(frame_graph) : 0;
+			if (batch_count != 1 || most_passes != METAL_FENCE_ITERATIONS * 3 || pass_count != METAL_FENCE_ITERATIONS * 3) {
+				ZEST_PRINT("\tThe fence graph has %u passes in %u batches, at most %u in one, where all %u must be in one batch.", pass_count, batch_count, most_passes, METAL_FENCE_ITERATIONS * 3);
+				failed = 1;
+			}
+			failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+			const zest_uint *results = (const zest_uint *)zest_BufferData(order->results);
+			for (zest_uint iteration = 0; iteration != METAL_FENCE_ITERATIONS; ++iteration) {
+				zest_uint seed = order->seed_base + iteration;
+				const zest_uint *words = results + iteration * METAL_FENCE_RESULT_WORDS;
+				wrong_chains += words[0] != seed || words[1] != seed || words[2] != seed;
+			}
+		}
+		if (wrong_chains) {
+			ZEST_PRINT("\tFence Order: %u of %u of the chains read another iteration's seed.", wrong_chains, METAL_FENCE_ITERATIONS * METAL_FENCE_GRAPHS);
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (order->written) zest_FreeBufferNow(order->written);
+	if (order->copied) zest_FreeBufferNow(order->copied);
+	if (order->results) zest_FreeBufferNow(order->results);
+	if (order->compute) zest_FreeCompute(compute_handle);
+	zest_FreePipelineTemplate(order->pipeline_template);
+	zest_FreeShader(compute_shader);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//Red for view 0 and green for view 1
+static const char *metal_view_colour_fragment_source =
+	"#version 450\n"
+	"#extension GL_EXT_multiview : enable\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() { out_colour = gl_ViewIndex == 0 ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 1.0, 0.0, 1.0); }\n";
+
+//The view index times 8 in red, so 32 views give 32 distinct bytes
+static const char *metal_view_index_fragment_source =
+	"#version 450\n"
+	"#extension GL_EXT_multiview : enable\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() { out_colour = vec4(float(gl_ViewIndex * 8u) / 255.0, 0.0, 0.0, 1.0); }\n";
+
+//Each instance covers a four pixel wide column of a 16x16 target, at the x its element gives
+static const char *metal_view_instance_vertex_source =
+	"#version 450\n"
+	"#extension GL_EXT_multiview : enable\n"
+	"layout(location = 0) in vec2 instance_offset;\n"
+	"layout(location = 1) in vec4 instance_colour;\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"layout(location = 1) flat out uint out_instance;\n"
+	"void main() {\n"
+	"	const vec2 corners[6] = vec2[](vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0));\n"
+	"	vec2 corner = corners[gl_VertexIndex];\n"
+	"	gl_Position = vec4(instance_offset.x + corner.x * 0.5, -1.0 + corner.y * 2.0, 0.0, 1.0);\n"
+	"	out_colour = vec4(instance_colour.rgb, float(gl_ViewIndex));\n"
+	"	out_instance = uint(gl_InstanceIndex);\n"
+	"}\n";
+
+//Red from the element, green the instance index and blue the view index, as bytes
+static const char *metal_view_instance_fragment_source =
+	"#version 450\n"
+	"#extension GL_EXT_multiview : enable\n"
+	"layout(location = 0) in vec4 in_colour;\n"
+	"layout(location = 1) flat in uint in_instance;\n"
+	"layout(location = 0) out vec4 out_colour;\n"
+	"void main() { out_colour = vec4(in_colour.r, float(in_instance) / 255.0, float(gl_ViewIndex) / 255.0, 1.0); }\n";
+
+//A full screen triangle at a depth set by the view
+static const char *metal_view_depth_vertex_source =
+	"#version 450\n"
+	"#extension GL_EXT_multiview : enable\n"
+	"void main() {\n"
+	"	vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+	"	gl_Position = vec4(corner * 2.0 - 1.0, 0.25 + 0.5 * float(gl_ViewIndex), 1.0);\n"
+	"}\n";
+
+struct MetalViewInstance {			//32 bytes, as metal_view_instance_vertex_source reads it
+	float offset[2];
+	float padding[2];
+	float colour[4];
+};
+
+struct MetalViewDraw {
+	zest_pipeline_template pipeline_template;
+	zest_buffer instances;					//Bound at binding 1 when set
+	zest_buffer indirect;					//Drawn from indirectly when set
+	zest_uint vertex_count;
+	zest_uint instance_count;
+	zest_uint first_instance;
+	zest_bool built;						//zest_GetPipeline gave a pipeline
+};
+
+//The viewport covers the open pass's attachments, as a headless graph has no swapchain to size it by
+static void metal_view_draw_task(const zest_command_list command_list, void *user_data) {
+	MetalViewDraw *draw = (MetalViewDraw *)user_data;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_viewport_t viewport = zest_CreateViewport(0.f, 0.f, (float)backend->target_width, (float)backend->target_height, 0.f, 1.f);
+	zest_scissor_rect_t scissor = zest_CreateRect2D(backend->target_width, backend->target_height, 0, 0);
+	zest_cmd_ViewPort(command_list, &viewport);
+	zest_cmd_Scissor(command_list, &scissor);
+	zest_pipeline pipeline = zest_GetPipeline(draw->pipeline_template, command_list);
+	draw->built = pipeline != NULL;
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	if (draw->instances) zest_cmd_BindVertexBuffer(command_list, 1, 1, draw->instances);
+	if (draw->indirect) {
+		zest_cmd_DrawIndirect(command_list, draw->indirect, 0, 1, sizeof(zest_draw_indirect_command_t));
+	} else {
+		zest_cmd_Draw(command_list, draw->vertex_count, draw->instance_count, 0, draw->first_instance);
+	}
+}
+
+//One render pass that draws into every layer of the target, cleared to zero first, and the graph's result
+static zest_frame_graph_result run_metal_view_pass(zest_context context, zest_image target, MetalViewDraw *draw) {
+	if (!zest_BeginCommandGraph(context, "Multiview", 0)) return zest_fgs_critical_error;
+	zest_resource_node node = zest_ImportImageResource("View Target", target, 0);
+	zest_SetResourceClearColor(node, 0.f, 0.f, 0.f, 0.f);
+	zest_BeginRenderPass("Multiview Pass");
+	zest_ConnectOutput(node);
+	zest_SetPassTask(metal_view_draw_task, draw);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph) return zest_fgs_critical_error;
+	zest_FlushFrameGraphAndWait(frame_graph);
+	return zest_GetFrameGraphResult(frame_graph);
+}
+
+static zest_image_handle metal_create_layered_target(zest_device device, zest_format format, zest_image_flags flags, zest_uint size, zest_uint layer_count) {
+	zest_image_info_t image_info = zest_CreateImageInfo(size, size);
+	image_info.format = format;
+	image_info.layer_count = layer_count;
+	image_info.flags = flags | zest_image_flag_transfer_src;
+	return zest_CreateImage(device, &image_info);
+}
+
+static zest_pipeline_template metal_view_instance_template(zest_device device, const char *name, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader, zest_uint view_count) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, fragment_shader);
+	zest_AddVertexInputBindingDescription(pipeline_template, 1, sizeof(MetalViewInstance), zest_input_rate_instance);
+	zest_AddVertexAttribute(pipeline_template, 1, 0, zest_format_r32g32_sfloat, offsetof(MetalViewInstance, offset));
+	zest_AddVertexAttribute(pipeline_template, 1, 1, zest_format_r32g32b32a32_sfloat, offsetof(MetalViewInstance, colour));
+	zest_SetPipelineCullMode(pipeline_template, zest_cull_mode_none);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	if (view_count > 1) zest_SetPipelineViewCount(pipeline_template, view_count);
+	return pipeline_template;
+}
+
+//Three elements, each a column of its own red. The draws start at element 1, so element 0's column stays clear.
+static zest_buffer metal_create_view_instances(zest_device device) {
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_cpu_to_gpu);
+	zest_buffer buffer = zest_CreateBuffer(device, sizeof(MetalViewInstance) * 3, &buffer_info);
+	if (!buffer) return NULL;
+	MetalViewInstance instances[3] = {
+		{ { -1.0f, 0.f }, { 0.f, 0.f }, { 0.25f, 0.f, 0.f, 1.f } },
+		{ { -0.5f, 0.f }, { 0.f, 0.f }, { 0.5f, 0.f, 0.f, 1.f } },
+		{ { 0.0f, 0.f }, { 0.f, 0.f }, { 0.75f, 0.f, 0.f, 1.f } },
+	};
+	memcpy(zest_BufferData(buffer), instances, sizeof(instances));
+	return buffer;
+}
+
+//Columns 4 to 7 hold element 1 and columns 8 to 11 element 2, drawn as instances 1 and 2 into the given view, and the rest is clear
+static zest_bool metal_view_instances_hold(zest_device device, zest_image target, zest_uint layer) {
+	zest_uint pixels[256];
+	memset(pixels, 0, sizeof(pixels));
+	if (!metal_read_texture(device, target, 0, layer, 16, 16, 4, pixels)) return ZEST_FALSE;
+	const int clear[4] = { 0, 0, 0, 0 };
+	const int first[4] = { 128, 1, (int)layer, 255 };
+	const int second[4] = { 191, 2, (int)layer, 255 };
+	return columns_hold(pixels, 0, 4, clear) && columns_hold(pixels, 4, 4, first) && columns_hold(pixels, 8, 4, second) && columns_hold(pixels, 12, 4, clear);
+}
+
+static zest_bool metal_layer_holds(zest_device device, zest_image target, zest_uint layer, const int expected[4]) {
+	zest_uint pixels[256];
+	memset(pixels, 0, sizeof(pixels));
+	return metal_read_texture(device, target, 0, layer, 16, 16, 4, pixels) && columns_hold(pixels, 0, 16, expected);
+}
+
+//Views are drawn as instances into the layers of the pass's attachments: from a vertex shader that never reads gl_ViewIndex, with per-instance
+//data from a base instance, into a pass with only depth, and as many views as the device reports
+int test_metal_multiview(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	int failed = device->max_multiview_view_count != 32;
+	zest_shader_handle plain_vertex = zest_CreateShader(device, metal_sample_vertex_source, zest_vertex_shader, "view_plain_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle colour_fragment = zest_CreateShader(device, metal_view_colour_fragment_source, zest_fragment_shader, "view_colour_fragment", NULL, ZEST_TRUE);
+	zest_shader_handle index_fragment = zest_CreateShader(device, metal_view_index_fragment_source, zest_fragment_shader, "view_index_fragment", NULL, ZEST_TRUE);
+	zest_shader_handle instance_vertex = zest_CreateShader(device, metal_view_instance_vertex_source, zest_vertex_shader, "view_instance_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle instance_fragment = zest_CreateShader(device, metal_view_instance_fragment_source, zest_fragment_shader, "view_instance_fragment", NULL, ZEST_TRUE);
+	zest_shader_handle depth_vertex = zest_CreateShader(device, metal_view_depth_vertex_source, zest_vertex_shader, "view_depth_vertex", NULL, ZEST_TRUE);
+	zest_pipeline_template colour_template = metal_no_input_template(device, "View Colour", plain_vertex, colour_fragment);
+	zest_SetPipelineViewCount(colour_template, 2);
+	zest_pipeline_template instance_template = metal_view_instance_template(device, "View Instances", instance_vertex, instance_fragment, 2);
+	zest_pipeline_template depth_template = zest_CreatePipelineTemplate(device, "View Depth");
+	zest_SetPipelineVertShader(depth_template, depth_vertex);
+	zest_SetPipelineDisableVertexInput(depth_template);
+	zest_SetPipelineDepthTest(depth_template, ZEST_TRUE, ZEST_TRUE);
+	depth_template->depth_stencil.depth_compare_op = zest_compare_op_always;
+	zest_SetPipelineViewCount(depth_template, 2);
+	zest_pipeline_template index_template = metal_no_input_template(device, "View Index", plain_vertex, index_fragment);
+	zest_SetPipelineViewCount(index_template, 32);
+	zest_image_handle colour_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 2);
+	zest_image_handle depth_handle = metal_create_layered_target(device, zest_format_d32_sfloat, zest_image_preset_depth_attachment, 16, 2);
+	zest_image_handle index_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 4, 32);
+	zest_image colour_target = zest_GetImage(colour_handle);
+	zest_image depth_target = zest_GetImage(depth_handle);
+	zest_image index_target = zest_GetImage(index_handle);
+	zest_buffer instances = metal_create_view_instances(device);
+	failed |= !colour_target || !depth_target || !index_target || !instances;
+	if (!failed) {
+		const int red[4] = { 255, 0, 0, 255 };
+		const int green[4] = { 0, 255, 0, 255 };
+		MetalViewDraw colour_draw = { colour_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+		failed |= run_metal_view_pass(context, colour_target, &colour_draw) != zest_fgs_success || !colour_draw.built;
+		if (!metal_layer_holds(device, colour_target, 0, red) || !metal_layer_holds(device, colour_target, 1, green)) {
+			ZEST_PRINT("\tA vertex shader that never reads gl_ViewIndex didn't draw red into layer 0 and green into layer 1.");
+			failed = 1;
+		}
+
+		MetalViewDraw instance_draw = { instance_template, instances, NULL, 6, 2, 1, ZEST_FALSE };
+		failed |= run_metal_view_pass(context, colour_target, &instance_draw) != zest_fgs_success || !instance_draw.built;
+		if (!metal_view_instances_hold(device, colour_target, 0) || !metal_view_instances_hold(device, colour_target, 1)) {
+			ZEST_PRINT("\tTwo instances from first instance 1 didn't draw elements 1 and 2 into both layers.");
+			failed = 1;
+		}
+
+		MetalViewDraw depth_draw = { depth_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+		failed |= run_metal_view_pass(context, depth_target, &depth_draw) != zest_fgs_success || !depth_draw.built;
+		for (zest_uint layer = 0; layer != 2; ++layer) {
+			float depths[256];
+			memset(depths, 0, sizeof(depths));
+			failed |= !metal_read_texture(device, depth_target, 0, layer, 16, 16, 4, depths);
+			float expected = 0.25f + 0.5f * (float)layer;
+			zest_uint matching = 0;
+			for (zest_uint index = 0; index != 256; ++index) matching += depths[index] == expected;
+			if (matching != 256) {
+				ZEST_PRINT("\t%u of 256 depths in layer %u are %f.", matching, layer, expected);
+				failed = 1;
+			}
+		}
+
+		MetalViewDraw index_draw = { index_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+		failed |= run_metal_view_pass(context, index_target, &index_draw) != zest_fgs_success || !index_draw.built;
+		zest_uint right_layers = 0;
+		for (zest_uint layer = 0; layer != 32; ++layer) {
+			unsigned char pixels[4 * 4 * 4];
+			memset(pixels, 0, sizeof(pixels));
+			failed |= !metal_read_texture(device, index_target, 0, layer, 4, 4, 4, pixels);
+			zest_bool layer_right = ZEST_TRUE;
+			for (zest_uint pixel = 0; pixel != 16; ++pixel) layer_right &= pixels[pixel * 4] == layer * 8 && pixels[pixel * 4 + 3] == 255;
+			right_layers += layer_right;
+		}
+		if (right_layers != 32) {
+			ZEST_PRINT("\t%u of 32 layers hold their view's index.", right_layers);
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (instances) zest_FreeBufferNow(instances);
+	if (colour_target) zest_FreeImageNow(colour_handle);
+	if (depth_target) zest_FreeImageNow(depth_handle);
+	if (index_target) zest_FreeImageNow(index_handle);
+	zest_FreePipelineTemplate(colour_template);
+	zest_FreePipelineTemplate(instance_template);
+	zest_FreePipelineTemplate(depth_template);
+	zest_FreePipelineTemplate(index_template);
+	zest_FreeShader(plain_vertex);
+	zest_FreeShader(colour_fragment);
+	zest_FreeShader(index_fragment);
+	zest_FreeShader(instance_vertex);
+	zest_FreeShader(instance_fragment);
+	zest_FreeShader(depth_vertex);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//One shader pair, which reads gl_ViewIndex, in a single view template and in a two view template, drawn in the given order on a new context
+static int run_metal_view_cache(zest_device device, zest_bool single_view_first) {
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1;
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_view_instance_vertex_source, zest_vertex_shader, "view_cache_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_view_instance_fragment_source, zest_fragment_shader, "view_cache_fragment", NULL, ZEST_TRUE);
+	zest_pipeline_template single_template = metal_view_instance_template(device, "View Cache Single", vertex_shader, fragment_shader, 1);
+	zest_pipeline_template double_template = metal_view_instance_template(device, "View Cache Double", vertex_shader, fragment_shader, 2);
+	zest_image_handle single_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 1);
+	zest_image_handle double_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 2);
+	zest_image single_target = zest_GetImage(single_handle);
+	zest_image double_target = zest_GetImage(double_handle);
+	zest_buffer instances = metal_create_view_instances(device);
+	int failed = !single_target || !double_target || !instances;
+	if (!failed) {
+		MetalViewDraw single_draw = { single_template, instances, NULL, 6, 2, 1, ZEST_FALSE };
+		MetalViewDraw double_draw = { double_template, instances, NULL, 6, 2, 1, ZEST_FALSE };
+		for (int draw_index = 0; draw_index != 2; ++draw_index) {
+			zest_bool single_now = (draw_index == 0) == single_view_first;
+			MetalViewDraw *draw = single_now ? &single_draw : &double_draw;
+			failed |= run_metal_view_pass(context, single_now ? single_target : double_target, draw) != zest_fgs_success || !draw->built;
+		}
+		zest_bool single_right = metal_view_instances_hold(device, single_target, 0);
+		zest_bool double_right = metal_view_instances_hold(device, double_target, 0) && metal_view_instances_hold(device, double_target, 1);
+		if (!single_right || !double_right) {
+			ZEST_PRINT("\tWith the %s template built first, the single view draw is %s and the two view draw is %s.", single_view_first ? "single view" : "two view", single_right ? "right" : "wrong", double_right ? "right" : "wrong");
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+	if (instances) zest_FreeBufferNow(instances);
+	if (single_target) zest_FreeImageNow(single_handle);
+	if (double_target) zest_FreeImageNow(double_handle);
+	zest_FreePipelineTemplate(single_template);
+	zest_FreePipelineTemplate(double_template);
+	zest_FreeShader(vertex_shader);
+	zest_FreeShader(fragment_shader);
+	zest_DestroyContext(context);
+	return failed;
+}
+
+struct MetalViewChain {
+	MetalViewDraw layered;
+	MetalViewDraw single;
+	zest_bool cleared;
+};
+
+static void metal_view_chain_layered_task(const zest_command_list command_list, void *user_data) {
+	metal_view_draw_task(command_list, &((MetalViewChain *)user_data)->layered);
+}
+
+static void metal_view_chain_single_task(const zest_command_list command_list, void *user_data) {
+	metal_view_draw_task(command_list, &((MetalViewChain *)user_data)->single);
+}
+
+static void metal_view_chain_clear_task(const zest_command_list command_list, void *user_data) {
+	zest_resource_node target = zest_GetPassOutputResource(command_list, "Chain Clear Target");
+	((MetalViewChain *)user_data)->cleared = zest_cmd_ImageClear(command_list, zest_GetResourceImage(target));
+}
+
+//What a multiview pass asks of the rest: a pipeline's views must match its pass's, a shader converted for one view count isn't served to the other, a
+//layered pass leaves nothing on the context's shared pass descriptor, and an indirect draw is refused
+int test_metal_multiview_rules(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	//The reset empties the function cache, so the second run converts in the other order
+	int failed = run_metal_view_cache(device, ZEST_TRUE);
+	zest_ResetDevice(device);
+	failed |= run_metal_view_cache(device, ZEST_FALSE);
+
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle plain_vertex = zest_CreateShader(device, metal_sample_vertex_source, zest_vertex_shader, "rules_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle colour_fragment = zest_CreateShader(device, metal_view_colour_fragment_source, zest_fragment_shader, "rules_fragment", NULL, ZEST_TRUE);
+	zest_pipeline_template double_template = metal_no_input_template(device, "Rules Two Views", plain_vertex, colour_fragment);
+	zest_SetPipelineViewCount(double_template, 2);
+	zest_pipeline_template single_template = metal_no_input_template(device, "Rules One View", plain_vertex, colour_fragment);
+	//A refused build marks its template invalid for good, so the mismatches have templates of their own
+	zest_pipeline_template mismatch_templates[2] = {
+		metal_no_input_template(device, "Rules Mismatch Two Views", plain_vertex, colour_fragment),
+		metal_no_input_template(device, "Rules Mismatch One View", plain_vertex, colour_fragment),
+	};
+	zest_SetPipelineViewCount(mismatch_templates[0], 2);
+	zest_image_handle layered_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 2);
+	zest_image_handle single_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 1);
+	zest_image_handle clear_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_image layered_target = zest_GetImage(layered_handle);
+	zest_image single_target = zest_GetImage(single_handle);
+	zest_image clear_target = zest_GetImage(clear_handle);
+	zest_buffer_info_t indirect_info = zest_CreateBufferInfo(zest_buffer_type_indirect, zest_memory_usage_cpu_to_gpu);
+	zest_buffer indirect = zest_CreateBuffer(device, sizeof(zest_draw_indirect_command_t), &indirect_info);
+	failed |= !layered_target || !single_target || !clear_target || !indirect;
+	if (!failed) {
+		const int red[4] = { 255, 0, 0, 255 };
+		const int green[4] = { 0, 255, 0, 255 };
+		const int clear[4] = { 0, 0, 0, 0 };
+		zest_ResetValidationErrors(device);
+		//Each mismatch is refused once, and the graph still runs
+		MetalViewDraw mismatch_draws[2] = { { mismatch_templates[0], NULL, NULL, 3, 1, 0, ZEST_FALSE }, { mismatch_templates[1], NULL, NULL, 3, 1, 0, ZEST_FALSE } };
+		zest_image mismatch_targets[2] = { single_target, layered_target };
+		for (int mismatch_index = 0; mismatch_index != 2; ++mismatch_index) {
+			zest_uint error_count = zest_GetValidationErrorCount(device);
+			failed |= run_metal_view_pass(context, mismatch_targets[mismatch_index], &mismatch_draws[mismatch_index]) != zest_fgs_success;
+			if (mismatch_draws[mismatch_index].built || zest_GetValidationErrorCount(device) != error_count + 1) {
+				ZEST_PRINT("\tThe %s template in a %s pass %s built, with %u validation errors.", mismatch_index ? "one view" : "two view", mismatch_index ? "two layer" : "single layer",
+					mismatch_draws[mismatch_index].built ? "was" : "wasn't", zest_GetValidationErrorCount(device) - error_count);
+				failed = 1;
+			}
+		}
+		zest_ResetValidationErrors(device);
+
+		//The single layer pass and the clear use the descriptor the layered pass used before them in the same batch. The clear writes zero over a colour.
+		failed |= !run_metal_colour_clear(device, clear_target, metal_colour_clear_value(0.6f, 0.4f, 0.2f));
+		MetalViewChain chain = {};
+		chain.layered = { double_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+		chain.single = { single_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginCommandGraph(context, "View Chain", 0)) {
+			zest_resource_node layered_node = zest_ImportImageResource("Chain Layered Target", layered_target, 0);
+			zest_resource_node single_node = zest_ImportImageResource("Chain Single Target", single_target, 0);
+			zest_resource_node clear_node = zest_ImportImageResource("Chain Clear Target", clear_target, 0);
+			zest_SetResourceClearColor(layered_node, 0.f, 0.f, 0.f, 0.f);
+			zest_SetResourceClearColor(single_node, 0.f, 0.f, 0.f, 0.f);
+			zest_BeginRenderPass("Chain Layered");
+			zest_ConnectOutput(layered_node);
+			zest_SetPassTask(metal_view_chain_layered_task, &chain);
+			zest_EndPass();
+			zest_BeginRenderPass("Chain Single");
+			zest_ConnectInput(layered_node);
+			zest_ConnectOutput(single_node);
+			zest_SetPassTask(metal_view_chain_single_task, &chain);
+			zest_EndPass();
+			zest_BeginTransferPass("Chain Clear");
+			zest_ConnectInput(single_node);
+			zest_ConnectOutput(clear_node);
+			zest_SetPassTask(metal_view_chain_clear_task, &chain);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		zest_bool layered_right = metal_layer_holds(device, layered_target, 0, red) && metal_layer_holds(device, layered_target, 1, green);
+		zest_bool single_right = metal_layer_holds(device, single_target, 0, red);
+		zest_bool clear_right = chain.cleared && metal_layer_holds(device, clear_target, 0, clear);
+		if (!layered_right || !single_right || !clear_right || !chain.layered.built || !chain.single.built) {
+			ZEST_PRINT("\tAfter a layered pass, the layered target is %s, the single layer pass is %s and the clear is %s.", layered_right ? "right" : "wrong", single_right ? "right" : "wrong", clear_right ? "right" : "wrong");
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+
+		//An indirect draw can't be multiplied by the view count, so it's refused and draws nothing
+		const zest_draw_indirect_command_t command = { 3, 1, 0, 0 };
+		memcpy(zest_BufferData(indirect), &command, sizeof(command));
+		MetalViewDraw indirect_draw = { double_template, NULL, indirect, 3, 1, 0, ZEST_FALSE };
+		failed |= run_metal_view_pass(context, layered_target, &indirect_draw) != zest_fgs_success;
+		if (zest_GetValidationErrorCount(device) != 1 || !metal_layer_holds(device, layered_target, 0, clear) || !metal_layer_holds(device, layered_target, 1, clear)) {
+			ZEST_PRINT("\tAn indirect draw in a multiview pass raised %u validation errors, where it should be refused once and draw nothing.", zest_GetValidationErrorCount(device));
+			failed = 1;
+		}
+		zest_ResetValidationErrors(device);
+	}
+	if (indirect) zest_FreeBufferNow(indirect);
+	if (layered_target) zest_FreeImageNow(layered_handle);
+	if (single_target) zest_FreeImageNow(single_handle);
+	if (clear_target) zest_FreeImageNow(clear_handle);
+	zest_FreePipelineTemplate(double_template);
+	zest_FreePipelineTemplate(single_template);
+	zest_FreePipelineTemplate(mismatch_templates[0]);
+	zest_FreePipelineTemplate(mismatch_templates[1]);
+	zest_FreeShader(plain_vertex);
+	zest_FreeShader(colour_fragment);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
 static MetalTest metal_tests[] = {
 	{ "Metal Builder", test_metal_builder },
 	{ "Metal Device Lifecycle", test_metal_device_lifecycle },
@@ -5087,6 +6024,11 @@ static MetalTest metal_tests[] = {
 	{ "Metal Immediate Compute", test_metal_immediate_compute },
 	{ "Metal Compute Reads Descriptors", test_metal_compute_reads_descriptors },
 	{ "Metal Debug Overlay", test_metal_debug_overlay },
+	{ "Metal Cross Queue Order", test_metal_cross_queue_order },
+	{ "Metal Queue Switch Order", test_metal_queue_switch_order },
+	{ "Metal Frame Graph Fence Order", test_metal_frame_graph_fence_order },
+	{ "Metal Multiview", test_metal_multiview },
+	{ "Metal Multiview Rules", test_metal_multiview_rules },
 };
 
 int RunMetalSuite(int *total_out) {

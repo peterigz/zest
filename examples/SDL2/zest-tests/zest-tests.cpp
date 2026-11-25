@@ -150,6 +150,9 @@ void InitialiseTests(ZestTests *tests) {
 	zest_create_context_info_t small_frame_graph_memory_info = tests->simple_create_info;
 	small_frame_graph_memory_info.frame_graph_allocator_size = zloc__KILOBYTE(1);
 	RegisterTest(tests, { "Transient Mip Views Across Allocator Growth", test__transient_mip_views_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, small_frame_graph_memory_info });
+	zest_create_context_info_t cached_growth_memory_info = tests->simple_create_info;
+	cached_growth_memory_info.frame_graph_allocator_size = CACHED_GROWTH_ALLOCATOR_SIZE;
+	RegisterTest(tests, { "Cached Graph Allocator Growth", test__cached_graph_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, cached_growth_memory_info });
 	RegisterTest(tests, { "Frame Graph Transfer Image Output", test__transfer_image_output, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Frame Graph Transfer Queue Mip Copy", test__transfer_queue_mip_copy, 0, 1, 0, 0, tests->simple_create_info });
 	//Vulkan only: D3D12 blits the same format on the copy queue
