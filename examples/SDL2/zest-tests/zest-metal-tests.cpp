@@ -792,7 +792,7 @@ int test_metal_headless_context(void) {
 		failed |= context == NULL;
 		if (context) {
 			//An event holds no GPU memory, so a context that leaked its frame graph events only shows as an owner left on one
-			failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+			failed |= !zest_BeginCommandGraph(context, "Empty");
 			zest_frame_graph frame_graph = zest_EndFrameGraph();
 			failed |= frame_graph == NULL || zest_FlushFrameGraph(frame_graph) != zest_semaphore_status_success;
 			zest_frame_graph_semaphores semaphores = *zest_map_at(context->cached_frame_graph_semaphores, "Empty");
@@ -820,7 +820,7 @@ int test_metal_empty_command_graph(void) {
 	zest_context context = zest_CreateHeadlessContext(device, &info);
 	int failed = context == NULL;
 	if (context) {
-		failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+		failed |= !zest_BeginCommandGraph(context, "Empty");
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		failed |= frame_graph == NULL || ZEST__NOT_FLAGGED(zest_GetFrameGraphResult(frame_graph), zest_fgs_no_work_to_do);
 		if (frame_graph) {
@@ -934,7 +934,7 @@ static void metal_scissor_pass(const zest_command_list command_list, void *user_
 //With a depth image the pass clears that too, to a depth the test puts in place of the 1.0 the API always asks for.
 static int run_metal_clear_graph(zest_context context, zest_image image, zest_image depth_image, zest_bool orange, zest_bool set_scissors) {
 	int callback_count = 0;
-	if (!zest_BeginCommandGraph(context, "Clear", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Clear")) return 1;
 	zest_resource_node node = zest_ImportImageResource("Target", image, 0);
 	if (orange) {
 		zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
@@ -1018,7 +1018,7 @@ int test_metal_render_pass_clear(void) {
 	}
 	if (!failed) {
 		//A flush with no timeline waits for nothing, so its batch stays committed until the device's idle wait completes and releases it
-		failed |= !zest_BeginCommandGraph(context, "Clear", 0);
+		failed |= !zest_BeginCommandGraph(context, "Clear");
 		zest_resource_node node = zest_ImportImageResource("Target", image, 0);
 		zest_BeginRenderPass("Clear Pass");
 		zest_ConnectOutput(node);
@@ -1217,7 +1217,7 @@ static void metal_copy_transient_pass(const zest_command_list command_list, void
 static zest_semaphore_status run_metal_transient_graph(zest_context context, zest_image target, zest_image copy_target, zest_resource_usage_hint usage_hints, id<MTLTexture> *out_texture) {
 	MetalTransientCapture capture = { "Transient Target", nil, out_texture != NULL, ZEST_FALSE };
 	if (out_texture) *out_texture = nil;
-	if (!zest_BeginCommandGraph(context, "Transient Images", 0)) return zest_semaphore_status_error;
+	if (!zest_BeginCommandGraph(context, "Transient Images")) return zest_semaphore_status_error;
 	zest_image_resource_info_t transient_info = { zest_format_r8g8b8a8_unorm };
 	transient_info.usage_hints = usage_hints | zest_resource_usage_hint_copy_src;
 	transient_info.width = 64;
@@ -1257,7 +1257,7 @@ static zest_semaphore_status run_metal_transient_graph(zest_context context, zes
 static int run_metal_transient_alias_graph(zest_context context, zest_image target) {
 	zest_device device = context->device;
 	MetalTransientCapture captures[3] = { { "First Transient", nil, ZEST_TRUE, ZEST_FALSE }, { "Second Transient", nil, ZEST_TRUE, ZEST_FALSE }, { "Third Transient", nil, ZEST_TRUE, ZEST_FALSE } };
-	if (!zest_BeginCommandGraph(context, "Transient Aliasing", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Transient Aliasing")) return 1;
 	zest_image_resource_info_t colour_info = { zest_format_r8g8b8a8_unorm };
 	colour_info.width = 64;
 	colour_info.height = 64;
@@ -1571,7 +1571,7 @@ int test_metal_frame_graph_buffer_copies(void) {
 		down.target = readback;
 		down.size = 510;
 		memset(zest_BufferData(readback), 0xEE, readback->size);
-		failed |= !zest_BeginCommandGraph(context, "Buffer Copies", 0);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Copies");
 		zest_resource_node device_node = zest_ImportBufferResource("Device Buffer", device_buffer, 0);
 		zest_BeginTransferPass("Copy Up");
 		zest_ConnectOutput(device_node);
@@ -1596,7 +1596,7 @@ int test_metal_frame_graph_buffer_copies(void) {
 		const zest_size regions[3][3] = { { 0, 0, 96 }, { 128, 256, 100 }, { 512, 700, 64 } };
 		MetalBufferCopyTask upload = {};
 		memset(zest_BufferData(readback), 0xEE, readback->size);
-		failed |= !zest_BeginCommandGraph(context, "Buffer Upload", 0);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Upload");
 		zest_AddCopyCommand(context, &upload.uploader, source, readback, (zest_size)regions[0][2]);
 		for (int region = 1; region != 3; ++region) {
 			zest_buffer_copy_t copy = { source->memory_offset + regions[region][0], readback->memory_offset + regions[region][1], regions[region][2] };
@@ -1622,7 +1622,7 @@ int test_metal_frame_graph_buffer_copies(void) {
 		//A transfer pass that copies and the render pass after it share a batch, so the copy's encoder has to be ended before the pass opens its own
 		metal_fill_buffer_bytes(source, 91);
 		up.size = 512;
-		failed |= !zest_BeginCommandGraph(context, "Copy Then Clear", 0);
+		failed |= !zest_BeginCommandGraph(context, "Copy Then Clear");
 		device_node = zest_ImportBufferResource("Device Buffer", device_buffer, 0);
 		zest_resource_node target_node = zest_ImportImageResource("Target", target, 0);
 		zest_SetResourceClearColor(target_node, 0.6f, 0.4f, 0.2f, 1.0f);
@@ -1658,7 +1658,7 @@ int test_metal_frame_graph_buffer_copies(void) {
 		refused.target = readback;
 		refused.size = 256;
 		memset(zest_BufferData(readback), 0xEE, readback->size);
-		failed |= !zest_BeginCommandGraph(context, "Copy In Render Pass", 0);
+		failed |= !zest_BeginCommandGraph(context, "Copy In Render Pass");
 		zest_AddCopyCommand(context, &refused.uploader, source, readback, 128);
 		target_node = zest_ImportImageResource("Target", target, 0);
 		zest_SetResourceClearColor(target_node, 0.2f, 0.4f, 0.6f, 1.0f);
@@ -1775,7 +1775,7 @@ static void metal_mip_command_pass(const zest_command_list command_list, void *u
 
 //One transfer pass that runs the task's mip command from the source into the destination
 static int run_metal_mip_task_graph(zest_context context, zest_image source, zest_image destination, MetalMipCommandTask *task) {
-	if (!zest_BeginCommandGraph(context, "Image Mip Commands", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Image Mip Commands")) return 1;
 	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
 	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
 	zest_BeginTransferPass("Mip Pass");
@@ -1801,7 +1801,7 @@ static int run_metal_mip_blit_in_render_pass(zest_context context, zest_image so
 	MetalMipCommandTask task = {};
 	task.blit = ZEST_TRUE;
 	task.mip = 1;
-	if (!zest_BeginCommandGraph(context, "Mip Blit In Render Pass", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Mip Blit In Render Pass")) return 1;
 	zest_resource_node source_node = zest_ImportImageResource("Mip Source", source, 0);
 	zest_resource_node destination_node = zest_ImportImageResource("Mip Destination", destination, 0);
 	zest_BeginRenderPass("Mip Pass");
@@ -2368,7 +2368,7 @@ static void metal_image_clear_pass(const zest_command_list command_list, void *u
 }
 
 static int run_metal_image_clear_graph(zest_context context, zest_image image, zest_bool render_pass, MetalImageClearTask *task) {
-	if (!zest_BeginCommandGraph(context, "Image Clear", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Image Clear")) return 1;
 	zest_resource_node node = zest_ImportImageResource("Clear Target", image, 0);
 	zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
 	if (render_pass) {
@@ -4160,7 +4160,7 @@ static void metal_lazy_no_pipeline_task(const zest_command_list command_list, vo
 
 //A draw, a blit that opens a render encoder of its own, then a draw into another target, all in one batch
 static int run_metal_blit_between_draws(zest_context context, MetalLazyDraws *draws, zest_image first_target, zest_image converted, zest_image second_target) {
-	if (!zest_BeginCommandGraph(context, "Lazy Blit", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Lazy Blit")) return 1;
 	zest_resource_node first = zest_ImportImageResource("Blit Source", first_target, 0);
 	zest_resource_node converted_node = zest_ImportImageResource("Blit Destination", converted, 0);
 	zest_resource_node second = zest_ImportImageResource("Second Target", second_target, 0);
@@ -4628,7 +4628,7 @@ int test_metal_compute_reads_descriptors(void) {
 			platform->update_bindless_image_descriptor(device, zest_texture_cube_array_binding, task.push.texture_cube_array_index, zest_descriptor_type_sampled_image, texture_cube_array, texture_cube_array->default_view, NULL, set);
 			platform->update_bindless_uniform_buffer_descriptor(device, zest_uniform_buffer_binding, task.push.uniform_index, uniform_buffer, set);
 
-			if (zest_BeginCommandGraph(context, "Reads Descriptors", 0)) {
+			if (zest_BeginCommandGraph(context, "Reads Descriptors")) {
 				zest_resource_node image_node = zest_ImportImageResource("Mip Image", storage_image, 0);
 				zest_BeginComputePass("Read Descriptors");
 				zest_ConnectOutput(image_node);
@@ -4897,7 +4897,7 @@ int test_metal_pass_encoder_order(void) {
 			memset(zest_BufferData(order.readback_buffers[buffer_index]), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
 		}
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginCommandGraph(context, "Pass Encoder Order", 0)) {
+		if (zest_BeginCommandGraph(context, "Pass Encoder Order")) {
 			zest_resource_node pattern_node = zest_ImportImageResource("Order Source", pattern, 0);
 			zest_resource_node copy_node = zest_ImportImageResource("Order Destination", copy, 0);
 			zest_resource_node target_node = zest_ImportImageResource("Order Target", target, 0);
@@ -5191,7 +5191,7 @@ int test_metal_cross_queue_order(void) {
 		context->has_preferred_queue[compute_slot] = ZEST_TRUE;
 		zest_queue held_queue = &device->queue_families[context->compute_family_index]->queues[0];
 		failed |= !metal_close_gate(device, &gate, ZEST_MTL_BACKEND(queue, held_queue)->queue);
-		if (!failed && zest_BeginCommandGraph(context, "Cross Queue Order", 0)) {
+		if (!failed && zest_BeginCommandGraph(context, "Cross Queue Order")) {
 			zest_resource_node image_node = zest_ImportImageResource("Cross Image", storage_image, 0);
 			zest_resource_node buffer_node = zest_ImportBufferResource("Cross Buffer", cross.buffer, 0);
 			zest_resource_node target_node = zest_ImportImageResource("Cross Target", target, 0);
@@ -5427,7 +5427,7 @@ static void metal_queue_switch_task(const zest_command_list command_list, void *
 
 //Clears the image in a render pass on the graphics slot. Without wait_for_gpu the flush returns once the batch is committed.
 static zest_semaphore_status metal_flush_switch_clear(zest_context context, const char *name, MetalQueueSwitch *clear, float red, float green, zest_bool wait_for_gpu) {
-	if (!zest_BeginCommandGraph(context, name, 0)) return zest_semaphore_status_error;
+	if (!zest_BeginCommandGraph(context, name)) return zest_semaphore_status_error;
 	zest_resource_node node = zest_ImportImageResource("Switch Target", clear->image, 0);
 	zest_SetResourceClearColor(node, red, green, 0.f, 1.f);
 	zest_BeginRenderPass(name);
@@ -5592,7 +5592,7 @@ static void metal_fence_read_task(const zest_command_list command_list, void *us
 
 //Each iteration writes, copies and reads, and the next one overwrites what the last one read, all in one batch on the graphics queue
 static zest_frame_graph metal_build_fence_graph(zest_context context, MetalFenceOrder *order) {
-	if (!zest_BeginCommandGraph(context, "Fence Order", 0)) return NULL;
+	if (!zest_BeginCommandGraph(context, "Fence Order")) return NULL;
 	zest_resource_node written_node = zest_ImportBufferResource("Fence Written", order->written, 0);
 	zest_resource_node copied_node = zest_ImportBufferResource("Fence Copied", order->copied, 0);
 	zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
@@ -5780,7 +5780,7 @@ static void metal_view_draw_task(const zest_command_list command_list, void *use
 
 //One render pass that draws into every layer of the target, cleared to zero first, and the graph's result
 static zest_frame_graph_result run_metal_view_pass(zest_context context, zest_image target, MetalViewDraw *draw) {
-	if (!zest_BeginCommandGraph(context, "Multiview", 0)) return zest_fgs_critical_error;
+	if (!zest_BeginCommandGraph(context, "Multiview")) return zest_fgs_critical_error;
 	zest_resource_node node = zest_ImportImageResource("View Target", target, 0);
 	zest_SetResourceClearColor(node, 0.f, 0.f, 0.f, 0.f);
 	zest_BeginRenderPass("Multiview Pass");
@@ -6064,7 +6064,7 @@ int test_metal_multiview_rules(void) {
 		chain.layered = { double_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
 		chain.single = { single_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginCommandGraph(context, "View Chain", 0)) {
+		if (zest_BeginCommandGraph(context, "View Chain")) {
 			zest_resource_node layered_node = zest_ImportImageResource("Chain Layered Target", layered_target, 0);
 			zest_resource_node single_node = zest_ImportImageResource("Chain Single Target", single_target, 0);
 			zest_resource_node clear_node = zest_ImportImageResource("Chain Clear Target", clear_target, 0);

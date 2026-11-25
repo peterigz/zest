@@ -5630,7 +5630,8 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest
 //thread. Different threads can build graphs for *different* contexts concurrently; language runtimes that
 //migrate green threads between OS threads (e.g. Go) must pin the thread for the duration of the build.
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
+//Begin a command graph: a one-off graph built and flushed each time it's needed, which is never cached.
+ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph(void);
 //Execute a command graph. Without a signal timeline the flush doesn't wait for the GPU: the graph's transient bindless indexes, per-mip views and
@@ -15570,8 +15571,8 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
 	return zest__begin_graph(context, name, cache_key, ZEST_FALSE);
 }
 
-zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
-	return zest__begin_graph(context, name, cache_key, ZEST_TRUE);
+zest_bool zest_BeginCommandGraph(zest_context context, const char *name) {
+	return zest__begin_graph(context, name, NULL, ZEST_TRUE);
 }
 
 zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities) {

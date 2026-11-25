@@ -384,3 +384,5 @@ Built on top of commit afad7b4. Nothing is committed. Peter took all three decis
   - A write to a buffer purged to empty completed and signalled.
   - A single-thread endless kernel ran 60 s with no watchdog abort, and its event never signalled until the process was killed.
   - Either way the drain is now bounded: a missing signal costs one timeout and a critical error. The probes are `probe_gpu_error_signal.mm` and `probe_gpu_error_signal2.mm` in the session scratchpad.
+
+**Decision 3, settled later the same day:** a repro showed that a later graph's compile overwrote a cached command graph's barrier lists, but no API could replay a cached command graph. Peter chose to stop caching command graphs, and `zest_BeginCommandGraph` no longer takes a key. See `command_graph_no_cache_implementation.md`.

@@ -3035,7 +3035,7 @@ static zest_bool stride_check_pool_buffer(ZestTests *tests, StrideCheckState *st
 	state->word_count = word_count;
 	state->seed = seed;
 	zest_bool passed = ZEST_FALSE;
-	if (zest_BeginCommandGraph(tests->context, "Stride Check", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Stride Check")) {
 		zest_resource_node result = zest_ImportBufferResource("Stride Result", result_buffer, 0);
 		zest_BeginComputePass("Stride Verify");
 		zest_ConnectOutput(result);
@@ -3229,7 +3229,7 @@ int test__stride_aligned_buffers(ZestTests *tests, Test *test) {
 		state.transient_remainders[case_index] = ZEST_INVALID;
 		expected_checked += stride_word_count(stride_cases[case_index]);
 	}
-	if (zest_BeginCommandGraph(tests->context, "Stride Transients", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Stride Transients")) {
 		zest_resource_node transient_buffers[STRIDE_CASE_COUNT];
 		for (int case_index = 0; case_index != STRIDE_CASE_COUNT; ++case_index) {
 			zest_buffer_resource_info_t info = {};

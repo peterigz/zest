@@ -2,7 +2,7 @@
 
 //Empty Graph: Compile and execute an empty render graph. It should do nothing and not crash.
 int test__empty_graph(ZestTests *tests, Test *test) {
-	if (zest_BeginCommandGraph(tests->context, "Blank Screen", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Blank Screen")) {
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
 		zest_FlushFrameGraph(frame_graph);
@@ -14,7 +14,7 @@ int test__empty_graph(ZestTests *tests, Test *test) {
 
 //Single Pass - No I/O: A graph with one pass that has no resource inputs or outputs. Should show status no work to do.
 int test__single_pass(ZestTests *tests, Test *test) {
-	if (zest_BeginCommandGraph(tests->context, "Single Pass Test", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Single Pass Test")) {
 		zest_pass_node clear_pass = zest_BeginRenderPass("Empty Pass");
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= zest_GetFrameGraphResult(frame_graph);
@@ -383,7 +383,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	zest_buffer_resource_info_t info = {};
 	info.size = sizeof(TestData) * 1000;
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginCommandGraph(tests->context, "Buffer Read/Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Buffer Read/Write")) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
 
@@ -543,7 +543,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 	}
 	zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginCommandGraph(tests->context, "Image Read Write", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Image Read Write")) {
 		zest_resource_node write_buffer = zest_AddTransientImageResource("Write Buffer", &image_info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
 		zest_SetResourceClearColor(write_buffer, 0.0f, 1.0f, 1.0f, 1.0f);
@@ -628,7 +628,7 @@ int test__transfer_image_output(ZestTests *tests, Test *test) {
 	for (int pixel = 0; pixel != 16 * 16; ++pixel) cyan_pixels[pixel] = 0xFFFFFF00u;
 	if (!zest_CopyBitmapToImage(tests->device, cyan_pixels, sizeof(cyan_pixels), source, 16, 16)) test->result = 1;
 
-	if (zest_BeginCommandGraph(tests->context, "Transfer Image Output", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Transfer Image Output")) {
 		zest_resource_node source_node = zest_ImportImageResource("Copy Source", source, 0);
 		//zest_VerifyImageCompute reads the image by this name
 		zest_resource_node destination_node = zest_ImportImageResource("Write Buffer", destination, 0);
@@ -1400,7 +1400,7 @@ int test__compute_waw_barrier(ZestTests *tests, Test *test) {
 	info.width = 64;
 	info.height = 64;
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginCommandGraph(tests->context, "Compute WAW Barrier", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Compute WAW Barrier")) {
 		zest_resource_node feedback_image = zest_AddTransientImageResource("Feedback Image", &info);
 		zest_FlagResourceAsEssential(feedback_image);
 
@@ -1828,7 +1828,7 @@ int test__cached_graph_allocator_growth(ZestTests *tests, Test *test) {
 }
 
 static zest_frame_graph tst__build_after_frame_graph(zest_context context, const char *name) {
-	if (!zest_BeginCommandGraph(context, name, 0)) return NULL;
+	if (!zest_BeginCommandGraph(context, name)) return NULL;
 	zest_buffer_resource_info_t info = {};
 	info.size = 1024;
 	zest_resource_node buffer = zest_AddTransientBufferResource("After Frame Buffer", &info);
@@ -2793,7 +2793,7 @@ int test__intraframe_two_graphs(ZestTests *tests, Test *test) {
 		capture.render_graph_pool = NULL;
 		//A command graph in the same frame as the render graph: no timeline signal, so nothing
 		//waits on its GPU work and its arena must stay unavailable until the FIF slot cycles.
-		if (zest_BeginCommandGraph(tests->context, "Intraframe Command Graph", 0)) {
+		if (zest_BeginCommandGraph(tests->context, "Intraframe Command Graph")) {
 			zest_resource_node cg_buffer = zest_AddTransientBufferResource("CG Buffer", &info);
 			zest_FlagResourceAsEssential(cg_buffer);
 
@@ -2970,7 +2970,7 @@ int test__transient_structured_buffer(ZestTests *tests, Test *test) {
 	if (!failed) {
 		memset(zest_BufferData(result_buffer), 0, sizeof(zest_uint) * 2);
 		state.result_index = zest_AcquireStorageBufferIndex(device, result_buffer);
-		if (zest_BeginCommandGraph(tests->context, "Transient Structured Buffer", 0)) {
+		if (zest_BeginCommandGraph(tests->context, "Transient Structured Buffer")) {
 			zest_buffer_resource_info_t rows_info = {};
 			rows_info.size = TRANSIENT_VIEW_ROW_BYTES * TRANSIENT_VIEW_ROWS;
 			//A common multiple of 16, 32, 48, 64 and 96

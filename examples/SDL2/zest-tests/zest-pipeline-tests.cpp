@@ -603,7 +603,7 @@ static int draw_winding_triangle(ZestTests *tests, zest_image image, zest_shader
 	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
 	zest_SetPipelineCullMode(pipeline_template, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(pipeline_template, front_face);
-	if (!zest_BeginCommandGraph(tests->context, "Winding Coverage", 0)) return 1;
+	if (!zest_BeginCommandGraph(tests->context, "Winding Coverage")) return 1;
 	zest_resource_node target = zest_ImportImageResource("Winding Target", image, 0);
 	zest_SetResourceClearColor(target, 0.f, 0.f, 0.f, 1.f);
 	zest_BeginRenderPass("Winding Draw");
@@ -767,7 +767,7 @@ static zest_image_handle create_draw_target(zest_device device) {
 
 //Runs task in one render pass on image, cleared to opaque black, with a 16x16 depth buffer cleared to 1 when with_depth is set, then reads image back
 static int render_draw_pass(zest_context context, const char *name, zest_image image, zest_bool with_depth, zest_fg_execution_callback task, void *user_data, zest_uint pixels[256]) {
-	if (!zest_BeginCommandGraph(context, name, 0)) return 1;
+	if (!zest_BeginCommandGraph(context, name)) return 1;
 	zest_resource_node target = zest_ImportImageResource("Draw Target", image, 0);
 	zest_SetResourceClearColor(target, 0.f, 0.f, 0.f, 1.f);
 	zest_resource_node depth = NULL;

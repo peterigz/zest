@@ -2005,7 +2005,7 @@ static void lazy_mip_copy_task(const zest_command_list command_list, void *user_
 //A draw, a blit that sets its own root signature and pipeline state, then a draw into another target. The blit is in a compute
 //pass, as a transfer pass records its image outputs as reads, which would leave nothing ordering the second draw after it.
 static int run_blit_between_draws(zest_context context, LazyBindingDraws *draws, zest_image first_target, zest_image converted, zest_image second_target) {
-	if (!zest_BeginCommandGraph(context, "Lazy Blit", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Lazy Blit")) return 1;
 	zest_resource_node first = zest_ImportImageResource("Blit Source", first_target, 0);
 	zest_resource_node converted_node = zest_ImportImageResource("Blit Destination", converted, 0);
 	zest_resource_node second = zest_ImportImageResource("Second Target", second_target, 0);
@@ -2030,7 +2030,7 @@ static int run_blit_between_draws(zest_context context, LazyBindingDraws *draws,
 }
 
 static int run_mip_copy_in_pass(zest_context context, zest_image source, zest_image target) {
-	if (!zest_BeginCommandGraph(context, "Lazy Mip Copy", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Lazy Mip Copy")) return 1;
 	zest_resource_node source_node = zest_ImportImageResource("Copy Source", source, 0);
 	zest_resource_node target_node = zest_ImportImageResource("Copy Target", target, 0);
 	zest_SetResourceClearColor(target_node, 0.f, 0.f, 0.f, 1.f);
@@ -2481,7 +2481,7 @@ int test_d3d12_compute_reads_descriptors(void) {
 		task.push.result_index = zest_AcquireStorageBufferIndex(device, result_buffer);
 		task.push.raw_word_count = READS_RAW_WORD_COUNT;
 		task.push.structured_count = READS_STRUCTURED_COUNT;
-		if (!failed && zest_BeginCommandGraph(context, "Reads Descriptors", 0)) {
+		if (!failed && zest_BeginCommandGraph(context, "Reads Descriptors")) {
 			zest_resource_node image_node = zest_ImportImageResource("Mip Image", image, 0);
 			zest_BeginComputePass("Read Descriptors");
 			zest_ConnectOutput(image_node);
@@ -2570,7 +2570,7 @@ int test_d3d12_cube_storage_image(void) {
 	int failed = task.compute == NULL || !image;
 	if (!failed) {
 		task.image_index = zest_AcquireStorageImageIndex(device, image, zest_storage_image_binding);
-		if (zest_BeginCommandGraph(context, "Cube Storage Image", 0)) {
+		if (zest_BeginCommandGraph(context, "Cube Storage Image")) {
 			zest_resource_node image_node = zest_ImportImageResource("Cube Image", image, 0);
 			zest_BeginComputePass("Write Faces");
 			zest_ConnectOutput(image_node);
@@ -3171,7 +3171,7 @@ int test_d3d12_empty_command_graph(void) {
 	zest_context context = zest_CreateHeadlessContext(device, &info);
 	int failed = context == NULL;
 	if (context) {
-		failed |= !zest_BeginCommandGraph(context, "Empty", 0);
+		failed |= !zest_BeginCommandGraph(context, "Empty");
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		failed |= frame_graph == NULL || ZEST__NOT_FLAGGED(zest_GetFrameGraphResult(frame_graph), zest_fgs_no_work_to_do);
 		if (frame_graph) {
@@ -3204,7 +3204,7 @@ static zest_image_handle create_clear_target(zest_device device) {
 
 //Clears the image to blue, or orange, in a one pass command graph named "Clear", then reads it back and checks every pixel
 static int run_clear_graph(zest_context context, zest_image image, zest_bool orange, zest_semaphore_status expected_status) {
-	if (!zest_BeginCommandGraph(context, "Clear", 0)) return 1;
+	if (!zest_BeginCommandGraph(context, "Clear")) return 1;
 	zest_resource_node node = zest_ImportImageResource("Target", image, 0);
 	if (orange) {
 		zest_SetResourceClearColor(node, 0.6f, 0.4f, 0.2f, 1.0f);
@@ -3442,7 +3442,7 @@ static int toggle_test_vsync(zest_context context, zest_bool enable) {
 
 //Clears an imported image in a command graph on the graphics slot, so it runs on whichever direct queue the slot holds
 static zest_semaphore_status flush_offscreen_clear(zest_context context, zest_image image) {
-	if (!zest_BeginCommandGraph(context, "Offscreen Clear", 0)) return zest_semaphore_status_error;
+	if (!zest_BeginCommandGraph(context, "Offscreen Clear")) return zest_semaphore_status_error;
 	zest_resource_node node = zest_ImportImageResource("Offscreen Target", image, 0);
 	zest_SetResourceClearColor(node, 0.2f, 0.4f, 0.6f, 1.0f);
 	zest_BeginRenderPass("Offscreen Pass");
@@ -4369,7 +4369,7 @@ int test_d3d12_frame_graph_buffer_copies(void) {
 		fill_words(task.copy_source, 0x2222u);
 		memset(zest_BufferData(task.upload_target), 0, task.upload_target->size);
 		memset(zest_BufferData(task.copy_target), 0, task.copy_target->size);
-		failed |= !zest_BeginCommandGraph(context, "Buffer Copies", 0);
+		failed |= !zest_BeginCommandGraph(context, "Buffer Copies");
 		//The pass declares no resources, so nothing is a graph resource and no buffer barrier is emitted
 		zest_BeginTransferPass("Copy Pass");
 		zest_DoNotCull();
@@ -4717,7 +4717,7 @@ static void d3d12_image_mip_pass(const zest_command_list command_list, void *use
 
 //A wave that uses one queue type runs on the graphics queue, so a compute pass beside the transfer pass keeps it on the copy queue
 static int run_mip_command_graph(zest_context context, const char *name, zest_image source, zest_image destination, zest_bool copy_mip, zest_uint blit_mip_count, zest_device_queue_type queue_type) {
-	if (!zest_BeginCommandGraph(context, name, 0)) return 1;
+	if (!zest_BeginCommandGraph(context, name)) return 1;
 	d3d12_mip_command_task_t task = {};
 	task.copy_mip = copy_mip;
 	task.blit_mip_count = blit_mip_count;
@@ -5017,7 +5017,7 @@ static void d3d12_image_clear_pass(const zest_command_list command_list, void *u
 
 //A wave that uses one queue type runs on the graphics queue, so a transfer pass beside the compute pass keeps it on the compute queue
 static int run_image_clear_graph(zest_context context, const char *name, zest_image image, zest_bool render_pass, zest_device_queue_type queue_type, zest_bool expected) {
-	if (!zest_BeginCommandGraph(context, name, 0)) return 1;
+	if (!zest_BeginCommandGraph(context, name)) return 1;
 	d3d12_image_clear_task_t task = {};
 	zest_resource_node node = zest_ImportImageResource("Clear Target", image, 0);
 	if (render_pass) {
@@ -5243,7 +5243,7 @@ int test_d3d12_arena_backing(void) {
 
 //Clears a colour target, samples it in a pass that clears a depth target and a second colour target, then samples that into a third target, which can take the bytes the first two left
 static zest_frame_graph build_transient_image_graph(zest_context context, zest_frame_graph_cache_key_t *cache_key, zest_bool windowed) {
-	zest_bool began = windowed ? zest_BeginFrameGraph(context, "Transient Images", cache_key) : zest_BeginCommandGraph(context, "Transient Images", cache_key);
+	zest_bool began = windowed ? zest_BeginFrameGraph(context, "Transient Images", cache_key) : zest_BeginCommandGraph(context, "Transient Images");
 	if (!began) return NULL;
 	if (windowed) {
 		zest_ImportSwapchainResource();
@@ -5390,13 +5390,11 @@ int test_d3d12_transient_images(void) {
 		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
 		failed |= zest_GetValidationErrorCount(device) != 0;
 
-		zest_uint cache_state = 1;
-		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, &cache_state, sizeof(cache_state));
-		frame_graph = build_transient_image_graph(context, &cache_key, ZEST_FALSE);
+		frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE);
 		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
-		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
-		failed |= zest_GetCachedFrameGraph(context, &cache_key) != frame_graph;
+		//The flush frees a command graph with its records, so they're read before it
 		failed |= frame_graph == NULL || !third_target_barrier_is_clean(frame_graph);
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
 		failed |= zest_GetValidationErrorCount(device) != 0;
 		zest_DestroyContext(context);
 	}
@@ -5472,10 +5470,7 @@ int test_d3d12_cross_queue_barriers(void) {
 	zest_image_handle target_handle = zest_CreateImage(device, &target_info);
 	int failed = context == NULL || task.compute == NULL || task.staging_buffer == NULL || !target_handle.value;
 	if (!failed) {
-		//The records outlive the flush only in a cached graph
-		zest_uint cache_state = 1;
-		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, &cache_state, sizeof(cache_state));
-		failed |= !zest_BeginCommandGraph(context, "Cross Queue Barriers", &cache_key);
+		failed |= !zest_BeginCommandGraph(context, "Cross Queue Barriers");
 		zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm };
 		image_info.width = 16;
 		image_info.height = 16;
@@ -5504,7 +5499,7 @@ int test_d3d12_cross_queue_barriers(void) {
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
-		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		//The flush frees a command graph with its records, so they're read before it
 		if (frame_graph) {
 			const D3D12_TEXTURE_BARRIER *release = crossing_image_barrier(frame_graph, "Cross Image", ZEST_FALSE);
 			failed |= release == NULL;
@@ -5535,6 +5530,7 @@ int test_d3d12_cross_queue_barriers(void) {
 				failed |= zest_vec_size(barriers->release_image_barrier_nodes) != zest_vec_size(barriers->release_image_barriers);
 			}
 		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
 		failed |= zest_GetValidationErrorCount(device) != 0;
 	}
 	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON, zest_queue_graphics) != ZEST_FALSE;
@@ -5855,7 +5851,7 @@ static zest_image_handle create_layered_target(zest_device device, zest_uint lay
 
 //Draws into every layer of image in one render pass, and returns the graph's result
 static zest_frame_graph_result run_view_instancing_pass(zest_context context, zest_image image, zest_pipeline_template pipeline_template) {
-	if (!zest_BeginCommandGraph(context, "View Instancing", 0)) return zest_fgs_critical_error;
+	if (!zest_BeginCommandGraph(context, "View Instancing")) return zest_fgs_critical_error;
 	zest_resource_node target = zest_ImportImageResource("Layered Target", image, 0);
 	zest_SetResourceClearColor(target, 0.f, 0.f, 0.f, 1.f);
 	zest_BeginRenderPass("View Instancing");
@@ -6047,7 +6043,7 @@ int test_d3d12_copy_queue_first_use_report(void) {
 		failed |= !zest_CopyBitmapToImage(device, pixels, sizeof(pixels), image, 16, 16);
 		failed |= ZEST_DX_BACKEND(image, image)->layout != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginCommandGraph(context, "Copy Queue First Use Report", 0)) {
+		if (zest_BeginCommandGraph(context, "Copy Queue First Use Report")) {
 			zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
 			target_info.width = 16;
 			target_info.height = 16;
@@ -6094,7 +6090,7 @@ static void rescue_read_task(const zest_command_list command_list, void *user_da
 //The imported image's first use is on the copy queue and its last on the graphics queue, in a later submission, so it's handed back
 static zest_semaphore_status run_rescue_graph(zest_context context, zest_image image, zest_bool *fail_second_submission, zest_bool *out_read_in_second_submission) {
 	*out_read_in_second_submission = ZEST_FALSE;
-	if (!zest_BeginCommandGraph(context, "Rescue", 0)) return zest_semaphore_status_error;
+	if (!zest_BeginCommandGraph(context, "Rescue")) return zest_semaphore_status_error;
 	zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
 	target_info.width = 16;
 	target_info.height = 16;

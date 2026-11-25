@@ -58,7 +58,7 @@ int VerifyLayerUpload(ZestTests *tests, zest_layer layer, zest_uint instance_cou
 	//The timeline signal makes zest_FlushFrameGraph wait for the GPU to finish, without it the
 	//flush returns as soon as the work is submitted and the readback data would race the GPU
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginCommandGraph(tests->context, "Layer Upload", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Layer Upload")) {
 		zest_resource_node layer_resource = zest_AddTransientLayerResource("Layer Data", layer, ZEST_FALSE);
 		zest_resource_node readback_resource = zest_ImportBufferResource("Readback", readback, 0);
 
@@ -295,7 +295,7 @@ int test__instance_layer_draw(ZestTests *tests, Test *test) {
 
 	zest_image_resource_info_t image_info = { zest_format_r8g8b8a8_unorm };
 	zest_execution_timeline timeline = zest_CreateExecutionTimeline(tests->device);
-	if (zest_BeginCommandGraph(tests->context, "Layer Draw", 0)) {
+	if (zest_BeginCommandGraph(tests->context, "Layer Draw")) {
 		zest_resource_node layer_resource = zest_AddTransientLayerResource("Layer Data", layer, ZEST_FALSE);
 		zest_resource_node render_target = zest_AddTransientImageResource("Write Buffer", &image_info);
 		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer, 0);
