@@ -512,6 +512,7 @@ ZEST_PRIVATE zest_semaphore_status zest__mtl_wait_for_renderer_semaphore(zest_co
 ZEST_PRIVATE void zest__mtl_wait_for_fif_semaphore(zest_context context, zest_uint fif);
 ZEST_PRIVATE void zest__mtl_queue_wait_idle(zest_context context, zest_context_queue queue);
 ZEST_PRIVATE zest_semaphore_status zest__mtl_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout);
+ZEST_PRIVATE zest_semaphore_status zest__mtl_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 target_value, zest_microsecs timeout);
 //Set layouts
 ZEST_PRIVATE zest_bool zest__mtl_create_set_layout(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 ZEST_PRIVATE zest_bool zest__mtl_create_set_pool(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
@@ -1455,6 +1456,7 @@ void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->wait_for_fif_semaphore = zest__mtl_wait_for_fif_semaphore;
 	platform->queue_wait_idle = zest__mtl_queue_wait_idle;
 	platform->wait_for_timeline = zest__mtl_wait_for_timeline;
+	platform->wait_for_timeline_value = zest__mtl_wait_for_timeline_value;
 	//Set layouts
 	platform->create_set_layout = zest__mtl_create_set_layout;
 	platform->create_set_pool = zest__mtl_create_set_pool;
@@ -2402,10 +2404,13 @@ void zest__mtl_cleanup_execution_timeline_backend(zest_execution_timeline timeli
 	timeline->backend = NULL;
 }
 
-//Shared code frees what a frame or a flushed graph used straight after a wait succeeds, so every batch the wait proved finished is completed and released first
 zest_semaphore_status zest__mtl_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout) {
+	return zest__mtl_wait_for_timeline_value(timeline, timeline->current_value, timeout);
+}
+
+//Shared code frees what a frame or a flushed graph used straight after a wait succeeds, so every batch the wait proved finished is completed and released first
+zest_semaphore_status zest__mtl_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 target_value, zest_microsecs timeout) {
 	zest_mtl_execution_timeline_backend_t *backend = ZEST_MTL_BACKEND(execution_timeline, timeline);
-	zest_u64 target_value = timeline->current_value;
 	zest_bool signalled = [backend->event signaledValue] >= target_value;
 	zest_microsecs wait_start = zest_Microsecs();
 	while (!signalled) {

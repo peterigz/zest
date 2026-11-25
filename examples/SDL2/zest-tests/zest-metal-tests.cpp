@@ -5272,6 +5272,150 @@ int test_metal_cross_queue_order(void) {
 	return failed | finish_metal_device(device);
 }
 
+//Graph A runs unwaited on frame in flight 0 ahead of a gate on the queue it used, and graph B unwaited on frame in flight 1 behind it. The drain
+//for frame in flight 0 mustn't wait for B, and the drain for frame in flight 1 mustn't release B's views and indexes before the gate opens.
+int test_metal_unwaited_graph_drain(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	//A drain that waits for the held graph gives up after this, so a broken wait fails quickly
+	info.max_semaphore_timeout_ms = 2000;
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_context_destruction_queue_t *lists = &context->deferred_resource_freeing_list;
+	MetalGate gate = {};
+	int acquired_count = 0;
+	int failed = 0;
+	zest_u64 slot_values[ZEST_QUEUE_COUNT];
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		slot_values[queue_slot] = context->queue_ordering_timelines[queue_slot].current_value;
+	}
+
+	zest_SetFrameInFlight(context, 0);
+	zest_frame_graph first_graph = tst__build_mip_view_graph(context, "Drain First", &acquired_count);
+	failed |= !first_graph || zest_FlushFrameGraph(first_graph) != zest_semaphore_status_success;
+	zest_RestoreFrameInFlight(context);
+	//A graph with one compute pass may run on the graphics slot, so the gate holds the queue of whichever slot's ordering value moved
+	zest_uint used_slot = ZEST_INVALID;
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		if (context->queue_ordering_timelines[queue_slot].current_value != slot_values[queue_slot]) used_slot = queue_slot;
+	}
+	failed |= used_slot == ZEST_INVALID;
+	if (!failed) {
+		zest_queue_manager manager = context->queues[used_slot]->queue_manager;
+		zest_queue held_queue = &manager->queues[context->preferred_queue_index[used_slot]];
+		failed |= !metal_close_gate(device, &gate, ZEST_MTL_BACKEND(queue, held_queue)->queue);
+	}
+	zest_SetFrameInFlight(context, 1);
+	zest_frame_graph second_graph = failed ? NULL : tst__build_mip_view_graph(context, "Drain Second", &acquired_count);
+	failed |= !second_graph || zest_FlushFrameGraph(second_graph) != zest_semaphore_status_success;
+	zest_RestoreFrameInFlight(context);
+
+	if (!failed) {
+		zest_SetFrameInFlight(context, 0);
+		zest_microsecs start = zest_Microsecs();
+		zest_DrainContextResources(context);
+		zest_microsecs first_drain = zest_Microsecs() - start;
+		zest_uint first_left = zest_vec_size(lists->transient_view_arrays[0]);
+		zest_RestoreFrameInFlight(context);
+		if (first_drain >= METAL_GATE_DELAY || first_left) {
+			ZEST_PRINT("\tThe drain for frame in flight 0 took %llu us and left %u view arrays while the gate held only frame in flight 1's graph.", (zest_ull)first_drain, first_left);
+			failed = 1;
+		}
+
+		zest_SetFrameInFlight(context, 1);
+		zest_uint second_queued = zest_vec_size(lists->transient_view_arrays[1]);
+		start = zest_Microsecs();
+		if (!metal_open_gate_after(&gate, METAL_GATE_DELAY)) {
+			[gate.event setSignaledValue:1];
+			failed = 1;
+		}
+		zest_DrainContextResources(context);
+		zest_microsecs second_drain = zest_Microsecs() - start;
+		zest_bool gate_was_open = [gate.event signaledValue] == 1;
+		zest_uint second_left = zest_vec_size(lists->transient_view_arrays[1]) + zest_vec_size(lists->transient_binding_indexes[1]);
+		zest_RestoreFrameInFlight(context);
+		if (second_queued != 1 || !gate_was_open || second_drain < METAL_GATE_DELAY || second_left) {
+			ZEST_PRINT("\tThe drain for frame in flight 1 had %u view arrays queued and returned after %llu us with the gate %s, leaving %u entries.", second_queued, (zest_ull)second_drain, gate_was_open ? "open" : "still closed", second_left);
+			failed = 1;
+		}
+	}
+	metal_finish_gate(&gate);
+	failed |= acquired_count != 2;
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//A gate holds an unwaited graph past the drain's 50 ms timeout. The first drain waits out the timeout, reports and flags a critical error, the
+//next only checks, and once the gate opens a drain releases the graph's views.
+int test_metal_unwaited_graph_timeout(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	info.max_semaphore_timeout_ms = 50;
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_context_destruction_queue_t *lists = &context->deferred_resource_freeing_list;
+	zest_uint fif = context->current_fif;
+	MetalGate gate = {};
+	int acquired_count = 0;
+	zest_u64 slot_values[ZEST_QUEUE_COUNT];
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		slot_values[queue_slot] = context->queue_ordering_timelines[queue_slot].current_value;
+	}
+
+	//Waited, so it finds the slot that runs the graph and leaves nothing queued
+	zest_frame_graph first_graph = tst__build_mip_view_graph(context, "Timeout First", &acquired_count);
+	int failed = !first_graph || zest_FlushFrameGraphAndWait(first_graph) != zest_semaphore_status_success;
+	zest_uint used_slot = ZEST_INVALID;
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		if (context->queue_ordering_timelines[queue_slot].current_value != slot_values[queue_slot]) used_slot = queue_slot;
+	}
+	failed |= used_slot == ZEST_INVALID;
+	if (!failed) {
+		zest_queue_manager manager = context->queues[used_slot]->queue_manager;
+		zest_queue held_queue = &manager->queues[context->preferred_queue_index[used_slot]];
+		failed |= !metal_close_gate(device, &gate, ZEST_MTL_BACKEND(queue, held_queue)->queue);
+	}
+	zest_frame_graph second_graph = failed ? NULL : tst__build_mip_view_graph(context, "Timeout Second", &acquired_count);
+	failed |= !second_graph || zest_FlushFrameGraph(second_graph) != zest_semaphore_status_success;
+
+	if (!failed) {
+		zest_microsecs start = zest_Microsecs();
+		zest_DrainContextResources(context);
+		zest_microsecs first_drain = zest_Microsecs() - start;
+		zest_bool flagged = ZEST__FLAGGED(context->flags, zest_context_flag_critical_error);
+		zest_uint queued_after_first = zest_vec_size(lists->transient_view_arrays[fif]);
+		start = zest_Microsecs();
+		zest_DrainContextResources(context);
+		zest_microsecs second_drain = zest_Microsecs() - start;
+		zest_uint queued_after_second = zest_vec_size(lists->transient_view_arrays[fif]);
+		int report_count = metal_report_count(device, "didn't finish within");
+		if (first_drain < 40000 || first_drain >= METAL_GATE_DELAY || !flagged || queued_after_first != 1) {
+			ZEST_PRINT("\tThe first drain took %llu us, %s the critical error, and left %u view arrays, where about 50 ms, flagged and 1 were expected.", (zest_ull)first_drain, flagged ? "flagged" : "didn't flag", queued_after_first);
+			failed = 1;
+		}
+		if (second_drain >= 20000 || queued_after_second != 1 || report_count != 1) {
+			ZEST_PRINT("\tThe second drain took %llu us and left %u view arrays, with %i timeout reports, where it should only check, keep 1 and add no report.", (zest_ull)second_drain, queued_after_second, report_count);
+			failed = 1;
+		}
+		[gate.event setSignaledValue:1];
+		failed |= zest_WaitForSignal(&context->queue_ordering_timelines[used_slot], ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
+		zest_DrainContextResources(context);
+		zest_uint queued_after_open = zest_vec_size(lists->transient_view_arrays[fif]);
+		if (queued_after_open || context->unwaited_ordering_values[fif][used_slot]) {
+			ZEST_PRINT("\tOnce the graph finished the drain left %u view arrays and the slot's ordering value recorded.", queued_after_open);
+			failed = 1;
+		}
+	}
+	metal_finish_gate(&gate);
+	failed |= acquired_count != 2;
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
 struct MetalQueueSwitch {
 	zest_image image;
 	id<MTLCommandQueue> native_queue;		//The queue the clear's batch was committed to
@@ -6025,6 +6169,8 @@ static MetalTest metal_tests[] = {
 	{ "Metal Compute Reads Descriptors", test_metal_compute_reads_descriptors },
 	{ "Metal Debug Overlay", test_metal_debug_overlay },
 	{ "Metal Cross Queue Order", test_metal_cross_queue_order },
+	{ "Metal Unwaited Graph Drain", test_metal_unwaited_graph_drain },
+	{ "Metal Unwaited Graph Timeout", test_metal_unwaited_graph_timeout },
 	{ "Metal Queue Switch Order", test_metal_queue_switch_order },
 	{ "Metal Frame Graph Fence Order", test_metal_frame_graph_fence_order },
 	{ "Metal Multiview", test_metal_multiview },

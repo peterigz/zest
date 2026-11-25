@@ -1700,8 +1700,8 @@ static void tst__acquire_transient_mip_indexes(const zest_command_list command_l
 	}
 }
 
-//Per-mip views of a transient image are made from the frame graph's linear memory and released when their frame in
-//flight comes round again, so zest_BeginFrame must release them before it frees a frame graph allocator that grew.
+//Per-mip views of a transient image are released when their frame in flight comes round again, which zest_BeginFrame
+//does before it frees a frame graph allocator that grew.
 //The test's context starts with a tiny frame graph allocator so the first frame in each slot grows it.
 int test__transient_mip_views_allocator_growth(ZestTests *tests, Test *test) {
 	static zest_bool slot_grew_with_views[ZEST_MAX_FIF];
@@ -1822,6 +1822,116 @@ int test__cached_graph_allocator_growth(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	//The test proves nothing unless the large graph grew the allocator that caching replaced
 	if (test->frame_count == test->run_count && (grown_graph_count == 0 || test->cache_count == 0)) {
+		test->result |= 2;
+	}
+	return test->result;
+}
+
+static zest_frame_graph tst__build_after_frame_graph(zest_context context, const char *name) {
+	if (!zest_BeginCommandGraph(context, name, 0)) return NULL;
+	zest_buffer_resource_info_t info = {};
+	info.size = 1024;
+	zest_resource_node buffer = zest_AddTransientBufferResource("After Frame Buffer", &info);
+	zest_FlagResourceAsEssential(buffer);
+	zest_BeginComputePass("After Frame Pass");
+	zest_ConnectOutput(buffer);
+	zest_SetPassTask(zest_EmptyRenderPass, NULL);
+	zest_EndPass();
+	return zest_EndFrameGraph();
+}
+
+static zest_bool tst__in_frame_memory(zest_context context, zest_uint fif, void *pointer) {
+	for (zloc_linear_allocator_t *block = &context->frame_graph_allocator[fif]; block; block = block->next) {
+		char *start = (char *)block->data;
+		if ((char *)pointer >= start && (char *)pointer < start + block->buffer_size) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+//Command graphs flushed between zest_EndFrame and zest_BeginFrame compile into the ended frame's frame in flight memory, and every
+//flush resets it, so the frame graph's deferred per-mip views can't live there. The waited flush is last, on the same compute slot.
+int test__command_graphs_after_end_frame(ZestTests *tests, Test *test) {
+	static zest_bool slot_has_views[ZEST_MAX_FIF];
+	static int drained_slots;
+	if (test->frame_count == 0) {
+		memset(slot_has_views, 0, sizeof(slot_has_views));
+		drained_slots = 0;
+	}
+	const char *command_graph_names[3] = { "After Frame 1", "After Frame 2", "After Frame Waited" };
+	zest_context context = tests->context;
+	zest_UpdateDevice(tests->device);
+	if (zest_BeginFrame(context)) {
+		zest_uint fif = zest_CurrentFIF(context);
+		if (slot_has_views[fif]) {
+			if (zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[fif])) {
+				ZEST_PRINT("zest_BeginFrame left the frame in flight's per-mip views queued.");
+				test->result = 1;
+			}
+			for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+				if (context->unwaited_ordering_values[fif][queue_slot]) {
+					ZEST_PRINT("zest_BeginFrame left queue slot %u's ordering value recorded.", queue_slot);
+					test->result = 1;
+				}
+			}
+			slot_has_views[fif] = ZEST_FALSE;
+			drained_slots++;
+		}
+		int acquired_count = 0;
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginFrameGraph(context, "Frame Mip Views", 0)) {
+			zest_ImportSwapchainResource();
+			zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+			info.width = 64;
+			info.height = 64;
+			info.mip_levels = 4;
+			zest_resource_node mipped_target = zest_AddTransientImageResource("Mipped Target", &info);
+
+			zest_BeginRenderPass("Write Mip 0");
+			zest_ConnectOutput(mipped_target);
+			zest_SetPassTask(zest_EmptyRenderPass, NULL);
+			zest_EndPass();
+
+			zest_BeginRenderPass("Read Mips");
+			zest_ConnectInput(mipped_target);
+			zest_ConnectSwapChainOutput();
+			zest_SetPassTask(tst__acquire_transient_mip_indexes, &acquired_count);
+			zest_EndPass();
+
+			frame_graph = zest_EndFrameGraph();
+		}
+		zest_EndFrame(context, frame_graph);
+		test->result |= frame_graph ? zest_GetFrameGraphResult(frame_graph) : 1;
+		if (acquired_count != 1) {
+			test->result = 1;
+		}
+		for (int graph_index = 0; graph_index != 3; ++graph_index) {
+			zest_frame_graph command_graph = tst__build_after_frame_graph(context, command_graph_names[graph_index]);
+			if (!command_graph) {
+				test->result = 1;
+				continue;
+			}
+			test->result |= zest_GetFrameGraphResult(command_graph);
+			zest_semaphore_status status = graph_index == 2 ? zest_FlushFrameGraphAndWait(command_graph) : zest_FlushFrameGraph(command_graph);
+			test->result |= status != zest_semaphore_status_success;
+		}
+		//The waited flush signalled the utility timeline, which must not take the place of the frame's own
+		if (context->frame_sync_timeline[fif] != &context->frame_timeline[fif]) {
+			ZEST_PRINT("After the command graphs the frame in flight waits on %s, not its own frame timeline.", context->frame_sync_timeline[fif] ? "another timeline" : "no timeline");
+			test->result = 1;
+		}
+		zest_image_view_array_t *view_arrays = context->deferred_resource_freeing_list.transient_view_arrays[fif];
+		zest_uint view_array_count = zest_vec_size(view_arrays);
+		zest_bool views_in_frame_memory = view_array_count && tst__in_frame_memory(context, fif, view_arrays[0].views);
+		if (view_array_count != 1 || views_in_frame_memory) {
+			ZEST_PRINT("The frame queued %u per-mip view arrays, %s frame memory, where 1 outside it was expected.", view_array_count, views_in_frame_memory ? "in" : "outside");
+			test->result = 1;
+		}
+		slot_has_views[fif] = ZEST_TRUE;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	//The test proves nothing unless a slot that queued views came round again
+	if (test->frame_count == test->run_count && drained_slots == 0) {
 		test->result |= 2;
 	}
 	return test->result;

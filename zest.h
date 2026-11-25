@@ -4726,6 +4726,8 @@ typedef struct zest_platform_t {
 	void                       (*wait_for_fif_semaphore)(zest_context context, zest_uint fif);
 	void                       (*queue_wait_idle)(zest_context context, zest_context_queue queue);
 	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
+	//Wait until the timeline reaches value, which may be below its current value
+	zest_semaphore_status      (*wait_for_timeline_value)(zest_execution_timeline timeline, zest_u64 value, zest_microsecs timeout);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_device device, zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 	zest_bool                  (*create_set_pool)(zest_device device, zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
@@ -5092,7 +5094,8 @@ ZEST_PRIVATE void zest__cleanup_debug_font(zest_device device);
 ZEST_API zest_device_builder zest__begin_device_builder();
 //Creates the device from the builder, leaving the builder's pool for zest_EndDeviceBuilder to free
 ZEST_PRIVATE zest_device zest__end_device_builder(zest_device_builder builder);
-ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
+ZEST_PRIVATE zest_bool zest__wait_for_unwaited_graphs(zest_context context);
+ZEST_PRIVATE zest_bool zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__warn_headless_deferred_growth(zest_context context, zest_uint size, const char *list_name);
 ZEST_PRIVATE void zest__free_frame_graph_allocator_chain(zest_context context, zloc_linear_allocator_t *base_allocator);
 ZEST_PRIVATE volatile int *zest__lock_pool_growth(zloc_allocator *allocator);
@@ -5125,6 +5128,8 @@ ZEST_PRIVATE void zest__log_supported_capabilities(zest_device device, zest_capa
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
 ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array);
+ZEST_PRIVATE void zest__free_transient_view_array(zest_device device, zest_image_view_array view_array);
+ZEST_PRIVATE void zest__retire_transient_view_arrays(zest_context context, zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type intended_queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
 //Acquires a bindless index for a transient buffer, writes its view (stride 0 for raw) and queues the index for release with the frame
@@ -5246,12 +5251,12 @@ ZEST_API zest_context zest_CreateHeadlessContext(zest_device device, zest_create
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
 ZEST_API void zest_EndFrame(zest_context context, zest_frame_graph frame_gaph);
 //Drain the context's deferred release lists for the current frame in flight: retired transient arena
-//images, replaced arena backings, arena checkout returns, transient binding indexes and used buffers.
+//images, replaced arena backings, arena checkout returns, transient binding indexes, per-mip views and used buffers.
 //This is the housekeeping that zest_BeginFrame performs automatically each frame for windowed contexts.
 //Headless contexts never call zest_BeginFrame so these lists otherwise only drain at context
 //destruction - call this periodically on a headless context that flushes many command graphs.
-//Only safe when the GPU is no longer using the resources queued on the current frame in flight -
-//e.g. straight after a successful zest_FlushFrameGraphAndWait, or after zest_WaitForIdleDevice.
+//It first waits for the command graphs flushed without a wait on this frame in flight, so it is safe at any time on a headless context.
+//On a windowed context it doesn't wait for the frame's own work, so call it only once that is done, such as after zest_WaitForIdleDevice.
 //(zest_FlushFrameGraphAndWait already calls this for you on headless contexts when its wait succeeds.)
 ZEST_API void zest_DrainContextResources(zest_context context);
 //Maintenance function to be run each time the application loops to flush any unused resources that have been 
@@ -5628,9 +5633,8 @@ ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, 
 ZEST_API zest_bool zest_BeginCommandGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph(void);
-//Execute a command graph. Without a signal timeline the flush can't wait for the GPU: transient bindless indexes are then kept until the frame in
-//flight comes round, but the per-mip views from zest_GetTransientSampledMipBindlessIndexes are destroyed straight away, so a graph that uses
-//them must be flushed with zest_FlushFrameGraphAndWait or signal a timeline with zest_SignalTimeline.
+//Execute a command graph. Without a signal timeline the flush doesn't wait for the GPU: the graph's transient bindless indexes, per-mip views and
+//arenas are released by the frame in flight's next drain, which first waits for the graph to finish.
 ZEST_API zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph);
 //Flush a command graph and wait for its GPU work to complete before returning. If the graph has no
 //signal timeline one is attached automatically (a reusable timeline owned by the context), so the
@@ -7443,6 +7447,7 @@ typedef struct zest_context_t {
 	zest_bool has_preferred_queue[ZEST_QUEUE_COUNT];
 	//Signalled by every submission on a slot, so a submission on a different VkQueue can wait for all earlier ones
 	zest_execution_timeline_t queue_ordering_timelines[ZEST_QUEUE_COUNT];
+	zest_u64 unwaited_ordering_values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];	//Each slot's ordering value the unwaited command graphs on a frame in flight reach, 0 when none waits
 	zest_uint graphics_queue_index;
 	zest_uint compute_queue_index;
 	zest_uint transfer_queue_index;
@@ -9674,8 +9679,11 @@ zest_bool zest_BeginFrame(zest_context context) {
 
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
-	//Deferred releases can point into this slot's frame graph memory, so they run before it is reset or freed
-	zest__do_context_scheduled_tasks(context);
+	//An unwaited command graph still running holds this frame in flight's command pools, so the frame is skipped as on a fence timeout
+	if (!zest__do_context_scheduled_tasks(context)) {
+		ZEST_CPU_PROFILE_END(context);	//Begin Frame
+		return ZEST_FALSE;
+	}
 
 	if (context->frame_graph_allocator[context->current_fif].next) {
 		//If extra memory was allocated to create a frame graph then consolidate it in to a single memory block.
@@ -10173,8 +10181,33 @@ int zest_UpdateDevice(zest_device device) {
 	return resources_freed;
 }
 
-void zest__do_context_scheduled_tasks(zest_context context) {
+zest_bool zest__wait_for_unwaited_graphs(zest_context context) {
+	zest_u64 *values = context->unwaited_ordering_values[context->current_fif];
+	//A context already in critical error only checks, so a hung graph stalls one drain rather than every one
+	zest_bool critical_error = ZEST__FLAGGED(context->flags, zest_context_flag_critical_error);
+	zest_microsecs timeout = critical_error ? 0 : (zest_microsecs)context->create_info.max_semaphore_timeout_ms * 1000;
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		if (!values[queue_slot]) continue;
+		zest_semaphore_status status = context->device->platform->wait_for_timeline_value(&context->queue_ordering_timelines[queue_slot], values[queue_slot], timeout);
+		if (status != zest_semaphore_status_success) {
+			if (!critical_error) {
+				ZEST_REPORT(context->device, zest_report_submission_failure, "A command graph flushed without a wait on queue slot %u didn't finish within %u ms, or the wait failed. The context is flagged with a critical error, and its deferred releases for the frame in flight are kept until the graph finishes.", queue_slot, (zest_uint)context->create_info.max_semaphore_timeout_ms);
+				ZEST__FLAG(context->flags, zest_context_flag_critical_error);
+			}
+			return ZEST_FALSE;
+		}
+		values[queue_slot] = 0;
+	}
+	return ZEST_TRUE;
+}
+
+zest_bool zest__do_context_scheduled_tasks(zest_context context) {
 	ZEST_CPU_PROFILE_BEGIN(context, "Frame Cleanup");
+	//Unwaited command graphs queue releases on these lists too
+	if (!zest__wait_for_unwaited_graphs(context)) {
+		ZEST_CPU_PROFILE_END(context);
+		return ZEST_FALSE;
+	}
     if (zest_vec_size(context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif])) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif]) {
             zest_binding_index_for_release_t index = context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif][i];
@@ -10198,7 +10231,7 @@ void zest__do_context_scheduled_tasks(zest_context context) {
     if (zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif])) {
         zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]) {
             zest_image_view_array view_array = &context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif][i];
-            context->device->platform->cleanup_image_view_array_backend(view_array);
+            zest__free_transient_view_array(context->device, view_array);
         }
 		zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]);
     }
@@ -10252,6 +10285,7 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 		context->device->platform->flush_legacy_framebuffers(context, context->current_fif);
 	}
 	ZEST_CPU_PROFILE_END(context);
+	return ZEST_TRUE;
 }
 
 void zest_DrainContextResources(zest_context context) {
@@ -12356,7 +12390,7 @@ void zest__cleanup_context(zest_context context) {
 		if (zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[fif])) {
 			zest_vec_foreach(i, context->deferred_resource_freeing_list.transient_view_arrays[fif]) {
 				zest_image_view_array view_array = &context->deferred_resource_freeing_list.transient_view_arrays[fif][i];
-				context->device->platform->cleanup_image_view_array_backend(view_array);
+				zest__free_transient_view_array(context->device, view_array);
 			}
 			zest_vec_clear(context->deferred_resource_freeing_list.transient_view_arrays[fif]);
 		}
@@ -17107,6 +17141,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	ZEST_ASSERT(ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_command_graph), "zest_FlushCommandGraph should only be called for a command graph created with zest_BeginCommandGraph.");
 	zest_semaphore_status status = zest_semaphore_status_success;
 	zest_bool gpu_finished = ZEST_TRUE;		//False once the graph has run, until a wait proves its GPU work is over
+	zest_execution_timeline frame_sync_timeline = context->frame_sync_timeline[context->current_fif];
 	ZEST__UNFLAG(frame_graph->error_status, ZEST_FGS_RETRYABLE);
 	//A graph carrying no work, or any fatal compile/placement error, must not be executed. Critically
 	//we must also skip the timeline wait below: a graph that never submits never signals, so waiting on
@@ -17152,16 +17187,17 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 				if (ZEST__FLAGGED(context->flags, zest_context_flag_headless)) {
 					//Headless contexts never call zest_BeginFrame, so the context-level deferred
 					//release lists (retired arena images, replaced arena backings, arena returns)
-					//would otherwise only drain at context destruction. Work on a headless context
-					//is serialized through waited flushes, so with the wait proven everything queued
-					//on this FIF slot is safe to release now.
-					zest__do_context_scheduled_tasks(context);
-					//zest_BeginFrame moves this on for windowed contexts. Without it the next graph never resets its queue's command pool,
-					//so every flush records into a new command buffer (Vulkan) or grows the allocator (D3D12) until submits fail
-					context->device_frame_counter++;
-					//zest_BeginFrame reads back and resets the waited FIF's timestamp queries for windowed contexts. The wait proves this graph's are written
-					if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
-						zest__gpu_profiler_begin_frame(context);
+					//would otherwise only drain at context destruction. The drain first waits for
+					//any graph flushed without a wait on this FIF slot.
+					//If one is still running its command buffers are too, so the command pools are left alone as zest_BeginFrame would
+					if (zest__do_context_scheduled_tasks(context)) {
+						//zest_BeginFrame moves this on for windowed contexts. Without it the next graph never resets its queue's command pool,
+						//so every flush records into a new command buffer (Vulkan) or grows the allocator (D3D12) until submits fail
+						context->device_frame_counter++;
+						//zest_BeginFrame reads back and resets the waited FIF's timestamp queries for windowed contexts. The wait proves this graph's are written
+						if (ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled)) {
+							zest__gpu_profiler_begin_frame(context);
+						}
 					}
 				}
 			}
@@ -17176,13 +17212,25 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 		zest__release_context_queues(context);
 		status = zest_semaphore_status_error;
 	}
+	//A command graph is covered by its own wait or the unwaited record, so the frame keeps waiting on its own work
+	context->frame_sync_timeline[context->current_fif] = frame_sync_timeline;
 	if (!gpu_finished) {
+		//The drain for this frame in flight waits for these, as nothing waited for the graph
+		for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+			context->unwaited_ordering_values[context->current_fif][queue_slot] = context->queue_ordering_timelines[queue_slot].current_value;
+		}
 		//Without a wait the GPU may still read through these, so they go with the context's other deferred releases for this frame in flight
 		zest_binding_index_for_release_t *indexes = frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif];
 		zest_vec_foreach(index, indexes) {
 			zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], indexes[index]);
 		}
 		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]);
+		zest_image_view_array_t *view_arrays = frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif];
+		zest_vec_foreach(view_array_index, view_arrays) {
+			zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif], view_arrays[view_array_index]);
+		}
+		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]);
+		zest__warn_headless_deferred_growth(context, zest_vec_size(context->deferred_resource_freeing_list.transient_view_arrays[context->current_fif]), "transient view array");
 	}
 	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif])) {
 		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_binding_indexes[context->current_fif]) {
@@ -17207,7 +17255,7 @@ zest_semaphore_status zest_FlushFrameGraph(zest_frame_graph frame_graph) {
 	if (zest_vec_size(frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif])) {
 		zest_vec_foreach(i, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]) {
 			zest_image_view_array view_array = &frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif][i];
-            context->device->platform->cleanup_image_view_array_backend(view_array);
+            zest__free_transient_view_array(context->device, view_array);
         }
 		zest_vec_free(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif]);
     }
@@ -17387,6 +17435,25 @@ void zest__deferr_resource_destruction(zest_context context, void* handle) {
 
 void zest__deferr_view_array_destruction(zest_context context, zest_frame_graph frame_graph, zest_image_view_array view_array) {
 	zest_vec_push(context->allocator, frame_graph->deferred_resource_freeing_list->transient_view_arrays[context->current_fif], *view_array);
+	ZEST__FREE(context->device->allocator, view_array);
+}
+
+//A transient view array was never in the store, so only its views are destroyed and freed
+void zest__free_transient_view_array(zest_device device, zest_image_view_array view_array) {
+	device->platform->cleanup_image_view_array_backend(view_array);
+	ZEST__FREE(device->allocator, view_array->views);
+}
+
+//Per-mip views and their index lists belong to one execution, and the index lists sit in frame memory that is reset after it
+void zest__retire_transient_view_arrays(zest_context context, zest_frame_graph frame_graph) {
+	zest_vec_foreach(schedule_index, frame_graph->transient_schedule) {
+		zest_resource_node resource = frame_graph->transient_schedule[schedule_index].resource;
+		if (resource->view_array) {
+			zest__deferr_view_array_destruction(context, frame_graph, resource->view_array);
+			resource->view_array = 0;
+		}
+		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
+	}
 }
 
 void zest__cleanup_frame_graph_builder() {
@@ -17760,18 +17827,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 	ZEST_CPU_PROFILE_END(context);
 
 	ZEST_CPU_PROFILE_BEGIN(context, "Retire Transient Views");
-	//Per-mip view arrays and their bindless index lists are built lazily during pass execution
-	//from frame-linear memory, so they must be retired and cleared every execution - for cached
-	//graphs the pointers would otherwise dangle into reset frame memory on the next execution.
-	//The images themselves persist in their placement slots.
-	zest_vec_foreach(i, frame_graph->transient_schedule) {
-		zest_resource_node resource = frame_graph->transient_schedule[i].resource;
-		if (resource->view_array) {
-			zest__deferr_view_array_destruction(context, frame_graph, resource->view_array);
-			resource->view_array = 0;
-		}
-		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
-	}
+	zest__retire_transient_view_arrays(context, frame_graph);
 	ZEST_CPU_PROFILE_END(context);
 
 	if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
@@ -17813,6 +17869,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 				image->released_to_family = ZEST_QUEUE_FAMILY_IGNORED;
 			}
 		}
+		zest__retire_transient_view_arrays(context, frame_graph);
 		//The graph placed transients this execution: return the arena checkouts (deferred) so
 		//they don't stay pinned, and retire the images of a graph that will never run again.
 		if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
@@ -19208,7 +19265,7 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
 
     zloc_linear_allocator_t *allocator = zest__frame_graph_builder->allocator;
     if (!resource->view_array) {
-        resource->view_array = device->platform->create_image_views_per_mip(context->device, &resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
+        resource->view_array = device->platform->create_image_views_per_mip(context->device, &resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, NULL);
 		if (!resource->view_array) {
 			ZEST_REPORT(context->device, zest_report_invalid_resource, "Unable to create the per mip image views for resource [%s].", resource->name);
 			return NULL;

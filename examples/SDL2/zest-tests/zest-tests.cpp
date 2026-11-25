@@ -114,6 +114,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Compute Test Read Modify Write", test__compute_read_modify_write, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Only Graph", test__compute_only_graph, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Immediate Execute No Wait", test__immediate_execute_no_wait, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "Unwaited Graph Mip Views", test__unwaited_graph_mip_views, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test WAW Barrier", test__compute_waw_barrier, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Flush Compile Failure No Hang", test__flush_compile_failure_no_hang, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "Compute Test Headless Flush And Wait", test__headless_flush_and_wait, 0, 1, 0, 0, tests->headless_create_info });
@@ -153,6 +154,7 @@ void InitialiseTests(ZestTests *tests) {
 	zest_create_context_info_t cached_growth_memory_info = tests->simple_create_info;
 	cached_growth_memory_info.frame_graph_allocator_size = CACHED_GROWTH_ALLOCATOR_SIZE;
 	RegisterTest(tests, { "Cached Graph Allocator Growth", test__cached_graph_allocator_growth, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, cached_growth_memory_info });
+	RegisterTest(tests, { "Command Graphs After End Frame", test__command_graphs_after_end_frame, 0, ZEST_MAX_FIF * 3, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Frame Graph Transfer Image Output", test__transfer_image_output, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Frame Graph Transfer Queue Mip Copy", test__transfer_queue_mip_copy, 0, 1, 0, 0, tests->simple_create_info });
 	//Vulkan only: D3D12 blits the same format on the copy queue

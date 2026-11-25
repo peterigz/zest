@@ -671,6 +671,89 @@ int test__immediate_execute_no_wait(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+static void tst__acquire_output_mip_indexes(const zest_command_list command_list, void *user_data) {
+	zest_resource_node mipped_image = zest_GetPassOutputResource(command_list, "Mipped Image");
+	if (mipped_image && zest_GetTransientSampledMipBindlessIndexes(command_list, mipped_image, zest_storage_image_binding)) {
+		*(int *)user_data += 1;
+	}
+}
+
+static zest_frame_graph tst__build_mip_view_graph(zest_context context, const char *name, int *acquired_count) {
+	if (!zest_BeginCommandGraph(context, name, 0)) return NULL;
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	info.width = 64;
+	info.height = 64;
+	info.mip_levels = 4;
+	zest_resource_node mipped_image = zest_AddTransientImageResource("Mipped Image", &info);
+	zest_FlagResourceAsEssential(mipped_image);
+	zest_BeginComputePass("Mip Views");
+	zest_ConnectOutput(mipped_image);
+	zest_SetPassTask(tst__acquire_output_mip_indexes, acquired_count);
+	zest_EndPass();
+	return zest_EndFrameGraph();
+}
+
+//An unwaited flush can't tell when its graph finishes, so the per-mip views it made wait on the context's lists with its bindless
+//indexes until a drain. On a headless context a waited flush is that drain.
+int test__unwaited_graph_mip_views(ZestTests *tests, Test *test) {
+	zest_context context = tests->context;
+	zest_uint fif = zest_CurrentFIF(context);
+	zest_context_destruction_queue_t *lists = &context->deferred_resource_freeing_list;
+	zest_uint view_arrays_before = zest_vec_size(lists->transient_view_arrays[fif]);
+	zest_uint indexes_before = zest_vec_size(lists->transient_binding_indexes[fif]);
+	int acquired_count = 0;
+
+	zest_frame_graph unwaited_graph = tst__build_mip_view_graph(context, "Unwaited Mip Views", &acquired_count);
+	if (unwaited_graph) {
+		test->result |= zest_GetFrameGraphResult(unwaited_graph);
+		test->result |= zest_FlushFrameGraph(unwaited_graph) != zest_semaphore_status_success;
+	}
+	zest_uint view_arrays_queued = zest_vec_size(lists->transient_view_arrays[fif]) - view_arrays_before;
+	zest_uint indexes_queued = zest_vec_size(lists->transient_binding_indexes[fif]) - indexes_before;
+	if (view_arrays_queued != 1 || indexes_queued < 4) {
+		ZEST_PRINT("The unwaited flush left %u view arrays and %u bindless indexes on the context, where 1 and at least 4 were expected.", view_arrays_queued, indexes_queued);
+		test->result = 1;
+	}
+	//The drain must wait for each slot's ordering value as the flush left it
+	zest_uint recorded_slots = 0;
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		zest_u64 recorded_value = context->unwaited_ordering_values[fif][queue_slot];
+		recorded_slots += recorded_value != 0;
+		if (recorded_value != context->queue_ordering_timelines[queue_slot].current_value) {
+			ZEST_PRINT("Queue slot %u recorded ordering value %llu for the drain, where the slot is at %llu.", queue_slot, (zest_ull)recorded_value, (zest_ull)context->queue_ordering_timelines[queue_slot].current_value);
+			test->result = 1;
+		}
+	}
+	if (recorded_slots == 0) {
+		ZEST_PRINT("The unwaited flush recorded no ordering value for the drain to wait for.");
+		test->result = 1;
+	}
+
+	zest_frame_graph waited_graph = tst__build_mip_view_graph(context, "Waited Mip Views", &acquired_count);
+	if (waited_graph) {
+		test->result |= zest_GetFrameGraphResult(waited_graph);
+		test->result |= zest_FlushFrameGraphAndWait(waited_graph) != zest_semaphore_status_success;
+	}
+	zest_uint view_arrays_left = zest_vec_size(lists->transient_view_arrays[fif]);
+	zest_uint indexes_left = zest_vec_size(lists->transient_binding_indexes[fif]);
+	if (view_arrays_left || indexes_left) {
+		ZEST_PRINT("The waited flush left %u view arrays and %u bindless indexes on the context, where it should have drained them.", view_arrays_left, indexes_left);
+		test->result = 1;
+	}
+	for (zest_uint queue_slot = 0; queue_slot != ZEST_QUEUE_COUNT; ++queue_slot) {
+		if (context->unwaited_ordering_values[fif][queue_slot]) {
+			ZEST_PRINT("The drain left queue slot %u's ordering value recorded.", queue_slot);
+			test->result = 1;
+		}
+	}
+	if (acquired_count != 2) {
+		test->result = 1;
+	}
+	test->result |= zest_GetValidationErrorCount(tests->device);
+	test->frame_count++;
+	return test->result;
+}
+
 /*
 Test flush of a failed-compilation command graph does not hang: build a command graph with a cyclic
 dependency (Pass A reads B's output and writes A's; Pass B reads A's output and writes B's), signal a

@@ -280,6 +280,7 @@ ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *c
 //Semaphores
 ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context);
 ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout);
+ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 value, zest_microsecs timeout);
 
 //Command buffers/queues
 ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_context context, zest_context_queue queue, zest_bool release_resources);
@@ -727,6 +728,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->wait_for_fif_semaphore					    = zest__vk_wait_for_fif_semaphore;
 	platform->queue_wait_idle							    = zest__vk_queue_wait_idle;
 	platform->wait_for_timeline							    = zest__vk_wait_for_timeline;
+	platform->wait_for_timeline_value					    = zest__vk_wait_for_timeline_value;
 
     platform->create_set_layout                             = zest__vk_create_set_layout;
     platform->create_set_pool                               = zest__vk_create_set_pool;
@@ -3279,12 +3281,16 @@ zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context)
 }
 
 zest_semaphore_status zest__vk_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout) {
+	return zest__vk_wait_for_timeline_value(timeline, timeline->current_value, timeout);
+}
+
+zest_semaphore_status zest__vk_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 value, zest_microsecs timeout) {
 	zest_device device = timeline->device;
 	VkSemaphoreWaitInfo info = ZEST__ZERO_INIT(VkSemaphoreWaitInfo);
 	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
 	info.semaphoreCount = 1;
 	info.pSemaphores = &timeline->backend->semaphore;
-	info.pValues = &timeline->current_value;
+	info.pValues = &value;
 	VkResult result = vkWaitSemaphores(device->backend->logical_device, &info, timeout * 1000);
 
 	if (result == VK_SUCCESS) {

@@ -932,6 +932,7 @@ ZEST_PRIVATE void zest__dx_flush_used_buffers(zest_context context, zest_uint fr
 ZEST_PRIVATE zest_bool zest__dx_create_execution_timeline_backend(zest_device device, zest_execution_timeline timeline);
 ZEST_PRIVATE void zest__dx_cleanup_execution_timeline_backend(zest_execution_timeline timeline);
 ZEST_PRIVATE zest_semaphore_status zest__dx_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout);
+ZEST_PRIVATE zest_semaphore_status zest__dx_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 target_value, zest_microsecs timeout);
 ZEST_PRIVATE void *zest__dx_new_frame_graph_semaphores_backend(zest_context context);
 ZEST_PRIVATE void zest__dx_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores);
 ZEST_PRIVATE void *zest__dx_new_frame_graph_context_backend(zest_context context);
@@ -2622,6 +2623,7 @@ void zest__dx_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->create_execution_timeline_backend = zest__dx_create_execution_timeline_backend;
 	platform->cleanup_execution_timeline_backend = zest__dx_cleanup_execution_timeline_backend;
 	platform->wait_for_timeline = zest__dx_wait_for_timeline;
+	platform->wait_for_timeline_value = zest__dx_wait_for_timeline_value;
 	platform->imm_begin_command_buffer = zest__dx_imm_begin_command_buffer;
 	platform->imm_end_command_buffer = zest__dx_imm_end_command_buffer;
 	platform->imm_fill_buffer = zest__dx_imm_fill_buffer;
@@ -3458,8 +3460,11 @@ DWORD zest__dx_timeout_milliseconds(zest_microsecs timeout) {
 }
 
 zest_semaphore_status zest__dx_wait_for_timeline(zest_execution_timeline timeline, zest_microsecs timeout) {
+	return zest__dx_wait_for_timeline_value(timeline, timeline->current_value, timeout);
+}
+
+zest_semaphore_status zest__dx_wait_for_timeline_value(zest_execution_timeline timeline, zest_u64 target_value, zest_microsecs timeout) {
 	zest_dx_execution_timeline_backend_t *backend = ZEST_DX_BACKEND(execution_timeline, timeline);
-	zest_u64 target_value = timeline->current_value;
 	zest_u64 completed_value = ZEST_DX_CALL0(backend->fence, GetCompletedValue);
 	//A removed device reports every fence as UINT64_MAX
 	if (completed_value == UINT64_MAX) {
