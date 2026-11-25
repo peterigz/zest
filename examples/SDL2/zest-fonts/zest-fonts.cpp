@@ -4,6 +4,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #define ZEST_MSDF_IMPLEMENTATION		// Enables MSDF font generation/loading in zest-utilities
 #include <SDL.h>
 #include "implementations/impl_imgui.h"

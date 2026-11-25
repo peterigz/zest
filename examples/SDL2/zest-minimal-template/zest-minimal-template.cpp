@@ -18,7 +18,7 @@
 	Minimal app with a frame graph that renders a hello world triangle to the swapchain.
 	The triangle needs no vertex or index buffers at all - the vertex shader generates the
 	positions and colors from the vertex index.
-	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 is the default when it's compiled in),
+	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 or Metal is the default when it's compiled in),
 	--frames N exits after N frames, --validate enables the validation layers and fails the run on
 	any validation error. See examples/Common/example_platform.h.
  */

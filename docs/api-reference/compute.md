@@ -243,7 +243,8 @@ void UpdateParticlesCallback(zest_command_list command_list, void *user_data) {
 
 ## Slang Sessions
 
-`implementations/impl_slang.hpp` compiles Slang modules to SPIR-V on a Vulkan device and to DXIL on a D3D12 device. A
+`implementations/impl_slang.hpp` compiles Slang modules to SPIR-V on a Vulkan or Metal device and to DXIL on a D3D12
+device. On Metal the backend converts the SPIR-V to MSL, as it does a GLSL shader's. A
 session wraps one Slang `ISession`, so compiling several entry points from one module parses it, and everything it
 imports, once. Use a session and the shaders made from it on one thread at a time.
 
@@ -278,10 +279,13 @@ zest_SetShaderHotReload(shader, ZEST_TRUE);     // Reloads when kernel.slang, th
 ```
 
 - The target follows the session's device. `profile` NULL, as `zest_slang_DefaultSessionInfo` leaves it, means
-  `spirv_1_5` on Vulkan and `sm_6_0` on D3D12. A profile for the other backend (`spirv_*` on D3D12, `sm_*` on Vulkan)
-  is refused when the session is created. Set `sm_6_1` or higher for a shader that needs it, such as one reading
-  `SV_ViewID`.
-- Every session defines `ZEST_VULKAN` or `ZEST_D3D12` as 1, after your own macros, as `zest_CreateShader` does.
+  `spirv_1_5` on Vulkan and Metal and `sm_6_0` on D3D12. A profile for the other target (`spirv_*` on D3D12, `sm_*` on
+  Vulkan or Metal) is refused when the session is created. Set `sm_6_1` or higher for a shader that needs it, such as
+  one reading `SV_ViewID`.
+- Every session defines `ZEST_VULKAN`, `ZEST_D3D12` or `ZEST_METAL` as 1, after your own macros, as `zest_CreateShader`
+  does. A shader that wants the same code on Vulkan and Metal tests for either.
+- `zest_slang_CompileToBinary` gives SPIR-V on a Metal device, which differs from Vulkan's only where the shader tests
+  the platform macro.
 - With `debug_info` on D3D12 the DXIL container carries `ILDB` and `ILDN` parts, which PIX reads.
 - DXIL is signed by the `dxcompiler.dll` Slang loads, the one `zest_copy_d3d12_runtime` puts next to the executable.
 - Every entry point is emitted into SPIR-V as `main`, which is what zest pipelines expect.
@@ -293,7 +297,8 @@ zest_SetShaderHotReload(shader, ZEST_TRUE);     // Reloads when kernel.slang, th
   D3D12), to check host structs against. The targets can differ: a struct of two `float3` is 32 bytes in std430 and 24
   on D3D12, because std430 rounds a `float3` followed by anything but a scalar up to 16 bytes. A host struct only matches
   both when it pads such members itself, as TimelineFX's GPU structs do. `scalar_block_layout` needs
-  `zest_capability_scalar_block_layout`, which is enabled whenever the GPU supports it, and D3D12 doesn't report it.
+  `zest_capability_scalar_block_layout`, which is enabled whenever the GPU supports it. D3D12 and Metal don't report it,
+  so a session that asks for scalar layout is refused on them.
 - On D3D12 every `StructuredBuffer<T>` a shader reads needs a structured index with `sizeof(T)` as its stride:
   `zest_AcquireStructuredBufferIndex` for a buffer and `zest_GetTransientStructuredBufferIndex` for a transient. See
   [Bindless Descriptors](../concepts/bindless.md).

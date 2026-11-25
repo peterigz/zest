@@ -142,6 +142,7 @@ static const char *zest__mtl_shader_db_overlay_frag =
 #define ZEST__MTL_DEPTH_STENCIL_STATE_COUNT 16		//A compare function's eight values, with depth writes off and on
 #define ZEST__MTL_BINDLESS_ENTRY_SIZE 8				//Bytes: a texture's or sampler's resource ID, or a buffer's GPU address
 #define ZEST__MTL_WAIT_FOREVER (~(zest_microsecs)0)
+#define ZEST__MTL_WAIT_SLICE 100				//Milliseconds a timeline wait waits before it reaps finished batches and waits again
 #define ZEST__MTL_VALIDATION_MESSAGE_SIZE 768		//Bytes kept of one validation record
 #define ZEST__MTL_VALIDATION_PENDING_COUNT 64		//Records the reader holds until a device collects them
 #define ZEST__MTL_VALIDATION_SYNC_LINE "\x1d" "Zest Metal validation sync"
@@ -149,6 +150,7 @@ static const char *zest__mtl_shader_db_overlay_frag =
 #define ZEST__MTL_SDL_VIEW_NAME "zest_metal_view"	//The name an SDL window keeps its Metal view under
 #define ZEST__MTL_FILL_BLOCK_SIZE 65536				//Bytes of the staging block a fill copies from when its value's bytes differ
 #define ZEST__MTL_MAX_BLIT_PIPELINES 16				//Destination formats a device can blit to
+#define ZEST__MTL_PROFILE_SAMPLE_COUNT 4096			//Samples in each frame in flight's sample buffer, the most one buffer takes (32 KB)
 
 //What the rest of the backend switches on, read once from the device
 typedef struct zest_mtl_feature_support_t {
@@ -207,6 +209,8 @@ typedef struct zest_mtl_device_backend_t {
 	zest_bool shader_validation;
 	zest_bool launcher_shader_validation;		//MTL_SHADER_VALIDATION was already set when this device was asked for
 	zest_bool declares_texture_views;			//Shader validation is on, and it drops reads and writes through a view of a heap texture the encoder hasn't declared
+	MTLCommandBufferDescriptor *batch_descriptor;	//Unretained references, and encoder execution status when validation is on
+	zest_bool failure_alerted;					//A failed command buffer has raised its alert, which a device raises once
 } zest_mtl_device_backend_t;
 
 //The plain fields are what the app asked for, the recorded_ fields what the open encoder holds
@@ -243,6 +247,10 @@ typedef struct zest_mtl_context_backend_t {
 	id<CAMetalDrawable> drawable;						//This frame's, from acquire until its present is committed
 	zest_uint present_count;							//Presents encoded for this frame's drawable, which must end at one
 	MTLRenderPassDescriptor *render_pass_descriptor;	//Refilled by every pass, so none allocates its own
+	MTLComputePassDescriptor *compute_pass_descriptor;	//Opens a compute encoder that takes timestamp samples, and holds no sample buffer between them
+	MTLBlitPassDescriptor *blit_pass_descriptor;		//The same for a blit encoder
+	pthread_t recording_thread;							//Recorded the context's last batch, and the only thread that writes the context's flags
+	volatile int device_lost_pending;					//A reap on another thread saw the device removed, for the recording thread to flag
 } zest_mtl_context_backend_t;
 
 typedef struct zest_mtl_swapchain_backend_t {
@@ -255,6 +263,9 @@ typedef struct zest_mtl_committed_batch_t {
 	id<MTLSharedEvent> event;						//The last event the batch signals, retained as it can outlive its timeline here
 	zest_u64 value;
 	id<MTLTexture> drawable_texture;				//Retained, as a layer can drop a presented drawable before the batch that drew to it has completed
+	zest_context context;
+	id<MTLSharedEvent> signal_event;				//The frame or wave event the batch signals before its ordering event, retained, nil for none
+	zest_u64 signal_value;
 } zest_mtl_committed_batch_t;
 
 typedef struct zest_mtl_context_queue_backend_t {
@@ -272,6 +283,24 @@ typedef struct zest_mtl_execution_backend_t {
 	zest_uint wave_wait_count;
 } zest_mtl_execution_backend_t;
 
+//Where an encoder's samples sit in its frame in flight's sample buffer: two for a compute or blit encoder, four for a render encoder
+typedef struct zest_mtl_profile_encoder_t {
+	zest_uint first_sample;
+	zest_uint sample_count;
+} zest_mtl_profile_encoder_t;
+
+//Metal samples timestamps at encoder boundaries only, so each query is mapped to an encoder's start or end and resolved at readback
+typedef struct zest_mtl_gpu_profiler_backend_t {
+	zest_context context;
+	id<MTLCounterSampleBuffer> sample_buffers[ZEST_MAX_FIF];
+	zest_mtl_profile_encoder_t *encoders[ZEST_MAX_FIF];		//ZEST__MTL_PROFILE_SAMPLE_COUNT / 2 each, in the order they opened
+	zest_uint *query_encoders[ZEST_MAX_FIF];				//max_queries each: the encoder's index times 2, plus 1 for its end, or ZEST_INVALID
+	zest_uint encoder_count[ZEST_MAX_FIF];
+	zest_uint sample_count[ZEST_MAX_FIF];					//Samples handed out this frame
+	zest_bool reported_full;
+	zest_bool reported_resolve_failure;
+} zest_mtl_gpu_profiler_backend_t;
+
 typedef struct zest_mtl_command_list_backend_t {
 	id<MTLCommandBuffer> command_buffer;			//The batch being recorded, which its context queue owns
 	id<MTLRenderCommandEncoder> render_encoder;		//Open between a pass's begin and end
@@ -284,6 +313,12 @@ typedef struct zest_mtl_command_list_backend_t {
 	zest_bool switched_queue;						//The batch's slot last ran on a different device queue
 	zest_mtl_execution_backend_t *execution;		//Set once a wave has been submitted
 	zest_mtl_bind_state_t bind_state;
+	zest_uint profile_pending[ZEST_MAX_GPU_PROFILE_STACK_DEPTH + 1];	//Queries waiting for the next encoder's start
+	zest_uint profile_pending_count;
+	zest_uint profile_open_encoder;					//Index of the open encoder in the frame in flight's list, ZEST_INVALID for none
+	zest_uint profile_last_encoder;					//The encoder this batch ended last, ZEST_INVALID for none
+	NSString *pass_label;							//The pass being recorded, from its debug marker to the end of it
+	zest_uint debug_group_depth;
 } zest_mtl_command_list_backend_t;
 
 //A wave's batch signals its slot's event, and the next wave's batches wait on it
@@ -422,6 +457,9 @@ static pthread_mutex_t zest__mtl_validation_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t zest__mtl_validation_caught_up = PTHREAD_COND_INITIALIZER;
 static const char *zest__mtl_forced_missing_feature = NULL;
 static zest_bool zest__mtl_forced_validation_unavailable = ZEST_FALSE;
+//Test hooks: the M2 can't make a command buffer fail, so the next batch skips its signals and reads as failed with this code
+static NSInteger zest__mtl_forced_command_buffer_error = 0;
+static id<MTLCommandBuffer> zest__mtl_forced_failed_command_buffer = nil;
 
 ZEST_API id<MTLDevice> zest_GetMetalDevice(zest_device device);
 //Metal reads its validation settings when the process makes its first Metal device, and creating a window makes one.
@@ -583,9 +621,17 @@ ZEST_PRIVATE void zest__mtl_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *pr
 ZEST_PRIVATE void zest__mtl_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif);
 ZEST_PRIVATE void zest__mtl_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end);
 ZEST_PRIVATE zest_bool zest__mtl_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count);
+//The first of the samples a pass encoder about to open takes, or ZEST_INVALID when the command list isn't profiling or the frame's samples are used up
+ZEST_PRIVATE zest_uint zest__mtl_profile_encoder_samples(const zest_command_list command_list, zest_uint sample_count);
+ZEST_PRIVATE void zest__mtl_profile_encoder_ended(const zest_command_list command_list);
+ZEST_PRIVATE id<MTLCounterSampleBuffer> zest__mtl_profile_sample_buffer(const zest_command_list command_list);
+ZEST_PRIVATE zest_bool zest__mtl_profile_render_encoder(const zest_command_list command_list, MTLRenderPassDescriptor *descriptor);
+ZEST_PRIVATE zest_u64 zest__mtl_profile_encoder_tick(const MTLCounterResultTimestamp *samples, const zest_mtl_profile_encoder_t *encoder, zest_bool is_end);
 //Debugging
 ZEST_PRIVATE void zest__mtl_set_object_name(zest_device device, zest_uint object_type, zest_u64 object_handle, const char *name);
 ZEST_PRIVATE void zest__mtl_set_image_name(zest_device device, zest_image image, const char *name);
+ZEST_PRIVATE void zest__mtl_begin_debug_marker(const zest_command_list command_list, const char *name);
+ZEST_PRIVATE void zest__mtl_end_debug_marker(const zest_command_list command_list);
 ZEST_PRIVATE void zest__mtl_set_buffer_pool_name(zest_device device, zest_device_memory_pool pool, const char *name);
 ZEST_PRIVATE void *zest__mtl_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__mtl_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
@@ -649,8 +695,13 @@ ZEST_PRIVATE zest_bool zest__mtl_create_device_objects(zest_device device);
 ZEST_PRIVATE void zest__mtl_cleanup_queues(zest_device device);
 ZEST_PRIVATE void zest__mtl_add_queue_manager_list(zest_device device, zest_device_queue_type queue_type, const zest_uint *family_order, zest_uint order_count);
 ZEST_PRIVATE void zest__mtl_release_immediate_queue(zest_queue queue, zest_bool gpu_finished);
-ZEST_PRIVATE zest_bool zest__mtl_finish_command_buffer(zest_device device, id<MTLCommandBuffer> command_buffer);
-ZEST_PRIVATE void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value);
+ZEST_PRIVATE zest_bool zest__mtl_finish_command_buffer(zest_device device, id<MTLCommandBuffer> command_buffer, NSInteger *out_error_code);
+ZEST_PRIVATE const char *zest__mtl_command_buffer_error_name(NSInteger code);
+ZEST_PRIVATE const char *zest__mtl_encoder_state_name(MTLCommandEncoderErrorState state);
+ZEST_PRIVATE void zest__mtl_report_command_buffer_error(zest_device device, id<MTLCommandBuffer> command_buffer, NSError *error);
+ZEST_PRIVATE void zest__mtl_report_device_lost(zest_context context);
+ZEST_PRIVATE void zest__mtl_take_device_lost(zest_context context);
+ZEST_PRIVATE void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value, id<MTLSharedEvent> signal_event, zest_u64 signal_value);
 ZEST_PRIVATE id<MTLTexture> zest__mtl_frame_drawable_texture(zest_context context);
 ZEST_PRIVATE void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zest_bool release_all);
 ZEST_PRIVATE void zest__mtl_reap_command_buffers(zest_context context, zest_context_queue queue, zest_bool release_all);
@@ -682,11 +733,11 @@ ZEST_PRIVATE zest_bool zest__mtl_formats_copy_compatible(zest_format source, zes
 ZEST_PRIVATE zest_bool zest__mtl_is_unsigned_integer_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__mtl_is_signed_integer_format(zest_format format);
 ZEST_PRIVATE zest_bool zest__mtl_image_can_be_target(zest_image image);
-ZEST_PRIVATE zest_bool zest__mtl_record_clear(zest_device device, id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, zest_image image, zest_clear_value_t clear_value, zest_uint mip_count, zest_uint layer_count);
+ZEST_PRIVATE zest_bool zest__mtl_record_clear(zest_device device, id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, zest_image image, zest_clear_value_t clear_value, zest_uint mip_count, zest_uint layer_count, NSString *label);
 ZEST_PRIVATE zest_bool zest__mtl_create_blit_objects(zest_device device);
 ZEST_PRIVATE id<MTLRenderPipelineState> zest__mtl_blit_pipeline(zest_device device, MTLPixelFormat pixel_format);
 ZEST_PRIVATE zest_bool zest__mtl_blit_formats_are_valid(zest_device device, zest_image source, zest_image destination);
-ZEST_PRIVATE void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, id<MTLRenderPipelineState> pipeline, id<MTLSamplerState> sampler, id<MTLTexture> source, zest_uint source_mip, const float source_rect[4], id<MTLTexture> destination, zest_uint destination_mip, MTLViewport viewport, MTLScissorRect scissor);
+ZEST_PRIVATE void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, id<MTLRenderPipelineState> pipeline, id<MTLSamplerState> sampler, id<MTLTexture> source, zest_uint source_mip, const float source_rect[4], id<MTLTexture> destination, zest_uint destination_mip, MTLViewport viewport, MTLScissorRect scissor, NSString *label);
 ZEST_PRIVATE zest_bool zest__mtl_swapchain_format(zest_format requested, MTLPixelFormat *out_pixel_format, zest_format *out_reported);
 ZEST_PRIVATE zest_extent2d_t zest__mtl_layer_extent(CAMetalLayer *layer);
 ZEST_PRIVATE MTLLoadAction zest__mtl_load_action(zest_load_op load_op);
@@ -700,8 +751,12 @@ ZEST_PRIVATE shaderc_compiler_t zest__mtl_shader_compiler(zest_device device);
 ZEST_PRIVATE shaderc_compilation_result_t zest__mtl_compile_glsl(shaderc_compiler_t compiler, const char *source, zest_size source_length, zest_shader_type type, const char *name, zest_shader_options options);
 ZEST_PRIVATE SpvExecutionModel zest__mtl_execution_model(zest_shader_type type);
 ZEST_PRIVATE zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_reserved_name_replacement(const char *name, char *out_name, zest_size name_size);
+ZEST_PRIVATE void zest__mtl_rename_reserved_names(spvc_compiler compiler);
 ZEST_PRIVATE zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, const char **out_msl, const char **out_entry_point, char *out_error, zest_size error_size);
+ZEST_PRIVATE id<MTLLibrary> zest__mtl_new_library(zest_device device, zest_shader shader, NSString *source, char *out_error, zest_size error_size);
 ZEST_PRIVATE zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const char *msl, const char *entry_point, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
+ZEST_PRIVATE zest_bool zest__mtl_msl_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
 ZEST_PRIVATE zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size);
 ZEST_PRIVATE void zest__mtl_release_pipeline_caches(zest_device device);
 ZEST_PRIVATE MTLVertexFormat zest__mtl_vertex_format(zest_format format);
@@ -1399,7 +1454,7 @@ zest_device_builder zest_BeginMetalDeviceBuilder(zest_device_init_flags flags) {
 	return builder;
 }
 
-//flush_legacy_framebuffers and the debug markers stay unset: shared code checks them before calling
+//flush_legacy_framebuffers stays unset: shared code checks it before calling
 void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform) {
 	//Frame Graph Platform Commands
 	platform->begin_command_buffer = zest__mtl_begin_command_buffer;
@@ -1531,6 +1586,8 @@ void zest__mtl_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->collect_validation_messages = zest__mtl_collect_validation_messages;
 	platform->set_object_name = zest__mtl_set_object_name;
 	platform->set_image_name = zest__mtl_set_image_name;
+	platform->begin_debug_marker = zest__mtl_begin_debug_marker;
+	platform->end_debug_marker = zest__mtl_end_debug_marker;
 	platform->set_buffer_pool_name = zest__mtl_set_buffer_pool_name;
 	platform->get_final_signal_ptr = zest__mtl_get_final_signal_ptr;
 	platform->get_final_wait_ptr = zest__mtl_get_final_wait_ptr;
@@ -1829,6 +1886,10 @@ zest_bool zest__mtl_initialise_device(zest_device device) {
 		zest__mtl_confirm_validation(device);
 		//MTL_SHADER_VALIDATION from the launcher turns shader validation on whether or not this device asked for validation
 		backend->declares_texture_views = backend->shader_validation || backend->launcher_shader_validation;
+		//Encoder execution status names the pass that faulted, and Apple says it costs GPU time, so only validation asks for it
+		backend->batch_descriptor = [[MTLCommandBufferDescriptor alloc] init];
+		[backend->batch_descriptor setRetainedReferences:NO];
+		if (backend->api_validation) [backend->batch_descriptor setErrorOptions:MTLCommandBufferErrorOptionEncoderExecutionStatus];
 
 		zest__mtl_query_feature_support(backend->device, &backend->support);
 		const char *missing = NULL;
@@ -1862,6 +1923,7 @@ zest_bool zest__mtl_reinit_logical_device(zest_device device) {
 	zest__mtl_cleanup_queues(device);
 	zest__mtl_release_pipeline_caches(device);
 	ZEST_MTL_RELEASE(backend->residency_set);
+	backend->failure_alerted = ZEST_FALSE;
 	if (!zest__mtl_create_device_objects(device)) {
 		ZEST_APPEND_LOG(device->log_path.str, "The Metal device couldn't be reset, because its residency set or its command queues couldn't be created again.");
 		return ZEST_FALSE;
@@ -2041,6 +2103,7 @@ zest_bool zest__mtl_dummy_submit_for_present_only(zest_context context) {
 	zest_context_queue graphics_queue = context->queues[slot];
 	zest_mtl_context_queue_backend_t *queue_backend = ZEST_MTL_BACKEND(context_queue, graphics_queue);
 	//This queue only ever runs these submits, so nothing else reads back the ones that have finished
+	backend->recording_thread = pthread_self();
 	zest__mtl_reap_command_buffers(context, graphics_queue, ZEST_FALSE);
 	zest_bool switched_queue = zest__acquire_context_queue(context, graphics_queue, slot);
 	zest_mtl_queue_backend_t *device_queue_backend = ZEST_MTL_BACKEND(queue, graphics_queue->queue);
@@ -2082,7 +2145,7 @@ zest_bool zest__mtl_dummy_submit_for_present_only(zest_context context) {
 	@autoreleasepool {
 		[command_buffer commit];
 	}
-	zest__mtl_push_committed_batch(context, graphics_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value);
+	zest__mtl_push_committed_batch(context, graphics_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value, ZEST_MTL_BACKEND(execution_timeline, frame_timeline)->event, frame_timeline->current_value);
 	return ZEST_TRUE;
 }
 // -- End Swapchain_presenting
@@ -2140,7 +2203,10 @@ void *zest__mtl_new_context_backend(zest_context context) {
 }
 
 zest_bool zest__mtl_initialise_context_backend(zest_context context) {
-	ZEST_MTL_BACKEND(context, context)->render_pass_descriptor = [[MTLRenderPassDescriptor alloc] init];
+	zest_mtl_context_backend_t *backend = ZEST_MTL_BACKEND(context, context);
+	backend->render_pass_descriptor = [[MTLRenderPassDescriptor alloc] init];
+	backend->compute_pass_descriptor = [[MTLComputePassDescriptor alloc] init];
+	backend->blit_pass_descriptor = [[MTLBlitPassDescriptor alloc] init];
 	return ZEST_TRUE;
 }
 
@@ -2210,6 +2276,7 @@ void zest__mtl_cleanup_device_backend(zest_device device) {
 	ZEST_MTL_RELEASE(backend->blit_library);
 	zest__mtl_release_pipeline_caches(device);
 	ZEST_MTL_RELEASE(backend->residency_set);
+	ZEST_MTL_RELEASE(backend->batch_descriptor);
 	ZEST_MTL_RELEASE(backend->device);
 	if (backend->shaderc_compiler) shaderc_compiler_release(backend->shaderc_compiler);
 	zest_vec_free(device->allocator, backend->texture_views);
@@ -2311,6 +2378,8 @@ void zest__mtl_cleanup_context_backend(zest_context context) {
 	zest_mtl_context_backend_t *backend = ZEST_MTL_BACKEND(context, context);
 	if (!backend) return;
 	ZEST_MTL_RELEASE(backend->render_pass_descriptor);
+	ZEST_MTL_RELEASE(backend->compute_pass_descriptor);
+	ZEST_MTL_RELEASE(backend->blit_pass_descriptor);
 	ZEST__FREE(context->allocator, backend);
 	context->backend = NULL;
 }
@@ -2415,14 +2484,18 @@ zest_semaphore_status zest__mtl_wait_for_timeline_value(zest_execution_timeline 
 	zest_microsecs wait_start = zest_Microsecs();
 	while (!signalled) {
 		if (timeout == 0) return zest_semaphore_status_timeout;
-		//The event's own wait takes milliseconds, so an endless wait is a run of long ones
-		zest_u64 milliseconds = 60000;
+		zest_u64 milliseconds = ZEST__MTL_WAIT_SLICE;
 		if (timeout != ZEST__MTL_WAIT_FOREVER) {
 			zest_microsecs elapsed = zest_Microsecs() - wait_start;
 			if (elapsed >= timeout) return zest_semaphore_status_timeout;
-			milliseconds = (timeout - elapsed + 999) / 1000;
+			milliseconds = ZEST__MIN((timeout - elapsed + 999) / 1000, (zest_u64)ZEST__MTL_WAIT_SLICE);
 		}
 		signalled = [backend->event waitUntilSignaledValue:target_value timeoutMS:milliseconds];
+		//A failed batch's signals may never fire, and reaping it moves its events on
+		if (!signalled) {
+			zest__mtl_reap_device_command_buffers(timeline->device);
+			signalled = [backend->event signaledValue] >= target_value;
+		}
 	}
 	zest__mtl_reap_device_command_buffers(timeline->device);
 	return zest_semaphore_status_success;
@@ -2430,7 +2503,10 @@ zest_semaphore_status zest__mtl_wait_for_timeline_value(zest_execution_timeline 
 zest_semaphore_status zest__mtl_wait_for_renderer_semaphore(zest_context context) {
 	zest_execution_timeline timeline = context->frame_sync_timeline[context->current_fif];
 	zest_microsecs timeout = (zest_microsecs)((context->fence_wait_timeout_ns + 999) / 1000);
-	return zest__mtl_wait_for_timeline(timeline, timeout);
+	ZEST_MTL_BACKEND(context, context)->recording_thread = pthread_self();
+	zest_semaphore_status status = zest__mtl_wait_for_timeline(timeline, timeout);
+	zest__mtl_take_device_lost(context);
+	return status;
 }
 
 void zest__mtl_wait_for_fif_semaphore(zest_context context, zest_uint fif) {
@@ -2456,15 +2532,86 @@ void zest__mtl_release_immediate_queue(zest_queue queue, zest_bool gpu_finished)
 	zest__release_queue(queue);
 }
 
-//Reports a command buffer that failed and takes in what shader validation logged against it. Call it once the buffer has finished.
-zest_bool zest__mtl_finish_command_buffer(zest_device device, id<MTLCommandBuffer> command_buffer) {
-	zest_bool completed = [command_buffer status] == MTLCommandBufferStatusCompleted;
-	if (!completed) {
-		NSError *error = [command_buffer error];
-		const char *description = error ? [[error localizedDescription] UTF8String] : "no error given";
-		ZEST_APPEND_LOG(device->log_path.str, "A Metal command buffer failed: %s", description);
-		ZEST_REPORT(device, zest_report_submission_failure, "A Metal command buffer failed: %s", description);
+const char *zest__mtl_command_buffer_error_name(NSInteger code) {
+	switch (code) {
+		case MTLCommandBufferErrorNone: return "None";
+		case MTLCommandBufferErrorInternal: return "Internal";
+		case MTLCommandBufferErrorTimeout: return "Timeout";
+		case MTLCommandBufferErrorPageFault: return "PageFault";
+		case MTLCommandBufferErrorAccessRevoked: return "AccessRevoked";
+		case MTLCommandBufferErrorNotPermitted: return "NotPermitted";
+		case MTLCommandBufferErrorOutOfMemory: return "OutOfMemory";
+		case MTLCommandBufferErrorInvalidResource: return "InvalidResource";
+		case MTLCommandBufferErrorMemoryless: return "Memoryless";
+		case MTLCommandBufferErrorDeviceRemoved: return "DeviceRemoved";
+		case MTLCommandBufferErrorStackOverflow: return "StackOverflow";
+		default: return "Unknown";
 	}
+}
+
+const char *zest__mtl_encoder_state_name(MTLCommandEncoderErrorState state) {
+	switch (state) {
+		case MTLCommandEncoderErrorStateCompleted: return "Completed";
+		case MTLCommandEncoderErrorStateAffected: return "Affected";
+		case MTLCommandEncoderErrorStatePending: return "Pending";
+		case MTLCommandEncoderErrorStateFaulted: return "Faulted";
+		default: return "Unknown";
+	}
+}
+
+//Writes the error, the command buffer's label and each encoder's state to the device's log. Encoders are labelled with their pass.
+void zest__mtl_report_command_buffer_error(zest_device device, id<MTLCommandBuffer> command_buffer, NSError *error) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	const char *log_path = device->log_path.str;
+	NSInteger code = error ? [error code] : MTLCommandBufferErrorInternal;
+	const char *name = zest__mtl_command_buffer_error_name(code);
+	const char *description = error ? [[error localizedDescription] UTF8String] : "no error given";
+	const char *label = [command_buffer label] ? [[command_buffer label] UTF8String] : "unlabelled";
+	ZEST_APPEND_LOG(log_path, "A Metal command buffer failed: %s (%li), %s. Command buffer: %s.", name, (long)code, description, label);
+	ZEST_REPORT(device, zest_report_submission_failure, "A Metal command buffer failed: %s (%li), %s. Command buffer: %s.", name, (long)code, description, label);
+	NSArray *encoder_infos = error ? [[error userInfo] objectForKey:MTLCommandBufferEncoderInfoErrorKey] : nil;
+	if ([encoder_infos count]) {
+		for (id<MTLCommandBufferEncoderInfo> encoder_info in encoder_infos) {
+			NSString *signposts = [[encoder_info debugSignposts] componentsJoinedByString:@", "];
+			ZEST_APPEND_LOG(log_path, "  %s: %s%s%s", [encoder_info label] ? [[encoder_info label] UTF8String] : "unlabelled", zest__mtl_encoder_state_name([encoder_info errorState]), [signposts length] ? ", signposts " : "", [signposts length] ? [signposts UTF8String] : "");
+		}
+	} else if (!backend->api_validation) {
+		ZEST_APPEND_LOG(log_path, "Turn on validation to have Metal report each pass's state.");
+	} else {
+		ZEST_APPEND_LOG(log_path, "Metal gave no pass states for this failure.");
+	}
+	if (!backend->failure_alerted) {
+		backend->failure_alerted = ZEST_TRUE;
+		ZEST_ALERT("A Metal command buffer failed (%s). The log has the report.", name);
+	}
+}
+
+//Shared code writes the context's flags without atomics, so a reap on a thread that doesn't record the context leaves the loss pending
+void zest__mtl_report_device_lost(zest_context context) {
+	zest_mtl_context_backend_t *backend = ZEST_MTL_BACKEND(context, context);
+	__atomic_store_n(&backend->device_lost_pending, 1, __ATOMIC_RELEASE);
+	if (pthread_equal(pthread_self(), backend->recording_thread)) ZEST__FLAG(context->flags, zest_context_flag_device_lost);
+}
+
+//Called on the context's own thread
+void zest__mtl_take_device_lost(zest_context context) {
+	if (__atomic_load_n(&ZEST_MTL_BACKEND(context, context)->device_lost_pending, __ATOMIC_ACQUIRE)) ZEST__FLAG(context->flags, zest_context_flag_device_lost);
+}
+
+//Reports a command buffer that failed and takes in what shader validation logged against it. Call it once the buffer has finished.
+zest_bool zest__mtl_finish_command_buffer(zest_device device, id<MTLCommandBuffer> command_buffer, NSInteger *out_error_code) {
+	zest_bool completed = [command_buffer status] == MTLCommandBufferStatusCompleted;
+	NSError *error = completed ? nil : [command_buffer error];
+	if (command_buffer == zest__mtl_forced_failed_command_buffer) {
+		completed = ZEST_FALSE;
+		error = [NSError errorWithDomain:MTLCommandBufferErrorDomain code:zest__mtl_forced_command_buffer_error userInfo:nil];
+		zest__mtl_forced_failed_command_buffer = nil;
+		zest__mtl_forced_command_buffer_error = 0;
+	}
+	if (!completed) {
+		zest__mtl_report_command_buffer_error(device, command_buffer, error);
+	}
+	if (out_error_code) *out_error_code = completed ? MTLCommandBufferErrorNone : error ? [error code] : MTLCommandBufferErrorInternal;
 	if (ZEST_MTL_BACKEND(device, device)->shader_validation) {
 		for (id<MTLFunctionLog> function_log in [command_buffer logs]) {
 			zest__mtl_record_validation_message(device, [[function_log description] UTF8String], ZEST_TRUE);
@@ -2504,7 +2651,7 @@ zest_bool zest__mtl_imm_end_command_buffer(zest_queue queue) {
 		[backend->command_buffer encodeSignalEvent:timeline_backend->event value:queue->timeline.current_value];
 		[backend->command_buffer commit];
 		[backend->command_buffer waitUntilCompleted];
-		completed = zest__mtl_finish_command_buffer(device, backend->command_buffer);
+		completed = zest__mtl_finish_command_buffer(device, backend->command_buffer, NULL);
 	}
 	//A command buffer that failed never reaches its signal, which would leave the timeline behind for good
 	if ([timeline_backend->event signaledValue] < queue->timeline.current_value) {
@@ -2640,7 +2787,7 @@ zest_bool zest__mtl_imm_clear_color_image(zest_queue queue, zest_image image, ze
 	ZEST_ASSERT_OR_VALIDATE(!zest__is_depth_stencil_format(image->info.format), queue->device, "zest_imm_ClearColorImage was given a depth image. Use zest_imm_ClearDepthStencilImage for it.", ZEST_FALSE);
 	zest__mtl_end_queue_encoder(queue);
 	MTLRenderPassDescriptor *descriptor = [[MTLRenderPassDescriptor alloc] init];
-	zest_bool cleared = zest__mtl_record_clear(queue->device, backend->command_buffer, backend->fence, descriptor, image, clear_value, image->info.mip_levels, image->info.layer_count);
+	zest_bool cleared = zest__mtl_record_clear(queue->device, backend->command_buffer, backend->fence, descriptor, image, clear_value, image->info.mip_levels, image->info.layer_count, nil);
 	[descriptor release];
 	return cleared;
 }
@@ -2655,7 +2802,7 @@ zest_bool zest__mtl_imm_clear_depth_stencil_image(zest_queue queue, zest_image i
 	clear_value.depth_stencil.stencil = stencil;
 	zest__mtl_end_queue_encoder(queue);
 	MTLRenderPassDescriptor *descriptor = [[MTLRenderPassDescriptor alloc] init];
-	zest_bool cleared = zest__mtl_record_clear(queue->device, backend->command_buffer, backend->fence, descriptor, image, clear_value, image->info.mip_levels, image->info.layer_count);
+	zest_bool cleared = zest__mtl_record_clear(queue->device, backend->command_buffer, backend->fence, descriptor, image, clear_value, image->info.mip_levels, image->info.layer_count, nil);
 	[descriptor release];
 	return cleared;
 }
@@ -2700,7 +2847,7 @@ zest_bool zest__mtl_imm_blit_image(zest_queue queue, zest_image src_image, zest_
 	//The fragment function reads a 2D texture, so an array or a cube is sampled through a view of its first slice, which the command buffer keeps alive
 	id<MTLTexture> source_view = [source textureType] == MTLTextureType2D ? [source retain] : [source newTextureViewWithPixelFormat:[source pixelFormat] textureType:MTLTextureType2D levels:NSMakeRange(0, 1) slices:NSMakeRange(0, 1)];
 	MTLRenderPassDescriptor *descriptor = [[MTLRenderPassDescriptor alloc] init];
-	zest__mtl_record_blit(backend->command_buffer, backend->fence, descriptor, pipeline, ZEST_MTL_BACKEND(device, device)->blit_samplers[filter == zest_filter_nearest ? 0 : 1], source_view, 0, source_rect, ZEST_MTL_BACKEND(image, dst_image)->texture, 0, viewport, scissor);
+	zest__mtl_record_blit(backend->command_buffer, backend->fence, descriptor, pipeline, ZEST_MTL_BACKEND(device, device)->blit_samplers[filter == zest_filter_nearest ? 0 : 1], source_view, 0, source_rect, ZEST_MTL_BACKEND(image, dst_image)->texture, 0, viewport, scissor, nil);
 	[descriptor release];
 	[source_view release];
 	return ZEST_TRUE;
@@ -2746,9 +2893,9 @@ id<MTLTexture> zest__mtl_frame_drawable_texture(zest_context context) {
 	return ZEST_MTL_BACKEND(image, &context->swapchain->images[0])->texture;
 }
 
-void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value) {
+void zest__mtl_push_committed_batch(zest_context context, zest_context_queue queue, zest_uint frame_in_flight, id<MTLCommandBuffer> command_buffer, id<MTLSharedEvent> event, zest_u64 value, id<MTLSharedEvent> signal_event, zest_u64 signal_value) {
 	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, context->device);
-	zest_mtl_committed_batch_t batch = { command_buffer, [event retain], value, [zest__mtl_frame_drawable_texture(context) retain] };
+	zest_mtl_committed_batch_t batch = { command_buffer, [event retain], value, [zest__mtl_frame_drawable_texture(context) retain], context, [signal_event retain], signal_value };
 	pthread_mutex_lock(&device_backend->committed_lock);
 	zest_vec_push(context->allocator, ZEST_MTL_BACKEND(context_queue, queue)->committed[frame_in_flight], batch);
 	pthread_mutex_unlock(&device_backend->committed_lock);
@@ -2766,8 +2913,15 @@ void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zes
 			if (finished) {
 				//The status reads completed before the completed handlers run, and the debug layer still uses the buffer's render targets in them
 				[batch.command_buffer waitUntilCompleted];
+				NSInteger error_code = MTLCommandBufferErrorNone;
 				@autoreleasepool {
-					zest__mtl_finish_command_buffer(backend->device, batch.command_buffer);
+					zest__mtl_finish_command_buffer(backend->device, batch.command_buffer, &error_code);
+				}
+				//A failed batch may never reach its signals, which would leave every wait on them to run out its timeout
+				if (error_code != MTLCommandBufferErrorNone) {
+					if ([batch.event signaledValue] < batch.value) [batch.event setSignaledValue:batch.value];
+					if (batch.signal_event && [batch.signal_event signaledValue] < batch.signal_value) [batch.signal_event setSignaledValue:batch.signal_value];
+					if (error_code == MTLCommandBufferErrorDeviceRemoved) zest__mtl_report_device_lost(batch.context);
 				}
 			} else if (!release_all) {
 				committed[kept_count++] = batch;
@@ -2775,6 +2929,7 @@ void zest__mtl_reap_queue_batches(zest_mtl_context_queue_backend_t *backend, zes
 			}
 			[batch.command_buffer release];
 			[batch.event release];
+			[batch.signal_event release];
 			[batch.drawable_texture release];
 		}
 		if (kept_count != committed_count) {
@@ -3493,6 +3648,8 @@ zest_bool zest__mtl_build_pipeline(zest_pipeline pipeline, zest_command_list com
 			zest_key key = 0;
 			built = zest__mtl_pipeline_description(device, pipeline_template, &command_list->rendering_info, &vertex_function, has_fragment ? &fragment_function : NULL, descriptor, depth_stencil_descriptor, backend, &key, error, sizeof(error));
 			if (built) {
+				//Templates with the same contents share a state, which keeps the name of the first to build it
+				if (name) [descriptor setLabel:[NSString stringWithUTF8String:name]];
 				char state_error[768];
 				backend->pipeline_state = zest__mtl_render_pipeline_state(device, key, descriptor, state_error, sizeof(state_error));
 				backend->depth_stencil_state = backend->pipeline_state ? zest__mtl_depth_stencil_state(device, [depth_stencil_descriptor depthCompareFunction], [depth_stencil_descriptor isDepthWriteEnabled]) : nil;
@@ -3545,7 +3702,12 @@ zest_bool zest__mtl_finish_compute(zest_device device, zest_compute compute) {
 	}
 	@autoreleasepool {
 		NSError *pipeline_error = nil;
-		backend->pipeline_state = [ZEST_MTL_BACKEND(device, device)->device newComputePipelineStateWithFunction:function.function error:&pipeline_error];
+		//A compute keeps no name of its own, so its state is named after its shader
+		MTLComputePipelineDescriptor *descriptor = [[MTLComputePipelineDescriptor alloc] init];
+		[descriptor setComputeFunction:function.function];
+		[descriptor setLabel:[NSString stringWithUTF8String:name]];
+		backend->pipeline_state = [ZEST_MTL_BACKEND(device, device)->device newComputePipelineStateWithDescriptor:descriptor options:MTLPipelineOptionNone reflection:nil error:&pipeline_error];
+		[descriptor release];
 		if (!backend->pipeline_state) {
 			snprintf(error, sizeof(error), "Metal couldn't create the compute pipeline %s: %s", name, pipeline_error ? [[pipeline_error localizedDescription] UTF8String] : "no error given");
 		}
@@ -3794,7 +3956,7 @@ zest_bool zest__mtl_image_can_be_target(zest_image image) {
 }
 
 //Metal clears a texture as a pass loads it, so this is one pass that draws nothing for each layer of each of the first mip_count mips
-zest_bool zest__mtl_record_clear(zest_device device, id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, zest_image image, zest_clear_value_t clear_value, zest_uint mip_count, zest_uint layer_count) {
+zest_bool zest__mtl_record_clear(zest_device device, id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, zest_image image, zest_clear_value_t clear_value, zest_uint mip_count, zest_uint layer_count, NSString *label) {
 	zest_format format = image->info.format;
 	zest_bool is_depth_stencil = zest__is_depth_stencil_format(format);
 	zest_bool can_be_target = zest__mtl_image_can_be_target(image);
@@ -3845,6 +4007,7 @@ zest_bool zest__mtl_record_clear(zest_device device, id<MTLCommandBuffer> comman
 					[attachments[attachment_index] setSlice:layer];
 				}
 				id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:descriptor];
+				if (label) [encoder setLabel:label];
 				[encoder waitForFence:fence beforeStages:MTLRenderStageVertex];
 				[encoder updateFence:fence afterStages:MTLRenderStageFragment];
 				[encoder endEncoding];
@@ -3953,7 +4116,7 @@ zest_bool zest__mtl_blit_formats_are_valid(zest_device device, zest_image source
 }
 
 //One pass that loads slice 0 of the destination's mip and draws the source's mip over the scissor rect. The source must be a 2D texture.
-void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, id<MTLRenderPipelineState> pipeline, id<MTLSamplerState> sampler, id<MTLTexture> source, zest_uint source_mip, const float source_rect[4], id<MTLTexture> destination, zest_uint destination_mip, MTLViewport viewport, MTLScissorRect scissor) {
+void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fence, MTLRenderPassDescriptor *descriptor, id<MTLRenderPipelineState> pipeline, id<MTLSamplerState> sampler, id<MTLTexture> source, zest_uint source_mip, const float source_rect[4], id<MTLTexture> destination, zest_uint destination_mip, MTLViewport viewport, MTLScissorRect scissor, NSString *label) {
 	const float constants[8] = { source_rect[0], source_rect[1], source_rect[2], source_rect[3], (float)source_mip, 0.f, 0.f, 0.f };
 	MTLRenderPassColorAttachmentDescriptor *attachment = [[descriptor colorAttachments] objectAtIndexedSubscript:0];
 	[attachment setTexture:destination];
@@ -3962,6 +4125,7 @@ void zest__mtl_record_blit(id<MTLCommandBuffer> command_buffer, id<MTLFence> fen
 	[attachment setStoreAction:MTLStoreActionStore];
 	@autoreleasepool {
 		id<MTLRenderCommandEncoder> encoder = [command_buffer renderCommandEncoderWithDescriptor:descriptor];
+		if (label) [encoder setLabel:label];
 		[encoder waitForFence:fence beforeStages:MTLRenderStageVertex];
 		[encoder setRenderPipelineState:pipeline];
 		[encoder setViewport:viewport];
@@ -4422,18 +4586,25 @@ zest_bool zest__mtl_set_next_command_buffer(const zest_command_list command_list
 	zest_context context = command_list->context;
 	zest_mtl_context_queue_backend_t *queue_backend = ZEST_MTL_BACKEND(context_queue, queue);
 	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	ZEST_MTL_BACKEND(context, context)->recording_thread = pthread_self();
 	zest__mtl_reap_command_buffers(context, queue, ZEST_FALSE);
+	zest__mtl_take_device_lost(context);
 	//A batch that failed before its commit left its buffer behind
 	ZEST_MTL_RELEASE(queue_backend->command_buffer);
 	backend->switched_queue = zest__acquire_context_queue(context, queue, command_list->queue_index);
 	zest_mtl_queue_backend_t *device_queue_backend = ZEST_MTL_BACKEND(queue, queue->queue);
 	@autoreleasepool {
-		//Zest frees what a batch used only after a wait on a timeline, and that wait sees the batch completed first
-		queue_backend->command_buffer = [[device_queue_backend->queue commandBufferWithUnretainedReferences] retain];
+		//Unretained, as Zest frees what a batch used only after a wait on a timeline, and that wait sees the batch completed first
+		queue_backend->command_buffer = [[device_queue_backend->queue commandBufferWithDescriptor:ZEST_MTL_BACKEND(device, context->device)->batch_descriptor] retain];
 	}
 	if (!queue_backend->command_buffer) {
 		ZEST_REPORT(context->device, zest_report_submission_failure, "Metal couldn't supply a command buffer for a frame graph batch.");
 		return ZEST_FALSE;
+	}
+	if (command_list->frame_graph->name) {
+		NSString *label = [[NSString alloc] initWithUTF8String:command_list->frame_graph->name];
+		[queue_backend->command_buffer setLabel:label];
+		[label release];
 	}
 	backend->command_buffer = queue_backend->command_buffer;
 	backend->context_queue = queue;
@@ -4466,6 +4637,9 @@ zest_bool zest__mtl_begin_command_buffer(const zest_command_list command_list) {
 	}
 	//A new command buffer has nothing bound, as on Vulkan
 	backend->bind_state = ZEST__ZERO_INIT(zest_mtl_bind_state_t);
+	backend->profile_pending_count = 0;
+	backend->profile_open_encoder = ZEST_INVALID;
+	backend->profile_last_encoder = ZEST_INVALID;
 	return ZEST_TRUE;
 }
 
@@ -4476,6 +4650,7 @@ void zest__mtl_end_render_pass(const zest_command_list command_list) {
 	[backend->render_encoder updateFence:backend->fence afterStages:MTLRenderStageFragment];
 	[backend->render_encoder endEncoding];
 	ZEST_MTL_RELEASE(backend->render_encoder);
+	zest__mtl_profile_encoder_ended(command_list);
 }
 
 //A pass's copies share one blit encoder, which its first copy opens. Metal has one encoder open at a time, so a copy inside a render pass is refused.
@@ -4487,8 +4662,20 @@ id<MTLBlitCommandEncoder> zest__mtl_pass_blit_encoder(const zest_command_list co
 		return nil;
 	}
 	zest__mtl_end_pass_compute_encoder(command_list);
+	zest_uint first_sample = zest__mtl_profile_encoder_samples(command_list, 2);
 	@autoreleasepool {
-		backend->blit_encoder = [[backend->command_buffer blitCommandEncoder] retain];
+		if (first_sample == ZEST_INVALID) {
+			backend->blit_encoder = [[backend->command_buffer blitCommandEncoder] retain];
+		} else {
+			MTLBlitPassDescriptor *descriptor = ZEST_MTL_BACKEND(context, command_list->context)->blit_pass_descriptor;
+			MTLBlitPassSampleBufferAttachmentDescriptor *attachment = [[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0];
+			[attachment setSampleBuffer:zest__mtl_profile_sample_buffer(command_list)];
+			[attachment setStartOfEncoderSampleIndex:first_sample];
+			[attachment setEndOfEncoderSampleIndex:first_sample + 1];
+			backend->blit_encoder = [[backend->command_buffer blitCommandEncoderWithDescriptor:descriptor] retain];
+			[attachment setSampleBuffer:nil];
+		}
+		if (backend->pass_label) [backend->blit_encoder setLabel:backend->pass_label];
 	}
 	[backend->blit_encoder waitForFence:backend->fence];
 	return backend->blit_encoder;
@@ -4500,6 +4687,7 @@ void zest__mtl_end_pass_blit_encoder(const zest_command_list command_list) {
 	[backend->blit_encoder updateFence:backend->fence];
 	[backend->blit_encoder endEncoding];
 	ZEST_MTL_RELEASE(backend->blit_encoder);
+	zest__mtl_profile_encoder_ended(command_list);
 }
 
 //A pass's dispatches share one compute encoder, which its first dispatch opens. Like a copy, a dispatch can't go inside a render pass.
@@ -4512,8 +4700,20 @@ id<MTLComputeCommandEncoder> zest__mtl_pass_compute_encoder(const zest_command_l
 		return nil;
 	}
 	zest__mtl_end_pass_blit_encoder(command_list);
+	zest_uint first_sample = zest__mtl_profile_encoder_samples(command_list, 2);
 	@autoreleasepool {
-		backend->compute_encoder = [[backend->command_buffer computeCommandEncoder] retain];
+		if (first_sample == ZEST_INVALID) {
+			backend->compute_encoder = [[backend->command_buffer computeCommandEncoder] retain];
+		} else {
+			MTLComputePassDescriptor *descriptor = ZEST_MTL_BACKEND(context, command_list->context)->compute_pass_descriptor;
+			MTLComputePassSampleBufferAttachmentDescriptor *attachment = [[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0];
+			[attachment setSampleBuffer:zest__mtl_profile_sample_buffer(command_list)];
+			[attachment setStartOfEncoderSampleIndex:first_sample];
+			[attachment setEndOfEncoderSampleIndex:first_sample + 1];
+			backend->compute_encoder = [[backend->command_buffer computeCommandEncoderWithDescriptor:descriptor] retain];
+			[attachment setSampleBuffer:nil];
+		}
+		if (backend->pass_label) [backend->compute_encoder setLabel:backend->pass_label];
 	}
 	[backend->compute_encoder waitForFence:backend->fence];
 	zest__mtl_bind_table_to_compute_encoder(device, backend->compute_encoder);
@@ -4527,13 +4727,20 @@ void zest__mtl_end_pass_compute_encoder(const zest_command_list command_list) {
 	[backend->compute_encoder updateFence:backend->fence];
 	[backend->compute_encoder endEncoding];
 	ZEST_MTL_RELEASE(backend->compute_encoder);
+	zest__mtl_profile_encoder_ended(command_list);
 }
 
 //The commit is the submission's, so this only closes what a failed execution left open
 void zest__mtl_end_command_buffer(const zest_command_list command_list) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
 	zest__mtl_end_pass_blit_encoder(command_list);
 	zest__mtl_end_pass_compute_encoder(command_list);
 	zest__mtl_end_render_pass(command_list);
+	while (backend->debug_group_depth) {
+		[backend->command_buffer popDebugGroup];
+		backend->debug_group_depth--;
+	}
+	ZEST_MTL_RELEASE(backend->pass_label);
 }
 
 //Metal has no layouts to change. The fences order passes on a queue and the shared events order queues, so a barrier only moves the layout Zest tracks.
@@ -4605,7 +4812,10 @@ zest_bool zest__mtl_begin_render_pass(const zest_command_list command_list, zest
 		}
 		//Each view draws into the layer of its index
 		if (view_mask) [descriptor setRenderTargetArrayLength:zloc__count_bits(view_mask)];
+		zest_bool sampled = zest__mtl_profile_render_encoder(command_list, descriptor);
 		backend->render_encoder = [[backend->command_buffer renderCommandEncoderWithDescriptor:descriptor] retain];
+		if (sampled) [[[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] setSampleBuffer:nil];
+		if (backend->pass_label) [backend->render_encoder setLabel:backend->pass_label];
 		//The descriptor holds a reference to each texture, which would keep a freed image's memory until the context's next pass
 		for (zest_uint attachment_index = 0; attachment_index != color_attachment_count; ++attachment_index) {
 			[[[descriptor colorAttachments] objectAtIndexedSubscript:attachment_index] setTexture:nil];
@@ -4649,26 +4859,30 @@ zest_bool zest__mtl_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_
 	//Records which queues this graph used so their frame in flight indexes cycle at the end of execution
 	zest_map_insert_linear_key(&context->frame_graph_allocator[frame_in_flight], (*queues), (zest_key)context_queue, context_queue);
 
+	zest_bool forced_failure = zest__mtl_forced_command_buffer_error != 0 && !zest__mtl_forced_failed_command_buffer;
+	if (forced_failure) zest__mtl_forced_failed_command_buffer = command_buffer;
 	//The last wave signals the timeline the CPU waits on, every earlier wave the event the next wave waits on
 	id<MTLSharedEvent> signal_event = nil;
+	zest_u64 signal_value = 0;
 	if (last_wave) {
 		zest_execution_timeline signal_timeline = frame_graph->signal_timeline;
 		if (signal_timeline) {
 			signal_event = ZEST_MTL_BACKEND(execution_timeline, signal_timeline)->event;
 			signal_timeline->current_value += 1;
-			[command_buffer encodeSignalEvent:signal_event value:signal_timeline->current_value];
+			signal_value = signal_timeline->current_value;
 			context->frame_sync_timeline[frame_in_flight] = signal_timeline;
 		}
 	} else {
 		signal_event = batch_event;
 		zest_size *batch_value = &frame_graph->semaphores->values[frame_in_flight][queue_index];
 		*batch_value += 1;
-		[command_buffer encodeSignalEvent:batch_event value:*batch_value];
+		signal_value = *batch_value;
 	}
+	if (signal_event && !forced_failure) [command_buffer encodeSignalEvent:signal_event value:signal_value];
 	zest_execution_timeline ordering_timeline = &context->queue_ordering_timelines[queue_index];
 	ordering_timeline->current_value += 1;
 	id<MTLSharedEvent> ordering_event = ZEST_MTL_BACKEND(execution_timeline, ordering_timeline)->event;
-	[command_buffer encodeSignalEvent:ordering_event value:ordering_timeline->current_value];
+	if (!forced_failure) [command_buffer encodeSignalEvent:ordering_event value:ordering_timeline->current_value];
 
 	//The compiler gives the render-finished reference to the batch that holds the frame's last write to the swapchain
 	zest_mtl_context_backend_t *context_backend = ZEST_MTL_BACKEND(context, context);
@@ -4685,7 +4899,7 @@ zest_bool zest__mtl_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_
 	@autoreleasepool {
 		[command_buffer commit];
 	}
-	zest__mtl_push_committed_batch(context, context_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value);
+	zest__mtl_push_committed_batch(context, context_queue, frame_in_flight, command_buffer, ordering_event, ordering_timeline->current_value, signal_event, signal_value);
 	queue_backend->command_buffer = nil;
 	command_list_backend->command_buffer = nil;
 	ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
@@ -5080,7 +5294,11 @@ void zest__mtl_blit_image_mip(const zest_command_list command_list, zest_resourc
 	const float whole_rect[4] = { 0.f, 0.f, 1.f, 1.f };
 	MTLViewport viewport = { 0.0, 0.0, (double)mip_width, (double)mip_height, 0.0, 1.0 };
 	MTLScissorRect scissor = { 0, 0, mip_width, mip_height };
-	zest__mtl_record_blit(backend->command_buffer, backend->fence, ZEST_MTL_BACKEND(context, context)->render_pass_descriptor, pipeline, ZEST_MTL_BACKEND(device, device)->blit_samplers[0], source_texture, mip_to_blit, whole_rect, destination_texture, mip_to_blit, viewport, scissor);
+	MTLRenderPassDescriptor *descriptor = ZEST_MTL_BACKEND(context, context)->render_pass_descriptor;
+	zest_bool sampled = zest__mtl_profile_render_encoder(command_list, descriptor);
+	zest__mtl_record_blit(backend->command_buffer, backend->fence, descriptor, pipeline, ZEST_MTL_BACKEND(device, device)->blit_samplers[0], source_texture, mip_to_blit, whole_rect, destination_texture, mip_to_blit, viewport, scissor, backend->pass_label);
+	if (sampled) [[[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] setSampleBuffer:nil];
+	zest__mtl_profile_encoder_ended(command_list);
 }
 
 //Clears mip 0 of layer 0 to zero, as the other backends do
@@ -5093,7 +5311,12 @@ zest_bool zest__mtl_image_clear(const zest_command_list command_list, zest_image
 	zest__mtl_end_pass_blit_encoder(command_list);
 	zest__mtl_end_pass_compute_encoder(command_list);
 	zest_clear_value_t zero_value = ZEST__ZERO_INIT(zest_clear_value_t);
-	return zest__mtl_record_clear(context->device, backend->command_buffer, backend->fence, ZEST_MTL_BACKEND(context, context)->render_pass_descriptor, image, zero_value, 1, 1);
+	MTLRenderPassDescriptor *descriptor = ZEST_MTL_BACKEND(context, context)->render_pass_descriptor;
+	zest_bool sampled = zest__mtl_profile_render_encoder(command_list, descriptor);
+	zest_bool cleared = zest__mtl_record_clear(context->device, backend->command_buffer, backend->fence, descriptor, image, zero_value, 1, 1, backend->pass_label);
+	if (sampled) [[[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] setSampleBuffer:nil];
+	zest__mtl_profile_encoder_ended(command_list);
+	return cleared;
 }
 // -- End Frame_graph_context_functions
 
@@ -5149,6 +5372,15 @@ zest_bool zest__mtl_validate_shader(zest_device device, const char *shader_code,
 //Compiles the shader's own source and type, as Vulkan's does. A failure keeps the last binary, which hot reload relies on.
 zest_bool zest__mtl_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type type, const char *name, const char *entry_point, zest_shader_options options) {
 	zest_device device = (zest_device)shader->handle.store->origin;
+	//MSL is compiled when a pipeline or compute first needs it, so its binary is the text and its terminating zero
+	if (options && options->msl) {
+		zest_uint text_size = zest_TextLength(&shader->shader_code) + 1;
+		zest_vec_resize(device->allocator, shader->binary, text_size);
+		memcpy(shader->binary, shader->shader_code.str, text_size);
+		shader->binary_size = text_size;
+		zest_FreeText(device->allocator, &shader->last_error);
+		return ZEST_TRUE;
+	}
 	shaderc_compiler_t compiler = zest__mtl_shader_compiler(device);
 	if (!compiler) {
 		zest_SetText(device->allocator, &shader->last_error, "The shader compiler couldn't be created.");
@@ -5178,6 +5410,37 @@ zest_bool zest__mtl_conversion_error(spvc_context context, zest_shader shader, c
 	const char *error = spvc_context_get_last_error_string(context);
 	snprintf(out_error, error_size, "Shader %s couldn't be converted to MSL: %s", shader->name.str, error && error[0] ? error : "SPIRV-Cross gave no error text.");
 	return ZEST_FALSE;
+}
+
+//True for a name that is one of MSL's address spaces, with the name and a trailing underscore in out_name
+zest_bool zest__mtl_reserved_name_replacement(const char *name, char *out_name, zest_size name_size) {
+	//MSL's address spaces, which SPIRV-Cross leaves alone on a named SSA value, and the last three anywhere
+	static const char *reserved_names[] = { "constant", "device", "thread", "threadgroup", "threadgroup_imageblock", "ray_data", "object_data" };
+	if (!name || !name[0]) return ZEST_FALSE;
+	for (size_t reserved = 0; reserved != sizeof(reserved_names) / sizeof(reserved_names[0]); ++reserved) {
+		if (strcmp(name, reserved_names[reserved]) != 0) continue;
+		snprintf(out_name, name_size, "%s_", name);
+		return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+//SPIRV-Cross writes a name that is an MSL address space, such as a Slang local named constant at -O0, unchanged, and Metal won't compile it
+void zest__mtl_rename_reserved_names(spvc_compiler compiler) {
+	char renamed[32];
+	unsigned id_bound = spvc_compiler_get_current_id_bound(compiler);
+	for (SpvId id = 1; id != id_bound; ++id) {
+		if (zest__mtl_reserved_name_replacement(spvc_compiler_get_name(compiler, id), renamed, sizeof(renamed))) spvc_compiler_set_name(compiler, id, renamed);
+		//A struct type names its members from the first
+		const char *first_member_name = spvc_compiler_get_member_name(compiler, id, 0);
+		if (!first_member_name || !first_member_name[0]) continue;
+		spvc_type type = spvc_compiler_get_type_handle(compiler, id);
+		if (!type) continue;
+		unsigned member_count = spvc_type_get_num_member_types(type);
+		for (unsigned member = 0; member != member_count; ++member) {
+			if (zest__mtl_reserved_name_replacement(spvc_compiler_get_member_name(compiler, id, member), renamed, sizeof(renamed))) spvc_compiler_set_member_name(compiler, id, member, renamed);
+		}
+	}
 }
 
 //SPIR-V to MSL with every resource where the backend binds it. The MSL and the entry point's name live until the context is destroyed.
@@ -5287,28 +5550,38 @@ zest_bool zest__mtl_convert_spirv(spvc_context context, zest_shader shader, zest
 		}
 	}
 
+	zest__mtl_rename_reserved_names(compiler);
 	if (spvc_compiler_compile(compiler, out_msl) != SPVC_SUCCESS) return zest__mtl_conversion_error(context, shader, out_error, error_size);
 	*out_entry_point = spvc_compiler_get_cleansed_entry_point_name(compiler, entry_point, model);
 	if (!*out_entry_point) return zest__mtl_conversion_error(context, shader, out_error, error_size);
 	return ZEST_TRUE;
 }
 
+//Comes back retained and labelled with the shader's name. Shaders with the same binary share a library, which keeps the name of the first.
+id<MTLLibrary> zest__mtl_new_library(zest_device device, zest_shader shader, NSString *source, char *out_error, zest_size error_size) {
+	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
+	MTLCompileOptions *compile_options = [[MTLCompileOptions alloc] init];
+	[compile_options setLanguageVersion:MTLLanguageVersion3_1];
+	NSError *error = nil;
+	id<MTLLibrary> library = [backend->device newLibraryWithSource:source options:compile_options error:&error];
+	[compile_options release];
+	if (!library) {
+		snprintf(out_error, error_size, "Metal couldn't compile the MSL of shader %s: %s", shader->name.str, error ? [[error localizedDescription] UTF8String] : "no error given");
+		return nil;
+	}
+	[library setLabel:[NSString stringWithUTF8String:shader->name.str]];
+	return library;
+}
+
 //The library and function come back retained
 zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const char *msl, const char *entry_point, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
-	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
 	@autoreleasepool {
 		NSString *source = [NSString stringWithUTF8String:msl];
 		//SPIRV-Cross declares the pointer that two uniform block types at one binding share as constant, which its own descriptor array won't take
 		source = [source stringByReplacingOccurrencesOfString:@"constant void* spvBufferAliasSet" withString:@"device const void* spvBufferAliasSet"];
-		MTLCompileOptions *compile_options = [[MTLCompileOptions alloc] init];
-		[compile_options setLanguageVersion:MTLLanguageVersion3_1];
+		out_function->library = zest__mtl_new_library(device, shader, source, out_error, error_size);
+		if (!out_function->library) return ZEST_FALSE;
 		NSError *error = nil;
-		out_function->library = [backend->device newLibraryWithSource:source options:compile_options error:&error];
-		[compile_options release];
-		if (!out_function->library) {
-			snprintf(out_error, error_size, "Metal couldn't compile shader %s once it was converted to MSL: %s", shader->name.str, error ? [[error localizedDescription] UTF8String] : "no error given");
-			return ZEST_FALSE;
-		}
 		//A shader with specialisation constants only gives a pipeline from a specialised function, and no values keeps the SPIR-V's defaults
 		MTLFunctionConstantValues *constant_values = [[MTLFunctionConstantValues alloc] init];
 		out_function->function = [out_function->library newFunctionWithName:[NSString stringWithUTF8String:entry_point] constantValues:constant_values error:&error];
@@ -5322,15 +5595,77 @@ zest_bool zest__mtl_compile_msl(zest_device device, zest_shader shader, const ch
 	return ZEST_TRUE;
 }
 
+//A shader written in MSL: the library's only function of the stage, with its vertex inputs from Metal's reflection
+zest_bool zest__mtl_msl_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
+	const char *name = shader->name.str;
+	if (multiview) {
+		snprintf(out_error, error_size, "Shader %s is MSL, which a multiview pipeline on Metal can't take. Use GLSL, Slang or SPIR-V for a multiview pipeline.", name);
+		return ZEST_FALSE;
+	}
+	MTLFunctionType function_type = expected_type == zest_vertex_shader ? MTLFunctionTypeVertex : expected_type == zest_fragment_shader ? MTLFunctionTypeFragment : MTLFunctionTypeKernel;
+	const char *stage_name = expected_type == zest_vertex_shader ? "vertex" : expected_type == zest_fragment_shader ? "fragment" : "kernel";
+	@autoreleasepool {
+		id<MTLLibrary> library = zest__mtl_new_library(device, shader, [NSString stringWithUTF8String:shader->binary], out_error, error_size);
+		if (!library) return ZEST_FALSE;
+		id<MTLFunction> chosen = nil;
+		zest_uint stage_count = 0;
+		char function_names[512] = "";
+		zest_size names_length = 0;
+		for (NSString *function_name in [library functionNames]) {
+			if (names_length < sizeof(function_names) - 1) {
+				names_length += snprintf(function_names + names_length, sizeof(function_names) - names_length, "%s%s", names_length ? ", " : "", [function_name UTF8String]);
+			}
+			id<MTLFunction> function = [library newFunctionWithName:function_name];
+			if ([function functionType] == function_type && stage_count++ == 0) {
+				chosen = function;
+				continue;
+			}
+			[function release];
+		}
+		zest_uint input_mask = 0;
+		if (stage_count != 1) {
+			snprintf(out_error, error_size, "Shader %s has %u %s functions among its MSL functions (%s), where the Metal backend takes exactly one.", name, stage_count, stage_name, function_names);
+		} else if (expected_type == zest_vertex_shader) {
+			for (MTLVertexAttribute *attribute in [chosen vertexAttributes]) {
+				if (![attribute isActive]) continue;
+				if ([attribute attributeIndex] > 30) {
+					snprintf(out_error, error_size, "Shader %s reads vertex attribute %lu, where Metal takes attributes 0 to 30.", name, (unsigned long)[attribute attributeIndex]);
+					stage_count = 0;
+					break;
+				}
+				input_mask |= 1u << [attribute attributeIndex];
+			}
+		} else if (expected_type == zest_compute_shader && (!shader->options.local_size[0] || !shader->options.local_size[1] || !shader->options.local_size[2])) {
+			snprintf(out_error, error_size, "Shader %s is an MSL kernel with a local size of 0. Give its threads per threadgroup with zest_SetShaderOptionsMSL.", name);
+			stage_count = 0;
+		}
+		if (stage_count != 1) {
+			[chosen release];
+			[library release];
+			return ZEST_FALSE;
+		}
+		out_function->library = library;
+		out_function->function = chosen;
+		out_function->vertex_input_mask = input_mask;
+		for (int axis = 0; axis != 3; ++axis) {
+			out_function->local_size[axis] = shader->options.local_size[axis];
+		}
+	}
+	return ZEST_TRUE;
+}
+
 //Converts a shader the first time a pipeline needs it. The objects copied out are borrowed until a device reset.
 zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest_shader_type expected_type, zest_bool multiview, zest_mtl_shader_function_t *out_function, char *out_error, zest_size error_size) {
 	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
-	if (!shader->binary || shader->binary_size < sizeof(SpvId)) {
-		snprintf(out_error, error_size, "Shader %s has no SPIR-V to convert to MSL.", shader->name.str);
+	zest_bool msl = shader->options.msl;
+	if (!shader->binary || shader->binary_size < (msl ? 1 : sizeof(SpvId))) {
+		snprintf(out_error, error_size, "Shader %s has no %s.", shader->name.str, msl ? "MSL" : "SPIR-V to convert to MSL");
 		return ZEST_FALSE;
 	}
 	//One SPIR-V converts differently for a multiview pipeline, so the flag keys it with the stage
 	zest_key key = zest_Hash(shader->binary, shader->binary_size, ZEST_HASH_SEED + (zest_ull)expected_type * 2 + (multiview ? 1 : 0));
+	//An MSL kernel's threads per threadgroup come from its options, not its text
+	if (msl) key = zest_Hash(shader->options.local_size, sizeof(shader->options.local_size), key);
 	pthread_mutex_lock(&backend->pipeline_lock);
 	zest_bool cached = zest_map_valid_key(backend->shader_functions, key);
 	if (cached) *out_function = *zest_map_at_key(backend->shader_functions, key);
@@ -5338,15 +5673,20 @@ zest_bool zest__mtl_shader_function(zest_device device, zest_shader shader, zest
 	if (cached) return ZEST_TRUE;
 
 	zest_mtl_shader_function_t function = ZEST__ZERO_INIT(zest_mtl_shader_function_t);
-	spvc_context context = NULL;
-	if (spvc_context_create(&context) != SPVC_SUCCESS) {
-		snprintf(out_error, error_size, "Shader %s couldn't be converted to MSL, as SPIRV-Cross couldn't create a context.", shader->name.str);
-		return ZEST_FALSE;
+	zest_bool created = ZEST_FALSE;
+	if (msl) {
+		created = zest__mtl_msl_function(device, shader, expected_type, multiview, &function, out_error, error_size);
+	} else {
+		spvc_context context = NULL;
+		if (spvc_context_create(&context) != SPVC_SUCCESS) {
+			snprintf(out_error, error_size, "Shader %s couldn't be converted to MSL, as SPIRV-Cross couldn't create a context.", shader->name.str);
+			return ZEST_FALSE;
+		}
+		const char *converted_msl = NULL;
+		const char *entry_point = NULL;
+		created = zest__mtl_convert_spirv(context, shader, expected_type, multiview, &function, &converted_msl, &entry_point, out_error, error_size) && zest__mtl_compile_msl(device, shader, converted_msl, entry_point, &function, out_error, error_size);
+		spvc_context_destroy(context);
 	}
-	const char *msl = NULL;
-	const char *entry_point = NULL;
-	zest_bool created = zest__mtl_convert_spirv(context, shader, expected_type, multiview, &function, &msl, &entry_point, out_error, error_size) && zest__mtl_compile_msl(device, shader, msl, entry_point, &function, out_error, error_size);
-	spvc_context_destroy(context);
 	if (!created) return ZEST_FALSE;
 
 	//A thread that converted the same SPIR-V first wins, and this one's objects go
@@ -5393,6 +5733,221 @@ zest_shader_handle zest__mtl_get_db_overlay_fragment_shader(zest_device device) 
 // -- End Shader_compiling
 
 // -- GPU_Profiling_backend
+zest_bool zest__mtl_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) {
+	zest_device device = context->device;
+	zest_mtl_device_backend_t *device_backend = ZEST_MTL_BACKEND(device, device);
+	zest_bool created = ZEST_FALSE;
+	@autoreleasepool {
+		id<MTLCounterSet> timestamp_set = nil;
+		if (device_backend->support.counter_sampling_at_stage) {
+			for (id<MTLCounterSet> counter_set in [device_backend->device counterSets]) {
+				if ([[counter_set name] isEqualToString:MTLCommonCounterSetTimestamp]) timestamp_set = counter_set;
+			}
+		}
+		if (!timestamp_set) {
+			ZEST_APPEND_LOG(device->log_path.str, "This GPU can't sample timestamps at pass boundaries, so this context runs without GPU profiling.");
+			return ZEST_FALSE;
+		}
+		zest_mtl_gpu_profiler_backend_t *backend = (zest_mtl_gpu_profiler_backend_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_mtl_gpu_profiler_backend_t));
+		*backend = ZEST__ZERO_INIT(zest_mtl_gpu_profiler_backend_t);
+		backend->context = context;
+		profiler->backend = backend;
+		MTLCounterSampleBufferDescriptor *descriptor = [[MTLCounterSampleBufferDescriptor alloc] init];
+		[descriptor setCounterSet:timestamp_set];
+		[descriptor setStorageMode:MTLStorageModeShared];
+		[descriptor setSampleCount:ZEST__MTL_PROFILE_SAMPLE_COUNT];
+		[descriptor setLabel:@"Zest GPU Timestamps"];
+		created = ZEST_TRUE;
+		zest_ForEachFrameInFlight(fif) {
+			NSError *error = nil;
+			backend->sample_buffers[fif] = [device_backend->device newCounterSampleBufferWithDescriptor:descriptor error:&error];
+			if (!backend->sample_buffers[fif]) {
+				ZEST_APPEND_LOG(device->log_path.str, "Metal couldn't create a timestamp sample buffer, so this context runs without GPU profiling: %s", error ? [[error localizedDescription] UTF8String] : "no error given");
+				created = ZEST_FALSE;
+				break;
+			}
+			backend->encoders[fif] = (zest_mtl_profile_encoder_t *)ZEST__ALLOCATE(context->allocator, sizeof(zest_mtl_profile_encoder_t) * (ZEST__MTL_PROFILE_SAMPLE_COUNT / 2));
+			backend->query_encoders[fif] = (zest_uint *)ZEST__ALLOCATE(context->allocator, sizeof(zest_uint) * profiler->max_queries);
+			memset(backend->query_encoders[fif], 0xFF, sizeof(zest_uint) * profiler->max_queries);
+		}
+		[descriptor release];
+	}
+	if (!created) {
+		zest__mtl_cleanup_gpu_profiler_backend(profiler);
+		ZEST__FREE(context->allocator, profiler->backend);
+		profiler->backend = NULL;
+		return ZEST_FALSE;
+	}
+	//The M2's GPU timestamps advance in step with the CPU's, which are nanoseconds
+	profiler->timestamp_period_ns = 1.0f;
+	zest_ForEachFrameInFlight(fif) {
+		profiler->raw_timestamps[fif] = (zest_u64 *)ZEST__ALLOCATE(context->allocator, sizeof(zest_u64) * profiler->max_queries);
+		memset(profiler->raw_timestamps[fif], 0, sizeof(zest_u64) * profiler->max_queries);
+	}
+	ZEST_APPEND_LOG(device->log_path.str, "Metal GPU timestamps: sampled at encoder boundaries, %i samples per frame in flight.", ZEST__MTL_PROFILE_SAMPLE_COUNT);
+	return ZEST_TRUE;
+}
+
+//Shared code frees the backend struct and the raw timestamps after this
+void zest__mtl_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler) {
+	zest_mtl_gpu_profiler_backend_t *backend = (zest_mtl_gpu_profiler_backend_t *)profiler->backend;
+	if (!backend) return;
+	zloc_allocator *allocator = backend->context->allocator;
+	zest_ForEachFrameInFlight(fif) {
+		ZEST_MTL_RELEASE(backend->sample_buffers[fif]);
+		if (backend->encoders[fif]) ZEST__FREE(allocator, backend->encoders[fif]);
+		if (backend->query_encoders[fif]) ZEST__FREE(allocator, backend->query_encoders[fif]);
+		backend->encoders[fif] = NULL;
+		backend->query_encoders[fif] = NULL;
+	}
+}
+
+void zest__mtl_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif) {
+	zest_mtl_gpu_profiler_backend_t *backend = (zest_mtl_gpu_profiler_backend_t *)profiler->backend;
+	backend->encoder_count[fif] = 0;
+	backend->sample_count[fif] = 0;
+}
+
+zest_uint zest__mtl_profile_encoder_samples(const zest_command_list command_list, zest_uint sample_count) {
+	zest_gpu_profiler_t *profiler = command_list->gpu_profiler;
+	if (!profiler || !profiler->enabled || !profiler->backend) return ZEST_INVALID;
+	zest_mtl_gpu_profiler_backend_t *profiler_backend = (zest_mtl_gpu_profiler_backend_t *)profiler->backend;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_uint fif = command_list->context->current_fif;
+	zest_uint first_sample = profiler_backend->sample_count[fif];
+	if (first_sample + sample_count > ZEST__MTL_PROFILE_SAMPLE_COUNT) {
+		if (!profiler_backend->reported_full) {
+			profiler_backend->reported_full = ZEST_TRUE;
+			ZEST_APPEND_LOG(command_list->context->device->log_path.str, "GPU timestamps ran out of samples this frame, so some passes read 0.");
+		}
+		return ZEST_INVALID;
+	}
+	zest_uint encoder_index = profiler_backend->encoder_count[fif]++;
+	profiler_backend->encoders[fif][encoder_index].first_sample = first_sample;
+	profiler_backend->encoders[fif][encoder_index].sample_count = sample_count;
+	profiler_backend->sample_count[fif] = first_sample + sample_count;
+	for (zest_uint pending_index = 0; pending_index != backend->profile_pending_count; ++pending_index) {
+		profiler_backend->query_encoders[fif][backend->profile_pending[pending_index]] = encoder_index * 2;
+	}
+	backend->profile_pending_count = 0;
+	backend->profile_open_encoder = encoder_index;
+	return first_sample;
+}
+
+void zest__mtl_profile_encoder_ended(const zest_command_list command_list) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	backend->profile_last_encoder = backend->profile_open_encoder;
+	backend->profile_open_encoder = ZEST_INVALID;
+}
+
+id<MTLCounterSampleBuffer> zest__mtl_profile_sample_buffer(const zest_command_list command_list) {
+	return ((zest_mtl_gpu_profiler_backend_t *)command_list->gpu_profiler->backend)->sample_buffers[command_list->context->current_fif];
+}
+
+//Attaches the four samples of a render encoder about to open to the descriptor, which the caller takes off once the encoder is open
+zest_bool zest__mtl_profile_render_encoder(const zest_command_list command_list, MTLRenderPassDescriptor *descriptor) {
+	zest_uint first_sample = zest__mtl_profile_encoder_samples(command_list, 4);
+	if (first_sample == ZEST_INVALID) return ZEST_FALSE;
+	MTLRenderPassSampleBufferAttachmentDescriptor *attachment = [[descriptor sampleBufferAttachments] objectAtIndexedSubscript:0];
+	[attachment setSampleBuffer:zest__mtl_profile_sample_buffer(command_list)];
+	[attachment setStartOfVertexSampleIndex:first_sample];
+	[attachment setEndOfVertexSampleIndex:first_sample + 1];
+	[attachment setStartOfFragmentSampleIndex:first_sample + 2];
+	[attachment setEndOfFragmentSampleIndex:first_sample + 3];
+	return ZEST_TRUE;
+}
+
+//Metal samples only where encoders start and end, so a query is mapped to the encoder that starts after it or the one that ended before it
+void zest__mtl_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end) {
+	zest_mtl_gpu_profiler_backend_t *profiler_backend = (zest_mtl_gpu_profiler_backend_t *)profiler->backend;
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	zest_uint *query_encoders = profiler_backend->query_encoders[fif];
+	zest_uint open_encoder = backend->profile_open_encoder;
+	query_encoders[query_index] = ZEST_INVALID;
+	if (!is_end) {
+		//The end is cleared too, so a region that is never ended reads 0 rather than an earlier frame's encoder
+		query_encoders[query_index + 1] = ZEST_INVALID;
+		//A render encoder is never split, so a region inside a render pass takes the whole pass
+		if (backend->render_encoder) {
+			if (open_encoder != ZEST_INVALID) query_encoders[query_index] = open_encoder * 2;
+			return;
+		}
+		//A region in a compute or transfer pass gets an encoder of its own
+		zest__mtl_end_pass_blit_encoder(command_list);
+		zest__mtl_end_pass_compute_encoder(command_list);
+		ZEST_ASSERT(backend->profile_pending_count != ZEST_MAX_GPU_PROFILE_STACK_DEPTH + 1, "More GPU profile regions are waiting for an encoder than regions can nest.");
+		if (backend->profile_pending_count == ZEST_MAX_GPU_PROFILE_STACK_DEPTH + 1) return;
+		backend->profile_pending[backend->profile_pending_count++] = query_index;
+		return;
+	}
+	//The begin is still waiting for an encoder, so nothing was recorded between them
+	if (backend->profile_pending_count && backend->profile_pending[backend->profile_pending_count - 1] == query_index - 1) {
+		backend->profile_pending_count--;
+		return;
+	}
+	if (backend->render_encoder || backend->compute_encoder || backend->blit_encoder) {
+		if (open_encoder != ZEST_INVALID) query_encoders[query_index] = open_encoder * 2 + 1;
+		//Whatever is recorded after the region goes in the next encoder
+		zest__mtl_end_pass_blit_encoder(command_list);
+		zest__mtl_end_pass_compute_encoder(command_list);
+		return;
+	}
+	if (backend->profile_last_encoder != ZEST_INVALID) query_encoders[query_index] = backend->profile_last_encoder * 2 + 1;
+}
+
+//A render encoder's samples are its vertex start and end, then its fragment start and end
+zest_u64 zest__mtl_profile_encoder_tick(const MTLCounterResultTimestamp *samples, const zest_mtl_profile_encoder_t *encoder, zest_bool is_end) {
+	const MTLCounterResultTimestamp *encoder_samples = samples + encoder->first_sample;
+	if (encoder->sample_count == 2) return encoder_samples[is_end ? 1 : 0].timestamp;
+	if (!is_end) return encoder_samples[0].timestamp ? encoder_samples[0].timestamp : encoder_samples[2].timestamp;
+	//An encoder with no draws leaves its fragment samples as they were, which is 0 or an earlier frame's tick
+	return ZEST__MAX(encoder_samples[1].timestamp, encoder_samples[3].timestamp);
+}
+
+zest_bool zest__mtl_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count) {
+	zest_mtl_gpu_profiler_backend_t *backend = (zest_mtl_gpu_profiler_backend_t *)profiler->backend;
+	zest_u64 *raw_timestamps = profiler->raw_timestamps[fif];
+	const zest_uint *query_encoders = backend->query_encoders[fif];
+	memset(raw_timestamps, 0, sizeof(zest_u64) * query_count);
+	if (backend->sample_count[fif] > 0) {
+		@autoreleasepool {
+			NSData *data = [backend->sample_buffers[fif] resolveCounterRange:NSMakeRange(0, backend->sample_count[fif])];
+			if (data) {
+				const MTLCounterResultTimestamp *samples = (const MTLCounterResultTimestamp *)[data bytes];
+				for (zest_uint query = 0; query != query_count; ++query) {
+					zest_uint mapping = query_encoders[query];
+					if (mapping == ZEST_INVALID) continue;
+					raw_timestamps[query] = zest__mtl_profile_encoder_tick(samples, &backend->encoders[fif][mapping >> 1], mapping & 1);
+				}
+			} else if (!backend->reported_resolve_failure) {
+				backend->reported_resolve_failure = ZEST_TRUE;
+				ZEST_APPEND_LOG(backend->context->device->log_path.str, "Metal couldn't resolve the GPU timestamp samples, so this frame's GPU timings read 0.");
+			}
+		}
+	}
+	//A side with no encoder takes the other, so a pair never spans from 0 and wrecks the total
+	zest_uint pair_count = query_count / 2;
+	zest_u64 previous_end = 0;
+	zest_uint first_timed_pair = pair_count;
+	for (zest_uint pair = 0; pair != pair_count; ++pair) {
+		zest_u64 *begin = &raw_timestamps[pair * 2];
+		zest_u64 *end = begin + 1;
+		if (!*begin) *begin = *end;
+		if (!*end) *end = *begin;
+		if (!*begin) {
+			*begin = previous_end;
+			*end = previous_end;
+		}
+		if (*end < *begin) *end = *begin;
+		if (*begin && first_timed_pair == pair_count) first_timed_pair = pair;
+		previous_end = *end;
+	}
+	for (zest_uint pair = 0; pair < first_timed_pair && first_timed_pair != pair_count; ++pair) {
+		raw_timestamps[pair * 2] = raw_timestamps[first_timed_pair * 2];
+		raw_timestamps[pair * 2 + 1] = raw_timestamps[first_timed_pair * 2];
+	}
+	return ZEST_TRUE;
+}
 // -- End GPU_Profiling_backend
 
 // -- Debug_naming
@@ -5426,6 +5981,26 @@ void zest__mtl_set_image_name(zest_device device, zest_image image, const char *
 	@autoreleasepool {
 		[backend->texture setLabel:[NSString stringWithUTF8String:name]];
 	}
+}
+
+//A pass is a debug group on its batch's command buffer, and the encoders it opens carry its name
+void zest__mtl_begin_debug_marker(const zest_command_list command_list, const char *name) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	backend->pass_label = [[NSString alloc] initWithUTF8String:name];
+	if (!backend->pass_label) backend->pass_label = [@"Unnamed Pass" retain];
+	@autoreleasepool {
+		[backend->command_buffer pushDebugGroup:backend->pass_label];
+	}
+	backend->debug_group_depth++;
+}
+
+void zest__mtl_end_debug_marker(const zest_command_list command_list) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	if (backend->debug_group_depth) {
+		[backend->command_buffer popDebugGroup];
+		backend->debug_group_depth--;
+	}
+	ZEST_MTL_RELEASE(backend->pass_label);
 }
 // -- End Debug_naming
 
@@ -5487,12 +6062,6 @@ zest_sample_count_flags zest__mtl_get_msaa_sample_count(zest_context context) { 
 //Device/OS
 //Create backends
 //Cleanup backends
-//GPU Profiling
-zest_bool zest__mtl_create_gpu_profiler_backend(zest_context context, zest_gpu_profiler_t *profiler) { return zest__mtl_report_unavailable(context->device, ZEST__MTL_UNAVAILABLE("create_gpu_profiler_backend")); }
-void zest__mtl_cleanup_gpu_profiler_backend(zest_gpu_profiler_t *profiler) { zest__mtl_report_unavailable(NULL, ZEST__MTL_UNAVAILABLE("cleanup_gpu_profiler_backend")); }
-void zest__mtl_reset_gpu_query_pool(zest_gpu_profiler_t *profiler, zest_uint fif) { zest__mtl_report_unavailable(NULL, ZEST__MTL_UNAVAILABLE("reset_gpu_query_pool")); }
-void zest__mtl_write_timestamp(const zest_command_list command_list, zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_index, zest_bool is_end) { zest__mtl_report_unavailable(command_list->context->device, ZEST__MTL_UNAVAILABLE("write_timestamp")); }
-zest_bool zest__mtl_readback_gpu_timestamps(zest_gpu_profiler_t *profiler, zest_uint fif, zest_uint query_count) { return zest__mtl_report_unavailable(NULL, ZEST__MTL_UNAVAILABLE("readback_gpu_timestamps")); }
 //Debugging
 void zest__mtl_create_test_render_pass(zest_device device, const zest_command_list_t *command_list) {
 }

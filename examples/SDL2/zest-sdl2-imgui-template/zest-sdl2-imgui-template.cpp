@@ -3,6 +3,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-sdl2-imgui-template.h"
 #include <zest.h>

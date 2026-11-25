@@ -643,3 +643,25 @@ In the first batch, the "not put back" break showed the symptoms of the break be
 - `zest__cache_frame_graph` returns for a graph without a cache key, or with errors, before it checks for growth (`zest.h:15368-15376`). The alert names `frame_graph_allocator_size`.
 - Results, with the Mac screen locked: "Cached Graph Allocator Growth" and "Transient Mip Views Across Allocator Growth" pass on all three suites with no cache alert, where the first printed one per suite before. A probe that gave the large graph the cache key printed the alert once per suite, naming `frame_graph_allocator_size`. `--platform all` gave `130 / 130`, `130 / 130`, `Metal suite: 125 / 125` and `Metal backend: 50 / 51`, with no VUID line and no cache alert; "Metal Windowed Frames" failed on the locked screen again, with a 1012998 microsecond `zest_BeginFrame`. Every Mac target builds with Metal on (22) and off (21) with no warning from Zest's files, and the Metal-off suites gave `130 / 130` twice. `zest-tests` and `zest-c-compile-check` build on Windows in Debug with no warning.
 - Rerun with the screen unlocked: `--platform metal` gave `Metal suite: 125 / 125` and `Metal backend: 51 / 51` with no cache alert, and shader validation gave the same.
+
+## Since M5 (2026-11-25)
+
+Two shared changes landed after M5 was committed (afad7b4). They settle four items above, and M6's plan starts from here.
+
+- **Unwaited command graph lifetimes (c4ed23d):**
+  - The drain waits for the queue slot values each unwaited flush recorded before it releases anything. It runs from `zest_BeginFrame`, a headless waited flush or `zest_DrainContextResources`.
+  - Per-mip views of transients come from the device allocator, and are deferred like the bindless indexes.
+  - A command graph's flush no longer replaces the frame's `frame_sync_timeline`.
+  - A hung graph costs one timeout, then a critical error.
+  - Metal implements the new platform member `wait_for_timeline_value` (`zest_metal.h:2412`).
+  - This settles four items above: Out of scope's per-mip deferral, item 3 of "Found in shared code", the drain timing "Left for Peter" under "After the sanity check", and item 4 of "For M6's plan".
+- **Command graphs take no cache key (8d75c16):** `zest_BeginCommandGraph(context, name)` never caches. A test that reads a command graph's compiled records does so between `zest_EndFrameGraph` and the flush, as "Metal Cross Queue Order" does.
+- **Baseline for M6** (Mac, screen unlocked, display awake):
+  - `--platform all` gives `132 / 132`, `132 / 132`, `Metal suite: 127 / 127` and `Metal backend: 53 / 53`, with the same Metal lines under shader validation.
+  - New since M5: "Unwaited Graph Mip Views", "Command Graphs After End Frame", "Metal Unwaited Graph Drain" and "Metal Unwaited Graph Timeout".
+  - "Compute Test Immediate Execute Cached" is now "Compute Test Immediate Execute Repeated".
+- **Windowed Metal runs need the display awake as well as the screen unlocked.** Wake it with `caffeinate -u -t 2` and run the suites under `caffeinate -d`. A sleeping display fails "Metal Windowed Frames" exactly as a locked screen does. Item 3 of "For M6's plan" needs this.
+- **Still open from "Found in shared code":**
+  - Item 2: a command graph's builder allocator can't grow, so the fence test sets 2 MB.
+  - Item 4: the concurrent pool growth abort, seen once.
+  - Item 5's three smaller ones.

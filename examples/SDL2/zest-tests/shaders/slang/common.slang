@@ -11,10 +11,12 @@ struct PackedPair {
     float3 second;
 };
 
-//4 bytes on Vulkan and 8 on D3D12, so a type size shows which platform macro the session defined
+//4 bytes on Vulkan, 8 on D3D12 and 12 on Metal, so a type size shows which platform macro the session defined
 struct PlatformMacro {
 #if defined(ZEST_D3D12)
     uint values[2];
+#elif defined(ZEST_METAL)
+    uint values[3];
 #elif defined(ZEST_VULKAN)
     uint values[1];
 #endif

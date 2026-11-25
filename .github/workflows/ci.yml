@@ -1,13 +1,12 @@
 name: CI
 
 on:
-  #Off while the Metal backend is being built. Uncomment these six lines to run on every push to main again.
-  #push:
-  #  branches: [main]
-  #  paths-ignore:
-  #    - 'docs/**'
-  #    - 'mkdocs.yml'
-  #    - '*.md'
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '*.md'
   pull_request:
     paths-ignore:
       - 'docs/**'
@@ -25,8 +24,10 @@ jobs:
             generator: "Visual Studio 17 2022"
           - os: ubuntu-latest
             generator: "Unix Makefiles"
+          #The runner has no SPIRV-Cross, which the Metal backend needs, so macOS builds Vulkan through MoltenVK only
           - os: macos-latest
             generator: "Unix Makefiles"
+            cmake_args: "-DZEST_ENABLE_METAL=OFF"
 
     runs-on: ${{ matrix.os }}
 
@@ -55,7 +56,7 @@ jobs:
           brew install sdl2 vulkan-loader vulkan-headers molten-vk shaderc glslang spirv-tools
 
       - name: Configure
-        run: cmake -B build -G "${{ matrix.generator }}"
+        run: cmake -B build -G "${{ matrix.generator }}" ${{ matrix.cmake_args }}
 
       - name: Build
         run: cmake --build build --config Release

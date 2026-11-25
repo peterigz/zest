@@ -3022,6 +3022,56 @@ static int metal_toggle_test_vsync(zest_context context, zest_bool enable) {
 	return failed;
 }
 
+#define METAL_GATE_DELAY 200000			//Microseconds a gate holds its queue
+
+//A queue held behind a command buffer that waits for the gate's event, which a thread sets after a delay
+struct MetalGate {
+	id<MTLSharedEvent> event;			//The held queue waits for value 1
+	pthread_t thread;
+	zest_bool thread_started;
+	zest_microsecs delay;				//How long the thread waits before it opens the gate
+	id<MTLSharedEvent> watched_event;	//Read just before the gate opens, when set
+	zest_u64 watched_value;
+	zest_bool watched_reached;
+};
+
+static void *metal_gate_thread(void *user_data) {
+	MetalGate *gate = (MetalGate *)user_data;
+	struct timespec wait_time = { (time_t)(gate->delay / 1000000), (long)(gate->delay % 1000000) * 1000 };
+	nanosleep(&wait_time, NULL);
+	if (gate->watched_event) gate->watched_reached = [gate->watched_event signaledValue] >= gate->watched_value;
+	[gate->event setSignaledValue:1];
+	return NULL;
+}
+
+//Everything committed to the queue after this waits until the gate opens
+static zest_bool metal_close_gate(zest_device device, MetalGate *gate, id<MTLCommandQueue> native_queue) {
+	gate->event = [zest_GetMetalDevice(device) newSharedEvent];
+	if (!gate->event) return ZEST_FALSE;
+	@autoreleasepool {
+		id<MTLCommandBuffer> command_buffer = [native_queue commandBuffer];
+		[command_buffer encodeWaitForEvent:gate->event value:1];
+		[command_buffer commit];
+	}
+	return ZEST_TRUE;
+}
+
+static zest_bool metal_open_gate_after(MetalGate *gate, zest_microsecs delay) {
+	gate->delay = delay;
+	gate->thread_started = pthread_create(&gate->thread, NULL, metal_gate_thread, gate) == 0;
+	return gate->thread_started;
+}
+
+//Opens the gate if it's still closed, so a failed check never leaves a queue held
+static void metal_finish_gate(MetalGate *gate) {
+	if (gate->thread_started) {
+		pthread_join(gate->thread, NULL);
+		gate->thread_started = ZEST_FALSE;
+	}
+	if (gate->event && [gate->event signaledValue] < 1) [gate->event setSignaledValue:1];
+	ZEST_MTL_RELEASE(gate->event);
+}
+
 int test_metal_windowed_frames(void) {
 	MetalTestWindow window;
 	if (!metal_open_test_window(&window, "Metal Windowed Frames")) {
@@ -3094,16 +3144,49 @@ int test_metal_windowed_frames(void) {
 		failed |= run.began_count != 3 || metal_viewport_pass_count != 3;
 		failed |= metal_frame_run_failed(context, &run, "screen sized viewport");
 
-		//Frames run on whichever device queue the slot is given
+		//A frame with no work on another device queue than the slot's last batch still waits for that batch
 		zest_uint slot = context->graphics_queue_index;
+		zest_queue_manager graphics_family = device->queue_families[context->graphics_family_index];
+		MetalGate gate = {};
 		run = ZEST__ZERO_INIT(MetalFrameRun);
-		for (int frame = 0; frame != 6; ++frame) {
-			zest_uint preferred_index = (zest_uint)(frame % 2);
-			context->preferred_queue_index[slot] = preferred_index;
-			context->has_preferred_queue[slot] = ZEST_TRUE;
-			failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
-			failed |= context->preferred_queue_index[slot] != preferred_index;
+		context->preferred_queue_index[slot] = 0;
+		context->has_preferred_queue[slot] = ZEST_TRUE;
+		failed |= !metal_close_gate(device, &gate, ZEST_MTL_BACKEND(queue, &graphics_family->queues[0])->queue);
+		failed |= !run_metal_windowed_frame(context, ZEST_FALSE, &run);
+		zest_uint first_queue_index = context->preferred_queue_index[slot];
+		//A slot moves to another queue only when the one it used last is busy
+		zest_queue held_queue = zest__acquire_manager_queue(graphics_family, 0, ZEST_FALSE);
+		failed |= held_queue == NULL || held_queue->index != 0;
+		SDL_Event switch_event;
+		while (SDL_PollEvent(&switch_event)) {}
+		zest_UpdateDevice(device);
+		zest_microsecs switch_start = zest_Microsecs();
+		zest_bool switch_began = zest_BeginFrame(context);
+		run.slowest_begin = ZEST__MAX(run.slowest_begin, zest_Microsecs() - switch_start);
+		failed |= !switch_began;
+		if (switch_began) {
+			run.began_count++;
+			//The empty frame's own signal must not be reached while the gate holds the first frame
+			zest_execution_timeline frame_timeline = &context->frame_timeline[context->current_fif];
+			gate.watched_event = ZEST_MTL_BACKEND(execution_timeline, frame_timeline)->event;
+			gate.watched_value = frame_timeline->current_value + 1;
+			failed |= !metal_open_gate_after(&gate, METAL_GATE_DELAY);
+			zest_EndFrame(context, 0);
+			metal_check_frame_presented(context, &run);
 		}
+		metal_finish_gate(&gate);
+		if (held_queue) zest__release_queue(held_queue);
+		zest_uint second_queue_index = context->preferred_queue_index[slot];
+		if (first_queue_index != 0 || second_queue_index != 1) {
+			ZEST_PRINT("The frame with work ran on queue %u and the empty frame on queue %u of the graphics family, where 0 and 1 were expected.", first_queue_index, second_queue_index);
+			failed = 1;
+		}
+		if (gate.watched_reached) {
+			ZEST_PRINT("The empty frame finished while the gate still held the frame before it.");
+			failed = 1;
+		}
+		failed |= run.began_count != 2;
+		failed |= zest_WaitForSignal(&context->queue_ordering_timelines[slot], ZEST_SECONDS_IN_MICROSECONDS(1)) != zest_semaphore_status_success;
 		context->has_preferred_queue[slot] = ZEST_FALSE;
 		failed |= metal_frame_run_failed(context, &run, "queue switch");
 
@@ -5040,56 +5123,7 @@ int test_metal_debug_overlay(void) {
 	return failed;
 }
 
-#define METAL_GATE_DELAY 200000			//Microseconds a gate holds its queue
 #define METAL_CROSS_WORD_COUNT 256
-
-//A queue held behind a command buffer that waits for the gate's event, which a thread sets after a delay
-struct MetalGate {
-	id<MTLSharedEvent> event;			//The held queue waits for value 1
-	pthread_t thread;
-	zest_bool thread_started;
-	zest_microsecs delay;				//How long the thread waits before it opens the gate
-	id<MTLSharedEvent> watched_event;	//Read just before the gate opens, when set
-	zest_u64 watched_value;
-	zest_bool watched_reached;
-};
-
-static void *metal_gate_thread(void *user_data) {
-	MetalGate *gate = (MetalGate *)user_data;
-	struct timespec wait_time = { (time_t)(gate->delay / 1000000), (long)(gate->delay % 1000000) * 1000 };
-	nanosleep(&wait_time, NULL);
-	if (gate->watched_event) gate->watched_reached = [gate->watched_event signaledValue] >= gate->watched_value;
-	[gate->event setSignaledValue:1];
-	return NULL;
-}
-
-//Everything committed to the queue after this waits until the gate opens
-static zest_bool metal_close_gate(zest_device device, MetalGate *gate, id<MTLCommandQueue> native_queue) {
-	gate->event = [zest_GetMetalDevice(device) newSharedEvent];
-	if (!gate->event) return ZEST_FALSE;
-	@autoreleasepool {
-		id<MTLCommandBuffer> command_buffer = [native_queue commandBuffer];
-		[command_buffer encodeWaitForEvent:gate->event value:1];
-		[command_buffer commit];
-	}
-	return ZEST_TRUE;
-}
-
-static zest_bool metal_open_gate_after(MetalGate *gate, zest_microsecs delay) {
-	gate->delay = delay;
-	gate->thread_started = pthread_create(&gate->thread, NULL, metal_gate_thread, gate) == 0;
-	return gate->thread_started;
-}
-
-//Opens the gate if it's still closed, so a failed check never leaves a queue held
-static void metal_finish_gate(MetalGate *gate) {
-	if (gate->thread_started) {
-		pthread_join(gate->thread, NULL);
-		gate->thread_started = ZEST_FALSE;
-	}
-	if (gate->event && [gate->event signaledValue] < 1) [gate->event setSignaledValue:1];
-	ZEST_MTL_RELEASE(gate->event);
-}
 
 //The family that owns the queue, or ZEST_INVALID
 static zest_uint metal_queue_family(zest_device device, id<MTLCommandQueue> native_queue) {
@@ -6121,6 +6155,872 @@ int test_metal_multiview_rules(void) {
 	return failed | finish_metal_device(device);
 }
 
+#define METAL_KEYWORD_NAME_COUNT 7
+#define METAL_KEYWORD_FUNCTION(name) "uint add_" #name "(uint " #name ") { return " #name " + 1u; }\n"
+#define METAL_KEYWORD_LOCAL(name, value) "\tuint " #name " = " #value "u;\n\tholder." #name " = add_" #name "(" #name ");\n"
+#define METAL_KEYWORD_FLAG(name, bit) "    bool " #name " = push.mode == 0;\n    if (" #name ") value += " #bit ";\n    if (!" #name ") value += 1000;\n"
+
+//Each name the backend renames as a local, a parameter and a member of a struct that is also a buffer's element. Element n holds 10n + 11.
+static const char *metal_keyword_names_source =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;\n"
+	"layout(push_constant) uniform push_block { uint buffer_index; uint mode; } pc;\n"
+	"struct keyword_holder { uint constant; uint device; uint thread; uint threadgroup; uint threadgroup_imageblock; uint ray_data; uint object_data; };\n"
+	"layout(std430, set = 0, binding = 5) buffer keyword_block { keyword_holder holders[]; } buffers[];\n"
+	METAL_KEYWORD_FUNCTION(constant) METAL_KEYWORD_FUNCTION(device) METAL_KEYWORD_FUNCTION(thread) METAL_KEYWORD_FUNCTION(threadgroup)
+	METAL_KEYWORD_FUNCTION(threadgroup_imageblock) METAL_KEYWORD_FUNCTION(ray_data) METAL_KEYWORD_FUNCTION(object_data)
+	"void main() {\n"
+	"\tkeyword_holder holder;\n"
+	METAL_KEYWORD_LOCAL(constant, 10) METAL_KEYWORD_LOCAL(device, 20) METAL_KEYWORD_LOCAL(thread, 30) METAL_KEYWORD_LOCAL(threadgroup, 40)
+	METAL_KEYWORD_LOCAL(threadgroup_imageblock, 50) METAL_KEYWORD_LOCAL(ray_data, 60) METAL_KEYWORD_LOCAL(object_data, 70)
+	"\tbuffers[pc.buffer_index].holders[0] = holder;\n"
+	"}\n";
+
+//At zest_slang_optimization_none Slang names each bool's SSA value, which SPIRV-Cross's own renaming doesn't reach. With a mode of 0 it writes 127.
+static const char *metal_keyword_names_slang_source =
+	"struct keyword_push { uint buffer_index; uint mode; };\n"
+	"[[vk::push_constant]] keyword_push push;\n"
+	"[[vk::binding(5, 0)]] RWStructuredBuffer<uint> buffers[];\n"
+	"[shader(\"compute\")]\n"
+	"[numthreads(1, 1, 1)]\n"
+	"void keyword_names() {\n"
+	"    uint value = 0;\n"
+	METAL_KEYWORD_FLAG(constant, 1) METAL_KEYWORD_FLAG(device, 2) METAL_KEYWORD_FLAG(thread, 4) METAL_KEYWORD_FLAG(threadgroup, 8)
+	METAL_KEYWORD_FLAG(threadgroup_imageblock, 16) METAL_KEYWORD_FLAG(ray_data, 32) METAL_KEYWORD_FLAG(object_data, 64)
+	"    buffers[push.buffer_index][0] = value;\n"
+	"}\n";
+
+//One thread, with the buffer's index and a mode of 0 in the push constants
+static int run_metal_keyword_dispatch(zest_device device, zest_compute compute, zest_buffer buffer, zest_uint buffer_index) {
+	memset(zest_BufferData(buffer), 0xFF, METAL_KEYWORD_NAME_COUNT * sizeof(zest_uint));
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+	if (!queue) return 1;
+	zest_uint push[2] = { buffer_index, 0 };
+	zest_imm_BindComputePipeline(queue, compute);
+	zest_imm_SendPushConstants(queue, push, sizeof(push));
+	int failed = !zest_imm_DispatchCompute(queue, 1, 1, 1);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	return failed;
+}
+
+#ifdef ZEST_ENABLE_SLANG
+#define METAL_KEYWORD_SLANG_PATH "zest_metal_keyword_names.slang"
+
+static int run_metal_keyword_slang(zest_device device, zest_buffer buffer, zest_uint buffer_index) {
+	if (!macro_test__write_file(METAL_KEYWORD_SLANG_PATH, metal_keyword_names_slang_source, 0)) return 1;
+	zest_slang_InitialiseSession(device);
+	const char *search_path = ".";
+	zest_slang_session_info_t info = zest_slang_DefaultSessionInfo();
+	info.search_paths = &search_path;
+	info.search_path_count = 1;
+	info.optimization_level = zest_slang_optimization_none;
+	zest_slang_session session = zest_slang_CreateSession(device, &info);
+	zest_slang_entry_point_info_t entry = {};
+	entry.module = "zest_metal_keyword_names";
+	entry.entry_point = "keyword_names";
+	entry.type = zest_compute_shader;
+	zest_shader_handle shader = session ? zest_slang_CreateShaderFromSession(session, &entry, "slang_keyword_names") : zest_shader_handle{};
+	zest_compute_handle compute_handle = shader.value ? zest_CreateCompute(device, "Slang Keyword Names", shader) : zest_compute_handle{};
+	int failed = 0;
+	if (!compute_handle.value) {
+		ZEST_PRINT("\tThe Slang compute wasn't created: %s", session ? zest_slang_GetLastError(session) : zest_slang_GetCreateSessionError(device));
+		failed = 1;
+	} else {
+		failed |= run_metal_keyword_dispatch(device, zest_GetCompute(compute_handle), buffer, buffer_index);
+		zest_uint value = *(const zest_uint *)zest_BufferData(buffer);
+		if (value != 127) {
+			ZEST_PRINT("\tThe Slang compute wrote %u, expected 127", value);
+			failed = 1;
+		}
+		zest_FreeCompute(compute_handle);
+	}
+	if (shader.value) zest_FreeShader(shader);
+	zest_slang_FreeSession(session);
+	zest_slang_Shutdown(device);
+	remove(METAL_KEYWORD_SLANG_PATH);
+	return failed;
+}
+#endif
+
+//MSL's address spaces as names in a GLSL compute, and as Slang's named SSA values when Slang is compiled in
+int test_metal_shader_keyword_names(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, METAL_KEYWORD_NAME_COUNT * sizeof(zest_uint), &buffer_info);
+	if (!buffer) return 1 | finish_metal_device(device);
+	zest_uint buffer_index = zest_AcquireStorageBufferIndex(device, buffer);
+	zest_shader_handle shader = zest_CreateShader(device, metal_keyword_names_source, zest_compute_shader, "keyword_names", NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = shader.value ? zest_CreateCompute(device, "Keyword Names", shader) : zest_compute_handle{};
+	int failed = 0;
+	if (!compute_handle.value) {
+		ZEST_PRINT("\tThe GLSL compute wasn't created");
+		failed = 1;
+	} else {
+		failed |= run_metal_keyword_dispatch(device, zest_GetCompute(compute_handle), buffer, buffer_index);
+		const zest_uint *values = (const zest_uint *)zest_BufferData(buffer);
+		for (zest_uint name_index = 0; name_index != METAL_KEYWORD_NAME_COUNT; ++name_index) {
+			if (values[name_index] != name_index * 10 + 11) {
+				ZEST_PRINT("\tThe GLSL compute wrote %u to member %u, expected %u", values[name_index], name_index, name_index * 10 + 11);
+				failed = 1;
+			}
+		}
+		zest_FreeCompute(compute_handle);
+	}
+	if (shader.value) zest_FreeShader(shader);
+#ifdef ZEST_ENABLE_SLANG
+	failed |= run_metal_keyword_slang(device, buffer, buffer_index);
+#endif
+	zest_ReleaseStorageBufferIndex(device, buffer_index);
+	zest_FreeBufferNow(buffer);
+	return failed | finish_metal_device(device);
+}
+
+#define METAL_TIMED_COPY_SIZE (16 * 1024 * 1024)
+#define METAL_TIMED_COUNT 7
+
+enum metal_timed_entry {
+	metal_timed_copy,
+	metal_timed_compute,
+	metal_timed_region_a,
+	metal_timed_region_empty,
+	metal_timed_region_b,
+	metal_timed_draw,
+	metal_timed_region_draw,
+};
+
+static const char *metal_timed_names[METAL_TIMED_COUNT] = { "Timed Copy", "Timed Compute", "Region A", "Region Empty", "Region B", "Timed Draw", "Region Draw" };
+static const zest_uint metal_timed_depths[METAL_TIMED_COUNT] = { 0, 0, 1, 1, 1, 0, 1 };
+
+struct MetalTimedPasses {
+	zest_buffer copy_source;
+	zest_buffer copy_target;
+	zest_compute compute;
+	TestPushConstants pushes[2];		//Writing the first buffer, then the second
+};
+
+static void metal_timed_copy_pass(const zest_command_list command_list, void *user_data) {
+	MetalTimedPasses *passes = (MetalTimedPasses *)user_data;
+	zest_cmd_CopyBuffer(command_list, passes->copy_source, passes->copy_target, METAL_TIMED_COPY_SIZE);
+}
+
+//The half dispatch before Region B is in no region, so Region B's begin has to end its encoder, and the encoder Region B's dispatch opens has to send the pipeline and push constants again
+static void metal_timed_compute_pass(const zest_command_list command_list, void *user_data) {
+	MetalTimedPasses *passes = (MetalTimedPasses *)user_data;
+	zest_cmd_BindComputePipeline(command_list, passes->compute);
+	zest_BeginGPUProfile(command_list, "Region A");
+	zest_cmd_SendPushConstants(command_list, &passes->pushes[0], sizeof(TestPushConstants));
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+	zest_EndGPUProfile(command_list);
+	zest_BeginGPUProfile(command_list, "Region Empty");
+	zest_EndGPUProfile(command_list);
+	zest_cmd_SendPushConstants(command_list, &passes->pushes[1], sizeof(TestPushConstants));
+	zest_cmd_DispatchCompute(command_list, 4, 1, 1);
+	zest_BeginGPUProfile(command_list, "Region B");
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+	zest_EndGPUProfile(command_list);
+}
+
+static void metal_timed_draw_pass(const zest_command_list command_list, void *user_data) {
+	zest_BeginGPUProfile(command_list, "Region Draw");
+	zest_EndGPUProfile(command_list);
+}
+
+//The index of the profile result with the name at the depth, or -1
+static int metal_profile_result_index(const zest_gpu_profile_result_t *results, zest_uint count, const char *name, zest_uint depth) {
+	for (zest_uint result_index = 0; result_index != count; ++result_index) {
+		if (results[result_index].depth == depth && strcmp(results[result_index].name, name) == 0) return (int)result_index;
+	}
+	return -1;
+}
+
+//How many of the context's three pass descriptors still hold a sample buffer
+static int metal_descriptors_holding_samples(zest_context context) {
+	zest_mtl_context_backend_t *backend = ZEST_MTL_BACKEND(context, context);
+	int holding = 0;
+	@autoreleasepool {
+		holding += [[[backend->render_pass_descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] sampleBuffer] != nil;
+		holding += [[[backend->compute_pass_descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] sampleBuffer] != nil;
+		holding += [[[backend->blit_pass_descriptor sampleBufferAttachments] objectAtIndexedSubscript:0] sampleBuffer] != nil;
+	}
+	return holding;
+}
+
+//The timings the timed graph's flush read back, against where each pass and region sits in the graph
+static int metal_check_timed_results(zest_context context) {
+	zest_uint count = 0;
+	zest_gpu_profile_result_t *results = zest_GetGPUProfileResults(context, &count);
+	const zest_u64 *ticks = context->gpu_profiler.raw_timestamps[context->current_fif];
+	zest_u64 begins[METAL_TIMED_COUNT];
+	zest_u64 ends[METAL_TIMED_COUNT];
+	double microseconds[METAL_TIMED_COUNT];
+	int failed = 0;
+	for (int entry = 0; entry != METAL_TIMED_COUNT; ++entry) {
+		int result_index = metal_profile_result_index(results, count, metal_timed_names[entry], metal_timed_depths[entry]);
+		if (result_index < 0) {
+			ZEST_PRINT("\tThe GPU profile results have no \"%s\" at depth %u", metal_timed_names[entry], metal_timed_depths[entry]);
+			failed = 1;
+			continue;
+		}
+		begins[entry] = ticks[result_index * 2];
+		ends[entry] = ticks[result_index * 2 + 1];
+		microseconds[entry] = results[result_index].microseconds;
+	}
+	if (failed) {
+		for (zest_uint result_index = 0; result_index != count; ++result_index) {
+			ZEST_PRINT("\tRead back \"%s\" at depth %u", results[result_index].name, results[result_index].depth);
+		}
+		return failed;
+	}
+	ZEST_PRINT("\tCopy %.1f us, compute %.1f us with Region A %.1f us and Region B %.1f us, draw %.1f us, total %.1f us",
+		microseconds[metal_timed_copy], microseconds[metal_timed_compute], microseconds[metal_timed_region_a], microseconds[metal_timed_region_b], microseconds[metal_timed_draw], zest_GetGPUProfileTotalTime(context));
+	const metal_timed_entry timed_work[5] = { metal_timed_copy, metal_timed_compute, metal_timed_draw, metal_timed_region_a, metal_timed_region_b };
+	for (int work = 0; work != 5; ++work) {
+		if (microseconds[timed_work[work]] <= 0.0) {
+			ZEST_PRINT("\t\"%s\" took %f microseconds, where it did work", metal_timed_names[timed_work[work]], microseconds[timed_work[work]]);
+			failed = 1;
+		}
+	}
+	const metal_timed_entry compute_regions[2] = { metal_timed_region_a, metal_timed_region_b };
+	for (int region = 0; region != 2; ++region) {
+		metal_timed_entry entry = compute_regions[region];
+		if (begins[entry] < begins[metal_timed_compute] || ends[entry] > ends[metal_timed_compute]) {
+			ZEST_PRINT("\t\"%s\" spans ticks %llu to %llu, outside its pass's %llu to %llu", metal_timed_names[entry], (zest_ull)begins[entry], (zest_ull)ends[entry], (zest_ull)begins[metal_timed_compute], (zest_ull)ends[metal_timed_compute]);
+			failed = 1;
+		}
+	}
+	if (ends[metal_timed_region_a] > begins[metal_timed_region_b]) {
+		ZEST_PRINT("\tRegion A ends at tick %llu, after Region B begins at %llu", (zest_ull)ends[metal_timed_region_a], (zest_ull)begins[metal_timed_region_b]);
+		failed = 1;
+	}
+	if (microseconds[metal_timed_region_empty] != 0.0) {
+		ZEST_PRINT("\tRegion Empty took %f microseconds around nothing", microseconds[metal_timed_region_empty]);
+		failed = 1;
+	}
+	if (begins[metal_timed_region_draw] != begins[metal_timed_draw] || ends[metal_timed_region_draw] != ends[metal_timed_draw]) {
+		ZEST_PRINT("\tRegion Draw spans ticks %llu to %llu, where it should take its render pass's %llu to %llu", (zest_ull)begins[metal_timed_region_draw], (zest_ull)ends[metal_timed_region_draw], (zest_ull)begins[metal_timed_draw], (zest_ull)ends[metal_timed_draw]);
+		failed = 1;
+	}
+	double expected_total = (double)(ends[metal_timed_draw] - begins[metal_timed_copy]) / 1000.0;
+	if (zest_GetGPUProfileTotalTime(context) != expected_total) {
+		ZEST_PRINT("\tThe GPU profile total is %f microseconds, where the copy's begin to the draw's end is %f", zest_GetGPUProfileTotalTime(context), expected_total);
+		failed = 1;
+	}
+	return failed;
+}
+
+//Passes and the regions inside them get their own GPU timings, which Metal can only sample where encoders start and end
+int test_metal_gpu_timestamps(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	info.flags |= zest_context_init_flag_gpu_profiling;
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	int failed = 0;
+	if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled) || !context->gpu_profiler.backend || context->gpu_profiler.timestamp_period_ns != 1.f) {
+		ZEST_PRINT("\tGPU profiling is %s with %s backend and %f ns ticks, where Metal should give it a backend with 1 ns ticks.",
+			ZEST__FLAGGED(context->flags, zest_context_flag_gpu_profiling_enabled) ? "on" : "off", context->gpu_profiler.backend ? "a" : "no", context->gpu_profiler.timestamp_period_ns);
+		failed = 1;
+	}
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, METAL_BUFFER_WRITE_PATH, "timed_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = shader.value ? zest_CreateCompute(device, "Timed Buffer Write", shader) : zest_compute_handle{};
+	zest_buffer_info_t device_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_only);
+	zest_buffer_info_t write_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer copy_source = zest_CreateBuffer(device, METAL_TIMED_COPY_SIZE, &device_info);
+	zest_buffer copy_target = zest_CreateBuffer(device, METAL_TIMED_COPY_SIZE, &device_info);
+	zest_buffer write_buffers[2] = { zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &write_info), zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &write_info) };
+	zest_image_handle clear_handle = metal_create_clear_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment);
+	zest_uint buffer_indexes[2] = { ZEST_INVALID, ZEST_INVALID };
+	failed |= !compute_handle.value || !copy_source || !copy_target || !write_buffers[0] || !write_buffers[1] || !clear_handle.value;
+	if (!failed) {
+		MetalTimedPasses passes = {};
+		passes.copy_source = copy_source;
+		passes.copy_target = copy_target;
+		passes.compute = zest_GetCompute(compute_handle);
+		for (int buffer = 0; buffer != 2; ++buffer) {
+			buffer_indexes[buffer] = zest_AcquireStorageBufferIndex(device, write_buffers[buffer]);
+			passes.pushes[buffer].index1 = (int)buffer_indexes[buffer];
+			memset(zest_BufferData(write_buffers[buffer]), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
+		}
+		//Each pass reads what the one before wrote, so the three run in order and the total spans the copy's begin to the draw's end
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginCommandGraph(context, "Timed Graph")) {
+			zest_resource_node copy_node = zest_ImportBufferResource("Timed Copy Target", copy_target, 0);
+			zest_resource_node write_nodes[2] = { zest_ImportBufferResource("Timed Write A", write_buffers[0], 0), zest_ImportBufferResource("Timed Write B", write_buffers[1], 0) };
+			zest_image_resource_info_t target_info = { zest_format_r8g8b8a8_unorm };
+			target_info.width = 256;
+			target_info.height = 256;
+			zest_resource_node target = zest_AddTransientImageResource("Timed Target", &target_info);
+			//Nothing reads the target, which would otherwise be culled and leave the draw with no render pass
+			zest_FlagResourceAsEssential(target);
+			zest_BeginTransferPass("Timed Copy");
+			zest_ConnectOutput(copy_node);
+			zest_SetPassTask(metal_timed_copy_pass, &passes);
+			zest_EndPass();
+			zest_BeginComputePass("Timed Compute");
+			zest_ConnectInput(copy_node);
+			zest_ConnectOutput(write_nodes[0]);
+			zest_ConnectOutput(write_nodes[1]);
+			zest_SetPassTask(metal_timed_compute_pass, &passes);
+			zest_EndPass();
+			zest_BeginRenderPass("Timed Draw");
+			zest_ConnectInput(write_nodes[0]);
+			zest_ConnectInput(write_nodes[1]);
+			zest_ConnectOutput(target);
+			zest_DoNotCull();
+			zest_SetPassTask(metal_timed_draw_pass, NULL);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		failed |= metal_check_timed_results(context);
+		for (int buffer = 0; buffer != 2; ++buffer) {
+			const float *values = (const float *)zest_BufferData(write_buffers[buffer]);
+			for (zest_uint element = 0; element != METAL_IMMEDIATE_ELEMENTS; ++element) {
+				if (values[element * 4] != (float)element) {
+					ZEST_PRINT("\tElement %u of buffer %i holds %f after the timed dispatches, expected %f", element, buffer, values[element * 4], (float)element);
+					failed = 1;
+					break;
+				}
+			}
+		}
+		if (metal_descriptors_holding_samples(context) != 0) {
+			ZEST_PRINT("\t%i of the context's pass descriptors still hold a sample buffer after the timed graph", metal_descriptors_holding_samples(context));
+			failed = 1;
+		}
+
+		//A clear in a transfer pass draws with the context's render pass descriptor, which takes samples while profiling is on and none once it's off
+		for (int profiled = 1; profiled >= 0; --profiled) {
+			zest_EnableGPUProfiling(context, profiled ? ZEST_TRUE : ZEST_FALSE);
+			MetalImageClearTask clear_task = {};
+			failed |= run_metal_image_clear_graph(context, zest_GetImage(clear_handle), ZEST_FALSE, &clear_task);
+			failed |= !clear_task.cleared;
+			if (profiled) {
+				zest_uint count = 0;
+				zest_gpu_profile_result_t *results = zest_GetGPUProfileResults(context, &count);
+				int result_index = metal_profile_result_index(results, count, "Clear Pass", 0);
+				if (result_index < 0 || results[result_index].microseconds <= 0.0) {
+					ZEST_PRINT("\tThe profiled clear pass %s", result_index < 0 ? "has no result" : "took no time");
+					failed = 1;
+				}
+			}
+			if (metal_descriptors_holding_samples(context) != 0) {
+				ZEST_PRINT("\t%i of the context's pass descriptors still hold a sample buffer after a clear with profiling %s", metal_descriptors_holding_samples(context), profiled ? "on" : "off");
+				failed = 1;
+			}
+		}
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	for (int buffer = 0; buffer != 2; ++buffer) {
+		if (buffer_indexes[buffer] != ZEST_INVALID) zest_ReleaseStorageBufferIndex(device, buffer_indexes[buffer]);
+		if (write_buffers[buffer]) zest_FreeBufferNow(write_buffers[buffer]);
+	}
+	if (copy_source) zest_FreeBufferNow(copy_source);
+	if (copy_target) zest_FreeBufferNow(copy_target);
+	if (clear_handle.value) zest_FreeImageNow(clear_handle);
+	if (compute_handle.value) zest_FreeCompute(compute_handle);
+	if (shader.value) zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+struct MetalLabelRecord {
+	id<MTLCommandBuffer> command_buffer;	//Compared only, not retained
+	zest_bool pass_label_matched;
+	zest_bool command_buffer_label_matched;
+	zest_bool encoder_label_matched;
+	zest_uint debug_group_depth;
+};
+
+struct MetalPassLabels {
+	zest_compute compute;
+	TestPushConstants push;
+	zest_mtl_command_list_backend_t *backend;		//The graph's command list backend, read once its flush returns
+	MetalLabelRecord records[2];					//The dispatching pass, then the pass after it
+};
+
+static const char *metal_label_pass_names[2] = { "Label Compute", "Label Read" };
+
+//What a pass sees of its labels and debug group from inside its task
+static void metal_record_pass_labels(const zest_command_list command_list, MetalPassLabels *labels, int pass) {
+	zest_mtl_command_list_backend_t *backend = ZEST_MTL_BACKEND(command_list, command_list);
+	MetalLabelRecord *record = &labels->records[pass];
+	labels->backend = backend;
+	@autoreleasepool {
+		NSString *pass_name = [NSString stringWithUTF8String:metal_label_pass_names[pass]];
+		record->command_buffer = backend->command_buffer;
+		record->pass_label_matched = backend->pass_label && [backend->pass_label isEqualToString:pass_name];
+		record->command_buffer_label_matched = [[backend->command_buffer label] isEqualToString:@"Label Graph"];
+		record->encoder_label_matched = backend->compute_encoder && [[backend->compute_encoder label] isEqualToString:pass_name];
+		record->debug_group_depth = backend->debug_group_depth;
+	}
+}
+
+static void metal_label_compute_pass(const zest_command_list command_list, void *user_data) {
+	MetalPassLabels *labels = (MetalPassLabels *)user_data;
+	zest_cmd_BindComputePipeline(command_list, labels->compute);
+	zest_cmd_SendPushConstants(command_list, &labels->push, sizeof(TestPushConstants));
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+	metal_record_pass_labels(command_list, labels, 0);
+}
+
+static void metal_label_read_pass(const zest_command_list command_list, void *user_data) {
+	metal_record_pass_labels(command_list, (MetalPassLabels *)user_data, 1);
+}
+
+//Each pass is a debug group on its batch's command buffer and its encoders carry its name, and pipeline states and libraries carry theirs
+int test_metal_pass_labels(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, METAL_BUFFER_WRITE_PATH, "label_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = shader.value ? zest_CreateCompute(device, "Label Compute Pipeline", shader) : zest_compute_handle{};
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_no_input_vertex_source, zest_vertex_shader, "label_vertex", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_stage_fragment_source, zest_fragment_shader, "label_fragment", NULL, ZEST_TRUE);
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &buffer_info);
+	int failed = !compute_handle.value || !vertex_shader.value || !fragment_shader.value || !buffer;
+	zest_uint buffer_index = buffer ? zest_AcquireStorageBufferIndex(device, buffer) : ZEST_INVALID;
+	if (!failed) {
+		MetalPassLabels labels = {};
+		labels.compute = zest_GetCompute(compute_handle);
+		labels.push.index1 = (int)buffer_index;
+		memset(zest_BufferData(buffer), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
+		zest_frame_graph frame_graph = NULL;
+		if (zest_BeginCommandGraph(context, "Label Graph")) {
+			zest_resource_node buffer_node = zest_ImportBufferResource("Label Buffer", buffer, 0);
+			zest_BeginComputePass(metal_label_pass_names[0]);
+			zest_ConnectOutput(buffer_node);
+			zest_SetPassTask(metal_label_compute_pass, &labels);
+			zest_EndPass();
+			zest_BeginComputePass(metal_label_pass_names[1]);
+			zest_ConnectInput(buffer_node);
+			zest_DoNotCull();
+			zest_SetPassTask(metal_label_read_pass, &labels);
+			zest_EndPass();
+			frame_graph = zest_EndFrameGraph();
+		}
+		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		for (int pass = 0; pass != 2; ++pass) {
+			MetalLabelRecord *record = &labels.records[pass];
+			zest_bool encoder_matched = pass == 0 ? record->encoder_label_matched : ZEST_TRUE;
+			if (!record->pass_label_matched || !record->command_buffer_label_matched || !encoder_matched || record->debug_group_depth != 1) {
+				ZEST_PRINT("\t\"%s\": pass label %s, command buffer label %s, encoder label %s, debug group depth %u where it should be 1", metal_label_pass_names[pass],
+					record->pass_label_matched ? "matched" : "wrong", record->command_buffer_label_matched ? "matched" : "wrong", encoder_matched ? "matched" : "wrong", record->debug_group_depth);
+				failed = 1;
+			}
+		}
+		//Only a group the first pass left open in the same command buffer shows in the second pass's depth
+		if (labels.records[0].command_buffer == nil || labels.records[0].command_buffer != labels.records[1].command_buffer) {
+			ZEST_PRINT("\tThe two label passes recorded into different command buffers, so the second can't see a group the first left open");
+			failed = 1;
+		}
+		//The flush resets the graph's allocator, and nothing allocates from it before this read
+		if (!labels.backend || labels.backend->debug_group_depth != 0 || labels.backend->pass_label != nil) {
+			ZEST_PRINT("\tAfter the batch the debug group depth is %u and the pass label is %s, where both should be cleared", labels.backend ? labels.backend->debug_group_depth : 0, labels.backend && labels.backend->pass_label ? "set" : "nil");
+			failed = 1;
+		}
+		const float *values = (const float *)zest_BufferData(buffer);
+		for (zest_uint element = 0; element != METAL_IMMEDIATE_ELEMENTS; ++element) {
+			if (values[element * 4] != (float)element) {
+				ZEST_PRINT("\tElement %u holds %f after the labelled dispatch, expected %f", element, values[element * 4], (float)element);
+				failed = 1;
+				break;
+			}
+		}
+
+		//A state is shared by every template with the same contents, so this device's first template is the one that names it
+		zest_pipeline_template pipeline_template = metal_no_input_template(device, "Labelled Pipeline", vertex_shader, fragment_shader);
+		zest_command_list_t pipeline_list = metal_colour_command_list(context, 1, zest_format_undefined);
+		id<MTLRenderPipelineState> pipeline_state = metal_pipeline_backend(zest_GetPipeline(pipeline_template, &pipeline_list))->pipeline_state;
+		id<MTLComputePipelineState> compute_state = ZEST_MTL_BACKEND(compute, labels.compute)->pipeline_state;
+		zest_mtl_shader_function_t function = {};
+		char error[1024];
+		zest_bool converted = zest__mtl_shader_function(device, zest_GetShader(shader), zest_compute_shader, ZEST_FALSE, &function, error, sizeof(error));
+		@autoreleasepool {
+			if (![[pipeline_state label] isEqualToString:@"Labelled Pipeline"] || ![[compute_state label] isEqualToString:@"label_buffer_write"] || !converted || ![[function.library label] isEqualToString:@"label_buffer_write"]) {
+				ZEST_PRINT("\tThe render pipeline state is labelled %s, the compute's %s and its library %s",
+					[pipeline_state label] ? [[pipeline_state label] UTF8String] : "nothing", [compute_state label] ? [[compute_state label] UTF8String] : "nothing", converted && [function.library label] ? [[function.library label] UTF8String] : "nothing");
+				failed = 1;
+			}
+		}
+		zest_FreePipelineTemplate(pipeline_template);
+	}
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	if (buffer_index != ZEST_INVALID) zest_ReleaseStorageBufferIndex(device, buffer_index);
+	if (buffer) zest_FreeBufferNow(buffer);
+	if (compute_handle.value) zest_FreeCompute(compute_handle);
+	if (shader.value) zest_FreeShader(shader);
+	if (vertex_shader.value) zest_FreeShader(vertex_shader);
+	if (fragment_shader.value) zest_FreeShader(fragment_shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+struct MetalErrorWrite {
+	zest_compute compute;
+	TestPushConstants push;
+};
+
+static void metal_error_write_pass(const zest_command_list command_list, void *user_data) {
+	MetalErrorWrite *write = (MetalErrorWrite *)user_data;
+	zest_cmd_BindComputePipeline(command_list, write->compute);
+	zest_cmd_SendPushConstants(command_list, &write->push, sizeof(TestPushConstants));
+	zest_cmd_DispatchCompute(command_list, 8, 1, 1);
+}
+
+//One compute pass that writes the buffer, flushed with or without a wait, which reports how long the flush took
+static zest_semaphore_status run_metal_error_graph(zest_context context, const char *graph_name, const char *pass_name, MetalErrorWrite *write, zest_buffer buffer, zest_bool wait, zest_microsecs *out_flush_time) {
+	memset(zest_BufferData(buffer), 0xFF, METAL_IMMEDIATE_ELEMENTS * 16);
+	if (!zest_BeginCommandGraph(context, graph_name)) return zest_semaphore_status_error;
+	zest_resource_node buffer_node = zest_ImportBufferResource("Error Buffer", buffer, 0);
+	zest_BeginComputePass(pass_name);
+	zest_ConnectOutput(buffer_node);
+	zest_SetPassTask(metal_error_write_pass, write);
+	zest_EndPass();
+	zest_frame_graph frame_graph = zest_EndFrameGraph();
+	if (!frame_graph) return zest_semaphore_status_error;
+	zest_microsecs flush_start = zest_Microsecs();
+	zest_semaphore_status status = wait ? zest_FlushFrameGraphAndWait(frame_graph) : zest_FlushFrameGraph(frame_graph);
+	*out_flush_time = zest_Microsecs() - flush_start;
+	return status;
+}
+
+//Waits on every queue slot's ordering timeline, which reaps the device's finished batches on this thread
+static void *metal_reap_on_another_thread(void *user_data) {
+	zest_context context = (zest_context)user_data;
+	for (zest_uint slot = 0; slot != ZEST_QUEUE_COUNT; ++slot) {
+		zest_WaitForSignal(&context->queue_ordering_timelines[slot], ZEST_SECONDS_IN_MICROSECONDS(1));
+	}
+	return NULL;
+}
+
+static zest_uint metal_log_file_size(zest_device device) {
+	zest_file log = zest_ReadEntireFile(device, device->log_path.str, ZEST_FALSE);
+	zest_uint size = log ? zest_vec_size(log) : 0;
+	if (log) zest_FreeFile(device, log);
+	return size;
+}
+
+static int metal_count_occurrences(const char *text, const char *line) {
+	int count = 0;
+	for (const char *found = strstr(text, line); found; found = strstr(found + 1, line)) count++;
+	return count;
+}
+
+//A failed batch writes one report to the log and moves its events on, so no wait runs out its timeout, and Metal's device removal flags the context
+int test_metal_command_buffer_errors(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_handle shader = zest_CreateShaderFromFile(device, METAL_BUFFER_WRITE_PATH, "error_buffer_write", zest_compute_shader, NULL, ZEST_TRUE);
+	zest_compute_handle compute_handle = shader.value ? zest_CreateCompute(device, "Error Buffer Write", shader) : zest_compute_handle{};
+	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer buffer = zest_CreateBuffer(device, METAL_IMMEDIATE_ELEMENTS * 16, &buffer_info);
+	int failed = !compute_handle.value || !buffer;
+	zest_uint buffer_index = buffer ? zest_AcquireStorageBufferIndex(device, buffer) : ZEST_INVALID;
+	if (!failed) {
+		MetalErrorWrite write = {};
+		write.compute = zest_GetCompute(compute_handle);
+		write.push.index1 = (int)buffer_index;
+		zest_microsecs flush_time = 0;
+
+		//The forced batch skips its signals, so only the reap of a failed batch lets the flush's wait return
+		zest_uint log_size = metal_log_file_size(device);
+		zest__mtl_forced_command_buffer_error = MTLCommandBufferErrorTimeout;
+		zest_semaphore_status status = run_metal_error_graph(context, "Failing Graph", "Failing Pass", &write, buffer, ZEST_TRUE, &flush_time);
+		ZEST_PRINT("\tThe failing graph's flush gave status %i after %llu us, and should succeed within 1 s once the failed batch is reaped", (int)status, (zest_ull)flush_time);
+		failed |= status != zest_semaphore_status_success || flush_time > 1000000 || zest__mtl_forced_command_buffer_error != 0;
+		zest_file log = zest_ReadEntireFile(device, device->log_path.str, ZEST_TRUE);
+		const char *report = log && zest_vec_size(log) > log_size ? log + log_size : "";
+		const char *report_lines[3] = { "A Metal command buffer failed: Timeout (2)", "Command buffer: Failing Graph.", "Metal gave no pass states for this failure." };
+		for (int line = 0; line != 3; ++line) {
+			int count = metal_count_occurrences(report, report_lines[line]);
+			if (count != 1) {
+				ZEST_PRINT("\tThe log has \"%s\" %d times after the failure, expected once", report_lines[line], count);
+				failed = 1;
+			}
+		}
+		if (log) zest_FreeFile(device, log);
+		if (zest_ContextDeviceWasLost(context)) {
+			ZEST_PRINT("\tA timeout flagged the device lost");
+			failed = 1;
+		}
+
+		//The events the failed batch moved on must not let the next graph's work run before its inputs are ready
+		status = run_metal_error_graph(context, "Recovered Graph", "Recovered Pass", &write, buffer, ZEST_TRUE, &flush_time);
+		failed |= status != zest_semaphore_status_success;
+		const float *values = (const float *)zest_BufferData(buffer);
+		for (zest_uint element = 0; element != METAL_IMMEDIATE_ELEMENTS; ++element) {
+			if (values[element * 4] != (float)element) {
+				ZEST_PRINT("\tElement %u holds %f after the graph that followed the failure, expected %f", element, values[element * 4], (float)element);
+				failed = 1;
+				break;
+			}
+		}
+
+		zest__mtl_forced_command_buffer_error = MTLCommandBufferErrorDeviceRemoved;
+		status = run_metal_error_graph(context, "Removed Graph", "Removed Pass", &write, buffer, ZEST_TRUE, &flush_time);
+		if (status != zest_semaphore_status_success || !zest_ContextDeviceWasLost(context)) {
+			ZEST_PRINT("\tThe removed graph's flush gave %i and the device is %s, where Metal's device removal should flag it lost", (int)status, zest_ContextDeviceWasLost(context) ? "lost" : "not lost");
+			failed = 1;
+		}
+
+		//A reap on a thread that doesn't record the context leaves the loss pending, as only the context's own thread writes its flags. Its next batch flags it.
+		zest_context second_context = zest_CreateHeadlessContext(device, &info);
+		failed |= second_context == NULL;
+		if (second_context) {
+			zest__mtl_forced_command_buffer_error = MTLCommandBufferErrorDeviceRemoved;
+			failed |= run_metal_error_graph(second_context, "Unwaited Removed Graph", "Unwaited Removed Pass", &write, buffer, ZEST_FALSE, &flush_time) != zest_semaphore_status_success;
+			pthread_t reaper;
+			zest_bool reaped = pthread_create(&reaper, NULL, metal_reap_on_another_thread, second_context) == 0;
+			if (reaped) pthread_join(reaper, NULL);
+			zest_bool lost_after_reap = zest_ContextDeviceWasLost(second_context);
+			status = run_metal_error_graph(second_context, "Flagging Graph", "Flagging Pass", &write, buffer, ZEST_TRUE, &flush_time);
+			if (!reaped || lost_after_reap || status != zest_semaphore_status_success || !zest_ContextDeviceWasLost(second_context)) {
+				ZEST_PRINT("\tReaped on %s thread, the second context read %s after the reap and %s after its next batch, which should flag the loss", reaped ? "another" : "no",
+					lost_after_reap ? "lost" : "not lost", zest_ContextDeviceWasLost(second_context) ? "lost" : "not lost");
+				failed = 1;
+			}
+			zest_ResetReports(second_context);
+			zest_DestroyContext(second_context);
+		}
+	}
+	//A forced batch a failure above left unreaped still has to read as failed in the idle wait, so its events move on
+	zest_WaitForIdleDevice(device);
+	zest__mtl_forced_command_buffer_error = 0;
+	zest__mtl_forced_failed_command_buffer = nil;
+	zest_ResetReports(context);
+	zest_ResetValidationErrors(device);
+	if (buffer_index != ZEST_INVALID) zest_ReleaseStorageBufferIndex(device, buffer_index);
+	if (buffer) zest_FreeBufferNow(buffer);
+	if (compute_handle.value) zest_FreeCompute(compute_handle);
+	if (shader.value) zest_FreeShader(shader);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
+//Each table slot is a struct holding one entry, as a pointer straight to a texture, sampler or buffer pointer isn't a valid buffer argument
+static const char *metal_msl_draw_source =
+	"#include <metal_stdlib>\n"
+	"using namespace metal;\n"
+	"struct SamplerEntry { sampler value; };\n"
+	"struct TextureEntry { texture2d<float> value; };\n"
+	"struct DrawPush { uint texture_index; uint sampler_index; };\n"
+	"struct DrawInput { float2 position [[attribute(0)]]; float2 uv [[attribute(1)]]; };\n"
+	"struct DrawVaryings { float4 position [[position]]; float2 uv; };\n"
+	"vertex DrawVaryings msl_draw_vertex(DrawInput input [[stage_in]]) {\n"
+	"	DrawVaryings varyings;\n"
+	"	varyings.position = float4(input.position.x, -input.position.y, 0.0, 1.0);\n"
+	"	varyings.uv = input.uv;\n"
+	"	return varyings;\n"
+	"}\n"
+	"fragment float4 msl_draw_fragment(DrawVaryings varyings [[stage_in]], constant DrawPush &push [[buffer(4)]], const device SamplerEntry *samplers [[buffer(5)]], const device TextureEntry *textures [[buffer(6)]]) {\n"
+	"	return textures[push.texture_index].value.sample(samplers[push.sampler_index].value, varyings.uv);\n"
+	"}\n";
+
+//index + 1 is what hot reload rewrites to index + 2
+static const char *metal_msl_write_source =
+	"#include <metal_stdlib>\n"
+	"using namespace metal;\n"
+	"struct BufferEntry { device uint *value; };\n"
+	"struct WritePush { uint buffer_index; };\n"
+	"kernel void msl_write(uint index [[thread_position_in_grid]], constant WritePush &push [[buffer(4)]], const device BufferEntry *buffers [[buffer(10)]]) {\n"
+	"	buffers[push.buffer_index].value[index] = index + 1;\n"
+	"}\n";
+
+static const char *metal_msl_two_vertex_source =
+	"#include <metal_stdlib>\n"
+	"using namespace metal;\n"
+	"vertex float4 first_vertex(uint vertex_id [[vertex_id]]) { return float4(0.0, 0.0, 0.0, 1.0); }\n"
+	"vertex float4 second_vertex(uint vertex_id [[vertex_id]]) { return float4(1.0, 0.0, 0.0, 1.0); }\n";
+
+#define METAL_MSL_WRITE_COUNT 32
+#define METAL_MSL_WRITE_PATH "zest_metal_msl_write.metal"
+
+struct MetalMSLDraw {
+	zest_pipeline_template pipeline_template;
+	zest_buffer vertex_buffer;
+	zest_uint push[2];						//The texture's index, then the sampler's
+};
+
+static void metal_msl_draw_task(const zest_command_list command_list, void *user_data) {
+	MetalMSLDraw *draw = (MetalMSLDraw *)user_data;
+	set_full_viewport(command_list);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, draw->vertex_buffer);
+	zest_pipeline pipeline = zest_GetPipeline(draw->pipeline_template, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, draw->push, sizeof(draw->push));
+	zest_cmd_Draw(command_list, 6, 1, 0, 0);
+}
+
+//Four groups of the MSL kernel's 8 threads, and whether every one of the 32 words holds its index plus added
+static int run_metal_msl_write(zest_device device, zest_compute compute, zest_buffer buffer, zest_uint buffer_index, zest_uint added) {
+	memset(zest_BufferData(buffer), 0xFF, METAL_MSL_WRITE_COUNT * 4);
+	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_compute);
+	if (!queue) return 1;
+	zest_imm_SendPushConstants(queue, &buffer_index, sizeof(buffer_index));
+	zest_imm_BindComputePipeline(queue, compute);
+	int failed = !zest_imm_DispatchCompute(queue, 4, 1, 1);
+	failed |= !zest_imm_EndCommandBuffer(queue);
+	const zest_uint *words = (const zest_uint *)zest_BufferData(buffer);
+	for (zest_uint word = 0; word != METAL_MSL_WRITE_COUNT; ++word) {
+		if (words[word] != word + added) {
+			ZEST_PRINT("\tWord %u holds %u after the MSL dispatch, expected %u", word, words[word], word + added);
+			return 1;
+		}
+	}
+	return failed;
+}
+
+//Hand-written MSL draws and dispatches through the bindless table, reloads, and is refused where the backend can't take it
+int test_metal_msl_shaders(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_create_context_info_t info = zest_CreateContextInfo();
+	zest_context context = zest_CreateHeadlessContext(device, &info);
+	if (!context) return 1 | finish_metal_device(device);
+	zest_shader_options render_options = zest_CreateShaderOptions(device);
+	zest_SetShaderOptionsMSL(render_options, 0, 0, 0);
+	zest_shader_options compute_options = zest_CreateShaderOptions(device);
+	zest_SetShaderOptionsMSL(compute_options, 8, 1, 1);
+	int failed = 0;
+
+	//A draw over the top half of Zest's clip space lands on rows 0 to 7, which is the Y convention the docs give
+	const unsigned char texture_colour[4] = { 51, 102, 153, 255 };
+	const int black[4] = { 0, 0, 0, 255 };
+	zest_image_handle texture_handle = {};
+	zest_image texture = metal_create_solid_image(device, &texture_handle, 2, 1, 1, zest_image_preset_texture, texture_colour);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+	zest_sampler_handle sampler_handle = zest_CreateSampler(device, &sampler_info);
+	zest_image_handle target_handle = create_draw_target(device);
+	zest_shader_handle vertex_shader = zest_CreateShader(device, metal_msl_draw_source, zest_vertex_shader, "msl_draw_vertex", render_options, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, metal_msl_draw_source, zest_fragment_shader, "msl_draw_fragment", render_options, ZEST_TRUE);
+	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_cpu_to_gpu);
+	MetalMSLDraw draw = {};
+	draw.vertex_buffer = zest_CreateBuffer(device, sizeof(float) * 4 * 6, &vertex_info);
+	failed |= !texture || !sampler_handle.value || !target_handle.value || !vertex_shader.value || !fragment_shader.value || !draw.vertex_buffer;
+	if (!failed) {
+		const float vertices[6][4] = { { -1.f, -1.f, 0.f, 0.f }, { 1.f, -1.f, 1.f, 0.f }, { 1.f, 0.f, 1.f, 1.f }, { 1.f, 0.f, 1.f, 1.f }, { -1.f, 0.f, 0.f, 1.f }, { -1.f, -1.f, 0.f, 0.f } };
+		memcpy(zest_BufferData(draw.vertex_buffer), vertices, sizeof(vertices));
+		draw.push[0] = zest_AcquireSampledImageIndex(device, texture, zest_texture_2d_binding);
+		draw.push[1] = zest_AcquireSamplerIndex(device, zest_GetSampler(sampler_handle));
+		draw.pipeline_template = zest_CreatePipelineTemplate(device, "MSL Draw");
+		zest_SetPipelineShaders(draw.pipeline_template, vertex_shader, fragment_shader);
+		zest_AddVertexInputBindingDescription(draw.pipeline_template, 0, sizeof(float) * 4, zest_input_rate_vertex);
+		zest_AddVertexAttribute(draw.pipeline_template, 0, 0, zest_format_r32g32_sfloat, 0);
+		zest_AddVertexAttribute(draw.pipeline_template, 0, 1, zest_format_r32g32_sfloat, sizeof(float) * 2);
+		zest_SetPipelineCullMode(draw.pipeline_template, zest_cull_mode_none);
+		zest_SetPipelineBlend(draw.pipeline_template, zest_BlendStateOpaque());
+		zest_uint pixels[256];
+		failed |= render_draw_pass(context, "MSL Draw", zest_GetImage(target_handle), ZEST_FALSE, metal_msl_draw_task, &draw, pixels);
+		if (!metal_pixels_match(pixels, 8 * 16, metal_blue_expected) || !metal_pixels_match(pixels + 8 * 16, 8 * 16, black)) {
+			const unsigned char *top = (const unsigned char *)&pixels[0];
+			const unsigned char *bottom = (const unsigned char *)&pixels[15 * 16];
+			ZEST_PRINT("\tThe MSL draw left row 0 at %u %u %u %u and row 15 at %u %u %u %u, where rows 0 to 7 should hold the texture and rows 8 to 15 the clear colour",
+				top[0], top[1], top[2], top[3], bottom[0], bottom[1], bottom[2], bottom[3]);
+			failed = 1;
+		}
+		failed |= zest_GetValidationErrorCount(device) != 0;
+		zest_FreePipelineTemplate(draw.pipeline_template);
+	}
+
+	//The kernel is a file in the working folder, so hot reload can rewrite it
+	zest_buffer_info_t write_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+	zest_buffer write_buffer = zest_CreateBuffer(device, METAL_MSL_WRITE_COUNT * 4, &write_info);
+	zest_uint write_index = write_buffer ? zest_AcquireStorageBufferIndex(device, write_buffer) : ZEST_INVALID;
+	zest_shader_handle write_shader = {};
+	zest_compute_handle write_handle = {};
+	if (write_buffer && macro_test__write_file(METAL_MSL_WRITE_PATH, metal_msl_write_source, 0)) {
+		write_shader = zest_CreateShaderFromFile(device, METAL_MSL_WRITE_PATH, "msl_write", zest_compute_shader, compute_options, ZEST_TRUE);
+		zest_SetShaderHotReload(write_shader, ZEST_TRUE);
+		write_handle = zest_CreateCompute(device, "MSL Write", write_shader);
+	}
+	zest_compute write_compute = write_handle.value ? zest_GetCompute(write_handle) : NULL;
+	if (!write_compute) {
+		failed = 1;
+	} else {
+		failed |= run_metal_msl_write(device, write_compute, write_buffer, write_index, 1);
+		char edited[1024];
+		const char *write_value = strstr(metal_msl_write_source, "index + 1");
+		snprintf(edited, sizeof(edited), "%.*sindex + 2%s", (int)(write_value - metal_msl_write_source), metal_msl_write_source, write_value + strlen("index + 1"));
+		failed |= !macro_test__write_file(METAL_MSL_WRITE_PATH, edited, zest_GetShader(write_shader)->last_mtime);
+		zest_uint reload_count = zest_CheckShaderHotReload(device);
+		if (reload_count != 1) {
+			ZEST_PRINT("\t%u shaders reloaded after the MSL kernel's file changed, expected 1", reload_count);
+			failed = 1;
+		}
+		failed |= run_metal_msl_write(device, write_compute, write_buffer, write_index, 2);
+		failed |= zest_GetValidationErrorCount(device) != 0;
+	}
+
+	//Each refusal raises one validation error
+	zest_ResetValidationErrors(device);
+	zest_shader_options unsized_options = zest_CreateShaderOptions(device);
+	zest_SetShaderOptionsMSL(unsized_options, 0, 1, 1);
+	zest_shader_handle unsized_shader = zest_CreateShader(device, metal_msl_write_source, zest_compute_shader, "msl_unsized_write", unsized_options, ZEST_TRUE);
+	zest_compute_handle unsized_handle = unsized_shader.value ? zest_CreateCompute(device, "MSL Unsized Write", unsized_shader) : zest_compute_handle{};
+	if (unsized_handle.value || zest_GetValidationErrorCount(device) != 1 || !validation_error_contains(device, "zest_SetShaderOptionsMSL")) {
+		ZEST_PRINT("\tAn MSL kernel with a local size of 0 wasn't refused with one validation error");
+		failed = 1;
+	}
+	zest_ResetValidationErrors(device);
+	zest_shader_handle two_vertex_shader = zest_CreateShader(device, metal_msl_two_vertex_source, zest_vertex_shader, "msl_two_vertex", render_options, ZEST_TRUE);
+	zest_shader_handle colour_fragment = zest_CreateShader(device, metal_view_colour_fragment_source, zest_fragment_shader, "msl_rules_fragment", NULL, ZEST_TRUE);
+	zest_pipeline_template two_vertex_template = metal_no_input_template(device, "MSL Two Vertex", two_vertex_shader, colour_fragment);
+	zest_command_list_t pipeline_list = metal_colour_command_list(context, 1, zest_format_undefined);
+	if (zest_GetPipeline(two_vertex_template, &pipeline_list) != NULL || zest_GetValidationErrorCount(device) != 1 || !validation_error_contains(device, "has 2 vertex functions")) {
+		ZEST_PRINT("\tAn MSL source with two vertex functions wasn't refused with one validation error");
+		failed = 1;
+	}
+	zest_ResetValidationErrors(device);
+	//Built as Metal Multiview Rules builds a two view pass
+	zest_pipeline_template multiview_template = metal_no_input_template(device, "MSL Two Views", vertex_shader, colour_fragment);
+	zest_SetPipelineViewCount(multiview_template, 2);
+	zest_image_handle layered_handle = metal_create_layered_target(device, zest_format_r8g8b8a8_unorm, zest_image_preset_color_attachment, 16, 2);
+	MetalViewDraw multiview_draw = { multiview_template, NULL, NULL, 3, 1, 0, ZEST_FALSE };
+	if (!layered_handle.value || run_metal_view_pass(context, zest_GetImage(layered_handle), &multiview_draw) != zest_fgs_success || multiview_draw.built
+		|| zest_GetValidationErrorCount(device) != 1 || !validation_error_contains(device, "multiview pipeline on Metal can't take")) {
+		ZEST_PRINT("\tAn MSL vertex shader in a two view pipeline wasn't refused with one validation error");
+		failed = 1;
+	}
+	zest_ResetValidationErrors(device);
+
+	zest_WaitForIdleDevice(device);
+	failed |= zest_GetValidationErrorCount(device) != 0;
+	zest_FreePipelineTemplate(two_vertex_template);
+	zest_FreePipelineTemplate(multiview_template);
+	if (layered_handle.value) zest_FreeImageNow(layered_handle);
+	if (unsized_shader.value) zest_FreeShader(unsized_shader);
+	zest_FreeShader(two_vertex_shader);
+	zest_FreeShader(colour_fragment);
+	zest_FreeShaderOptions(unsized_options);
+	if (write_handle.value) zest_FreeCompute(write_handle);
+	if (write_shader.value) zest_FreeShader(write_shader);
+	if (write_index != ZEST_INVALID) zest_ReleaseStorageBufferIndex(device, write_index);
+	if (write_buffer) zest_FreeBufferNow(write_buffer);
+	remove(METAL_MSL_WRITE_PATH);
+	if (draw.vertex_buffer) zest_FreeBufferNow(draw.vertex_buffer);
+	if (vertex_shader.value) zest_FreeShader(vertex_shader);
+	if (fragment_shader.value) zest_FreeShader(fragment_shader);
+	if (target_handle.value) zest_FreeImageNow(target_handle);
+	if (sampler_handle.value) zest_FreeSamplerNow(sampler_handle);
+	if (texture_handle.value) zest_FreeImageNow(texture_handle);
+	zest_FreeShaderOptions(render_options);
+	zest_FreeShaderOptions(compute_options);
+	zest_DestroyContext(context);
+	return failed | finish_metal_device(device);
+}
+
 static MetalTest metal_tests[] = {
 	{ "Metal Builder", test_metal_builder },
 	{ "Metal Device Lifecycle", test_metal_device_lifecycle },
@@ -6175,6 +7075,11 @@ static MetalTest metal_tests[] = {
 	{ "Metal Frame Graph Fence Order", test_metal_frame_graph_fence_order },
 	{ "Metal Multiview", test_metal_multiview },
 	{ "Metal Multiview Rules", test_metal_multiview_rules },
+	{ "Metal Shader Keyword Names", test_metal_shader_keyword_names },
+	{ "Metal GPU Timestamps", test_metal_gpu_timestamps },
+	{ "Metal Pass Labels", test_metal_pass_labels },
+	{ "Metal Command Buffer Errors", test_metal_command_buffer_errors },
+	{ "Metal MSL Shaders", test_metal_msl_shaders },
 };
 
 int RunMetalSuite(int *total_out) {

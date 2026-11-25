@@ -269,12 +269,13 @@ cd /path/to/zest
 
 Or set the working directory in your IDE to the repository root.
 
-## Running on D3D12
+## Running on D3D12 and Metal
 
-Every built example runs on both Vulkan and D3D12. In a build with `ZEST_ENABLE_D3D12` (on by default on Windows)
-the examples start on D3D12, and if the D3D12 device can't be created they print one line and run on Vulkan. Other
-builds, including every Linux and macOS build, run on Vulkan. The examples written in Slang (`zest-compute-example`,
-`zest-vaders`, `zest-timelinefx` and `zest-timelinefx-particle-techniques`) also need `ZEST_ENABLE_SLANG`.
+Every built example runs on Vulkan, and on D3D12 or Metal when that backend is compiled in. In a build with
+`ZEST_ENABLE_D3D12` (on by default on Windows) the examples start on D3D12, and in a build with `ZEST_ENABLE_METAL`
+(on by default on macOS) they start on Metal. If that device can't be created they print one line and run on Vulkan.
+Linux builds run on Vulkan. The examples written in Slang (`zest-compute-example`, `zest-vaders`, `zest-timelinefx` and
+`zest-timelinefx-particle-techniques`) also need `ZEST_ENABLE_SLANG`.
 
 They share these arguments, from `examples/Common/example_platform.h`:
 
@@ -282,17 +283,27 @@ They share these arguments, from `examples/Common/example_platform.h`:
 |----------|--------|
 | `--vulkan` | Use the Vulkan backend |
 | `--d3d12` | Use the D3D12 backend, with no fallback to Vulkan. A build without D3D12 exits with a message |
-| `--validate` | Turn on the validation layers, print the validation error count at exit and exit with 1 if it isn't 0. On D3D12 also print the COM references the device left behind |
-| `--validate-sync` | `--validate` with Vulkan synchronisation validation or D3D12 GPU-based validation |
+| `--metal` | Use the Metal backend, with no fallback to Vulkan. A build without Metal exits with a message |
+| `--validate` | Turn on the validation layers, print the validation error count at exit and exit with 1 if it isn't 0. On D3D12 also print the COM references the device left behind. On Metal also exit with 1 if Metal's validation couldn't be turned on |
+| `--validate-sync` | `--validate` with Vulkan synchronisation validation, D3D12 GPU-based validation or Metal shader validation |
 | `--frames N` | Exit after N frames |
 
 `zest-timelinefx-particle-techniques` also takes `--effect-mode baked|cpu|gpu` to start with that technique.
 
+Metal's validation is fixed for the whole process when its first window is made, so an example turns it on before it
+makes its window. When an example falls back from Metal to Vulkan under `--validate`, MoltenVK runs with Metal's
+validation on as well, and what it prints goes to standard error without counting toward the example's validation
+errors.
+
+On macOS, with vsync off as the examples have it, a window's frame rate depends on how quickly the window server hands
+back its drawables, on Metal and on Vulkan alike. It can change from one launch to the next with the same GPU work per
+frame, so it isn't a measure of an example's performance.
+
 Each shader folder (an example's `shaders/`, `examples/Common/shaders/` and `examples/assets/shaders/`) keeps its
 GLSL in `glsl/` and its HLSL twins in `hlsl/`. `ExampleShaderPath` in `example_platform.h` gives
-`<folder>/hlsl/<name>.hlsl` on D3D12 and `<folder>/glsl/<name>` on Vulkan. A twin keeps its GLSL's maths and the same
-push constant, uniform and buffer layouts, so the C++ is the same on both backends. The Slang examples compile one
-source for both.
+`<folder>/hlsl/<name>.hlsl` on D3D12 and `<folder>/glsl/<name>` on Vulkan and Metal, where the Metal backend converts
+the GLSL to MSL. A twin keeps its GLSL's maths and the same push constant, uniform and buffer layouts, so the C++ is
+the same on every backend. The Slang examples compile one source for all three.
 
 Limits on D3D12:
 
@@ -302,3 +313,16 @@ Limits on D3D12:
   sprites.
 - `zest-cascading-shadows` draws its four cascades with view instancing, so it needs a GPU that supports it.
 - The TimelineFX reload harness (`zest-timelinefx-reload-render`) runs on Vulkan only.
+
+Limits on Metal:
+
+- GPU timings come from Metal's counter samples, which an Apple GPU takes only where a pass's encoders start and end.
+  So a `zest_BeginGPUProfile` region inside a compute or transfer pass runs as an encoder of its own and gets its own
+  timing, and a region inside a render pass shows the whole pass's time, as a render encoder is never split.
+
+Limits on Vulkan on macOS, which goes through MoltenVK:
+
+- `zest-image-swizzle --vulkan --validate` and `zest-timelinefx --vulkan --validate` exit with 1. MoltenVK's
+  portability subset reports no image view swizzles (`imageViewFormatSwizzle`), which `zest-image-swizzle`'s swizzled
+  view and the TimelineFX backend's single channel textures use. `zest-image-swizzle` also gets a MoltenVK warning that
+  Metal can't turn primitive restart off for its triangle strip. Both examples run with no validation errors on Metal.

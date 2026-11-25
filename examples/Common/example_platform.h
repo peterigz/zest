@@ -3,7 +3,7 @@
 //Backend choice and validation for the examples that run on more than one backend.
 //Include after zest.h, and after imgui.h in an ImGui example, in the file that defines the implementation, with ZEST_D3D12_IMPLEMENTATION defined under ZEST_ENABLE_D3D12
 //and ZEST_METAL_IMPLEMENTATION under ZEST_ENABLE_METAL if the example runs on Metal.
-//D3D12 is the default when it's compiled in, falling back to Vulkan if the D3D12 device can't be created. Otherwise the default is Vulkan. Metal is only used when it's named.
+//D3D12 or Metal is the default when it's compiled in, falling back to Vulkan if its device can't be created. Otherwise the default is Vulkan.
 //Arguments: --vulkan, --d3d12 or --metal selects a backend with no fallback, --validate enables the validation layers and fails the run on any validation error,
 //--validate-sync adds Vulkan synchronisation validation, D3D12 GPU-based validation or Metal shader validation, --frames N exits after N frames.
 
@@ -17,7 +17,7 @@
 
 typedef struct example_options_t {
 	zest_bool use_d3d12;
-	zest_bool use_metal;		//--metal was passed
+	zest_bool use_metal;		//The default when ZEST_METAL_IMPLEMENTATION is defined, or --metal was passed
 	zest_bool backend_named;	//--d3d12, --vulkan or --metal was passed, so no fallback
 	zest_bool validate;			//Validation layers on, and the exit code fails on any validation error
 	zest_bool validate_sync;	//Vulkan synchronisation validation, D3D12 GPU-based validation or Metal shader validation, implies validate
@@ -41,6 +41,9 @@ example_options_t ParseExampleOptions(int argc, char *argv[]) {
 	example_options_t options = {};
 #ifdef ZEST_ENABLE_D3D12
 	options.use_d3d12 = ZEST_TRUE;
+#endif
+#ifdef ZEST_METAL_IMPLEMENTATION
+	options.use_metal = ZEST_TRUE;
 #endif
 	for (int argument_index = 1; argument_index < argc; ++argument_index) {
 		if (strcmp(argv[argument_index], "--d3d12") == 0) {
@@ -84,7 +87,7 @@ example_options_t ParseExampleOptions(int argc, char *argv[]) {
 	return options;
 }
 
-//Returns NULL if the device couldn't be created. Clears use_d3d12 when it falls back to Vulkan
+//Returns NULL if the device couldn't be created. Clears use_d3d12 or use_metal when it falls back to Vulkan
 zest_device CreateExampleDevice(zest_window_data_t *window_data, example_options_t *options, zest_device_init_flags flags) {
 	flags |= ExampleValidationFlags(options);
 	zest_device device = NULL;
@@ -100,6 +103,10 @@ zest_device CreateExampleDevice(zest_window_data_t *window_data, example_options
 #ifdef ZEST_METAL_IMPLEMENTATION
 	if (options->use_metal) {
 		device = zest_implsdl2_CreateMetalDevice(window_data, flags);
+		if (!device && !options->backend_named) {
+			printf("Could not create a Metal device, falling back to Vulkan\n");
+			options->use_metal = ZEST_FALSE;
+		}
 	}
 #endif
 	if (!options->use_d3d12 && !options->use_metal) {
@@ -162,10 +169,10 @@ const char *ExampleShaderPath(zest_device device, const char *folder, const char
 #ifdef IMGUI_VERSION
 //InitForVulkan gives extra viewport windows SDL_WINDOW_VULKAN, which a machine without a Vulkan loader can't create
 void InitImGuiSDL2ForDevice(zest_device device, SDL_Window *window) {
-	if (zest_GetDevicePlatform(device) == zest_platform_d3d12) {
-		ImGui_ImplSDL2_InitForD3D(window);
-	} else {
-		ImGui_ImplSDL2_InitForVulkan(window);
+	switch (zest_GetDevicePlatform(device)) {
+		case zest_platform_d3d12: ImGui_ImplSDL2_InitForD3D(window); break;
+		case zest_platform_metal: ImGui_ImplSDL2_InitForMetal(window); break;
+		default: ImGui_ImplSDL2_InitForVulkan(window); break;
 	}
 }
 #endif

@@ -1,6 +1,9 @@
 #ifdef ZEST_ENABLE_SLANG
 #include "impl_slang.hpp"
 #include <string>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #define SLANG_TEST_SHADER_PATH "examples/SDL2/zest-tests/shaders/slang"
 #define SLANG_TEST_RELOAD_PATH "zest_slang_hot_reload_test"
@@ -297,7 +300,7 @@ int test__slang_type_size(ZestTests *tests, Test *test) {
 		ZEST_PRINT("\tPackedPair size %zu, expected %zu", (size_t)zest_slang_GetTypeSize(session, "common", "PackedPair"), (size_t)packed_pair_size);
 		test->result |= 1;
 	}
-	zest_size platform_macro_size = is_d3d12 ? 8 : 4;
+	zest_size platform_macro_size = is_d3d12 ? 8 : zest_GetDevicePlatform(device) == zest_platform_metal ? 12 : 4;
 	if (zest_slang_GetTypeSize(session, "common", "PlatformMacro") != platform_macro_size) {
 		ZEST_PRINT("\tPlatformMacro size %zu, expected %zu, so the session didn't define the platform macro", (size_t)zest_slang_GetTypeSize(session, "common", "PlatformMacro"), (size_t)platform_macro_size);
 		test->result |= 1;
@@ -415,7 +418,7 @@ static zest_bool slang_test__container_has_part(const void *data, zest_size size
 	return ZEST_FALSE;
 }
 
-//Inspects the binary only: Slang 2025.23.2 debug SPIR-V crashes pipeline creation on AMD driver 32.0.21045.5002
+//Dispatches on Metal only: Slang 2025.23.2 debug SPIR-V crashes Vulkan pipeline creation on AMD driver 32.0.21045.5002
 int test__slang_debug_info(ZestTests *tests, Test *test) {
 	zest_device device = tests->device;
 	if (!device->slang_info) {
@@ -444,6 +447,11 @@ int test__slang_debug_info(ZestTests *tests, Test *test) {
 			std::string binary((const char *)zest_GetCompiledShader(shader), zest_GetCompiledShaderSize(shader));
 			if (binary.find("NonSemantic.Shader.DebugInfo") == std::string::npos || binary.find("kernel.slang") == std::string::npos) {
 				ZEST_PRINT("\tSPIR-V has no source level debug info");
+				test->result |= 1;
+			}
+			//On Metal this sends the debug info through SPIRV-Cross
+			if (zest_GetDevicePlatform(device) == zest_platform_metal && !slang_test__run_and_check(tests, shader_handle, 1.f, ZEST_FALSE, 1)) {
+				ZEST_PRINT("\tsimulate_a with debug info gave wrong results");
 				test->result |= 1;
 			}
 		}

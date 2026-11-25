@@ -1275,6 +1275,59 @@ int test__shader_binary_platform_mismatch(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+//MSL is refused before any other backend's compiler sees it, and Metal keeps the text as the shader's binary and out of the cache
+int test__shader_msl_source_platform(ZestTests *tests, Test *test) {
+	static const char *msl_red_fragment =
+		"#include <metal_stdlib>\n"
+		"using namespace metal;\n"
+		"fragment float4 red_fragment() {\n"
+		"	return float4(1.0, 0.0, 0.0, 1.0);\n"
+		"}\n";
+	zest_device device = tests->device;
+	zest_bool metal = zest_GetDevicePlatform(device) == zest_platform_metal;
+	int failed_count = 0;
+	zest_shader_options options = zest_CreateShaderOptions(device);
+	zest_SetShaderOptionsMSL(options, 0, 0, 0);
+	zest_device_init_flags saved_flags = device->init_flags;
+	device->init_flags |= zest_device_init_flag_cache_shaders;
+	zest_uint error_count = zest_GetValidationErrorCount(device);
+	zest_shader_handle shader_handle = zest_CreateShader(device, msl_red_fragment, zest_fragment_shader, "zest_msl_source_test", options, ZEST_FALSE);
+	if (metal) {
+		zest_shader shader = shader_handle.value ? zest_GetShader(shader_handle) : NULL;
+		zest_size text_size = strlen(msl_red_fragment) + 1;
+		if (!shader || shader->binary_size != text_size || memcmp(shader->binary, msl_red_fragment, (size_t)text_size) != 0) {
+			ZEST_PRINT("\tThe Metal backend didn't keep the MSL text and its terminating zero as the shader's binary");
+			failed_count++;
+		}
+		if (shader && cache_file_exists(shader->cache_path.str)) {
+			ZEST_PRINT("\tThe MSL shader was written to the shader cache");
+			failed_count++;
+		}
+		failed_count += zest_GetValidationErrorCount(device) != error_count;
+	} else {
+		if (shader_handle.value || zest_GetValidationErrorCount(device) != error_count + 1 || !validation_error_contains(device, "is MSL, which only the Metal backend takes")) {
+			ZEST_PRINT("\tzest_CreateShader with MSL options wasn't refused with one validation error");
+			failed_count++;
+		}
+		zest_shader_handle compiled_handle = zest_CreateShader(device, zest_GetDevicePlatform(device) == zest_platform_d3d12 ? hlsl_empty_compute : glsl_empty_compute, zest_compute_shader, "zest_msl_recompile_test", NULL, ZEST_TRUE);
+		error_count = zest_GetValidationErrorCount(device);
+		if (compile_test_source(device, compiled_handle, msl_red_fragment, options) || zest_GetValidationErrorCount(device) != error_count + 1) {
+			ZEST_PRINT("\tzest_CompileShader with MSL options wasn't refused with one validation error");
+			failed_count++;
+		}
+		zest_FreeShader(compiled_handle);
+	}
+	if (shader_handle.value) zest_FreeShader(shader_handle);
+	zest_FreeShaderOptions(options);
+	device->init_flags = saved_flags;
+
+	zest_ResetValidationErrors(device);
+	test->result = failed_count > 0 ? 1 : 0;
+	test->result |= zest_GetValidationErrorCount(device);
+	test->frame_count++;
+	return test->result;
+}
+
 //Each backend defines its own platform macro when it compiles, and no other backend's
 int test__shader_platform_macro(ZestTests *tests, Test *test) {
 	static const char *glsl_needs_own =

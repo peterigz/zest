@@ -76,6 +76,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test ImGui Shaders", test__pipeline_imgui_shaders, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Binary Platform Mismatch", test__shader_binary_platform_mismatch, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Shader MSL Source Platform", test__shader_msl_source_platform, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Platform Macro", test__shader_platform_macro, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Format Support", test__image_format_support, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Creation Destruction", test__image_creation_destruction, 0, 1, 0, 0, tests->simple_create_info });
@@ -230,37 +231,11 @@ static zest_bool IsVulkanOnlyTest(const char *name) {
 	return ZEST_FALSE;
 }
 
-#ifdef ZEST_ENABLE_METAL
-//The shared tests the Metal suite run leaves out, under what each group needs from the backend
-static const char *metal_pending_tests[] = {
-	//A context with GPU profiling, which needs GPU timestamps
-	"GPU Profiler Timestamps",
-	//Shader compiling from Slang
-	"Slang Variants And Linking",
-	"Slang Compile Failures",
-	"Slang Type Size",
-	"Slang Debug Info",
-	"Slang Hot Reload",
-	"Slang Shadowing Module",
-	"Slang TimelineFX Strides",
-};
-
-static zest_bool IsMetalPendingTest(const char *name) {
-	for (size_t index = 0; index != sizeof(metal_pending_tests) / sizeof(metal_pending_tests[0]); ++index) {
-		if (strcmp(metal_pending_tests[index], name) == 0) return ZEST_TRUE;
-	}
-	return ZEST_FALSE;
-}
-#endif
-
 //Set by --test, so that only the tests whose name contains the text are registered
 static const char *suite_test_filter = NULL;
 
 void RegisterTest(ZestTests *tests, Test test) {
 	if (tests->platform != zest_platform_vulkan && IsVulkanOnlyTest(test.name)) return;
-#ifdef ZEST_ENABLE_METAL
-	if (tests->platform == zest_platform_metal && IsMetalPendingTest(test.name)) return;
-#endif
 	if (suite_test_filter && !strstr(test.name, suite_test_filter)) return;
 	//Overflowing the fixed test array silently corrupts the fields after it in ZestTests
 	ZEST_ASSERT(tests->test_count < TEST_COUNT);

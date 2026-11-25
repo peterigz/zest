@@ -3,6 +3,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #include <SDL.h>
 #include "zest-timelinefx-particle-techniques.h"
@@ -326,12 +329,12 @@ void BuildUI(tfxParticleTechniquesExample *example, zest_uint fps) {
 			}
 		}
 	} else {
-		ImGui::Text("Record Time: %zims", example->record_time);
+		ImGui::Text("Record Time: %ums", example->record_time);
 		ImGui::Text("Culled Instances: %i", tfx_GetTotalInstancesBeingUpdated(example->animation_manager_3d) - tfx_GetAnimationInstancesCount(example->animation_manager_3d));
 		ImGui::Text("Instances In View: %i", tfx_GetAnimationInstancesCount(example->animation_manager_3d));
 		ImGui::Text("Sprites Drawn: %i", tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d));
 		ImGui::Text("Total Memory For Drawn Sprites: %ikb", tfx_GetTotalSpritesThatNeedDrawing(example->animation_manager_3d) / 1024);
-		ImGui::Text("Total Memory For Sprite Data: %ikb", tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d) / 1024);
+		ImGui::Text("Total Memory For Sprite Data: %zukb", tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d) / 1024);
 	}
 	ImGui::End();
 	zest_imgui_DrawProfileWindow(example->context);

@@ -1,6 +1,6 @@
 # API Reference
 
-Complete reference for Zest's public functions organized by category. Zest provides a lightweight C API for GPU rendering with automatic resource management, frame graph compilation, and bindless descriptor support. The core API is graphics-API agnostic, with platform layers providing the backend implementation (currently Vulkan, with DirectX/Metal/WebGPU possible in the future).
+Complete reference for Zest's public functions organized by category. Zest provides a lightweight C API for GPU rendering with automatic resource management, frame graph compilation, and bindless descriptor support. The core API is graphics-API agnostic, with platform layers providing the backend implementation: Vulkan, D3D12 and Metal.
 
 ## API Conventions
 
@@ -211,14 +211,14 @@ The API is defined across these header files:
 | File | Contents |
 |------|----------|
 | `zest.h` | Main API - device, context, frame graph, resources, commands, math, timer |
-| `zest_vulkan.h` | Vulkan platform layer (current default backend) |
+| `zest_vulkan.h` | Vulkan platform layer |
+| `zest_dx12.h` | D3D12 platform layer (Windows) |
+| `zest_metal.h` | Metal platform layer (macOS), compiled as Objective-C or Objective-C++ |
 | `zest_utilities.h` | Optional helpers - image loading (stb, ktx), font loading with msdf generator, model loading with gltf |
-
-Future platform layers (e.g., `zest_dx12.h`, `zest_metal.h`) would follow the same pattern.
 
 ### Include Pattern
 
-Copy zest.h and zest_vulkan.h (in future other platforms you want to support), and if you want to use it zest_utilities.h into your project include folder.
+Copy zest.h and the platform layers you want to support (zest_vulkan.h, zest_dx12.h, zest_metal.h), and if you want to use it zest_utilities.h into your project include folder.
 
 ```cpp
 // In exactly ONE .cpp file:

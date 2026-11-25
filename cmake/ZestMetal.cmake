@@ -5,9 +5,14 @@ get_property(_zest_metal_included GLOBAL PROPERTY ZEST_METAL_MODULE_INCLUDED)
 set_property(GLOBAL PROPERTY ZEST_METAL_MODULE_INCLUDED TRUE)
 
 # Guarded so a host's set() before the include isn't discarded by option() under old policies.
-# Off by default: the Metal backend can't create a device yet.
+# On by default on Apple
 if(NOT DEFINED ZEST_ENABLE_METAL)
-    option(ZEST_ENABLE_METAL "Enable the Metal backend (Apple only)" OFF)
+    if(APPLE)
+        set(_zest_metal_default ON)
+    else()
+        set(_zest_metal_default OFF)
+    endif()
+    option(ZEST_ENABLE_METAL "Enable the Metal backend (Apple only)" ${_zest_metal_default})
 endif()
 
 set(ZEST_METAL_ENABLED FALSE)

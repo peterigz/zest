@@ -10,7 +10,7 @@ This is a more forward looking renderer currently in that it supports bindless d
 
 ### Features
 
-- **Minimal Setup**: drop `zest.h` and `zest_[platform]` (currently vulkan only)  into your project and go
+- **Minimal Setup**: drop `zest.h` and a platform layer (`zest_vulkan.h`, `zest_dx12.h` or `zest_metal.h`) into your project and go
 - **Frame graph compiler**: declare passes and resources; Zest handles barriers, semaphores, pass culling, async queue scheduling, and transient memory automatically
 - **Immediate command buffers**: For easy one off tasks like uploading data to the gpu or running a compute shader.
 - **Bindless descriptors**: one global descriptor layout, resources indexed by handle
@@ -18,7 +18,7 @@ This is a more forward looking renderer currently in that it supports bindless d
 - **TLSF memory allocator**: Internal low-fragmentation allocator for both CPU and GPU memory to keep memory usage neat and tidy.
 - **Multi-window support**: one device, multiple contexts (swapchains)
 - **Headless contexts**: For just running compute shaders only.
-- **Cross-platform**: Windows, Linux, macOS (currently via MoltenVK until I add a metal backend)
+- **Cross-platform**: Windows (Vulkan or D3D12), Linux (Vulkan) and macOS (Metal, or Vulkan through MoltenVK)
 - **Simple profiling**: Can output to a debug overlay or a ImGui implementation
 - **Shader Hot Reloading**: Flag shaders so that modifications are monitored and hot reloaded automatically
 - **Slang implementation**: Optionally compile slang shaders
@@ -33,7 +33,7 @@ You should be comfortable with concepts like vertex buffers, pipelines and rende
 
 ### Current Requirements
 
-The current requirements will change overtime as I add more platform layers like DirectX and Metal.
+These are the Vulkan backend's. The D3D12 backend needs Enhanced Barriers, and the Metal backend macOS 15 and a Metal 3 GPU, tested on Apple silicon.
 
 | Requirement | Minimum |
 |-------------|---------|
@@ -86,6 +86,7 @@ Optional CMake flags:
 |------|-------------|
 | `-DZEST_ENABLE_SLANG=ON` | Enable the Slang shader compiler (requires `VULKAN_SDK` env var) |
 | `-DZEST_ENABLE_D3D12=OFF` | Build without the D3D12 backend. It's on by default on Windows, and the first configure downloads the Agility SDK and DXC packages |
+| `-DZEST_ENABLE_METAL=OFF` | Build without the Metal backend. It's on by default on Apple, and needs the Vulkan SDK's SPIRV-Cross |
 
 ### Frame Graph Example
 
@@ -197,7 +198,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 ## Current to do
 
 - There's a few more examples/tests I'd like to write to test more functionality.
-- Other platform layers: DirectX 12, Metal and maybe WebGPU and even opengl if it makes sense.
+- Other platform layers: maybe WebGPU and even opengl if it makes sense.
 - Multithreaded command buffer recording.
 - General bug fixes as I go.
 

@@ -36,7 +36,7 @@ Ensure that you include the SDL2 header before zest.h when using the SDL2 helper
 
 | Resource | Description |
 |----------|-------------|
-| Platform Instance | The Platform API entry point (Currently Vulkan, DX/Metal/WebGPU(?) added in future) |
+| Platform Instance | The Platform API entry point: Vulkan, D3D12 or Metal |
 | Physical Device | GPU selection and feature queries |
 | Shaders | Compiled/Loaded shaders |
 | Pipeline Templates | Cached pipeline configurations |

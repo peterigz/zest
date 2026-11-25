@@ -4,7 +4,7 @@ This guide covers building Zest from source and running the examples.
 
 ## Prerequisites
 
-- **Vulkan SDK** - Although Zest has a separate platform layer, only Vulkan is implemented currently. Download from [LunarG](https://vulkan.lunarg.com/)
+- **Vulkan SDK** - Zest builds its Vulkan backend on every platform, beside D3D12 on Windows and Metal on macOS, and the Metal backend uses the SDK's SPIRV-Cross. Download from [LunarG](https://vulkan.lunarg.com/)
 - **CMake 3.8+** - Build system (if you want to create projects for the examples)
 - **C++17 compiler (for the examples, C11 for the library only)** - MSVC 2019+, GCC 9+, or Clang 10+
 - **SDL2** - For convenience although you can use anything else if you want (including GLFW). Windowing library (included as submodule)
@@ -108,6 +108,37 @@ With D3D12 compiled in, the examples start on D3D12 and fall back to Vulkan if t
 PIX and RenderDoc show each frame graph pass by name, as the D3D12 backend always wraps passes in event markers and
 names its queues and command lists. With validation on, a device removal writes DRED breadcrumbs and any page fault
 to the log.
+
+## The Metal Backend
+
+On Apple the Metal backend is built by default. It converts SPIR-V to MSL with SPIRV-Cross, which the Vulkan SDK
+installs, so set `VULKAN_SDK` to the SDK's `macOS` folder. If CMake can't find SPIRV-Cross the configure stops with an
+error that says how to build without Metal:
+
+```bash
+cmake -B build -DZEST_ENABLE_METAL=OFF
+```
+
+With it on, `ZEST_ENABLE_METAL` is defined for everything that links zest, and the deployment target is at least
+macOS 15. Define `ZEST_METAL_IMPLEMENTATION` next to `ZEST_IMPLEMENTATION` under `#ifdef ZEST_ENABLE_METAL`, and create
+the device with `zest_BeginMetalDeviceBuilder` or `zest_implsdl2_CreateMetalDevice`. The file that defines the
+implementation has to compile as Objective-C++ without ARC, or as Objective-C for a `.c` file:
+`zest_metal_implementation_source(<target> <file>)` sets that. Projects that compile zest into their own target can
+include `cmake/ZestMetal.cmake` for the same function.
+
+With Metal compiled in, the examples start on Metal and fall back to Vulkan if the Metal device can't be created, and
+`--vulkan` or `--metal` chooses a backend. See [Examples](../examples/index.md).
+
+Xcode's frame capture and Instruments show each command buffer, pass and pipeline by name, as the Metal backend always
+makes each frame graph pass a debug group, labels the pass's encoders with its name and each command buffer with its
+frame graph's, and names pipeline states after their templates and libraries after their shaders. A command buffer that
+fails writes a report to the log with the error and the frame graph, and with validation on, each pass's state.
+
+On Metal a shader's GLSL is compiled to SPIR-V with shaderc, then converted to MSL with SPIRV-Cross and compiled by
+Metal when a pipeline first needs it. With shader caching on (`zest_DeviceBuilderCacheShaders`) a second launch skips
+the GLSL compile, as on Vulkan: the SPIR-V is read from `./spv/`. What's left is the conversion, about 0.3 ms a shader
+on an M2, and Metal's own compile, which Metal caches itself after the first run on the machine. Shaders can also be
+written in MSL, see [MSL Descriptor Layout](../concepts/bindless.md#msl-descriptor-layout).
 
 ## Optional: Enable Slang Shader Compiler
 

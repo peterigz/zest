@@ -81,8 +81,8 @@ typedef struct zest_slang_session_info_s {
     zest_uint search_path_count;
     const zest_slang_macro_t *macros;
     zest_uint macro_count;
-    const char *profile;                             //NULL for the platform's default, spirv_1_5 on Vulkan and sm_6_0 on D3D12
-    zest_bool debug_info;                            //SPIR-V source-level debug info on Vulkan, embedded ILDB debug info on D3D12. Best with zest_slang_optimization_none.
+    const char *profile;                             //NULL for the platform's default, spirv_1_5 on Vulkan and Metal and sm_6_0 on D3D12
+    zest_bool debug_info;                            //SPIR-V source-level debug info on Vulkan and Metal, embedded ILDB debug info on D3D12. Best with zest_slang_optimization_none.
     zest_slang_optimization optimization_level;
     zest_bool scalar_block_layout;                   //Scalar (C-like) buffer layout. Needs zest_capability_scalar_block_layout on the device.
 } zest_slang_session_info_t;
@@ -407,7 +407,7 @@ inline zest_bool zest__slang_is_d3d12(zest_device device) {
     return zest_GetDevicePlatform(device) == zest_platform_d3d12;
 }
 
-//spirv_1_5 on Vulkan, sm_6_0 on D3D12
+//spirv_1_5 on Vulkan and Metal, sm_6_0 on D3D12
 inline const char *zest__slang_default_profile(zest_device device) {
     return zest__slang_is_d3d12(device) ? "sm_6_0" : "spirv_1_5";
 }
@@ -423,7 +423,11 @@ inline zest_bool zest__slang_profile_fits(zest_device device, const char *profil
 }
 
 inline const char *zest__slang_platform_macro(zest_device device) {
-    return zest__slang_is_d3d12(device) ? "ZEST_D3D12" : "ZEST_VULKAN";
+    switch (zest_GetDevicePlatform(device)) {
+    case zest_platform_metal: return "ZEST_METAL";
+    case zest_platform_d3d12: return "ZEST_D3D12";
+    default: return "ZEST_VULKAN";
+    }
 }
 
 //Compiles one entry point in a fresh ISession. Kept for back compatibility, prefer zest_slang_CreateSession and zest_slang_CompileToBinary.

@@ -147,7 +147,7 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Views | `newTextureView` objects. `MTLTextureUsagePixelFormatView` only on images that need a view of another format | Task 9 |
 | The bindless set | One shared-storage `MTLBuffer` with a fixed region per slot. Every entry is 8 bytes: an image or sampler is its `gpuResourceID`, a buffer is `gpuAddress + offset`. Set 0 is converted as discrete bindings, so slot N's region binds at buffer index 5 + N, all nine with one ranged call per stage | Spike A, confirmed |
 | Structured buffer indexes | The same as raw ones, as on Vulkan. MSL pointers carry the type | Spike A, confirmed |
-| Shader creation | shaderc for GLSL (`ZEST_METAL=1` defined), then SPIRV-Cross to MSL, then `newLibraryWithSource`. The function is always taken with `newFunctionWithName:constantValues:error:`, which a shader with specialisation constants needs. Converted when a pipeline or compute first needs it, and cached by the SPIR-V's bytes until a device reset, as a binary can arrive without `compile_shader` | Spike A, M4, confirmed |
+| Shader creation | shaderc for GLSL (`ZEST_METAL=1` defined), then SPIRV-Cross to MSL, then `newLibraryWithSource`. The function is always taken with `newFunctionWithName:constantValues:error:`, which a shader with specialisation constants needs. Converted when a pipeline or compute first needs it, and cached by the SPIR-V's bytes until a device reset, as a binary can arrive without `compile_shader`. Slang arrives as SPIR-V too, compiled with `ZEST_METAL` defined, and goes through the same conversion. Before it, ids and struct members named after an MSL address space get a trailing underscore, as SPIRV-Cross leaves some of them alone. MSL input: options marked with `zest_SetShaderOptionsMSL` keep the text as the binary, never cached, and the backend takes the library's one function of the stage, with vertex inputs from Metal's reflection and the threads per threadgroup from the options. Vulkan and D3D12 refuse MSL | Spike A, M4, M6, M7, confirmed |
 | Clip space | SPIRV-Cross flips Y in the vertex stage, so positions land on Vulkan's pixels with a plain viewport. Front face maps straight across: clockwise is `MTLWindingClockwise` | Spike A, confirmed |
 | Push constants | `setVertexBytes`, `setFragmentBytes` and the compute `setBytes` at flush, at buffer index 4. No upload ring | Spike A, M4, confirmed |
 | Compute local size | Read from the SPIR-V and passed to `dispatchThreadgroups` | Spike A, confirmed |
@@ -159,9 +159,9 @@ This is the design. Rows marked *(unverified)* are confirmed by the named spike 
 | Clears outside a pass | A render pass with a clear load op and no draws where the image can be a target, otherwise a copy from zeroed staging | M3 |
 | Swapchain | A `CAMetalLayer`. Acquire is `nextDrawable`, present is `presentDrawable` on the frame's last command buffer. Resize is detected by comparing sizes | M2 |
 | Validation | `MTL_DEBUG_LAYER` and `MTL_SHADER_VALIDATION`, set with `setenv` before the process's first Metal device. Creating a window makes that device, so for a windowed app it means before the first window, which is what `zest_PrepareMetalValidation` is for. It is process wide and can't be changed afterwards. Shader validation messages are counted from each command buffer's `logs`. API messages are logged through `NSLog` and counted by a reader on standard error (decision 9) | Spike C |
-| Markers and names | `pushDebugGroup` and `label`, always on | M7 |
-| GPU timestamps | Counter sample buffers. Apple GPUs sample at pass stage boundaries only *(unverified)*, so sub-pass regions may be a documented limit | M7 |
-| Device loss | The command buffer's error and encoder execution status | M7 |
+| Markers and names | Each pass is a debug group on its batch's command buffer, from its acquire barriers to its release barriers, and its encoders carry its name. Command buffers carry their frame graph's name, pipeline states their template's, compute states and libraries their shader's. Always on | M7, confirmed |
+| GPU timestamps | One shared counter sample buffer of 4096 samples per frame in flight. Apple GPUs sample only at encoder stage boundaries, so a query is mapped to the start of the next encoder or the end of the open or last one, and resolved on the CPU at readback. A region in a compute or transfer pass ends its encoder and gets its own, and a region in a render pass takes the pass. Ticks are nanoseconds | M7, confirmed |
+| Device loss | A failed frame graph batch writes one report: the error, the frame graph, and with validation each encoder's state, from encoder execution status asked for only then. Its events are moved on so no wait runs out its timeout, timeline waits reap every 100 ms, and `MTLCommandBufferErrorDeviceRemoved` flags the context's device as lost. The M2 can't make a command buffer fail, so a forced hook tests it | M7, confirmed |
 
 **Objective-C rules for the file**
 - It compiles as Objective-C and as Objective-C++, the way the other headers compile as C and C++. `zest-objc-compile-check` guards the C side.
@@ -248,12 +248,12 @@ All three were taken as recommended. The details are under [Built_], Task 2.
 - MSAA resolve, which doesn't work in shared code or on Vulkan dynamic rendering and has its own plan pending.
 - Custom descriptor sets, which shared code still can't allocate or write on any backend.
 - Tessellation and geometry shaders, which Metal doesn't have in Vulkan's form. The capabilities report false.
-- A serialised pipeline cache (`MTLBinaryArchive`). M7 caches MSL text only.
+- A serialised pipeline cache (`MTLBinaryArchive`), and an `msl/` text cache. M7 dropped the text cache (its Decision 1): with `zest_DeviceBuilderCacheShaders` a warm start already skips shaderc, and SPIRV-Cross costs about 0.3 ms a shader.
 - The TimelineFX hot reload harness, left on Vulkan as it was for D3D12.
 
 ## [Roadmap_] Milestones
 
-Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`, M3's `metal_m3_implementation.md`, M4's `metal_m4_implementation.md` and M5's `metal_m5_implementation.md`.
+Each ends with something runnable. M2 to M7 get task-level plans when they start. M2's is `metal_m2_implementation.md`, M3's `metal_m3_implementation.md`, M4's `metal_m4_implementation.md`, M5's `metal_m5_implementation.md`, M6's `metal_m6_implementation.md` and M7's `metal_m7_implementation.md`.
 
 | Milestone | Covers | Done when |
 | --- | --- | --- |
@@ -263,7 +263,7 @@ Each ends with something runnable. M2 to M7 get task-level plans when they start
 | **M4** Pipelines | shaderc and SPIRV-Cross inside the backend, the conversion cache, render and compute pipelines, lazy bind, draws, indirect draws, dispatch, push constants, the debug overlay, `--metal` on the minimal template | The pipeline and layer tests pass on Metal and the minimal template draws |
 | **M5** Full frame graph | Multi-queue and async compute over shared events, transient aliasing, cached graphs, multiview, the device-reset tests | The frame graph, stress, compute and device-reset tests pass on Metal |
 | **M6** Parity | `ZEST_METAL` in the Slang integration, ImGui, the TimelineFX examples, every example through `example_platform.h` with `--metal`, the pending list cut down to permanent exclusions | The suite passes on both Mac backends and every example runs on Metal with a non-zero draw count. `ZEST_ENABLE_METAL` then defaults to on for Apple |
-| **M7** Polish | GPU timestamps, markers and labels, command buffer error reports, an `msl/` text cache so a warm start skips shaderc and SPIRV-Cross, MSL as a shader input, user docs, a `metal-backend` skill, the README line | The overlay shows GPU timings, an Xcode capture shows pass names, a second launch compiles no GLSL, and a test draws with a hand-written MSL shader |
+| **M7** Polish | GPU timestamps, markers and labels, command buffer error reports, MSL as a shader input, user docs, a `metal-backend` skill, the README line. The `msl/` text cache was dropped (M7 Decision 1) | The overlay shows GPU timings, an Xcode capture shows pass names, a second launch with shader caching on compiles no GLSL, and a test draws with a hand-written MSL shader |
 
 ## [Phase_1] M1: baselines and spikes
 
@@ -917,19 +917,19 @@ Planned and recorded in `metal_m4_implementation.md`. Its [Built_] has every res
   - No test yet catches a missing fence wait or update on any encoder.
   - `zest_FlushFrameGraph` releases an unwaited command graph's transient bindless indexes, so the next graph can rewrite them before the GPU reads them. Every backend has the race, and Metal's shader validation is the first thing to report it.
 
-### M5: full frame graph (2026-11-24, on top of commit 41ed835, not yet committed)
+### M5: full frame graph (2026-11-24, commit afad7b4)
 
 Planned and recorded in `metal_m5_implementation.md`. Its [Built_] has every result, breakage and difference from its plan, and the questions for M6's plan.
 
 - A multiview pass draws each view as an instance into the layer of its index, up to 32 views, with per-instance data and first instances right. A pipeline whose view count differs from its pass's is refused, as on D3D12, and so is an indirect draw in a multiview pass. A single view pipeline built from a shader that reads `gl_ViewIndex`, such as `depthpass.vert`, builds now, which it didn't before.
 - Three backend tests make a missing GPU wait fail: between the queues of a wave, when a queue slot moves to another device queue, and every fence wait and update of the frame graph's pass encoders. None found an ordering bug.
 - Shared changes in `zest.h`, every backend:
-  - An unwaited command graph flush defers its transient bindless indexes to the context's lists for the frame in flight, so shader validation now passes the whole Metal suite. Its per-mip views are still destroyed at the flush, which the API comment and the frame-graph skill document.
+  - An unwaited command graph flush defers its transient bindless indexes to the context's lists for the frame in flight, so shader validation now passes the whole Metal suite. Its per-mip views were still destroyed at the flush, until the shared work below.
   - `zest_SetPipelineViewCount` gives 32 views a mask of `0xFFFFFFFF`, where it gave 0.
   - A builder allocator that can't grow, such as a command graph's, asserts when it runs out and names `frame_graph_allocator_size`.
   - Caching a graph keeps its frame in flight allocator able to grow. New shared test: "Cached Graph Allocator Growth".
   - The "Cannot cache the frame graph" alert shows only for a graph with a cache key, and names `frame_graph_allocator_size`.
-- `zest-tests --platform all` on the Mac: `Dynamic rendering: 130 / 130`, `Legacy render pass: 130 / 130`, `Metal suite: 125 / 125`, `Metal backend: 51 / 51`. The same Metal lines with shader validation. The pending list is unchanged: "GPU Profiler Timestamps" and the 7 Slang tests.
+- `zest-tests --platform all` on the Mac at M5's commit: `Dynamic rendering: 130 / 130`, `Legacy render pass: 130 / 130`, `Metal suite: 125 / 125`, `Metal backend: 51 / 51`. The same Metal lines with shader validation. The pending list is unchanged: "GPU Profiler Timestamps" and the 7 Slang tests.
 - `zest_metal.h` still has M4's 6 stubs: `get_msaa_sample_count` and the five GPU profiler members.
 - What M5 learnt that later milestones rely on:
   - Metal runs the other queues while one waits on a shared event, so a test can hold one queue without stalling the rest.
@@ -938,3 +938,47 @@ Planned and recorded in `metal_m5_implementation.md`. Its [Built_] has every res
   - Metal won't build a vertex function that writes `[[render_target_array_index]]` without `inputPrimitiveTopology`. With SPIRV-Cross's layered rendering on, a single view conversion of a shader that reads `gl_ViewIndex` declares that output and never writes it.
   - A fence call is only testable when the passes it orders overlap: a spin before the write and a read late in the next pass.
   - A command graph's builder allocator doesn't grow. The fence test's 96 pass graph overflowed the default 256 KB after 72 passes, so it sets 2 MB. Running out now stops at an assert naming `frame_graph_allocator_size`, where it crashed before.
+
+### Shared work between M5 and M6 (2026-11-25, commits c4ed23d and 8d75c16)
+
+- **Unwaited command graph lifetimes (c4ed23d):**
+  - An unwaited flush records each queue slot's ordering value. The drain waits for those values before releasing the graph's bindless indexes, per-mip views and arenas.
+  - Per-mip views of transients live in the device allocator.
+  - Command graphs no longer replace `frame_sync_timeline`.
+  - The new platform member `wait_for_timeline_value` is implemented on all three backends.
+- **Command graphs take no cache key (8d75c16):** `zest_BeginCommandGraph(context, name)` never caches.
+- **M6's baseline on the Mac:** `Dynamic rendering: 132 / 132`, `Legacy render pass: 132 / 132`, `Metal suite: 127 / 127`, `Metal backend: 53 / 53`, with the same Metal lines under shader validation. `metal_m5_implementation.md`'s "Since M5" section has the details.
+
+### M6: parity (2026-11-25, uncommitted on top of 9b25e45)
+
+Planned and recorded in `metal_m6_implementation.md`. Its [Built_] has every result, breakage and difference from its plan.
+
+- Slang compiles for a Metal device with `ZEST_METAL` defined, to SPIR-V that goes through the same SPIRV-Cross conversion as GLSL. The seven Slang tests and the four Slang examples run on Metal, TimelineFX's strides included. Metal reports no scalar block layout, so a session that asks for it is refused, as on D3D12.
+- Before converting, the backend gives ids and struct members named after an MSL address space a trailing underscore. SPIRV-Cross leaves `constant`, `device`, `thread` and `threadgroup` alone on a named SSA value, which Slang gives at `zest_slang_optimization_none`, and `threadgroup_imageblock`, `ray_data` and `object_data` anywhere.
+- A context that asks for GPU profiling logs one line and runs without it until M7.
+- Every example defines `ZEST_METAL_IMPLEMENTATION` under `ZEST_ENABLE_METAL`, starts on Metal and falls back to Vulkan if the Metal device can't be created. ImGui initialises with `ImGui_ImplSDL2_InitForMetal`. `ZEST_ENABLE_METAL` is on by default on Apple.
+- "Metal Windowed Frames" switches device queue behind a gate, so the empty-frame present's ordering wait is tested. New backend tests: "Metal Shader Keyword Names" and "Metal GPU Profiling Off".
+- `metal_pending_tests[]` holds only "GPU Profiler Timestamps". Apart from it the Metal suite leaves out only the four `vulkan_only_tests[]`.
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 139 / 139`, `Legacy render pass: 139 / 139`, `Metal suite: 134 / 134`, `Metal backend: 55 / 55`. The same Metal lines with shader validation and under `NSZombieEnabled`. Every example runs on Metal with no validation error, with and without shader validation, and every one that draws drew.
+- `zest_metal.h` still has 5 stubs: `get_msaa_sample_count` and the four GPU profiler members that nothing reaches without a profiler.
+- What M6 learnt that later milestones rely on:
+  - MoltenVK's portability subset reports no image view swizzles, so `zest-image-swizzle` and `zest-timelinefx` fail `--vulkan --validate` on a Mac. Documented in the examples index.
+  - With vsync off, a window's frame rate on macOS depends on how fast the window server hands drawables back, on Metal and MoltenVK alike, and changes between launches with the same GPU time per frame. Compare GPU timings, which M7's timestamps give Metal.
+  - An example's `zest_log.txt` holds one device's log, as each device rewrites it.
+  - The pool growth race in `zest__allocate` (M5's "Found in shared code" item 4) aborted three full runs during M6. Still open.
+
+### M7: polish (2026-11-25, uncommitted on top of 9b25e45 with M6)
+
+Planned and recorded in `metal_m7_implementation.md`. Its [Built_] has every result, breakage and difference from its plan. Peter took the recommended option on all four of its decisions, so there's no `msl/` text cache.
+
+- **GPU timestamps.** One shared counter sample buffer of 4096 samples per frame in flight, sampled at encoder stage boundaries, the only point the M2 supports. Every query maps to an encoder's start or end and is resolved on the CPU at readback. A profile region in a compute or transfer pass ends its encoder and gets one of its own, and a region in a render pass takes the pass. "GPU Profiler Timestamps" joins the Metal suite, and `metal_pending_tests[]` is gone.
+- **Names.** Each pass is a debug group with its encoders labelled after it, command buffers carry their frame graph's name, pipeline states their template's, compute states and libraries their shader's. An Xcode capture of `zest-pbr-deferred` (`spikes/metal/m7_pbr_deferred.gputrace` on the Mac) shows them.
+- **Error reports.** Frame graph batches take their command buffers from a descriptor that asks for encoder execution status with validation. A failed batch writes one report, moves its events on, and DeviceRemoved flags the context lost. Timeline waits wait in 100 ms slices and reap between them. A forced hook tests it, as the M2 can't fail a command buffer.
+- **MSL input.** `zest_SetShaderOptionsMSL` in `zest.h` marks the options, Vulkan and D3D12 refuse MSL with a validation error, and Metal compiles the text, taking the library's one function of the stage. A slot is a pointer to a struct holding one entry, as Metal won't take a pointer straight to a texture, sampler or buffer pointer as a buffer argument.
+- New tests: "Metal GPU Timestamps" (in place of "Metal GPU Profiling Off"), "Metal Pass Labels", "Metal Command Buffer Errors", "Metal MSL Shaders", and the shared "Shader MSL Source Platform".
+- `zest-tests --platform all` on the Mac: `Dynamic rendering: 140 / 140`, `Legacy render pass: 140 / 140`, `Metal suite: 136 / 136`, `Metal backend: 58 / 58`. The same Metal lines with shader validation and under `NSZombieEnabled`.
+- `zest_metal.h` has 2 stubs left: `get_msaa_sample_count` and `create_test_render_pass`.
+- What M7 learnt:
+  - An Apple GPU encoder that writes no counter sample leaves the value an earlier frame wrote, not 0. A render encoder with no draws writes only its vertex samples.
+  - Metal's debug layer doesn't report a debug group left open at commit.
+  - The converted function cache must key an MSL kernel by its threads per threadgroup, which come from its options, not its text.

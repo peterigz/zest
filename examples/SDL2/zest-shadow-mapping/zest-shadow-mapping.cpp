@@ -3,6 +3,9 @@
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
+#ifdef ZEST_ENABLE_METAL
+#define ZEST_METAL_IMPLEMENTATION
+#endif
 #define ZEST_ALL_UTILITIES_IMPLEMENTATION
 #define ZEST_TEST_MODE
 #include "zest-shadow-mapping.h"

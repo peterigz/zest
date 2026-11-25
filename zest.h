@@ -2696,8 +2696,8 @@ typedef enum zest_report_category {
 //        layout(set = 0, binding = 0) uniform sampler samplers[];
 //        layout(set = 0, binding = 1) uniform texture2D textures[];
 //        layout(set = 0, binding = 6, rgba16f) uniform image2D storage_images[];
-//  - HLSL (D3D12, future):         mapped to register/space by the backend (one space per slot).
-//  - MSL (Metal, future):          mapped to argument buffer ids ([[id(<slot>)]]).
+//  - HLSL (D3D12):                 one register space per slot.
+//  - MSL (Metal):                  slot N is the buffer argument at index 5 + N, an array of 8-byte entries.
 //User code only deals in slot numbers and bindless indexes, so it is unchanged across backends; only the
 //shader declarations are per-language. Writing shaders in Slang (implementations/impl_slang.hpp) lets you
 //declare them once and target every backend.
@@ -5337,8 +5337,12 @@ ZEST_API zest_shader_options zest_CreateShaderOptions(zest_device device);
 ZEST_API void zest_AddMacroDefinition(zest_shader_options options, const char *name, const char *value);
 //Free shader options from memory
 ZEST_API void zest_FreeShaderOptions(zest_shader_options options);
+//Mark the source compiled with these options as MSL, which only the Metal backend takes. A compute shader's threads per
+//threadgroup are local_size, as MSL can't declare them; vertex and fragment shaders ignore it. See docs/concepts/bindless.md
+//for the buffer indexes the backend binds.
+ZEST_API void zest_SetShaderOptionsMSL(zest_shader_options options, zest_uint local_size_x, zest_uint local_size_y, zest_uint local_size_z);
 //Validate a shader from a source code string. The source language is defined by the device's backend
-//(GLSL for the Vulkan backend). Returns true if the shader compiles.
+//(GLSL for the Vulkan backend). Checks GLSL or HLSL only, as it takes no options to mark MSL. Returns true if the shader compiles.
 ZEST_API zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 //Creates and compiles a new shader from a source code string and adds it to the library of shaders in the renderer.
 //The source language is defined by the device's backend (GLSL for the Vulkan backend). For backend-portable shaders
@@ -7767,6 +7771,8 @@ typedef struct zest_shader_options_t {
 	int magic;
 	zest_device device;
 	zest_macro_definition_t *macro_definitions;
+	zest_bool msl;					//The source is MSL, which only the Metal backend takes
+	zest_uint local_size[3];		//Threads per threadgroup of an MSL compute shader, which MSL can't declare
 } zest_shader_options_t;
 
 typedef struct zest_shader_t {
@@ -13283,6 +13289,10 @@ ZEST_PRIVATE void zest__copy_shader_options(zest_device device, zest_shader shad
 	shader->options.device = device;
 	if (options == &shader->options) return;
 	zest__free_macro_definitions(device->allocator, &shader->options);
+	shader->options.msl = options ? options->msl : ZEST_FALSE;
+	for (int axis = 0; axis != 3; ++axis) {
+		shader->options.local_size[axis] = options ? options->local_size[axis] : 0;
+	}
 	if (!options) return;
 	zest_vec_foreach(index, options->macro_definitions) {
 		zest_macro_definition_t *definition = &options->macro_definitions[index];
@@ -13314,6 +13324,23 @@ void zest_AddMacroDefinition(zest_shader_options options, const char *name, cons
 	zest_vec_push(device->allocator, options->macro_definitions, definition);
 }
 
+void zest_SetShaderOptionsMSL(zest_shader_options options, zest_uint local_size_x, zest_uint local_size_y, zest_uint local_size_z) {
+	ZEST_ASSERT_HANDLE(options);	//Not a valid shader options handle
+	options->msl = ZEST_TRUE;
+	options->local_size[0] = local_size_x;
+	options->local_size[1] = local_size_y;
+	options->local_size[2] = local_size_z;
+}
+
+//MSL reaches only the Metal backend, so any other refuses it before its compiler sees it
+ZEST_PRIVATE zest_bool zest__shader_language_refused(zest_device device, zest_shader_options options, const char *name) {
+	if (!options || !options->msl || device->setup_info.platform == zest_platform_metal) return ZEST_FALSE;
+	char message[512];
+	snprintf(message, sizeof(message), "Shader %s is MSL, which only the Metal backend takes. Give this device GLSL, HLSL or Slang.", name);
+	zest__log_validation_error(device, message);
+	return ZEST_TRUE;
+}
+
 zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) {
 	if (!device->platform->validate_shader(device, shader_code, type, name)) {
 		return ZEST_FALSE;
@@ -13327,6 +13354,7 @@ zest_bool zest_CompileShader(zest_shader_handle shader_handle, zest_shader_optio
 	
 	//NULL options reuses the ones the shader was last compiled with
 	zest_shader_options compile_options = options ? options : &shader->options;
+	if (zest__shader_language_refused(device, compile_options, shader->name.str)) return ZEST_FALSE;
     if (device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", compile_options)) {
 		ZEST_APPEND_LOG(device->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
 		zest__copy_shader_options(device, shader, compile_options);
@@ -13340,6 +13368,10 @@ zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *fil
     char *shader_code = zest_ReadEntireFile(device, file, ZEST_TRUE);
     ZEST_ASSERT(shader_code, "Unable to load the shader code, check the path is valid.");
     zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, options, disable_caching);
+	if (!shader_handle.value) {
+		zest_vec_free(device->allocator, shader_code);
+		return shader_handle;
+	}
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->file_path, file);
     zest_GetFileModifiedTime(file, &shader->last_mtime);
@@ -13384,6 +13416,11 @@ zest_key zest__shader_cache_key(const char *shader_code, zest_shader_type type, 
             }
             zest__hasher_add(&hasher, ";", 1);
         }
+        //Only an MSL shader hashes these, so every other shader keeps its key
+        if (options->msl) {
+            zest__hasher_add(&hasher, &options->msl, sizeof(options->msl));
+            zest__hasher_add(&hasher, options->local_size, sizeof(options->local_size));
+        }
     }
     //Vulkan's salt is 0 and isn't hashed, so its existing cache files keep their keys
     if (backend_salt) {
@@ -13425,13 +13462,16 @@ void zest__build_shader_cache_path(zest_device device, zest_text_t *out, const c
 zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
+	if (zest__shader_language_refused(device, options, name)) return ZEST__ZERO_INIT(zest_shader_handle);
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_unsafe(shader_handle.store, shader_handle.value);
     zest_SetText(device->allocator, &shader->name, name);
     zest__copy_shader_options(device, shader, options);
 	zest_SetText(device->allocator, &shader->shader_code, shader_code);
     zest__rekey_shader(device, shader);
-    if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
+	//Compiling MSL is a copy of its text, so the cache would only add a file read
+	zest_bool use_cache = !disable_caching && (device->init_flags & zest_device_init_flag_cache_shaders) && !shader->options.msl;
+    if (use_cache) {
         shader->binary = zest_ReadEntireFile(device, shader->cache_path.str, ZEST_FALSE);
         //A cache file written by another platform compiles fresh as though it were missing
         if (shader->binary && !zest__shader_binary_matches_platform(device, shader->binary, zest_vec_size(shader->binary))) {
@@ -13452,7 +13492,7 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
         ZEST_ASSERT(0, "There's a bug in this shader that needs fixing. You can check the log file for the error message");
 	}
 
-    if (!disable_caching && device->init_flags & zest_device_init_flag_cache_shaders) {
+    if (use_cache) {
         zest__cache_shader(device, shader);
     }
 	zest__activate_resource(shader_handle.store, shader_handle.value);

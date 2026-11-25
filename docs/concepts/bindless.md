@@ -68,10 +68,12 @@ The slot numbers above are part of Zest's API contract and will not change. Your
 deals in slot numbers (`zest_binding_number_type`) and the indexes returned by the `zest_Acquire*Index`
 functions, so it is identical on every backend. Only the shader-side declaration is per-language:
 
-- **GLSL/SPIR-V (Vulkan, today):** `layout(set = 0, binding = <slot>)` as shown in the examples below.
+- **GLSL/SPIR-V (Vulkan and Metal):** `layout(set = 0, binding = <slot>)` as shown in the examples below.
+  The Metal backend converts the SPIR-V to MSL itself, so the same shader runs on both.
 - **HLSL (D3D12):** each slot is an unbounded array in a register space of its own, as shown in
   [HLSL Descriptor Layout](#hlsl-descriptor-layout) below.
-- **MSL (Metal, future):** the backend maps each slot to an argument buffer id (`[[id(<slot>)]]`).
+- **MSL (Metal):** slot N is the buffer argument at index 5 + N, an array of 8-byte entries, as shown in
+  [MSL Descriptor Layout](#msl-descriptor-layout) below. Only needed for shaders you write in MSL yourself.
 
 Writing shaders in [Slang](../../implementations/impl_slang.hpp) lets you declare bindings once and target
 every backend.
@@ -280,6 +282,103 @@ uses them until it calls `zest_cmd_SetDepthBias`. That call needs a driver with 
 (`D3D12_FEATURE_DATA_D3D12_OPTIONS16::DynamicDepthBiasSupported`); without one it reports once per
 command list and the pipeline's own values stay. On Vulkan a pipeline with `depth_bias_enable` has a
 dynamic bias that ignores the template's values, so call `zest_cmd_SetDepthBias` after binding it.
+
+### MSL Descriptor Layout
+
+GLSL, Slang and SPIR-V all run on the Metal backend unchanged, so MSL is only for shaders you'd rather write
+for Metal yourself. Mark the source as MSL with `zest_SetShaderOptionsMSL` and create the shader as usual:
+
+```cpp
+zest_shader_options options = zest_CreateShaderOptions(device);
+zest_SetShaderOptionsMSL(options, 0, 0, 0);    //A compute shader passes its threads per threadgroup here instead
+zest_shader_handle vertex = zest_CreateShader(device, msl_source, zest_vertex_shader, "my_vertex", options, ZEST_FALSE);
+zest_shader_handle fragment = zest_CreateShader(device, msl_source, zest_fragment_shader, "my_fragment", options, ZEST_FALSE);
+zest_FreeShaderOptions(options);
+```
+
+Vulkan and D3D12 refuse MSL options with a validation error and give a zero handle. On Metal the source
+is compiled when a pipeline or compute first uses it.
+
+**The table.** Each slot is a buffer argument holding one 8-byte entry per index: a texture's or
+sampler's resource ID, or a buffer's GPU address. Metal won't take a pointer straight to a texture,
+sampler or buffer pointer as a buffer argument, so declare each slot as a pointer to a struct holding
+one entry:
+
+| Binding | Slot | Buffer index | Entry struct |
+|---------|------|--------------|--------------|
+| 0 | `zest_sampler_binding` | 5 | `struct { sampler value; }` |
+| 1 | `zest_texture_2d_binding` | 6 | `struct { texture2d<float> value; }` |
+| 2 | `zest_texture_cube_binding` | 7 | `struct { texturecube<float> value; }` |
+| 3 | `zest_texture_array_binding` | 8 | `struct { texture2d_array<float> value; }` |
+| 4 | `zest_texture_3d_binding` | 9 | `struct { texture3d<float> value; }` |
+| 5 | `zest_storage_buffer_binding` | 10 | `struct { device T *value; }` |
+| 6 | `zest_storage_image_binding` | 11 | `struct { texture2d<float, access::read_write> value; }` |
+| 7 | `zest_uniform_buffer_binding` | 12 | `struct { constant T *value; }` |
+| 8 | `zest_texture_cube_array_binding` | 13 | `struct { texturecube_array<float> value; }` |
+
+The argument is then `const device Entry *name [[buffer(5 + slot)]]`, indexed with the index you
+acquired: `textures[index].value.sample(samplers[sampler_index].value, uv)`.
+
+**The rest of the layout.**
+- Push constants are a `constant T &` at buffer index 4, up to 128 bytes (`ZEST_MAX_PUSH_SIZE`).
+- Vertex binding N is buffer index N, for bindings 0 to 3, and each attribute is a `[[stage_in]]`
+  member marked `[[attribute(location)]]`, with the location `zest_AddVertexAttribute` gives it.
+- **Y.** Zest's clip space has Y pointing down, as Vulkan's does
+  ([Rendering Conventions](rendering-conventions.md)). The backend flips Y in every vertex shader it
+  converts from SPIR-V, so a vertex function you write in MSL negates Y itself:
+  `position.y = -position.y`.
+- **Functions.** A source can hold several functions. The backend takes the one function of the
+  shader's stage (`vertex`, `fragment` or `kernel`), so one source can give a vertex shader and a
+  fragment shader. A source with none or more than one of the stage fails pipeline creation, naming
+  the functions it found.
+- **Compute.** MSL can't declare a kernel's threads per threadgroup, so they come from
+  `zest_SetShaderOptionsMSL(options, x, y, z)`. A kernel with a 0 there fails compute creation.
+  `zest_cmd_DispatchCompute` takes group counts, as on the other backends.
+- **No preprocessor pass.** `ZEST_METAL` isn't defined for MSL, and the options' macro definitions
+  aren't applied. Metal compiles the text as it is.
+- **Not supported:** a multiview pipeline (use GLSL, Slang or SPIR-V for one), and function
+  constants, as the backend doesn't specialise them. MSL shaders are never cached, as compiling them
+  is a copy of the text. `zest_ValidateShader` checks GLSL or HLSL only.
+
+A textured draw in MSL, with the vertex and fragment functions in one source:
+
+```metal
+#include <metal_stdlib>
+using namespace metal;
+
+struct SamplerEntry { sampler value; };
+struct TextureEntry { texture2d<float> value; };
+struct DrawPush { uint texture_index; uint sampler_index; };
+struct DrawInput { float2 position [[attribute(0)]]; float2 uv [[attribute(1)]]; };
+struct DrawVaryings { float4 position [[position]]; float2 uv; };
+
+vertex DrawVaryings draw_vertex(DrawInput input [[stage_in]]) {
+	DrawVaryings varyings;
+	varyings.position = float4(input.position.x, -input.position.y, 0.0, 1.0);
+	varyings.uv = input.uv;
+	return varyings;
+}
+
+fragment float4 draw_fragment(DrawVaryings varyings [[stage_in]], constant DrawPush &push [[buffer(4)]],
+		const device SamplerEntry *samplers [[buffer(5)]], const device TextureEntry *textures [[buffer(6)]]) {
+	return textures[push.texture_index].value.sample(samplers[push.sampler_index].value, varyings.uv);
+}
+```
+
+And a kernel that writes through a storage buffer, created with `zest_SetShaderOptionsMSL(options, 8, 1, 1)`:
+
+```metal
+#include <metal_stdlib>
+using namespace metal;
+
+struct BufferEntry { device uint *value; };
+struct WritePush { uint buffer_index; };
+
+kernel void write_indexes(uint index [[thread_position_in_grid]], constant WritePush &push [[buffer(4)]],
+		const device BufferEntry *buffers [[buffer(10)]]) {
+	buffers[push.buffer_index].value[index] = index;
+}
+```
 
 ### Slang Descriptor Layout
 

@@ -16,7 +16,7 @@
 
 /**
 	Clears the window to a slowly cycling colour on any backend.
-	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 is the default when it's compiled in),
+	Arguments: --vulkan, --d3d12 or --metal selects the backend (D3D12 or Metal is the default when it's compiled in),
 	--frames N exits after N frames (resizing the window at N / 2), --validate enables the validation
 	layers and fails the run on any validation error. See examples/Common/example_platform.h.
  */

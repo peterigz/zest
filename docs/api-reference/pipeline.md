@@ -597,8 +597,9 @@ zest_pipeline_layout zest_GetDefaultPipelineLayout(zest_device device);
 ### `zest_CreateShaderFromFile`
 
 Create a shader from a source file. The source is in the device's shader language: GLSL compiled with shaderc on
-Vulkan, or HLSL compiled with DXC for the device's shader model on D3D12. The entry point is `main`, and the backend
-defines `ZEST_VULKAN` or `ZEST_D3D12` as 1, so a shader can test which backend compiled it.
+Vulkan and Metal, or HLSL compiled with DXC for the device's shader model on D3D12. The entry point is `main`, and the
+backend defines `ZEST_VULKAN`, `ZEST_D3D12` or `ZEST_METAL` as 1, so a shader can test which backend compiled it.
+On Metal the source can also be MSL, marked with [`zest_SetShaderOptionsMSL`](#zest_setshaderoptionsmsl).
 
 ```cpp
 zest_shader_handle zest_CreateShaderFromFile(zest_device device,
@@ -660,6 +661,32 @@ zest_shader_handle shader = zest_CreateShader(device, shader_source, zest_fragme
 
 ---
 
+### `zest_SetShaderOptionsMSL`
+
+Mark the source compiled with these options as MSL, which only the Metal backend takes. A compute shader's
+threads per threadgroup are `local_size`, as MSL can't declare them. Vertex and fragment shaders ignore it.
+
+```cpp
+void zest_SetShaderOptionsMSL(zest_shader_options options, zest_uint local_size_x, zest_uint local_size_y, zest_uint local_size_z);
+```
+
+**Usage:** Pass the options to `zest_CreateShader`, `zest_CreateShaderFromFile` or `zest_CompileShader`. Hot reload
+keeps them.
+
+```cpp
+zest_shader_options options = zest_CreateShaderOptions(device);
+zest_SetShaderOptionsMSL(options, 8, 1, 1);
+zest_shader_handle shader = zest_CreateShaderFromFile(device, "shaders/write.metal", "write", zest_compute_shader, options, ZEST_FALSE);
+zest_FreeShaderOptions(options);
+```
+
+- Vulkan and D3D12 refuse MSL options with a validation error, and the create functions give a zero handle.
+- The backend takes the source's one function of the shader's stage, and never caches MSL.
+- The buffer indexes the backend binds, the Y convention and what isn't supported are in
+  [MSL Descriptor Layout](../concepts/bindless.md#msl-descriptor-layout).
+
+---
+
 ### Shader Caching
 
 Compiled binaries can be cached to disk so that subsequent runs skip compilation. This is **off by default**
@@ -716,7 +743,7 @@ callback is called with `user_data` when the shader is freed. Slang session shad
 ### `zest_CreateShaderFromBinary`
 
 Create a shader from a pre-compiled binary in memory. The binary format is defined by the
-device's backend: SPIR-V for Vulkan, a DXIL container for D3D12. A binary in another format is reported as a
+device's backend: SPIR-V for Vulkan and Metal, a DXIL container for D3D12. A binary in another format is reported as a
 validation error and gives a zero handle.
 
 ```cpp
@@ -746,7 +773,7 @@ zest_shader_handle shader = zest_CreateShaderFromBinary(
 ### `zest_CreateShaderFromBinaryFile`
 
 Load a pre-compiled shader binary from a file. The binary format is defined by the device's
-backend: SPIR-V for Vulkan, a DXIL container for D3D12. A binary in another format is reported as a validation
+backend: SPIR-V for Vulkan and Metal, a DXIL container for D3D12. A binary in another format is reported as a validation
 error and gives a zero handle.
 
 ```cpp
@@ -765,7 +792,7 @@ zest_shader_handle vert = zest_CreateShaderFromBinaryFile(device, "shaders/mesh.
 
 ### `zest_ValidateShader`
 
-Validate shader source code without creating a shader object.
+Validate shader source code without creating a shader object. It takes no options, so it checks GLSL or HLSL only, not MSL.
 
 ```cpp
 zest_bool zest_ValidateShader(zest_device device,

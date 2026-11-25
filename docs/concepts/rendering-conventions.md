@@ -20,6 +20,8 @@ Key points:
 
 - **+Y points down** in NDC. This matches Vulkan directly; backends whose native clip
   space is Y-up (D3D12, Metal) will compensate internally.
+- A vertex shader you write in MSL for the Metal backend negates Y itself, as the backend does for
+  every GLSL, Slang and SPIR-V vertex shader it converts ([MSL Descriptor Layout](bindless.md#msl-descriptor-layout)).
 - **Depth is 0..1** (not OpenGL's -1..1). All of Zest's projection helpers already produce
   0..1 depth.
 - Zest does not flip viewports behind your back — a viewport with a positive height has

@@ -2,7 +2,7 @@
 
 **A lightweight single-header rendering library**
 
-Zest is a C11-compatible rendering library with a clean, modern API designed for multiple graphics backends. It provides a frame graph execution model, bindless descriptors, and automatic resource management - all in a single header file. Currently Vulkan is the primary backend, with DirectX, Metal, and WebGPU planned for the future.
+Zest is a C11-compatible rendering library with a clean, modern API designed for multiple graphics backends. It provides a frame graph execution model, bindless descriptors, and automatic resource management - all in a single header file. It runs on Vulkan, D3D12 and Metal, with WebGPU possible in the future.
 
 ## Key Features
 

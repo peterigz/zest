@@ -5241,8 +5241,34 @@ int test_d3d12_arena_backing(void) {
 	return failed | finish_device(device);
 }
 
-//Clears a colour target, samples it in a pass that clears a depth target and a second colour target, then samples that into a third target, which can take the bytes the first two left
-static zest_frame_graph build_transient_image_graph(zest_context context, zest_frame_graph_cache_key_t *cache_key, zest_bool windowed) {
+//The third target's first barrier was compiled with the depth target's last write, and must have been sent with its stages but none of its access
+static int third_target_barrier_is_clean(zest_frame_graph frame_graph) {
+	int found = 0;
+	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
+		for (zest_uint index = 0; index != zest_vec_size(backend->acquire_images); ++index) {
+			const zest_dx_frame_graph_image_barrier_t *record = &backend->acquire_images[index];
+			if (strcmp(record->resource->name, "Third Target") != 0) continue;
+			const D3D12_TEXTURE_BARRIER *barrier = &backend->acquire_translated[index];
+			found = ZEST__FLAGGED(record->src_access, zest_access_depth_stencil_attachment_write_bit);
+			found &= barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_RENDER_TARGET;
+			found &= barrier->AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && (barrier->SyncBefore & D3D12_BARRIER_SYNC_DEPTH_STENCIL) != 0;
+			found &= barrier->SyncBefore == zest__dx_normalise_dependency_sync(zest__dx_barrier_sync(record->src_stage, ZEST_TRUE), D3D12_BARRIER_ACCESS_NO_ACCESS);
+			found &= (barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD) != 0;
+		}
+	}
+	return found;
+}
+
+//A barrier is translated as the graph runs, and the third pass's own were sent before its task
+static void transient_third_pass_check_task(const zest_command_list command_list, void *user_data) {
+	*(int *)user_data = third_target_barrier_is_clean(command_list->frame_graph);
+}
+
+//Clears a colour target, samples it in a pass that clears a depth target and a second colour target, then samples that into a third target, which can take the bytes the first two left.
+//With out_third_barrier_clean, the third pass's task checks the third target's first barrier.
+static zest_frame_graph build_transient_image_graph(zest_context context, zest_frame_graph_cache_key_t *cache_key, zest_bool windowed, int *out_third_barrier_clean) {
 	zest_bool began = windowed ? zest_BeginFrameGraph(context, "Transient Images", cache_key) : zest_BeginCommandGraph(context, "Transient Images");
 	if (!began) return NULL;
 	if (windowed) {
@@ -5281,29 +5307,13 @@ static zest_frame_graph build_transient_image_graph(zest_context context, zest_f
 	zest_BeginRenderPass("Third Pass");
 	zest_ConnectInput(second_target);
 	zest_ConnectOutput(third_target);
-	zest_SetPassTask(zest_EmptyRenderPass, 0);
+	if (out_third_barrier_clean) {
+		zest_SetPassTask(transient_third_pass_check_task, out_third_barrier_clean);
+	} else {
+		zest_SetPassTask(zest_EmptyRenderPass, 0);
+	}
 	zest_EndPass();
 	return zest_EndFrameGraph();
-}
-
-//The third target's first barrier was compiled with the depth target's last write, and must have been sent with its stages but none of its access
-static int third_target_barrier_is_clean(zest_frame_graph frame_graph) {
-	int found = 0;
-	for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
-		const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
-		zest_dx_execution_barriers_backend_t *backend = ZEST_DX_BACKEND(execution_barriers, &pass_group->execution_details.barriers);
-		for (zest_uint index = 0; index != zest_vec_size(backend->acquire_images); ++index) {
-			const zest_dx_frame_graph_image_barrier_t *record = &backend->acquire_images[index];
-			if (strcmp(record->resource->name, "Third Target") != 0) continue;
-			const D3D12_TEXTURE_BARRIER *barrier = &backend->acquire_translated[index];
-			found = ZEST__FLAGGED(record->src_access, zest_access_depth_stencil_attachment_write_bit);
-			found &= barrier->LayoutBefore == D3D12_BARRIER_LAYOUT_UNDEFINED && barrier->LayoutAfter == D3D12_BARRIER_LAYOUT_RENDER_TARGET;
-			found &= barrier->AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && (barrier->SyncBefore & D3D12_BARRIER_SYNC_DEPTH_STENCIL) != 0;
-			found &= barrier->SyncBefore == zest__dx_normalise_dependency_sync(zest__dx_barrier_sync(record->src_stage, ZEST_TRUE), D3D12_BARRIER_ACCESS_NO_ACCESS);
-			found &= (barrier->Flags & D3D12_TEXTURE_BARRIER_FLAG_DISCARD) != 0;
-		}
-	}
-	return found;
 }
 
 //The barrier last sent for the third target's first use, and the image it was sent for
@@ -5353,7 +5363,7 @@ static int run_cached_transient_frames(void) {
 			zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(context, 0, 0);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(context, &cache_key);
 			cached_count += frame_graph != NULL;
-			if (!frame_graph) frame_graph = build_transient_image_graph(context, &cache_key, ZEST_TRUE);
+			if (!frame_graph) frame_graph = build_transient_image_graph(context, &cache_key, ZEST_TRUE, NULL);
 			zest_EndFrame(context, frame_graph);
 			failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
 			const D3D12_TEXTURE_BARRIER *barrier = frame_graph ? third_target_first_barrier(frame_graph, &slot_backends[frame]) : NULL;
@@ -5385,16 +5395,19 @@ int test_d3d12_transient_images(void) {
 	zest_context context = zest_CreateHeadlessContext(device, &info);
 	int failed = context == NULL;
 	if (context) {
-		zest_frame_graph frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE);
+		zest_frame_graph frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE, NULL);
 		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
 		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
 		failed |= zest_GetValidationErrorCount(device) != 0;
 
-		frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE);
+		int third_barrier_clean = 0;
+		frame_graph = build_transient_image_graph(context, NULL, ZEST_FALSE, &third_barrier_clean);
 		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
-		//The flush frees a command graph with its records, so they're read before it
-		failed |= frame_graph == NULL || !third_target_barrier_is_clean(frame_graph);
 		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		if (!third_barrier_clean) {
+			ZEST_PRINT("\tThe third target's first barrier wasn't sent from UNDEFINED with the depth write's stages and no access.");
+			failed = 1;
+		}
 		failed |= zest_GetValidationErrorCount(device) != 0;
 		zest_DestroyContext(context);
 	}
@@ -5405,6 +5418,10 @@ int test_d3d12_transient_images(void) {
 typedef struct d3d12_cross_queue_task_t {
 	zest_compute compute;
 	zest_buffer staging_buffer;
+	zest_bool release_found;
+	zest_bool acquire_found;
+	D3D12_TEXTURE_BARRIER release;			//The image's crossing as sent, copied by the render pass's task
+	D3D12_TEXTURE_BARRIER acquire;
 } d3d12_cross_queue_task_t;
 
 static void d3d12_cross_queue_write_image(const zest_command_list command_list, void *user_data) {
@@ -5435,6 +5452,17 @@ static const D3D12_TEXTURE_BARRIER *crossing_image_barrier(zest_frame_graph fram
 		}
 	}
 	return NULL;
+}
+
+//A barrier is translated as the graph runs, and by this task the compute group's release and this group's acquire were both sent
+static void d3d12_cross_queue_copy_barriers(const zest_command_list command_list, void *user_data) {
+	d3d12_cross_queue_task_t *task = (d3d12_cross_queue_task_t *)user_data;
+	const D3D12_TEXTURE_BARRIER *release = crossing_image_barrier(command_list->frame_graph, "Cross Image", ZEST_FALSE);
+	const D3D12_TEXTURE_BARRIER *acquire = crossing_image_barrier(command_list->frame_graph, "Cross Image", ZEST_TRUE);
+	task->release_found = release != NULL;
+	task->acquire_found = acquire != NULL;
+	if (release) task->release = *release;
+	if (acquire) task->acquire = *acquire;
 }
 
 //The pass group on the queue type that holds a record on the named buffer, or NULL
@@ -5494,25 +5522,13 @@ int test_d3d12_cross_queue_barriers(void) {
 		zest_ConnectInput(image);
 		zest_ConnectInput(buffer);
 		zest_ConnectOutput(target);
-		zest_SetPassTask(zest_EmptyRenderPass, 0);
+		zest_SetPassTask(d3d12_cross_queue_copy_barriers, &task);
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		failed |= frame_graph == NULL || zest_GetFrameGraphResult(frame_graph) != zest_fgs_success;
-		//The flush frees a command graph with its records, so they're read before it
+		//The flush frees a command graph with its records, so what was compiled is read before it
 		if (frame_graph) {
-			const D3D12_TEXTURE_BARRIER *release = crossing_image_barrier(frame_graph, "Cross Image", ZEST_FALSE);
-			failed |= release == NULL;
-			if (release) {
-				failed |= release->LayoutAfter != D3D12_BARRIER_LAYOUT_COMMON;
-				failed |= release->AccessAfter != D3D12_BARRIER_ACCESS_NO_ACCESS || release->SyncAfter != D3D12_BARRIER_SYNC_NONE;
-			}
-			const D3D12_TEXTURE_BARRIER *acquire = crossing_image_barrier(frame_graph, "Cross Image", ZEST_TRUE);
-			failed |= acquire == NULL;
-			if (acquire) {
-				failed |= acquire->LayoutBefore != D3D12_BARRIER_LAYOUT_COMMON || acquire->LayoutAfter != D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
-				failed |= acquire->AccessBefore != D3D12_BARRIER_ACCESS_NO_ACCESS || acquire->SyncBefore != D3D12_BARRIER_SYNC_NONE;
-			}
 			zest_bool has_copy_group = ZEST_FALSE;
 			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
 				has_copy_group |= zest_GetFrameGraphFinalPass(frame_graph, pass_index)->queue_info.queue_type == zest_queue_transfer;
@@ -5531,6 +5547,15 @@ int test_d3d12_cross_queue_barriers(void) {
 			}
 		}
 		failed |= frame_graph == NULL || zest_FlushFrameGraphAndWait(frame_graph) != zest_semaphore_status_success;
+		zest_bool crossing_right = task.release_found && task.acquire_found;
+		crossing_right &= task.release.LayoutAfter == D3D12_BARRIER_LAYOUT_COMMON;
+		crossing_right &= task.release.AccessAfter == D3D12_BARRIER_ACCESS_NO_ACCESS && task.release.SyncAfter == D3D12_BARRIER_SYNC_NONE;
+		crossing_right &= task.acquire.LayoutBefore == D3D12_BARRIER_LAYOUT_COMMON && task.acquire.LayoutAfter == D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+		crossing_right &= task.acquire.AccessBefore == D3D12_BARRIER_ACCESS_NO_ACCESS && task.acquire.SyncBefore == D3D12_BARRIER_SYNC_NONE;
+		if (!crossing_right) {
+			ZEST_PRINT("\tThe Cross Image's handoff wasn't sent as a release to COMMON and an acquire from COMMON to SHADER_RESOURCE, with no access or sync across it.");
+			failed = 1;
+		}
 		failed |= zest_GetValidationErrorCount(device) != 0;
 	}
 	failed |= zest__dx_layout_fits_queue(D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON, zest_queue_graphics) != ZEST_FALSE;
