@@ -166,6 +166,8 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Cached Imported Image", test__cached_imported_image, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Cached Imported Image Async", test__cached_imported_image_async, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Multi Queue Imported Handback", test__multi_queue_imported_handback, 0, ZEST_MAX_FIF * 2 + 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Multi Queue Shared Reader", test__multi_queue_shared_reader, 0, SHARED_READER_FRAMES, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Multi Queue Shared Reader Async", test__multi_queue_shared_reader_async, 0, SHARED_READER_FRAMES, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Frame Graph Transient Structured Buffer", test__transient_structured_buffer, 0, 1, 0, 0, tests->simple_create_info });
 	zest_create_context_info_t profiling_create_info = tests->simple_create_info;
 	profiling_create_info.flags |= zest_context_init_flag_gpu_profiling | zest_context_init_flag_debug_overlay;

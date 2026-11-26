@@ -1356,6 +1356,321 @@ int test__multi_queue_imported_handback(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+#define SHARED_READER_WIDTH 1920
+#define SHARED_READER_HEIGHT 1080
+#define SHARED_READER_FRAMES 120
+#define SHARED_READER_RESULT_WORDS (4 + SHARED_READER_FRAMES)
+
+//Integers below 2048, so rgba16f holds every value exactly. Flat, noisy and graded 32 pixel tiles, so DCC compresses some blocks and not others
+#define SHARED_READER_PATTERN_GLSL \
+	"vec4 shared_reader_pattern(uint x, uint y) {\n" \
+	"	uint hash = (x * 73856093u) ^ (y * 19349663u);\n" \
+	"	hash ^= hash >> 13; hash *= 0x5bd1e995u; hash ^= hash >> 15;\n" \
+	"	uint tile = ((x >> 5) ^ (y >> 5)) & 3u;\n" \
+	"	if (tile == 0u) return vec4(1.0, 2.0, 3.0, 1.0);\n" \
+	"	if (tile == 1u) return vec4(float(hash & 1023u), float((hash >> 10) & 1023u), float((hash >> 20) & 1023u), 1.0);\n" \
+	"	if (tile == 2u) return vec4(float(x), float(y), float((x + y) & 1023u), 1.0);\n" \
+	"	return vec4(8.0, 16.0, 32.0, 1.0);\n" \
+	"}\n"
+
+#define SHARED_READER_PATTERN_HLSL \
+	"float4 shared_reader_pattern(uint x, uint y) {\n" \
+	"	uint hash = (x * 73856093u) ^ (y * 19349663u);\n" \
+	"	hash ^= hash >> 13; hash *= 0x5bd1e995u; hash ^= hash >> 15;\n" \
+	"	uint tile = ((x >> 5) ^ (y >> 5)) & 3u;\n" \
+	"	if (tile == 0u) return float4(1.0, 2.0, 3.0, 1.0);\n" \
+	"	if (tile == 1u) return float4(float(hash & 1023u), float((hash >> 10) & 1023u), float((hash >> 20) & 1023u), 1.0);\n" \
+	"	if (tile == 2u) return float4(float(x), float(y), float((x + y) & 1023u), 1.0);\n" \
+	"	return float4(8.0, 16.0, 32.0, 1.0);\n" \
+	"}\n"
+
+static const char *shared_reader_vertex_glsl =
+	"#version 450\n"
+	"void main() {\n"
+	"	vec2 corner = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+	"	gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
+	"}\n";
+
+static const char *shared_reader_vertex_hlsl =
+	"float4 main(uint vertex_index : SV_VertexID) : SV_Position {\n"
+	"	float2 corner = float2((vertex_index << 1) & 2, vertex_index & 2);\n"
+	"	return float4(corner * 2.0 - 1.0, 0.0, 1.0);\n"
+	"}\n";
+
+static const char *shared_reader_pattern_glsl =
+	"#version 450\n"
+	"layout(location = 0) out vec4 out_color;\n"
+	SHARED_READER_PATTERN_GLSL
+	"void main() { out_color = shared_reader_pattern(uint(gl_FragCoord.x), uint(gl_FragCoord.y)); }\n";
+
+static const char *shared_reader_pattern_hlsl =
+	SHARED_READER_PATTERN_HLSL
+	"float4 main(float4 position : SV_Position) : SV_Target0 { return shared_reader_pattern(uint(position.x), uint(position.y)); }\n";
+
+static const char *shared_reader_present_glsl =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"#extension GL_EXT_samplerless_texture_functions : require\n"
+	"layout(location = 0) out vec4 out_color;\n"
+	"layout(push_constant) uniform push_block { uint texture_index; uint result_index; uint width; uint height; uint frame; } push;\n"
+	"layout(set = 0, binding = 3) uniform texture2DArray textures[];\n"
+	"void main() {\n"
+	"	ivec2 pixel = min(ivec2(gl_FragCoord.xy), ivec2(push.width - 1, push.height - 1));\n"
+	"	vec4 value = texelFetch(textures[nonuniformEXT(push.texture_index)], ivec3(pixel, 0), 0);\n"
+	"	out_color = vec4(value.xyz / 2048.0, 1.0);\n"
+	"}\n";
+
+static const char *shared_reader_present_hlsl =
+	"cbuffer zest_push : register(b0, space0) { uint texture_index; uint result_index; uint width; uint height; uint frame; };\n"
+	"Texture2DArray zest_texture_arrays[] : register(t0, space103);\n"
+	"float4 main(float4 position : SV_Position) : SV_Target0 {\n"
+	"	int2 pixel = min(int2(position.xy), int2(width - 1, height - 1));\n"
+	"	float4 value = zest_texture_arrays[NonUniformResourceIndex(texture_index)].Load(int4(pixel, 0, 0));\n"
+	"	return float4(value.xyz / 2048.0, 1.0);\n"
+	"}\n";
+
+//Words: groups checked times 64, mismatches, first and last mismatching pixel index, then mismatches per frame
+static const char *shared_reader_check_glsl =
+	"#version 450\n"
+	"#extension GL_EXT_nonuniform_qualifier : require\n"
+	"#extension GL_EXT_samplerless_texture_functions : require\n"
+	"layout(local_size_x = 8, local_size_y = 8) in;\n"
+	"layout(push_constant) uniform push_block { uint texture_index; uint result_index; uint width; uint height; uint frame; } push;\n"
+	"layout(set = 0, binding = 3) uniform texture2DArray textures[];\n"
+	"layout(std430, set = 0, binding = 5) buffer result_buffer { uint checked; uint mismatches; uint first_mismatch; uint last_mismatch; uint frame_mismatches[]; } results[];\n"
+	SHARED_READER_PATTERN_GLSL
+	"void main() {\n"
+	"	uvec2 pixel = gl_GlobalInvocationID.xy;\n"
+	"	if (gl_LocalInvocationIndex == 0) atomicAdd(results[push.result_index].checked, 64);\n"
+	"	if (pixel.x >= push.width || pixel.y >= push.height) return;\n"
+	"	vec4 value = texelFetch(textures[nonuniformEXT(push.texture_index)], ivec3(pixel, 0), 0);\n"
+	"	if (value != shared_reader_pattern(pixel.x, pixel.y)) {\n"
+	"		uint pixel_index = pixel.y * push.width + pixel.x;\n"
+	"		atomicAdd(results[push.result_index].mismatches, 1);\n"
+	"		atomicMin(results[push.result_index].first_mismatch, pixel_index);\n"
+	"		atomicMax(results[push.result_index].last_mismatch, pixel_index);\n"
+	"		atomicAdd(results[push.result_index].frame_mismatches[push.frame], 1);\n"
+	"	}\n"
+	"}\n";
+
+static const char *shared_reader_check_hlsl =
+	"cbuffer zest_push : register(b0, space0) { uint texture_index; uint result_index; uint width; uint height; uint frame; };\n"
+	"Texture2DArray zest_texture_arrays[] : register(t0, space103);\n"
+	"RWByteAddressBuffer zest_rw_buffers[] : register(u0, space105);\n"
+	SHARED_READER_PATTERN_HLSL
+	"[numthreads(8, 8, 1)]\n"
+	"void main(uint3 pixel : SV_DispatchThreadID, uint local_index : SV_GroupIndex) {\n"
+	"	if (local_index == 0) zest_rw_buffers[NonUniformResourceIndex(result_index)].InterlockedAdd(0, 64);\n"
+	"	if (pixel.x >= width || pixel.y >= height) return;\n"
+	"	float4 value = zest_texture_arrays[NonUniformResourceIndex(texture_index)].Load(int4(pixel.xy, 0, 0));\n"
+	"	if (any(value != shared_reader_pattern(pixel.x, pixel.y))) {\n"
+	"		uint pixel_index = pixel.y * width + pixel.x;\n"
+	"		uint previous;\n"
+	"		zest_rw_buffers[NonUniformResourceIndex(result_index)].InterlockedAdd(4, 1, previous);\n"
+	"		zest_rw_buffers[NonUniformResourceIndex(result_index)].InterlockedMin(8, pixel_index, previous);\n"
+	"		zest_rw_buffers[NonUniformResourceIndex(result_index)].InterlockedMax(12, pixel_index, previous);\n"
+	"		zest_rw_buffers[NonUniformResourceIndex(result_index)].InterlockedAdd(16 + frame * 4, 1, previous);\n"
+	"	}\n"
+	"}\n";
+
+struct SharedReaderPush {
+	zest_uint texture_index;
+	zest_uint result_index;
+	zest_uint width;
+	zest_uint height;
+	zest_uint frame;
+};
+
+struct SharedReaderState {
+	zest_shader_handle vertex_shader;
+	zest_shader_handle pattern_shader;
+	zest_shader_handle present_shader;
+	zest_shader_handle check_shader;
+	zest_pipeline_template pattern_pipeline;
+	zest_pipeline_template present_pipeline;
+	zest_compute_handle check;
+	zest_buffer result_buffer;
+	zest_uint result_index;
+	zest_uint frame;
+	int executed_frames;
+	zest_device_queue_type check_queue_type;
+};
+
+static void shared_reader_draw_task(const zest_command_list command_list, void *user_data) {
+	SharedReaderState *state = (SharedReaderState *)user_data;
+	zest_viewport_t viewport = zest_CreateViewport(0.f, 0.f, (float)SHARED_READER_WIDTH, (float)SHARED_READER_HEIGHT, 0.f, 1.f);
+	zest_scissor_rect_t scissor = zest_CreateRect2D(SHARED_READER_WIDTH, SHARED_READER_HEIGHT, 0, 0);
+	zest_cmd_ViewPort(command_list, &viewport);
+	zest_cmd_Scissor(command_list, &scissor);
+	zest_pipeline pipeline = zest_GetPipeline(state->pattern_pipeline, command_list);
+	if (!pipeline) return;
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static void shared_reader_present_task(const zest_command_list command_list, void *user_data) {
+	SharedReaderState *state = (SharedReaderState *)user_data;
+	zest_resource_node target = zest_GetPassInputResource(command_list, "Shared Reader Target");
+	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
+	zest_pipeline pipeline = zest_GetPipeline(state->present_pipeline, command_list);
+	if (!pipeline) return;
+	SharedReaderPush push = { zest_GetTransientSampledImageBindlessIndex(command_list, target, zest_texture_array_binding), 0, SHARED_READER_WIDTH, SHARED_READER_HEIGHT, 0 };
+	zest_cmd_BindPipeline(command_list, pipeline);
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_Draw(command_list, 3, 1, 0, 0);
+}
+
+static void shared_reader_check_task(const zest_command_list command_list, void *user_data) {
+	SharedReaderState *state = (SharedReaderState *)user_data;
+	zest_resource_node target = zest_GetPassInputResource(command_list, "Shared Reader Target");
+	SharedReaderPush push = { zest_GetTransientSampledImageBindlessIndex(command_list, target, zest_texture_array_binding), state->result_index, SHARED_READER_WIDTH, SHARED_READER_HEIGHT, state->frame };
+	zest_cmd_BindComputePipeline(command_list, zest_GetCompute(state->check));
+	zest_cmd_SendPushConstants(command_list, &push, sizeof(push));
+	zest_cmd_DispatchCompute(command_list, SHARED_READER_WIDTH / 8, SHARED_READER_HEIGHT / 8, 1);
+}
+
+static zest_pipeline_template shared_reader_pipeline(zest_device device, const char *name, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader) {
+	zest_pipeline_template pipeline_template = zest_CreatePipelineTemplate(device, name);
+	zest_SetPipelineShaders(pipeline_template, vertex_shader, fragment_shader);
+	zest_SetPipelineDisableVertexInput(pipeline_template);
+	zest_SetPipelineBlend(pipeline_template, zest_BlendStateOpaque());
+	zest_SetPipelineCullMode(pipeline_template, zest_cull_mode_none);
+	zest_SetPipelineDepthTest(pipeline_template, ZEST_FALSE, ZEST_FALSE);
+	return pipeline_template;
+}
+
+/*
+Multi Queue Shared Reader, the shape of a frame graph that packs video frames while it draws:
+* Pass A(Graphics) : Draws a per pixel pattern into a 1920x1080 rgba16f transient.
+* Pass B(Compute) : Loads every pixel of the transient through its bindless index and counts those that don't match the pattern.
+* Pass C(Graphics) : Samples the transient into the swapchain.
+B and C both depend only on A, so they share a wave. Nothing orders the batches of one wave, so B has to join C on the graphics queue.
+The async version has C read another transient instead, which keeps B on the compute queue in the graph's last wave.
+*/
+static int shared_reader_run(ZestTests *tests, Test *test, zest_bool async) {
+	static SharedReaderState state;
+	zest_device device = tests->device;
+	if (test->frame_count == 0) {
+		memset(&state, 0, sizeof(state));
+		zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+		state.vertex_shader = zest_CreateShader(device, hlsl ? shared_reader_vertex_hlsl : shared_reader_vertex_glsl, zest_vertex_shader, "shared_reader_vert", NULL, ZEST_TRUE);
+		state.pattern_shader = zest_CreateShader(device, hlsl ? shared_reader_pattern_hlsl : shared_reader_pattern_glsl, zest_fragment_shader, "shared_reader_pattern_frag", NULL, ZEST_TRUE);
+		state.present_shader = zest_CreateShader(device, hlsl ? shared_reader_present_hlsl : shared_reader_present_glsl, zest_fragment_shader, "shared_reader_present_frag", NULL, ZEST_TRUE);
+		state.check_shader = zest_CreateShader(device, hlsl ? shared_reader_check_hlsl : shared_reader_check_glsl, zest_compute_shader, "shared_reader_check_comp", NULL, ZEST_TRUE);
+		state.check = zest_CreateCompute(device, "Shared Reader Check", state.check_shader);
+		state.pattern_pipeline = shared_reader_pipeline(device, "Shared Reader Pattern", state.vertex_shader, state.pattern_shader);
+		state.present_pipeline = shared_reader_pipeline(device, "Shared Reader Present", state.vertex_shader, state.present_shader);
+		zest_buffer_info_t result_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
+		state.result_buffer = zest_CreateBuffer(device, sizeof(zest_uint) * SHARED_READER_RESULT_WORDS, &result_info);
+		state.check_queue_type = zest_queue_graphics;
+		if (!state.check.value || !state.result_buffer) {
+			test->result |= 1;
+		} else {
+			zest_uint *words = (zest_uint *)zest_BufferData(state.result_buffer);
+			memset(words, 0, sizeof(zest_uint) * SHARED_READER_RESULT_WORDS);
+			words[2] = 0xFFFFFFFFu;
+			state.result_index = zest_AcquireStorageBufferIndex(device, state.result_buffer);
+		}
+	}
+
+	if (!test->result) {
+		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(tests->context, 0, 0);
+		zest_UpdateDevice(device);
+		if (zest_BeginFrame(tests->context)) {
+			state.frame = (zest_uint)test->frame_count;
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
+			if (!frame_graph && zest_BeginFrameGraph(tests->context, "Multi Queue Shared Reader", &cache_key)) {
+				zest_image_resource_info_t target_info = { zest_format_r16g16b16a16_sfloat, zest_resource_usage_hint_texture_array, SHARED_READER_WIDTH, SHARED_READER_HEIGHT, 1, 1 };
+				zest_image_resource_info_t side_info = { zest_format_r8g8b8a8_unorm, zest_resource_usage_hint_none, 16, 16, 1, 1 };
+				zest_ImportSwapchainResource();
+				zest_resource_node target = zest_AddTransientImageResource("Shared Reader Target", &target_info);
+				zest_resource_node side_target = async ? zest_AddTransientImageResource("Shared Reader Side", &side_info) : NULL;
+
+				zest_BeginRenderPass("Shared Reader Draw");
+				zest_ConnectOutput(target);
+				zest_SetPassTask(shared_reader_draw_task, &state);
+				zest_EndPass();
+
+				if (side_target) {
+					zest_BeginRenderPass("Shared Reader Side Clear");
+					zest_ConnectOutput(side_target);
+					zest_SetPassTask(zest_EmptyRenderPass, NULL);
+					zest_EndPass();
+				}
+
+				//Writes a buffer outside the graph, so nothing reads an output and it has to be kept
+				zest_BeginComputePass("Shared Reader Check");
+				zest_ConnectInput(target);
+				zest_DoNotCull();
+				zest_SetPassTask(shared_reader_check_task, &state);
+				zest_EndPass();
+
+				zest_BeginRenderPass("Shared Reader Present");
+				if (async) {
+					zest_ConnectInput(side_target);
+					zest_SetPassTask(zest_EmptyRenderPass, NULL);
+				} else {
+					zest_ConnectInput(target);
+					zest_SetPassTask(shared_reader_present_task, &state);
+				}
+				zest_ConnectSwapChainOutput();
+				zest_EndPass();
+
+				frame_graph = zest_EndFrameGraph();
+			}
+			zest_EndFrame(tests->context, frame_graph);
+			test->result |= zest_GetFrameGraphResult(frame_graph);
+			state.executed_frames++;
+			for (zest_uint pass_index = 0; pass_index != zest_GetFrameGraphFinalPassCount(frame_graph); ++pass_index) {
+				const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, pass_index);
+				if (strcmp(pass_group->passes[0]->name, "Shared Reader Check") == 0) state.check_queue_type = pass_group->compiled_queue_info.queue_type;
+			}
+		}
+		test->result |= zest_GetValidationErrorCount(device);
+	}
+	test->frame_count++;
+
+	if (test->frame_count >= test->run_count || test->result) {
+		test->frame_count = test->run_count;
+		zest_WaitForIdleDevice(device);
+		if (!test->result) {
+			const zest_uint *words = (const zest_uint *)zest_BufferData(state.result_buffer);
+			zest_uint frames_with_mismatches = 0;
+			for (int frame = 0; frame != SHARED_READER_FRAMES; ++frame) {
+				if (words[4 + frame]) frames_with_mismatches++;
+			}
+			ZEST_PRINT("\tThe check ran on the %s queue over %i frames: %u pixels checked, %u mismatched in %u frames", state.check_queue_type == zest_queue_compute ? "compute" : "graphics", state.executed_frames, words[0], words[1], frames_with_mismatches);
+			if (words[1]) {
+				ZEST_PRINT("\tFirst mismatch at (%u, %u), last at (%u, %u)", words[2] % SHARED_READER_WIDTH, words[2] / SHARED_READER_WIDTH, words[3] % SHARED_READER_WIDTH, words[3] / SHARED_READER_WIDTH);
+			}
+			test->result |= words[0] != (zest_uint)state.executed_frames * SHARED_READER_WIDTH * SHARED_READER_HEIGHT ? 2 : 0;
+			test->result |= words[1] != 0 ? 4 : 0;
+			test->result |= !async && state.check_queue_type != zest_queue_graphics ? 8 : 0;
+			test->result |= zest_GetValidationErrorCount(device);
+		}
+		if (state.result_buffer) {
+			zest_ReleaseStorageBufferIndex(device, state.result_index);
+			zest_FreeBufferNow(state.result_buffer);
+		}
+		zest_FreePipelineTemplate(state.pattern_pipeline);
+		zest_FreePipelineTemplate(state.present_pipeline);
+		if (state.check.value) zest_FreeCompute(state.check);
+		zest_FreeShader(state.vertex_shader);
+		zest_FreeShader(state.pattern_shader);
+		zest_FreeShader(state.present_shader);
+		zest_FreeShader(state.check_shader);
+	}
+	return test->result;
+}
+
+int test__multi_queue_shared_reader(ZestTests *tests, Test *test) {
+	return shared_reader_run(tests, test, ZEST_FALSE);
+}
+
+int test__multi_queue_shared_reader_async(ZestTests *tests, Test *test) {
+	return shared_reader_run(tests, test, ZEST_TRUE);
+}
+
 /*
 Pass Grouping :Define two graphics passes that render to the same render target but have no dependency on each other. The graph compiler should ideally
 group these into a single render pass with two subpasses for efficiency.

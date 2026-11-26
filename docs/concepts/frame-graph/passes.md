@@ -38,7 +38,7 @@ zest_BeginComputePass(compute, "Particle Sim"); {
 
 Compute passes:
 - Require a `zest_compute` object (contains the compute pipeline)
-- Can run on compute or graphics queue
+- Can run on compute or graphics queue. A compute pass runs on the compute queue only beside other queues' work in its wave (passes that depend on the same earlier passes). If no other queue has work in that wave, or the pass shares a resource with a pass on another queue in it, such as two passes reading one render target, it runs on the graphics queue, because nothing orders the batches of one wave.
 - Support storage buffer/image operations
 
 ### Transfer Pass
@@ -55,7 +55,7 @@ zest_BeginTransferPass("Upload"); {
 
 Transfer passes:
 - Handle CPU-to-GPU data transfers
-- Can run on dedicated transfer queue if available
+- Can run on dedicated transfer queue if available, under the same rule as compute passes
 - Used for staging buffer uploads
 - Treat an image connected with `zest_ConnectOutput` as an output that the copy writes. Passes that read the image are ordered after the transfer pass, and the pass is only culled when nothing reads the image and it isn't imported. An image connected with `zest_ConnectInput` is a copy source.
 

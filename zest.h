@@ -5142,6 +5142,11 @@ ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_res
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name, zest_bool is_command_graph);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
+ZEST_PRIVATE void zest__move_pass_to_graphics_queue(zest_context context, zest_frame_graph frame_graph, zest_pass_group_t *pass);
+ZEST_PRIVATE zest_bool zest__pass_uses_resource(zest_pass_group_t *pass, zest_resource_node resource);
+ZEST_PRIVATE zest_bool zest__passes_share_resource(zest_pass_group_t *first_pass, zest_pass_group_t *second_pass);
+//Passes of one wave that share a resource on different queues move to the graphics queue, as their release and acquire would sit in unordered batches
+ZEST_PRIVATE void zest__keep_shared_resources_on_one_queue(zest_context context, zest_frame_graph frame_graph, zest_execution_wave_t *wave);
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 //Fails the graph when an attachment has more layers than the device can draw views, as a layered attachment draws one view per layer
 ZEST_PRIVATE void zest__check_view_count(zest_context context, zest_resource_node resource, zest_uint layer_count);
@@ -15889,6 +15894,59 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
     }
 }
 
+void zest__move_pass_to_graphics_queue(zest_context context, zest_frame_graph frame_graph, zest_pass_group_t *pass) {
+	pass->compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
+	pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
+	pass->compiled_queue_info.queue_type = zest_queue_graphics;
+}
+
+zest_bool zest__pass_uses_resource(zest_pass_group_t *pass, zest_resource_node resource) {
+	zest_map_foreach(input_index, pass->inputs) {
+		zest_resource_node input = pass->inputs.data[input_index].resource_node;
+		if ((input->aliased_resource ? input->aliased_resource : input) == resource) return ZEST_TRUE;
+	}
+	zest_map_foreach(output_index, pass->outputs) {
+		zest_resource_node output = pass->outputs.data[output_index].resource_node;
+		if ((output->aliased_resource ? output->aliased_resource : output) == resource) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+zest_bool zest__passes_share_resource(zest_pass_group_t *first_pass, zest_pass_group_t *second_pass) {
+	zest_map_foreach(input_index, first_pass->inputs) {
+		zest_resource_node input = first_pass->inputs.data[input_index].resource_node;
+		if (zest__pass_uses_resource(second_pass, input->aliased_resource ? input->aliased_resource : input)) return ZEST_TRUE;
+	}
+	zest_map_foreach(output_index, first_pass->outputs) {
+		zest_resource_node output = first_pass->outputs.data[output_index].resource_node;
+		if (zest__pass_uses_resource(second_pass, output->aliased_resource ? output->aliased_resource : output)) return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+void zest__keep_shared_resources_on_one_queue(zest_context context, zest_frame_graph frame_graph, zest_execution_wave_t *wave) {
+	if (zloc__count_bits(wave->queue_bits) < 2) return;
+	zest_bool moved = ZEST_TRUE;
+	while (moved) {
+		moved = ZEST_FALSE;
+		zest_vec_foreach(first_index, wave->pass_indices) {
+			zest_pass_group_t *first_pass = &frame_graph->final_passes.data[wave->pass_indices[first_index]];
+			for (int second_index = first_index + 1; second_index != (int)zest_vec_size(wave->pass_indices); ++second_index) {
+				zest_pass_group_t *second_pass = &frame_graph->final_passes.data[wave->pass_indices[second_index]];
+				if (first_pass->compiled_queue_info.queue_type == second_pass->compiled_queue_info.queue_type) continue;
+				if (!zest__passes_share_resource(first_pass, second_pass)) continue;
+				if (first_pass->compiled_queue_info.queue_type != zest_queue_graphics) zest__move_pass_to_graphics_queue(context, frame_graph, first_pass);
+				if (second_pass->compiled_queue_info.queue_type != zest_queue_graphics) zest__move_pass_to_graphics_queue(context, frame_graph, second_pass);
+				moved = ZEST_TRUE;
+			}
+		}
+	}
+	wave->queue_bits = 0;
+	zest_vec_foreach(pass_index, wave->pass_indices) {
+		wave->queue_bits |= frame_graph->final_passes.data[wave->pass_indices[pass_index]].compiled_queue_info.queue_type;
+	}
+}
+
 /*
 frame graph compiler index:
 
@@ -16300,13 +16358,12 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
     if (pass_count > 0) {
+		zest__keep_shared_resources_on_one_queue(context, frame_graph, &first_wave);
 		if (zloc__count_bits(first_wave.queue_bits) == 1) {
 			zest_vec_foreach(i, first_wave.pass_indices) {
 				zest_pass_group_t *pass = &frame_graph->final_passes.data[first_wave.pass_indices[i]];
 				if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-					pass->compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
-					pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
-					pass->compiled_queue_info.queue_type = zest_queue_graphics;
+					zest__move_pass_to_graphics_queue(context, frame_graph, pass);
 				}
 			}
 			first_wave.queue_bits = zest_queue_graphics;
@@ -16333,15 +16390,14 @@ zest_frame_graph zest__compile_frame_graph() {
             }
         }
         if (zest_vec_size(next_wave.pass_indices) > 0) {
+			zest__keep_shared_resources_on_one_queue(context, frame_graph, &next_wave);
 			//If this wave is NOT an async wave (ie., only a single queue is used) then it should only
 			//use the graphics queue.
 			if (zloc__count_bits(next_wave.queue_bits) == 1) {
 				zest_vec_foreach(i, next_wave.pass_indices) {
 					zest_pass_group_t *pass = &frame_graph->final_passes.data[next_wave.pass_indices[i]];
 					if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
-						pass->compiled_queue_info.queue = zest__get_frame_graph_queue(context, frame_graph->name, context->graphics_queue_index);
-						pass->compiled_queue_info.queue_family_index = context->graphics_family_index;
-						pass->compiled_queue_info.queue_type = zest_queue_graphics;
+						zest__move_pass_to_graphics_queue(context, frame_graph, pass);
 					}
 				}
 				next_wave.queue_bits = zest_queue_graphics;
@@ -16517,6 +16573,8 @@ zest_frame_graph zest__compile_frame_graph() {
 		sync_submission.batches[0].queue_family_index = sync_pass.compiled_queue_info.queue_family_index;
 		sync_submission.batches[0].queue_type = sync_pass.compiled_queue_info.queue_type;
 		sync_submission.batches[0].timeline_wait_stage |= sync_pass.compiled_queue_info.timeline_wait_stage;
+		//The batch records no commands, so only an all commands wait chains the last wave's work to its frame timeline signal
+		sync_submission.batches[0].queue_wait_stages = zest_pipeline_stage_all_commands_bit;
 		zest_execution_wave_t sync_wave = ZEST__ZERO_INIT(zest_execution_wave_t);
 		sync_wave.queue_bits = zest_queue_graphics;
 		sync_wave.level = last_execution_wave->level + 1;
