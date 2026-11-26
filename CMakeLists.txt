@@ -82,8 +82,8 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ZestMetal.cmake)
 if(ZEST_METAL_ENABLED)
     # Use #ifdef ZEST_ENABLE_METAL in your code
-    target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_METAL)
-    target_compile_definitions(zest PRIVATE ZEST_ENABLE_METAL)
+    target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_METAL ${ZEST_METAL_DEFINITIONS})
+    target_compile_definitions(zest PRIVATE ZEST_ENABLE_METAL PUBLIC ${ZEST_METAL_DEFINITIONS})
     target_include_directories(zest-interface INTERFACE ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR} ${ZEST_METAL_SHADERC_INCLUDE_DIR})
     target_include_directories(zest PUBLIC ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR} ${ZEST_METAL_SHADERC_INCLUDE_DIR})
     # Frameworks first: Vulkan links QuartzCore too, and CMake links twice any static library between two copies of an item

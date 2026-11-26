@@ -837,3 +837,27 @@ int test__device_builder_freed(ZestTests *tests, Test *test) {
 	return 0;
 }
 #endif
+
+#ifdef ZEST_ENABLE_VULKAN
+//The debug overlay's shaders are embedded SPIR-V, so creating them never starts shaderc
+int test__builtin_shaders_need_no_compiler(ZestTests *tests, Test *test) {
+	zest_device_builder builder = zest_BeginVulkanDeviceBuilder(0);
+	zest_AddDeviceBuilderExtension(builder, VK_KHR_SURFACE_EXTENSION_NAME);
+	zest_device device = zest_EndDeviceBuilder(builder);
+	test->result = device == NULL;
+	if (device) {
+		zest_shader_handle vertex = device->platform->get_db_overlay_vertex_shader(device);
+		zest_shader_handle fragment = device->platform->get_db_overlay_fragment_shader(device);
+		zest_bool valid = zest_IsValidHandle(&vertex) && zest_IsValidHandle(&fragment);
+		test->result |= !valid || shader_binary_magic(zest_GetShader(vertex)) != 0x07230203 || shader_binary_magic(zest_GetShader(fragment)) != 0x07230203;
+#ifndef ZEST_NO_SHADERC
+		test->result |= device->backend->shaderc_compiler != NULL;
+#endif
+		if (zest_IsValidHandle(&vertex)) zest_FreeShader(vertex);
+		if (zest_IsValidHandle(&fragment)) zest_FreeShader(fragment);
+		zest_DestroyDevice(device);
+	}
+	test->frame_count++;
+	return 0;
+}
+#endif

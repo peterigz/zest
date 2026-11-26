@@ -1,6 +1,6 @@
-# Metal support without add_subdirectory(zest): include ZestVulkan.cmake first if Vulkan is built, set ZEST_ENABLE_METAL, include this, call zest_metal_implementation_source(<target> <file>)
-# Then add the include folders ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR} ${ZEST_METAL_SHADERC_INCLUDE_DIR} and link ${ZEST_METAL_FRAMEWORKS} ${ZEST_METAL_SPIRV_CROSS_LIBRARIES} ${ZEST_METAL_SHADERC_LIBRARY}.
-# The shaderc ones are empty when Vulkan's shaderc serves Metal.
+# Metal support without add_subdirectory(zest): include ZestVulkan.cmake first if Vulkan is built, set ZEST_ENABLE_METAL and ZEST_ENABLE_SHADERC, include this, call zest_metal_implementation_source(<target> <file>)
+# Then define ${ZEST_METAL_DEFINITIONS}, add the include folders ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR} ${ZEST_METAL_SHADERC_INCLUDE_DIR} and link ${ZEST_METAL_FRAMEWORKS} ${ZEST_METAL_SPIRV_CROSS_LIBRARIES} ${ZEST_METAL_SHADERC_LIBRARY}.
+# The shaderc ones are empty when Vulkan's shaderc serves Metal, or when ZEST_ENABLE_SHADERC is OFF.
 
 # Variables are set in the including scope on every include, the function only on the first
 get_property(_zest_metal_included GLOBAL PROPERTY ZEST_METAL_MODULE_INCLUDED)
@@ -16,10 +16,15 @@ if(NOT DEFINED ZEST_ENABLE_METAL)
     endif()
     option(ZEST_ENABLE_METAL "Enable the Metal backend (Apple only)" ${_zest_metal_default})
 endif()
+# Also in ZestVulkan.cmake, whichever is included first. OFF defines ZEST_NO_SHADERC, which compiles shaderc out of both backends
+if(NOT DEFINED ZEST_ENABLE_SHADERC)
+    option(ZEST_ENABLE_SHADERC "Link shaderc so the Vulkan and Metal backends compile GLSL at runtime. OFF needs precompiled SPIR-V or Slang" ON)
+endif()
 
 set(ZEST_METAL_ENABLED FALSE)
 set(ZEST_METAL_SPIRV_CROSS_LIBRARIES "")
 set(ZEST_METAL_FRAMEWORKS "")
+set(ZEST_METAL_DEFINITIONS "")
 
 if(ZEST_ENABLE_METAL)
     if(NOT APPLE)
@@ -55,7 +60,11 @@ if(ZEST_ENABLE_METAL)
     endforeach()
 
     # Vulkan's shaderc serves Metal too when Vulkan is built, so include ZestVulkan.cmake first
-    if(ZEST_VULKAN_SHADERC_FOUND)
+    if(NOT ZEST_ENABLE_SHADERC)
+        set(ZEST_METAL_SHADERC_INCLUDE_DIR "")
+        set(ZEST_METAL_SHADERC_LIBRARY "")
+        set(ZEST_METAL_DEFINITIONS ZEST_NO_SHADERC)
+    elseif(ZEST_VULKAN_SHADERC_FOUND)
         set(ZEST_METAL_SHADERC_INCLUDE_DIR "")
         set(ZEST_METAL_SHADERC_LIBRARY "")
         set(_zest_metal_shaderc_source "the Vulkan build")
@@ -85,7 +94,9 @@ if(ZEST_ENABLE_METAL)
     endif()
 
     # Homebrew builds its bottles for the macOS it runs on, so linking them raises the deployment target to that macOS
-    if(ZEST_VULKAN_SHADERC_FOUND)
+    if(NOT ZEST_ENABLE_SHADERC)
+        set(_zest_metal_shaderc_paths "")
+    elseif(ZEST_VULKAN_SHADERC_FOUND)
         set(_zest_metal_shaderc_paths "${Vulkan_shaderc_combined_LIBRARY}" ${SHADERC_LIBRARY_DIRS})
     else()
         set(_zest_metal_shaderc_paths "${ZEST_METAL_SHADERC_LIBRARY}")
@@ -114,7 +125,12 @@ if(ZEST_ENABLE_METAL)
     endif()
 
     set(ZEST_METAL_ENABLED TRUE)
-    message(STATUS "Metal support enabled: SPIRV-Cross from ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR}, shaderc from ${_zest_metal_shaderc_source}, deployment target ${CMAKE_OSX_DEPLOYMENT_TARGET}${_zest_metal_deployment_reason}")
+    if(ZEST_ENABLE_SHADERC)
+        set(_zest_metal_shaderc_text "shaderc from ${_zest_metal_shaderc_source}")
+    else()
+        set(_zest_metal_shaderc_text "no shaderc")
+    endif()
+    message(STATUS "Metal support enabled: SPIRV-Cross from ${ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR}, ${_zest_metal_shaderc_text}, deployment target ${CMAKE_OSX_DEPLOYMENT_TARGET}${_zest_metal_deployment_reason}")
 endif()
 
 if(NOT _zest_metal_included)

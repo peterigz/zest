@@ -88,6 +88,7 @@ Optional CMake flags:
 | `-DZEST_ENABLE_D3D12=OFF` | Build without the D3D12 backend. It's on by default on Windows, and the first configure downloads the Agility SDK and DXC packages |
 | `-DZEST_ENABLE_VULKAN=OFF` | Build without the Vulkan backend. By default (`AUTO`) it's built whenever CMake finds the Vulkan SDK, or on Linux your distribution's Vulkan packages, and `ON` makes a missing SDK an error. Without it Windows builds D3D12 only and macOS Metal only |
 | `-DZEST_ENABLE_METAL=OFF` | Build without the Metal backend. It's on by default on Apple, and needs shaderc and SPIRV-Cross from the Vulkan SDK or Homebrew (`brew install shaderc spirv-cross`) |
+| `-DZEST_ENABLE_SHADERC=OFF` | Build without shaderc. The Vulkan and Metal backends then compile no GLSL at runtime, and load precompiled SPIR-V or Slang instead. Zest's own shaders are embedded, so they never need shaderc, and Metal needs only SPIRV-Cross |
 
 ### Frame Graph Example
 

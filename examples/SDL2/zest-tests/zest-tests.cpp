@@ -78,6 +78,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Pipeline Test ImGui Shaders", test__pipeline_imgui_shaders, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Cache Invalidation", test__shader_cache_invalidation, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Binary Platform Mismatch", test__shader_binary_platform_mismatch, 0, 1, 0, 0, tests->simple_create_info });
+	RegisterTest(tests, { "Shader Compile Failure Returns Zero Handle", test__shader_compile_failure_zero_handle, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader MSL Source Platform", test__shader_msl_source_platform, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Shader Platform Macro", test__shader_platform_macro, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "Resource Test Image Format Support", test__image_format_support, 0, 1, 0, 0, tests->simple_create_info });
@@ -202,6 +203,7 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "User Test Device Creation Pool Failure", test__device_creation_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Sync Validation Flag", test__sync_validation_flag, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Device Builder Freed", test__device_builder_freed, 0, 1, 0, 0, tests->headless_create_info });
+	RegisterTest(tests, { "User Test Built-in Shaders Need No Compiler", test__builtin_shaders_need_no_compiler, 0, 1, 0, 0, tests->headless_create_info });
 #endif
 	RegisterTest(tests, { "User Test Swapchain Resize", test__swapchain_resize, 0, 1, 0, 0, tests->simple_create_info });
 
@@ -226,6 +228,8 @@ static const char *vulkan_only_tests[] = {
 	"User Test Sync Validation Flag",
 	//Builds a Vulkan device
 	"User Test Device Builder Freed",
+	//Builds a Vulkan device; "Metal Built-in Shaders Need No Compiler" and "D3D12 Built-in Shaders Need No Compiler" cover the others
+	"User Test Built-in Shaders Need No Compiler",
 	//Expects a blit report D3D12 never gives, as it copies a matching format on the copy queue
 	"Frame Graph Transfer Queue Blit Report",
 };

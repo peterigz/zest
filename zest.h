@@ -5347,14 +5347,17 @@ ZEST_API void zest_FreeShaderOptions(zest_shader_options options);
 //for the buffer indexes the backend binds.
 ZEST_API void zest_SetShaderOptionsMSL(zest_shader_options options, zest_uint local_size_x, zest_uint local_size_y, zest_uint local_size_z);
 //Validate a shader from a source code string. The source language is defined by the device's backend
-//(GLSL for the Vulkan backend). Checks GLSL or HLSL only, as it takes no options to mark MSL. Returns true if the shader compiles.
+//(GLSL on Vulkan and Metal, HLSL on D3D12). Checks GLSL or HLSL only, as it takes no options to mark MSL. Returns true if the
+//shader compiles. A ZEST_NO_SHADERC build compiles no GLSL, so this returns false on Vulkan and Metal.
 ZEST_API zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 //Creates and compiles a new shader from a source code string and adds it to the library of shaders in the renderer.
-//The source language is defined by the device's backend (GLSL for the Vulkan backend). For backend-portable shaders
+//The source language is defined by the device's backend (GLSL on Vulkan and Metal, HLSL on D3D12). For backend-portable shaders
 //use the Slang integration (implementations/impl_slang.hpp) or load precompiled binaries with zest_CreateShaderFromBinary.
+//Returns a zero handle and raises a validation error when the shader doesn't compile. A ZEST_NO_SHADERC build compiles no
+//GLSL, so a GLSL shader gives a zero handle there unless shader caching finds its SPIR-V from an earlier build.
 ZEST_API zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_shader_options options, zest_bool disable_caching);
 //Creates a shader from a file containing shader source code. The source language is defined by the device's
-//backend (GLSL for the Vulkan backend).
+//backend (GLSL on Vulkan and Metal, HLSL on D3D12).
 ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_shader_options options, zest_bool disable_caching);
 //Get a shader pointer that you can use to pass in to functions. Curently there's no real use for this so may
 //remove in the future.
@@ -5367,13 +5370,14 @@ ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Recompiles the shader's source. options become the ones hot reload uses; NULL reuses the shader's current options.
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, zest_shader_options options);
 //Add a shader straight from a precompiled binary file and return a handle to the shader. The binary format is
-//defined by the device's backend (SPIR-V for Vulkan, a DXIL container for D3D12); a binary in another format is reported
+//defined by the device's backend (SPIR-V for Vulkan and Metal, a DXIL container for D3D12); a binary in another format is reported
 //as a validation error and gives a zero handle. Note that no prefix is added to the filename here
 //so pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader_handle zest_CreateShaderFromBinaryFile(zest_device device, const char *filename, zest_shader_type type);
 //Add a precompiled shader binary straight from memory and return a handle to the shader. The binary format is
-//defined by the device's backend (SPIR-V for Vulkan, a DXIL container for D3D12); a binary in another format is reported
-//as a validation error and gives a zero handle. Note that the name should just be the name of the
+//defined by the device's backend (SPIR-V for Vulkan and Metal, a DXIL container for D3D12); a binary in another format is reported
+//as a validation error and gives a zero handle. It needs neither shaderc nor DXC, so it works in a ZEST_NO_SHADERC build, and on
+//Metal the SPIR-V is converted with SPIRV-Cross when a pipeline or compute first needs it. Note that the name should just be the name of the
 //shader; if a shader cache path is set on the device builder (zest_SetDeviceBuilderCacheShaderPath or the platform
 //default) then that prefix will be prepended to the name you pass in here.
 ZEST_API zest_shader_handle zest_CreateShaderFromBinary(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
@@ -13494,7 +13498,8 @@ zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code
 	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", options)) {
 		zest__activate_resource(shader_handle.store, shader_handle.value);
         zest_FreeShader(shader_handle);
-        ZEST_ASSERT(0, "There's a bug in this shader that needs fixing. You can check the log file for the error message");
+		ZEST_ASSERT_OR_VALIDATE(ZEST_FALSE, device, "A shader didn't compile, so zest_CreateShader returned a zero handle. The log file names the shader and has the compiler's message.", ZEST__ZERO_INIT(zest_shader_handle));
+		return ZEST__ZERO_INIT(zest_shader_handle);
 	}
 
     if (use_cache) {

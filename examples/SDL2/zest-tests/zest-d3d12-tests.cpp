@@ -1004,16 +1004,14 @@ int test_d3d12_shader_reflection_cross_check(void) {
 	if (!device) return 1;
 	int failed = 0;
 	zest_uint checked_count = 0;
-	ID3DBlob *blit_vertex = NULL;
-	ID3DBlob *blit_pixel = NULL;
-	zest_size blit_length = (zest_size)strlen(zest__dx_blit_shader);
-	failed |= !zest__dx_compile_hlsl(device, zest__dx_blit_shader, blit_length, "zest_blit_vertex", "vertex_main", "vs_6_0", NULL, 0, NULL, &blit_vertex);
-	failed |= !zest__dx_compile_hlsl(device, zest__dx_blit_shader, blit_length, "zest_blit_pixel", "pixel_main", "ps_6_0", NULL, 0, NULL, &blit_pixel);
+	//The built-ins are embedded, so nothing has loaded DXC yet
+	if (!zest__dx_load_dxc(device)) {
+		finish_device(device);
+		return 1;
+	}
 	DxcCreateInstanceProc create_instance = (DxcCreateInstanceProc)(void *)GetProcAddress(ZEST_DX_BACKEND(device, device)->dxc_module, "DxcCreateInstance");
 	IDxcUtils *utils = NULL;
 	if (!create_instance || FAILED(create_instance(CLSID_DxcUtils, IID_PPV_ARGS(&utils))) || !utils) {
-		ZEST_DX_RELEASE(blit_vertex);
-		ZEST_DX_RELEASE(blit_pixel);
 		finish_device(device);
 		return 1;
 	}
@@ -1023,13 +1021,13 @@ int test_d3d12_shader_reflection_cross_check(void) {
 		checked_count += dxil != NULL;
 		ZEST_DX_RELEASE(dxil);
 	}
-	ID3DBlob *blit_blobs[2] = { blit_vertex, blit_pixel };
-	for (zest_uint blit_index = 0; blit_index != 2; ++blit_index) {
-		failed |= !blit_blobs[blit_index] || cross_check_reflection(utils, ZEST_DX_CALL0(blit_blobs[blit_index], GetBufferPointer), ZEST_DX_CALL0(blit_blobs[blit_index], GetBufferSize), blit_index ? "zest_blit_pixel" : "zest_blit_vertex");
-		checked_count += blit_blobs[blit_index] != NULL;
+	const void *builtin_shaders[4] = { zest__dx_blit_vertex_dxil, zest__dx_blit_pixel_dxil, zest__dx_db_overlay_vertex_dxil, zest__dx_db_overlay_pixel_dxil };
+	const size_t builtin_sizes[4] = { sizeof(zest__dx_blit_vertex_dxil), sizeof(zest__dx_blit_pixel_dxil), sizeof(zest__dx_db_overlay_vertex_dxil), sizeof(zest__dx_db_overlay_pixel_dxil) };
+	const char *builtin_names[4] = { "zest__dx_blit_vertex_dxil", "zest__dx_blit_pixel_dxil", "zest__dx_db_overlay_vertex_dxil", "zest__dx_db_overlay_pixel_dxil" };
+	for (zest_uint builtin_index = 0; builtin_index != 4; ++builtin_index) {
+		failed |= cross_check_reflection(utils, builtin_shaders[builtin_index], builtin_sizes[builtin_index], builtin_names[builtin_index]);
+		checked_count++;
 	}
-	ZEST_DX_RELEASE(blit_vertex);
-	ZEST_DX_RELEASE(blit_pixel);
 #ifdef ZEST_ENABLE_SLANG
 	zest_slang_blob_t slang_blobs[D3D12_SLANG_ENTRY_COUNT];
 	failed |= compile_slang_dxil_set(device, slang_blobs);
@@ -3548,18 +3546,17 @@ int test_d3d12_debug_overlay(void) {
 		set_test_clear_color(context);
 		failed |= run_overlay_frames(context, 8);
 		failed |= !zest_PipelineIsValid(context->db_overlay.pipeline);
-		ID3DBlob *vertex_blob = backend->overlay_vertex_shader;
-		ID3DBlob *pixel_blob = backend->overlay_pixel_shader;
-		failed |= vertex_blob == NULL || pixel_blob == NULL;
+		//The overlay's DXIL is embedded, so drawing it never loads DXC
+		failed |= backend->dxc_compiler != NULL;
 		failed |= zest_GetValidationErrorCount(device) != 0;
-		//The reset destroys the context, and the blobs outlive it as they don't depend on the device
+		//The reset destroys the context, and the next one creates the overlay from the same arrays
 		zest_ResetDevice(device);
-		failed |= backend->overlay_vertex_shader != vertex_blob || backend->overlay_pixel_shader != pixel_blob;
 		context = zest_CreateContext(device, &window.window_data, &info);
 		failed |= context == NULL;
 		if (context) {
 			set_test_clear_color(context);
 			failed |= run_overlay_frames(context, 2);
+			failed |= backend->dxc_compiler != NULL;
 			failed |= zest_GetValidationErrorCount(device) != 0;
 			zest_DestroyContext(context);
 		}
@@ -3567,6 +3564,21 @@ int test_d3d12_debug_overlay(void) {
 	failed |= finish_device(device);
 	close_test_window(&window);
 	return failed;
+}
+
+//The built-ins are embedded DXIL, so the overlay's shaders and the blit pipeline never load DXC
+int test_d3d12_builtin_shaders_need_no_compiler(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginD3D12TestBuilder());
+	if (!device) return 1;
+	zest_dx_device_backend_t *backend = ZEST_DX_BACKEND(device, device);
+	zest_shader_handle vertex = device->platform->get_db_overlay_vertex_shader(device);
+	zest_shader_handle fragment = device->platform->get_db_overlay_fragment_shader(device);
+	int failed = !zest_IsValidHandle(&vertex) || !zest_IsValidHandle(&fragment);
+	failed |= zest__dx_blit_pipeline(device, DXGI_FORMAT_R8G8B8A8_UNORM) == NULL;
+	failed |= backend->dxc_compiler != NULL || backend->dxil_module != NULL;
+	if (zest_IsValidHandle(&vertex)) zest_FreeShader(vertex);
+	if (zest_IsValidHandle(&fragment)) zest_FreeShader(fragment);
+	return failed | finish_device(device);
 }
 
 //WKPDID_D3DDebugObjectNameW from d3dcommon.h, as Zest doesn't link dxguid.lib
@@ -3931,7 +3943,9 @@ static const char *orientation_pixel_source =
 
 //Draws the winding test's triangle on an immediate graphics list and reads the target back
 static int draw_orientation_triangle(zest_device device, zest_image image, ID3DBlob *vertex_dxil, ID3DBlob *pixel_dxil, D3D12_CULL_MODE cull_mode, BOOL front_counter_clockwise, const char *name, WindingCoverage *coverage) {
-	ID3D12PipelineState *pipeline = zest__dx_create_utility_pipeline(device, vertex_dxil, pixel_dxil, DXGI_FORMAT_R8G8B8A8_UNORM, cull_mode, front_counter_clockwise);
+	D3D12_SHADER_BYTECODE vertex_shader = { ZEST_DX_CALL0(vertex_dxil, GetBufferPointer), ZEST_DX_CALL0(vertex_dxil, GetBufferSize) };
+	D3D12_SHADER_BYTECODE pixel_shader = { ZEST_DX_CALL0(pixel_dxil, GetBufferPointer), ZEST_DX_CALL0(pixel_dxil, GetBufferSize) };
+	ID3D12PipelineState *pipeline = zest__dx_create_utility_pipeline(device, vertex_shader, pixel_shader, DXGI_FORMAT_R8G8B8A8_UNORM, cull_mode, front_counter_clockwise);
 	if (!pipeline) return 1;
 	zest_queue queue = zest_imm_BeginCommandBuffer(device, zest_queue_graphics);
 	if (!queue) {
@@ -6241,6 +6255,7 @@ static D3D12Test d3d12_tests[] = {
 	{ "D3D12 Present Parameters", test_d3d12_present_parameters },
 	{ "D3D12 Windowed Frames", test_d3d12_windowed_frames },
 	{ "D3D12 Debug Overlay", test_d3d12_debug_overlay },
+	{ "D3D12 Built-in Shaders Need No Compiler", test_d3d12_builtin_shaders_need_no_compiler },
 	{ "D3D12 Object Names", test_d3d12_object_names },
 	{ "D3D12 Push Constant Fallback Frames", test_d3d12_push_constant_fallback_frames },
 	{ "D3D12 DXGI Messages Counted", test_d3d12_dxgi_messages_counted },

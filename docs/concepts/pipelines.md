@@ -57,14 +57,14 @@ zest_shader_handle vert = zest_CreateShaderFromFile(
     false                     // Whether to disable caching for this shader
 );
 
-// From a pre-compiled binary file (SPIR-V on the Vulkan backend)
+// From a pre-compiled binary file (SPIR-V on Vulkan and Metal, DXIL on D3D12)
 zest_shader_handle frag = zest_CreateShaderFromBinaryFile(
     device,
     "shaders/sprite.frag.spv",
     zest_fragment_shader
 );
 
-// From a pre-compiled binary in memory (SPIR-V on the Vulkan backend)
+// From a pre-compiled binary in memory (SPIR-V on Vulkan and Metal, DXIL on D3D12)
 zest_shader_handle comp = zest_CreateShaderFromBinary(
     device,
     "compute.spv",            // Name
@@ -73,6 +73,17 @@ zest_shader_handle comp = zest_CreateShaderFromBinary(
     zest_compute_shader       // Shader type
 );
 ```
+
+### Shipping Precompiled Shaders
+
+Zest's own shaders, the debug overlay and the blit that D3D12 also uses for mip generation, are compiled into the headers, so creating them never starts shaderc or DXC. An app that loads all its other shaders from binaries starts neither:
+
+- Compile each shader offline for every backend you ship:
+    - **Vulkan and Metal:** SPIR-V with the entry point `main`, from `glslc` or `slangc`. Metal converts it to MSL with SPIRV-Cross when a pipeline or compute first needs it, and then compiles the MSL itself, which the OS caches after the first run.
+    - **D3D12:** a DXIL container from `dxc` or `slangc`, for a shader model the device supports. Shader model 6.0 runs on every device the D3D12 backend runs on.
+- Load them with `zest_CreateShaderFromBinary` or `zest_CreateShaderFromBinaryFile`. A binary in another backend's format is a validation error and a zero handle.
+
+To leave shaderc out of the build as well, configure with `-DZEST_ENABLE_SHADERC=OFF`, or define `ZEST_NO_SHADERC` before including Zest. Such a build compiles no GLSL: `zest_ValidateShader` and `zest_CompileShader` return false, and `zest_CreateShader` returns a zero handle unless shader caching (`zest_DeviceBuilderCacheShaders`) finds the shader's SPIR-V from an earlier build, each with a log message saying what to do instead. Precompiled SPIR-V, Slang, HLSL on D3D12 and MSL on Metal still work.
 
 ### Setting Shaders
 

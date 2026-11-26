@@ -1275,6 +1275,28 @@ int test__shader_binary_platform_mismatch(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+//A shader that doesn't compile gives a zero handle and one validation error, never a handle to the shader it freed
+int test__shader_compile_failure_zero_handle(ZestTests *tests, Test *test) {
+	zest_device device = tests->device;
+	zest_bool d3d12 = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	const char *source = d3d12 ? "float4 main() : SV_Target { return undeclared_value; }\n" : "#version 450\nlayout(location = 0) out vec4 out_color;\nvoid main() { out_color = undeclared_value; }\n";
+	int failed_count = 0;
+	zest_uint error_count = zest_GetValidationErrorCount(device);
+	zest_shader_handle handle = zest_CreateShader(device, source, zest_fragment_shader, "zest_compile_failure_test", NULL, ZEST_TRUE);
+	if (handle.value != 0) {
+		ZEST_PRINT("\tA shader that didn't compile was given a handle");
+		failed_count++;
+	}
+	if (zest_GetValidationErrorCount(device) != error_count + 1) {
+		ZEST_PRINT("\tA shader that didn't compile gave %u validation errors, not 1", zest_GetValidationErrorCount(device) - error_count);
+		failed_count++;
+	}
+	zest_ResetValidationErrors(device);
+	test->result = failed_count > 0 ? 1 : 0;
+	test->frame_count++;
+	return test->result;
+}
+
 //MSL is refused before any other backend's compiler sees it, and Metal keeps the text as the shader's binary and out of the cache
 int test__shader_msl_source_platform(ZestTests *tests, Test *test) {
 	static const char *msl_red_fragment =

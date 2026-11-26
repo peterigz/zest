@@ -3504,9 +3504,11 @@ int test_metal_validation_reports(void) {
 #define METAL_COMPILE_SOURCE_COUNT 8
 #define METAL_COMPILE_THREAD_COUNT 4
 
+#ifndef ZEST_NO_SHADERC
 static const char *metal_compile_test_files[METAL_COMPILE_SOURCE_COUNT] = {
 	"buffer_verify.comp", "buffer_write.comp", "image_verify.comp", "image_write2.comp", "instance.vert", "instance.frag", "vertex.vert", "vertex.frag",
 };
+#endif
 
 static const char *metal_macro_compute_source =
 	"#version 450\n"
@@ -3529,6 +3531,7 @@ static const char *metal_stage_fragment_source =
 	"layout(location = 0) out vec4 color;\n"
 	"void main() { color = vec4(1.0); }\n";
 
+#ifndef ZEST_NO_SHADERC
 static zest_shader_type metal_shader_type_of_file(const char *file_name) {
 	const char *extension = strrchr(file_name, '.');
 	if (strcmp(extension, ".vert") == 0) return zest_vertex_shader;
@@ -3560,13 +3563,16 @@ static void *metal_compile_worker(void *parameter) {
 	}
 	return NULL;
 }
+#endif
 
 int test_metal_shader_compile(void) {
 	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
 	if (!device) return 1;
+	int failed = 0;
+#ifndef ZEST_NO_SHADERC
 	zest_mtl_device_backend_t *backend = ZEST_MTL_BACKEND(device, device);
 	//The threads below only race to create the compiler on a device that hasn't compiled yet
-	int failed = backend->shaderc_compiler != NULL;
+	failed |= backend->shaderc_compiler != NULL;
 
 	zest_file sources[METAL_COMPILE_SOURCE_COUNT] = {};
 	for (zest_uint source_index = 0; source_index != METAL_COMPILE_SOURCE_COUNT; ++source_index) {
@@ -3595,6 +3601,7 @@ int test_metal_shader_compile(void) {
 	for (zest_uint source_index = 0; source_index != METAL_COMPILE_SOURCE_COUNT; ++source_index) {
 		if (sources[source_index]) zest_FreeFile(device, sources[source_index]);
 	}
+#endif
 
 	const char *stage_sources[3] = { metal_stage_vertex_source, metal_stage_fragment_source, glsl_empty_compute };
 	zest_shader_type stage_types[3] = { zest_vertex_shader, zest_fragment_shader, zest_compute_shader };
@@ -5118,9 +5125,29 @@ int test_metal_debug_overlay(void) {
 			zest_DestroyContext(context);
 		}
 	}
+#ifndef ZEST_NO_SHADERC
+	//The overlay's SPIR-V is embedded, and converting and drawing it needs no shaderc
+	failed |= ZEST_MTL_BACKEND(device, device)->shaderc_compiler != NULL;
+#endif
 	failed |= finish_metal_device(device);
 	metal_close_test_window(&window);
 	return failed;
+}
+
+//The debug overlay's shaders are embedded SPIR-V, so creating them never starts shaderc
+int test_metal_builtin_shaders_need_no_compiler(void) {
+	zest_device device = zest_EndDeviceBuilder(BeginMetalTestBuilder());
+	if (!device) return 1;
+	zest_shader_handle vertex = device->platform->get_db_overlay_vertex_shader(device);
+	zest_shader_handle fragment = device->platform->get_db_overlay_fragment_shader(device);
+	zest_bool valid = zest_IsValidHandle(&vertex) && zest_IsValidHandle(&fragment);
+	int failed = !valid || shader_binary_magic(zest_GetShader(vertex)) != METAL_SPIRV_MAGIC || shader_binary_magic(zest_GetShader(fragment)) != METAL_SPIRV_MAGIC;
+#ifndef ZEST_NO_SHADERC
+	failed |= ZEST_MTL_BACKEND(device, device)->shaderc_compiler != NULL;
+#endif
+	if (zest_IsValidHandle(&vertex)) zest_FreeShader(vertex);
+	if (zest_IsValidHandle(&fragment)) zest_FreeShader(fragment);
+	return failed | finish_metal_device(device);
 }
 
 #define METAL_CROSS_WORD_COUNT 256
@@ -7068,6 +7095,7 @@ static MetalTest metal_tests[] = {
 	{ "Metal Immediate Compute", test_metal_immediate_compute },
 	{ "Metal Compute Reads Descriptors", test_metal_compute_reads_descriptors },
 	{ "Metal Debug Overlay", test_metal_debug_overlay },
+	{ "Metal Built-in Shaders Need No Compiler", test_metal_builtin_shaders_need_no_compiler },
 	{ "Metal Cross Queue Order", test_metal_cross_queue_order },
 	{ "Metal Unwaited Graph Drain", test_metal_unwaited_graph_drain },
 	{ "Metal Unwaited Graph Timeout", test_metal_unwaited_graph_timeout },

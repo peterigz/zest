@@ -1,10 +1,14 @@
-# Vulkan support without add_subdirectory(zest): set ZEST_ENABLE_VULKAN, include this, link ${ZEST_VULKAN_LIBRARIES}
+# Vulkan support without add_subdirectory(zest): set ZEST_ENABLE_VULKAN and ZEST_ENABLE_SHADERC, include this, define ${ZEST_VULKAN_DEFINITIONS} and link ${ZEST_VULKAN_LIBRARIES}
 
 # Guarded so a host's set() before the include isn't discarded by set(CACHE) under old policies.
 # AUTO builds Vulkan when CMake finds it, so a D3D12 or Metal build needs no Vulkan SDK
 if(NOT DEFINED ZEST_ENABLE_VULKAN)
     set(ZEST_ENABLE_VULKAN AUTO CACHE STRING "Build the Vulkan backend: AUTO when CMake finds Vulkan, ON to require it, OFF to leave it out")
     set_property(CACHE ZEST_ENABLE_VULKAN PROPERTY STRINGS AUTO ON OFF)
+endif()
+# Also in ZestMetal.cmake, whichever is included first. OFF defines ZEST_NO_SHADERC, which compiles shaderc out of both backends
+if(NOT DEFINED ZEST_ENABLE_SHADERC)
+    option(ZEST_ENABLE_SHADERC "Link shaderc so the Vulkan and Metal backends compile GLSL at runtime. OFF needs precompiled SPIR-V or Slang" ON)
 endif()
 
 set(ZEST_VULKAN_ENABLED FALSE)
@@ -27,7 +31,11 @@ else()
 endif()
 
 if(_zest_vulkan_wanted)
-    find_package(Vulkan COMPONENTS shaderc_combined)
+    if(ZEST_ENABLE_SHADERC)
+        find_package(Vulkan COMPONENTS shaderc_combined)
+    else()
+        find_package(Vulkan)
+    endif()
 
     # A Vulkan library copied into libs/vulkan, which git ignores. Not Vulkan_LIBRARY, which FindVulkan leaves set when it rejects an install.
     if(WIN32 AND NOT Vulkan_FOUND)
@@ -49,16 +57,18 @@ endif()
 
 if(_zest_vulkan_wanted AND Vulkan_FOUND)
     set(ZEST_VULKAN_INCLUDE_DIRS ${Vulkan_INCLUDE_DIRS})
-    if(MSVC)
+    set(_zest_vulkan_frameworks "")
+    if(APPLE)
+        set(_zest_vulkan_frameworks "-framework AppKit" "-framework QuartzCore")
+    endif()
+    if(NOT ZEST_ENABLE_SHADERC)
+        set(ZEST_VULKAN_LIBRARIES Vulkan::Vulkan ${_zest_vulkan_frameworks})
+        set(ZEST_VULKAN_DEFINITIONS ZEST_NO_SHADERC)
+    elseif(MSVC)
         # The Vulkan SDK's shaderc is MSVC only. For MinGW, use MSYS2's mingw-w64-x86_64-shaderc package
         set(ZEST_VULKAN_LIBRARIES Vulkan::Vulkan Vulkan::shaderc_combined)
         set(ZEST_VULKAN_SHADERC_FOUND TRUE)
     else()
-        set(_zest_vulkan_frameworks "")
-        if(APPLE)
-            set(_zest_vulkan_frameworks "-framework AppKit" "-framework QuartzCore")
-        endif()
-
         # On Linux, shaderc_combined from system packages needs its transitive dependencies linked explicitly.
         # When using the Vulkan SDK's bundled shaderc_combined (a fully static archive), these are not needed.
         set(_zest_vulkan_shaderc_extra_libraries "")
@@ -96,13 +106,15 @@ if(_zest_vulkan_wanted AND Vulkan_FOUND)
                 set(ZEST_VULKAN_LIBRARY_DIRS ${SHADERC_LIBRARY_DIRS})
                 set(ZEST_VULKAN_SHADERC_FOUND TRUE)
             else()
-                message(WARNING "shaderc not found for non-MSVC build. Runtime shader compilation will not be available.")
-                set(ZEST_VULKAN_LIBRARIES Vulkan::Vulkan ${_zest_vulkan_frameworks})
-                set(ZEST_VULKAN_DEFINITIONS ZEST_NO_SHADERC)
+                message(FATAL_ERROR "CMake couldn't find shaderc, which the Vulkan backend links to compile GLSL. Install it (libshaderc-dev on Debian and Ubuntu), or configure with -DZEST_ENABLE_SHADERC=OFF to load only precompiled SPIR-V and Slang.")
             endif()
         endif()
     endif()
 
     set(ZEST_VULKAN_ENABLED TRUE)
-    message(STATUS "Vulkan support enabled: ${Vulkan_LIBRARY}")
+    if(ZEST_ENABLE_SHADERC)
+        message(STATUS "Vulkan support enabled: ${Vulkan_LIBRARY}")
+    else()
+        message(STATUS "Vulkan support enabled without shaderc: ${Vulkan_LIBRARY}")
+    endif()
 endif()

@@ -108,6 +108,18 @@ With it on, `ZEST_ENABLE_VULKAN` is defined for everything that links zest. Defi
 `ZEST_VULKAN_LIBRARY_DIRS` and `ZEST_VULKAN_DEFINITIONS`. Include it before `cmake/ZestMetal.cmake`, so that Metal uses
 Vulkan's shaderc rather than linking a second copy.
 
+`ZEST_ENABLE_SHADERC`, on by default, links shaderc so the Vulkan and Metal backends can compile GLSL at runtime. When
+CMake can't find shaderc it counts Vulkan as not found, as FindVulkan needs its `shaderc_combined` component, so `AUTO`
+leaves the Vulkan backend out and `ON` stops with an error. Metal's configure stops with an error too. `OFF` leaves
+shaderc out and defines `ZEST_NO_SHADERC` for everything that links zest. Such a build compiles no GLSL, so load
+precompiled SPIR-V with `zest_CreateShaderFromBinary` or compile with Slang. Zest's own shaders are embedded in the
+headers, so they never need shaderc. A project that copies the headers defines `ZEST_NO_SHADERC` itself. See
+[Shipping Precompiled Shaders](../concepts/pipelines.md#shipping-precompiled-shaders).
+
+```bash
+cmake -B build -DZEST_ENABLE_SHADERC=OFF
+```
+
 ## The D3D12 Backend
 
 On Windows the D3D12 backend is built by default. The first configure downloads two NuGet packages into the build
@@ -134,17 +146,18 @@ to the log.
 
 ## The Metal Backend
 
-On Apple the Metal backend is built by default. It compiles GLSL to SPIR-V with shaderc and converts SPIR-V to MSL with
-SPIRV-Cross. Both come from the Vulkan SDK when `VULKAN_SDK` is set to the SDK's `macOS` folder, and otherwise from
-Homebrew:
+On Apple the Metal backend is built by default. It converts SPIR-V to MSL with SPIRV-Cross, and compiles GLSL to SPIR-V
+with shaderc when `ZEST_ENABLE_SHADERC` is on, as it is by default (see [The Vulkan Backend](#the-vulkan-backend)). Both
+come from the Vulkan SDK when `VULKAN_SDK` is set to the SDK's `macOS` folder, and otherwise from Homebrew:
 
 ```bash
 brew install shaderc spirv-cross
 ```
 
 When the Vulkan backend is built, Metal uses its shaderc. With both the SDK and Homebrew's packages installed, set
-`VULKAN_SDK`, or CMake can take Vulkan from the SDK and shaderc from Homebrew. If CMake can't find SPIRV-Cross or
-shaderc the configure stops with an error that says how to build without Metal:
+`VULKAN_SDK`, or CMake can take Vulkan from the SDK and shaderc from Homebrew. With `ZEST_ENABLE_SHADERC` off, shaderc
+isn't searched for and SPIRV-Cross is all Metal needs. If CMake can't find SPIRV-Cross, or shaderc with
+`ZEST_ENABLE_SHADERC` on, the configure stops with an error that says how to build without Metal:
 
 ```bash
 cmake -B build -DZEST_ENABLE_METAL=OFF
@@ -158,9 +171,9 @@ the device with `zest_BeginMetalDeviceBuilder` or `zest_implsdl2_CreateMetalDevi
 implementation has to compile as Objective-C++ without ARC, or as Objective-C for a `.c` file:
 `zest_metal_implementation_source(<target> <file>)` sets that. Projects that compile zest into their own target can
 include `cmake/ZestMetal.cmake` for the same function, after `cmake/ZestVulkan.cmake` when Vulkan is built. They then
-add `ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR` and `ZEST_METAL_SHADERC_INCLUDE_DIR` as include folders, and link
-`ZEST_METAL_FRAMEWORKS`, `ZEST_METAL_SPIRV_CROSS_LIBRARIES` and `ZEST_METAL_SHADERC_LIBRARY`. The shaderc ones are empty
-when Vulkan's shaderc serves Metal.
+define `ZEST_METAL_DEFINITIONS`, add `ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR` and `ZEST_METAL_SHADERC_INCLUDE_DIR` as include
+folders, and link `ZEST_METAL_FRAMEWORKS`, `ZEST_METAL_SPIRV_CROSS_LIBRARIES` and `ZEST_METAL_SHADERC_LIBRARY`. The
+shaderc ones are empty when Vulkan's shaderc serves Metal, or when `ZEST_ENABLE_SHADERC` is off.
 
 With Metal compiled in, the examples start on Metal and, when Vulkan is compiled in too, fall back to Vulkan if the
 Metal device can't be created. `--vulkan` or `--metal` chooses a backend. See [Examples](../examples/index.md).
@@ -300,7 +313,7 @@ Zest requires Vulkan 1.2+ with bindless descriptor support. Most discrete GPUs f
 
 ### Linux: shaderc Not Found
 
-If you get a warning about shaderc not being found, install the shaderc development package for your distribution (see Linux-Specific Prerequisites above). shaderc is required for runtime shader compilation.
+If the configure stops because it can't find shaderc, or reports Vulkan as not found although it's installed (CMake's FindVulkan needs shaderc for the `shaderc_combined` component Zest asks for), install the shaderc development package for your distribution (see Linux-Specific Prerequisites above). Or configure with `-DZEST_ENABLE_SHADERC=OFF` to build without runtime GLSL compiling, and load precompiled SPIR-V or compile with Slang.
 
 ### SDL2 Not Found
 
