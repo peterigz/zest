@@ -16,18 +16,35 @@ on:
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2022
+          #Debug on Windows, as zest-tests needs ZEST_DEBUGGING. The SDK has no SDL2 here, so the configure downloads it.
+          - name: Windows, Vulkan SDK
+            os: windows-2022
             generator: "Visual Studio 17 2022"
-          - os: ubuntu-latest
+            config: Debug
+            install_vulkan_sdk: true
+          #No Vulkan SDK: D3D12 only, with SDL2 downloaded
+          - name: Windows, no SDK
+            os: windows-2022
+            generator: "Visual Studio 17 2022"
+            config: Debug
+            install_vulkan_sdk: false
+          - name: Linux
+            os: ubuntu-latest
             generator: "Unix Makefiles"
-          #The runner has no SPIRV-Cross, which the Metal backend needs, so macOS builds Vulkan through MoltenVK only
-          - os: macos-latest
+          - name: macOS, Vulkan and Metal
+            os: macos-latest
             generator: "Unix Makefiles"
-            cmake_args: "-DZEST_ENABLE_METAL=OFF"
+            brew_packages: "sdl2 vulkan-loader vulkan-headers molten-vk shaderc glslang spirv-tools spirv-cross"
+          #No Vulkan SDK: Metal only, with shaderc and SPIRV-Cross from Homebrew
+          - name: macOS, no SDK
+            os: macos-latest
+            generator: "Unix Makefiles"
+            brew_packages: "sdl2 shaderc spirv-cross"
 
     runs-on: ${{ matrix.os }}
 
@@ -37,12 +54,14 @@ jobs:
           submodules: recursive
 
       # Vulkan SDK installation
+      #The debug component has shaderc_combinedd.lib, which a Debug build links. Uncached, as the action's cache key leaves out the components.
       - name: Install Vulkan SDK (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.install_vulkan_sdk
         uses: jakoch/install-vulkan-sdk-action@v1.0.5
         with:
           vulkan_version: 1.3.296.0
-          optional_components: com.lunarg.vulkan.shaderc
+          optional_components: com.lunarg.vulkan.debug
+          cache: false
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -53,10 +72,10 @@ jobs:
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install sdl2 vulkan-loader vulkan-headers molten-vk shaderc glslang spirv-tools
+          brew install ${{ matrix.brew_packages }}
 
       - name: Configure
         run: cmake -B build -G "${{ matrix.generator }}" ${{ matrix.cmake_args }}
 
       - name: Build
-        run: cmake --build build --config Release
+        run: cmake --build build --config ${{ matrix.config || 'Release' }}

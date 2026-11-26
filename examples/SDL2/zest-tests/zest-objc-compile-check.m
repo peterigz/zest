@@ -1,4 +1,6 @@
 #define ZEST_IMPLEMENTATION
+#ifdef ZEST_ENABLE_VULKAN
 #define ZEST_VULKAN_IMPLEMENTATION
+#endif
 #define ZEST_METAL_IMPLEMENTATION
 #include <zest.h>

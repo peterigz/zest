@@ -1,8 +1,19 @@
-# The SDK's SDL2main.lib is built against the release CRT, which conflicts with the debug CRT (LNK4098)
+# The SDK's SDL2main.lib is built against the release CRT, which conflicts with the debug CRT (LNK4098), and comes without its PDB (LNK4099)
 function(zest_ignore_sdl2main_crt TARGET_NAME)
 	if(MSVC AND "SDL2::SDL2main" IN_LIST SDL2_LIBRARIES)
-		target_link_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:/NODEFAULTLIB:MSVCRT>)
+		target_link_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:/NODEFAULTLIB:MSVCRT> /ignore:4099)
 	endif()
+endfunction()
+
+# Nothing puts the downloaded SDL2.dll on PATH, so it's copied beside the target, as the D3D12 runtime is
+function(zest_copy_sdl2_runtime TARGET_NAME)
+	if(NOT ZEST_SDL2_DOWNLOADED)
+		return()
+	endif()
+	add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SDL2::SDL2>" "$<TARGET_FILE_DIR:${TARGET_NAME}>"
+		VERBATIM
+	)
 endfunction()
 
 function(buildExample EXAMPLE_NAME)
@@ -189,6 +200,7 @@ function(buildExample EXAMPLE_NAME)
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	zest_copy_d3d12_runtime(${EXAMPLE_NAME})
+	zest_copy_sdl2_runtime(${EXAMPLE_NAME})
 	zest_metal_implementation_source(${EXAMPLE_NAME} ${MAIN_CPP})
 endfunction(buildExample)
 
@@ -267,4 +279,5 @@ endif()
 add_subdirectory(zest-timelinefx-reload)
 if(TARGET zest-timelinefx-reload-render)
 	zest_ignore_sdl2main_crt(zest-timelinefx-reload-render)
+	zest_copy_sdl2_runtime(zest-timelinefx-reload-render)
 endif()

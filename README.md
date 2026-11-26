@@ -40,7 +40,7 @@ These are the Vulkan backend's. The D3D12 backend needs Enhanced Barriers, and t
 | Vulkan | 1.2 |
 | GPU Features | Bindless descriptors, dynamic rendering (falls back to legacy render passes if gpu doesn't support dynamic), synchronization 2 |
 | C Standard | C11 (also compiles as C++) |
-| CMake | 3.7+ |
+| CMake | 3.24+ (FindVulkan's shaderc component) |
 
 Supported windowing libraries in the API (But it's easy to add anything else you want): **GLFW** and **SDL2**
 
@@ -86,7 +86,8 @@ Optional CMake flags:
 |------|-------------|
 | `-DZEST_ENABLE_SLANG=ON` | Enable the Slang shader compiler (requires `VULKAN_SDK` env var) |
 | `-DZEST_ENABLE_D3D12=OFF` | Build without the D3D12 backend. It's on by default on Windows, and the first configure downloads the Agility SDK and DXC packages |
-| `-DZEST_ENABLE_METAL=OFF` | Build without the Metal backend. It's on by default on Apple, and needs the Vulkan SDK's SPIRV-Cross |
+| `-DZEST_ENABLE_VULKAN=OFF` | Build without the Vulkan backend. By default (`AUTO`) it's built whenever CMake finds the Vulkan SDK, or on Linux your distribution's Vulkan packages, and `ON` makes a missing SDK an error. Without it Windows builds D3D12 only and macOS Metal only |
+| `-DZEST_ENABLE_METAL=OFF` | Build without the Metal backend. It's on by default on Apple, and needs shaderc and SPIRV-Cross from the Vulkan SDK or Homebrew (`brew install shaderc spirv-cross`) |
 
 ### Frame Graph Example
 

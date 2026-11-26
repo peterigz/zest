@@ -23409,6 +23409,7 @@ void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_lay
 #include <GLFW/glfw3native.h>
 #endif
 
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 zest_device zest_implglfw_CreateVulkanDevice(zest_device_init_flags flags) {
 	if (!glfwInit()) {
 		return 0;
@@ -23425,6 +23426,7 @@ zest_device zest_implglfw_CreateVulkanDevice(zest_device_init_flags flags) {
 
 	return device;
 }
+#endif
 
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title) {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -23510,6 +23512,7 @@ zest_device zest_implglfw_CreateD3D12Device(zest_device_init_flags flags) {
 #if defined(SDL_MAJOR_VERSION)
 #include <SDL_syswm.h>
 
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, zest_device_init_flags flags) {
 	unsigned int count = 0;
 	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)window_data->window_handle, &count, NULL);
@@ -23525,6 +23528,7 @@ zest_device zest_implsdl2_CreateVulkanDevice(zest_window_data_t *window_data, ze
 	free(sdl_extensions);
 	return device;
 }
+#endif
 
 #ifdef ZEST_D3D12_IMPLEMENTATION
 zest_device zest_implsdl2_CreateD3D12Device(zest_window_data_t *window_data, zest_device_init_flags flags) {

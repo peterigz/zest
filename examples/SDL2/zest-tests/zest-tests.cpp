@@ -1,5 +1,7 @@
 #define ZEST_IMPLEMENTATION
+#ifdef ZEST_ENABLE_VULKAN
 #define ZEST_VULKAN_IMPLEMENTATION
+#endif
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif
@@ -194,9 +196,11 @@ void InitialiseTests(ZestTests *tests) {
 	RegisterTest(tests, { "Device Reset Bindless Indexes", test__device_reset_bindless_indexes, 0, 1, 0, 0, tests->simple_create_info });
 	RegisterTest(tests, { "User Test Device Platform Query", test__device_platform_query, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Descriptor Pool Failure", test__descriptor_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
+#ifdef ZEST_ENABLE_VULKAN
 	RegisterTest(tests, { "User Test Device Creation Pool Failure", test__device_creation_pool_failure, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Sync Validation Flag", test__sync_validation_flag, 0, 1, 0, 0, tests->headless_create_info });
 	RegisterTest(tests, { "User Test Device Builder Freed", test__device_builder_freed, 0, 1, 0, 0, tests->headless_create_info });
+#endif
 	RegisterTest(tests, { "User Test Swapchain Resize", test__swapchain_resize, 0, 1, 0, 0, tests->simple_create_info });
 
 	ZEST_PRINT("Total Tests: %u", tests->test_count);
@@ -325,6 +329,7 @@ static zest_device CreateSuiteDevice(zest_platform_type platform, const char **i
 		return zest_EndDeviceBuilder(BeginMetalTestBuilder());
 	}
 #endif
+#ifdef ZEST_ENABLE_VULKAN
 	// Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder(0);
 	zest_AddDeviceBuilderExtensions(device_builder, instance_extensions, extension_count);
@@ -339,6 +344,12 @@ static zest_device CreateSuiteDevice(zest_platform_type platform, const char **i
 	zest_RequestDeviceFeature(device_builder, zest_capability_tessellation);
 	zest_RequestDeviceFeature(device_builder, zest_capability_geometry_shader);
 	return zest_EndDeviceBuilder(device_builder);
+#else
+	(void)instance_extensions;
+	(void)extension_count;
+	(void)force_legacy_render_pass;
+	return NULL;
+#endif
 }
 
 //Runs the full test suite on a fresh device. The render pass mode (dynamic rendering vs legacy
@@ -402,7 +413,10 @@ int main(int argc, char *argv[]) {
 	//actually the test that crashed rather than whatever was last flushed
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	zest_bool run_vulkan = ZEST_TRUE;
+	zest_bool run_vulkan = ZEST_FALSE;
+#ifdef ZEST_ENABLE_VULKAN
+	run_vulkan = ZEST_TRUE;
+#endif
 	zest_bool run_d3d12 = ZEST_FALSE;
 #ifdef ZEST_ENABLE_D3D12
 	run_d3d12 = ZEST_TRUE;
@@ -417,9 +431,14 @@ int main(int argc, char *argv[]) {
 		if (strcmp(argument, "--platform") == 0 && argument_index + 1 < argc) {
 			const char *platform_name = argv[++argument_index];
 			if (strcmp(platform_name, "vulkan") == 0) {
+#ifdef ZEST_ENABLE_VULKAN
 				run_vulkan = ZEST_TRUE;
 				run_d3d12 = ZEST_FALSE;
 				run_metal = ZEST_FALSE;
+#else
+				ZEST_PRINT("\033[31mThe Vulkan backend isn't compiled in, install the Vulkan SDK and configure with -DZEST_ENABLE_VULKAN=ON\033[0m");
+				return 1;
+#endif
 			} else if (strcmp(platform_name, "metal") == 0) {
 #ifdef ZEST_ENABLE_METAL
 				run_vulkan = ZEST_FALSE;
@@ -439,7 +458,9 @@ int main(int argc, char *argv[]) {
 				return 1;
 #endif
 			} else if (strcmp(platform_name, "all") == 0) {
+#ifdef ZEST_ENABLE_VULKAN
 				run_vulkan = ZEST_TRUE;
+#endif
 #ifdef ZEST_ENABLE_D3D12
 				run_d3d12 = ZEST_TRUE;
 #endif
@@ -496,6 +517,7 @@ int main(int argc, char *argv[]) {
 	int dynamic_completed = 0;
 	int legacy_completed = 0;
 
+#ifdef ZEST_ENABLE_VULKAN
 	if (run_vulkan) {
 		zest_window_data_t window_data = zest_implsdl2_CreateWindow(50, 50, 1280, 768, 0, "Tests");
 
@@ -514,6 +536,7 @@ int main(int argc, char *argv[]) {
 		// Clean up the extensions array
 		free(sdl_extensions);
 	}
+#endif
 
 	int d3d12_suite_total = 0;
 	int d3d12_suite_completed = 0;

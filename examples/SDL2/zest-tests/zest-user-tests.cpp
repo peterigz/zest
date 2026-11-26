@@ -759,6 +759,7 @@ int test__descriptor_pool_failure(ZestTests *tests, Test *test) {
 	return 0;
 }
 
+#if defined(ZEST_ENABLE_VULKAN) || defined(ZEST_ENABLE_D3D12)
 static zest__platform_setup original_platform_setup = NULL;
 
 static void failing_pool_platform_setup(zest_platform_t *platform) {
@@ -775,7 +776,9 @@ static zest_device create_device_with_failing_pool(zest_device_builder builder) 
 	zest__platform_setup_callbacks[platform] = original_platform_setup;
 	return device;
 }
+#endif
 
+#ifdef ZEST_ENABLE_VULKAN
 int test__device_creation_pool_failure(ZestTests *tests, Test *test) {
 	zest_device_builder builder = zest_BeginVulkanDeviceBuilder(0);
 	//The Vulkan backend needs at least one instance extension
@@ -833,3 +836,4 @@ int test__device_builder_freed(ZestTests *tests, Test *test) {
 	test->frame_count++;
 	return 0;
 }
+#endif

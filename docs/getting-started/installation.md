@@ -4,10 +4,10 @@ This guide covers building Zest from source and running the examples.
 
 ## Prerequisites
 
-- **Vulkan SDK** - Zest builds its Vulkan backend on every platform, beside D3D12 on Windows and Metal on macOS, and the Metal backend uses the SDK's SPIRV-Cross. Download from [LunarG](https://vulkan.lunarg.com/)
-- **CMake 3.8+** - Build system (if you want to create projects for the examples)
+- **Vulkan SDK** - Only for the Vulkan backend, which Zest builds whenever CMake finds the SDK. D3D12 on Windows needs nothing more, Metal on macOS needs the SDK or `brew install shaderc spirv-cross`, and on Linux your distribution's packages will do. Download from [LunarG](https://vulkan.lunarg.com/)
+- **CMake 3.24+** - Build system (if you want to create projects for the examples). The Vulkan backend needs 3.24, the first version whose FindVulkan has the shaderc component
 - **C++17 compiler (for the examples, C11 for the library only)** - MSVC 2019+, GCC 9+, or Clang 10+
-- **SDL2** - For convenience although you can use anything else if you want (including GLFW). Windowing library (included as submodule)
+- **SDL2** - For the examples, although your own app can use anything else (including GLFW). It comes from the Vulkan SDK or a package manager, and on Windows the configure downloads it when it can't find one
 
 ### Linux-Specific Prerequisites
 
@@ -45,7 +45,7 @@ cd zest
 ```
 
 !!! note "Submodules"
-    The `--recursive` flag is important - Zest uses submodules for SDL2, ImGui, and other dependencies used by the examples.
+    The `--recursive` flag is important - Zest uses submodules for ImGui, FreeType and other dependencies used by the examples.
 
 ## Build with CMake
 
@@ -85,6 +85,29 @@ After building, you'll find the executables in the build directory:
 !!! tip "Working Directory"
     Run examples from the repository root directory so they can find the `examples/assets/` folder.
 
+## The Vulkan Backend
+
+`ZEST_ENABLE_VULKAN` decides whether the Vulkan backend is built:
+
+- `AUTO`, the default, builds it when CMake finds Vulkan (the Vulkan SDK, or on Linux your distribution's Vulkan and
+  shaderc packages), and otherwise leaves it out and says so.
+- `ON` builds it, and stops the configure with an error if CMake can't find Vulkan.
+- `OFF` leaves it out.
+
+```bash
+cmake -B build -DZEST_ENABLE_VULKAN=OFF
+```
+
+On Linux Vulkan is the only backend, so a configure without it stops with an error. On Windows a build without Vulkan
+has D3D12 only, and on macOS Metal only.
+
+With it on, `ZEST_ENABLE_VULKAN` is defined for everything that links zest. Define `ZEST_VULKAN_IMPLEMENTATION` next to
+`ZEST_IMPLEMENTATION` under `#ifdef ZEST_ENABLE_VULKAN`, and create the device with `zest_BeginVulkanDeviceBuilder` or
+`zest_implsdl2_CreateVulkanDevice`. Projects that compile zest into their own target can include
+`cmake/ZestVulkan.cmake`, which sets `ZEST_VULKAN_ENABLED`, `ZEST_VULKAN_LIBRARIES`, `ZEST_VULKAN_INCLUDE_DIRS`,
+`ZEST_VULKAN_LIBRARY_DIRS` and `ZEST_VULKAN_DEFINITIONS`. Include it before `cmake/ZestMetal.cmake`, so that Metal uses
+Vulkan's shaderc rather than linking a second copy.
+
 ## The D3D12 Backend
 
 On Windows the D3D12 backend is built by default. The first configure downloads two NuGet packages into the build
@@ -102,8 +125,8 @@ With it on, `ZEST_ENABLE_D3D12` is defined for everything that links zest. Defin
 folder next to the target, and `dxcompiler.dll` and `dxil.dll` beside it, which the target needs to run. Projects that
 compile zest into their own target can include `cmake/ZestD3D12.cmake` for the same function.
 
-With D3D12 compiled in, the examples start on D3D12 and fall back to Vulkan if the D3D12 device can't be created, and
-`--vulkan` or `--d3d12` chooses a backend. See [Examples](../examples/index.md).
+With D3D12 compiled in, the examples start on D3D12 and, when Vulkan is compiled in too, fall back to Vulkan if the
+D3D12 device can't be created. `--vulkan` or `--d3d12` chooses a backend. See [Examples](../examples/index.md).
 
 PIX and RenderDoc show each frame graph pass by name, as the D3D12 backend always wraps passes in event markers and
 names its queues and command lists. With validation on, a device removal writes DRED breadcrumbs and any page fault
@@ -111,23 +134,36 @@ to the log.
 
 ## The Metal Backend
 
-On Apple the Metal backend is built by default. It converts SPIR-V to MSL with SPIRV-Cross, which the Vulkan SDK
-installs, so set `VULKAN_SDK` to the SDK's `macOS` folder. If CMake can't find SPIRV-Cross the configure stops with an
-error that says how to build without Metal:
+On Apple the Metal backend is built by default. It compiles GLSL to SPIR-V with shaderc and converts SPIR-V to MSL with
+SPIRV-Cross. Both come from the Vulkan SDK when `VULKAN_SDK` is set to the SDK's `macOS` folder, and otherwise from
+Homebrew:
+
+```bash
+brew install shaderc spirv-cross
+```
+
+When the Vulkan backend is built, Metal uses its shaderc. With both the SDK and Homebrew's packages installed, set
+`VULKAN_SDK`, or CMake can take Vulkan from the SDK and shaderc from Homebrew. If CMake can't find SPIRV-Cross or
+shaderc the configure stops with an error that says how to build without Metal:
 
 ```bash
 cmake -B build -DZEST_ENABLE_METAL=OFF
 ```
 
 With it on, `ZEST_ENABLE_METAL` is defined for everything that links zest, and the deployment target is at least
+macOS 15. Homebrew builds its libraries for the macOS it runs on, so when SPIRV-Cross or shaderc comes from Homebrew the
+deployment target is raised to that version, and the configure says so. Use the Vulkan SDK's libraries to target
 macOS 15. Define `ZEST_METAL_IMPLEMENTATION` next to `ZEST_IMPLEMENTATION` under `#ifdef ZEST_ENABLE_METAL`, and create
 the device with `zest_BeginMetalDeviceBuilder` or `zest_implsdl2_CreateMetalDevice`. The file that defines the
 implementation has to compile as Objective-C++ without ARC, or as Objective-C for a `.c` file:
 `zest_metal_implementation_source(<target> <file>)` sets that. Projects that compile zest into their own target can
-include `cmake/ZestMetal.cmake` for the same function.
+include `cmake/ZestMetal.cmake` for the same function, after `cmake/ZestVulkan.cmake` when Vulkan is built. They then
+add `ZEST_METAL_SPIRV_CROSS_INCLUDE_DIR` and `ZEST_METAL_SHADERC_INCLUDE_DIR` as include folders, and link
+`ZEST_METAL_FRAMEWORKS`, `ZEST_METAL_SPIRV_CROSS_LIBRARIES` and `ZEST_METAL_SHADERC_LIBRARY`. The shaderc ones are empty
+when Vulkan's shaderc serves Metal.
 
-With Metal compiled in, the examples start on Metal and fall back to Vulkan if the Metal device can't be created, and
-`--vulkan` or `--metal` chooses a backend. See [Examples](../examples/index.md).
+With Metal compiled in, the examples start on Metal and, when Vulkan is compiled in too, fall back to Vulkan if the
+Metal device can't be created. `--vulkan` or `--metal` chooses a backend. See [Examples](../examples/index.md).
 
 Xcode's frame capture and Instruments show each command buffer, pass and pipeline by name, as the Metal backend always
 makes each frame graph pass a debug group, labels the pass's encoders with its name and each command buffer with its
@@ -187,10 +223,13 @@ The module also sets `ZEST_SLANG_ENABLED_GENEX`, `SLANG_INCLUDE_DIR`, `SLANG_LIB
 
 ## Run the Test Suite
 
+The tests read frame graph records that only exist without `NDEBUG`, so on Windows build them in Debug:
+
 === "Windows"
 
     ```bash
-    build\examples\SDL2\Release\zest-tests.exe
+    cmake --build build --config Debug --target zest-tests
+    build\examples\SDL2\Debug\zest-tests.exe
     ```
 
 === "Linux/macOS"
@@ -199,7 +238,9 @@ The module also sets `ZEST_SLANG_ENABLED_GENEX`, `SLANG_INCLUDE_DIR`, `SLANG_LIB
     ./build/examples/SDL2/zest-tests
     ```
 
-The test suite includes 68 tests covering frame graph compilation, memory management, pipeline states, and image formats.
+The shared suite has 140 tests on Vulkan, covering frame graph compilation, memory management, pipeline states, image
+formats, compute and device resets. 7 of them need Slang (`-DZEST_ENABLE_SLANG=ON`). D3D12 and Metal run all but the 4
+Vulkan-only ones, then their own backend tests.
 
 ## Using Zest in Your Project
 
@@ -261,12 +302,15 @@ Zest requires Vulkan 1.2+ with bindless descriptor support. Most discrete GPUs f
 
 If you get a warning about shaderc not being found, install the shaderc development package for your distribution (see Linux-Specific Prerequisites above). shaderc is required for runtime shader compilation.
 
-### Linux: SDL2 Not Found
+### SDL2 Not Found
 
-If CMake reports SDL2 not found:
+If CMake reports SDL2 not found, the examples are skipped. To get them:
 
-1. Install the SDL2 development package (see Linux-Specific Prerequisites above)
-2. If using the Vulkan SDK's SDL2, ensure `VULKAN_SDK` is set before running CMake
+1. On Linux, install the SDL2 development package (see Linux-Specific Prerequisites above). On macOS, `brew install sdl2`.
+2. On Windows, the configure downloads SDL2 2.32.10's VC package when it can't find SDL2, and a warning above says why
+   that failed. Set `SDL2_DIR` to another SDL2 install, or set `ZEST_SDL2_VERSION` and `ZEST_SDL2_SHA256` for another
+   version. The examples copy the downloaded `SDL2.dll` next to themselves.
+3. If using the Vulkan SDK's SDL2, ensure `VULKAN_SDK` is set before running CMake
 
 ### Linux: Slang Library Not Found
 

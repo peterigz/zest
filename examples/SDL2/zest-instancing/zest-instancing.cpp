@@ -1,6 +1,8 @@
 // Define implementations in exactly one .cpp file before including headers
 #define ZEST_IMPLEMENTATION
+#ifdef ZEST_ENABLE_VULKAN
 #define ZEST_VULKAN_IMPLEMENTATION
+#endif
 #ifdef ZEST_ENABLE_D3D12
 #define ZEST_D3D12_IMPLEMENTATION
 #endif

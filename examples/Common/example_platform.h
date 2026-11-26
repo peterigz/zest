@@ -1,9 +1,9 @@
 #pragma once
 
 //Backend choice and validation for the examples that run on more than one backend.
-//Include after zest.h, and after imgui.h in an ImGui example, in the file that defines the implementation, with ZEST_D3D12_IMPLEMENTATION defined under ZEST_ENABLE_D3D12
-//and ZEST_METAL_IMPLEMENTATION under ZEST_ENABLE_METAL if the example runs on Metal.
-//D3D12 or Metal is the default when it's compiled in, falling back to Vulkan if its device can't be created. Otherwise the default is Vulkan.
+//Include after zest.h, and after imgui.h in an ImGui example, in the file that defines the implementation, with ZEST_VULKAN_IMPLEMENTATION defined under ZEST_ENABLE_VULKAN,
+//ZEST_D3D12_IMPLEMENTATION under ZEST_ENABLE_D3D12 and ZEST_METAL_IMPLEMENTATION under ZEST_ENABLE_METAL if the example runs on Metal.
+//D3D12 or Metal is the default when it's compiled in, falling back to Vulkan if its device can't be created and Vulkan is compiled in. Otherwise the default is Vulkan.
 //Arguments: --vulkan, --d3d12 or --metal selects a backend with no fallback, --validate enables the validation layers and fails the run on any validation error,
 //--validate-sync adds Vulkan synchronisation validation, D3D12 GPU-based validation or Metal shader validation, --frames N exits after N frames.
 
@@ -73,6 +73,12 @@ example_options_t ParseExampleOptions(int argc, char *argv[]) {
 		exit(1);
 	}
 #endif
+#ifndef ZEST_VULKAN_IMPLEMENTATION
+	if (options.backend_named && !options.use_d3d12 && !options.use_metal) {
+		printf("Vulkan is not compiled into this build\n");
+		exit(1);
+	}
+#endif
 #ifdef ZEST_METAL_IMPLEMENTATION
 	//Metal fixes its validation when the process makes its first window, which an example creates before its device
 	if (options.use_metal) {
@@ -87,40 +93,48 @@ example_options_t ParseExampleOptions(int argc, char *argv[]) {
 	return options;
 }
 
-//Returns NULL if the device couldn't be created. Clears use_d3d12 or use_metal when it falls back to Vulkan
+//Returns NULL if the device couldn't be created. Clears use_d3d12 or use_metal when it falls back to Vulkan, which needs Vulkan compiled in
 zest_device CreateExampleDevice(zest_window_data_t *window_data, example_options_t *options, zest_device_init_flags flags) {
 	flags |= ExampleValidationFlags(options);
 	zest_device device = NULL;
 #ifdef ZEST_ENABLE_D3D12
 	if (options->use_d3d12) {
 		device = zest_implsdl2_CreateD3D12Device(window_data, flags);
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 		if (!device && !options->backend_named) {
 			printf("Could not create a D3D12 device, falling back to Vulkan\n");
 			options->use_d3d12 = ZEST_FALSE;
 		}
+#endif
 	}
 #endif
 #ifdef ZEST_METAL_IMPLEMENTATION
 	if (options->use_metal) {
 		device = zest_implsdl2_CreateMetalDevice(window_data, flags);
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 		if (!device && !options->backend_named) {
 			printf("Could not create a Metal device, falling back to Vulkan\n");
 			options->use_metal = ZEST_FALSE;
 		}
+#endif
 	}
 #endif
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 	if (!options->use_d3d12 && !options->use_metal) {
 		device = zest_implsdl2_CreateVulkanDevice(window_data, flags);
 	}
+#endif
 	if (!device) {
 		printf("Could not create the device\n");
 		return NULL;
 	}
+#ifdef ZEST_VULKAN_IMPLEMENTATION
 	if (!options->use_d3d12 && !options->use_metal) {
 		//Vulkan loader warnings from third party layers are counted as validation errors
 		printf("ignored %u validation messages from device creation\n", zest_GetValidationErrorCount(device));
 		zest_ResetValidationErrors(device);
 	}
+#endif
 	return device;
 }
 

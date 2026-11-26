@@ -21,7 +21,12 @@ if(NOT WIN32)
 endif()
 
 if(NOT EXISTS "${TIMELINEFX_RELOAD}/timelinefx.cpp")
-	message(WARNING "zest-timelinefx-reload: skipped, no timelinefx.cpp at ${TIMELINEFX_RELOAD}")
+	message(STATUS "zest-timelinefx-reload: skipped, no timelinefx.cpp at ${TIMELINEFX_RELOAD}")
+	return()
+endif()
+
+if(NOT ZEST_VULKAN_ENABLED)
+	message(STATUS "zest-timelinefx-reload: skipped, it runs on Vulkan only and the Vulkan backend isn't built")
 	return()
 endif()
 
