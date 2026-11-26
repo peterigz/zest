@@ -16046,7 +16046,6 @@ zest_frame_graph zest__compile_frame_graph() {
                 pass_group.execution_details.barriers.backend = (zest_execution_barriers_backend)context->device->platform->new_execution_barriers_backend(allocator);
                 pass_group.queue_info = pass_node->queue_info;
                 zest_map_foreach(output_index, pass_node->outputs) {
-                    zest_hash_pair pair = pass_node->outputs.map[output_index];
                     zest_resource_usage_t *usage = &pass_node->outputs.data[output_index];
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
@@ -16062,7 +16061,6 @@ zest_frame_graph zest__compile_frame_graph() {
                     }
                 }
                 zest_map_foreach(input_index, pass_node->inputs) {
-                    zest_hash_pair pair = pass_node->inputs.map[input_index];
 					zest_resource_usage_t *usage = &pass_node->inputs.data[input_index];
                     if (!ZEST_VALID_HANDLE(usage->resource_node, zest_struct_type_resource_node)) {
                         ZEST_REPORT(context->device, zest_report_invalid_resource, zest_message_usage_has_no_resource, frame_graph->name);
@@ -20148,7 +20146,10 @@ zest_image_handle zest__new_image(zest_device device) {
 }
 
 ZEST_PRIVATE zest_image_handle zest__create_image(zest_device device, zest_image_info_t *create_info) {
+#ifdef ZEST_TEST_MODE
+	//Only test builds' ZEST_ASSERT_OR_VALIDATE returns it
 	zest_image_handle null_handle = ZEST__ZERO_INIT(zest_image_handle);
+#endif
 	ZEST_ASSERT_OR_VALIDATE(create_info->extent.width * create_info->extent.height * create_info->extent.depth > 0,
 		device, "Image has 0 dimensions", null_handle);
 	ZEST_ASSERT_OR_VALIDATE(create_info->flags,

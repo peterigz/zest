@@ -2575,7 +2575,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
 			device->queue_families[i] = new_queue_manager;
 			int mask = zloc__scan_forward(queue_bits);
 			while (queue_bits != 0) {
-				device->queue_pool[(int)(1 << mask)] = manager_list;
+				device->queue_pool[1ull << mask] = manager_list;
 				queue_bits &= ~(1 << mask); 
 				mask = zloc__scan_forward(queue_bits);
 			}
@@ -3258,7 +3258,6 @@ void zest__vk_cleanup_context_backend(zest_context context) {
 }
 
 void zest__vk_destroy_context_surface(zest_context context) {
-	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc_GetPool(context->allocator));
 	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, VK_NULL_HANDLE);
 }
 // -- End Backend_cleanup_functions
