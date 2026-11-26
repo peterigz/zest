@@ -54,6 +54,9 @@ typedef struct zest_imgui_viewport_t {
 } zest_imgui_viewport_t;
 
 void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback);
+//As zest_imgui_Initialise but with shaders the app created, such as precompiled SPIR-V or DXIL, so a build without shaderc or DXC compiles
+//nothing. They read zest_imgui_push_t as push constants and zest_ImDrawVert_t's position, uv and color at locations 0 to 2
+void zest_imgui_InitialiseWithShaders(zest_context context, zest_imgui_t *imgui, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader, zest_destroy_window_callback destroy_window_callback);
 void zest_imgui_RecordViewport(const zest_command_list command_list, zest_imgui_viewport_t *imgui_viewport, zest_buffer vertex_buffer, zest_buffer index_buffer);
 void zest_imgui_RenderViewport(zest_imgui_viewport_t *viewport);
 zest_resource_node zest_imgui_AddVertexResources(ImDrawData *draw_data, const char *name);

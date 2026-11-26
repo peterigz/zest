@@ -3,6 +3,14 @@
 #include <math.h>
 
 void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destroy_window_callback destroy_window_callback) {
+	zest_device device = zest_GetContextDevice(context);
+	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
+	zest_shader_handle vertex_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_vert_hlsl : zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", NULL, ZEST_TRUE);
+	zest_shader_handle fragment_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_frag_hlsl : zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", NULL, ZEST_TRUE);
+	zest_imgui_InitialiseWithShaders(context, imgui, vertex_shader, fragment_shader, destroy_window_callback);
+}
+
+void zest_imgui_InitialiseWithShaders(zest_context context, zest_imgui_t *imgui, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader, zest_destroy_window_callback destroy_window_callback) {
 	*imgui = {};
 	imgui->context = context;
 	imgui->device = zest_GetContextDevice(context);
@@ -30,12 +38,8 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui, zest_destr
 	zest_sampler font_sampler = zest_GetSampler(imgui->font_sampler);
 	imgui->font_sampler_binding_index = zest_AcquireSamplerIndex(device, font_sampler);
 
-    //imgui->vertex_shader = zest_CreateShaderFromBinary(imgui->spv", shaderc_vertex_shader);
-    //imgui->fragment_shader = zest_CreateShaderFromBinary(imgui->spv", shaderc_fragment_shader);
-
-	zest_bool hlsl = zest_GetDevicePlatform(device) == zest_platform_d3d12;
-	imgui->vertex_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_vert_hlsl : zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", NULL, ZEST_TRUE);
-	imgui->fragment_shader = zest_CreateShader(device, hlsl ? zest_shader_imgui_frag_hlsl : zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", NULL, ZEST_TRUE);
+	imgui->vertex_shader = vertex_shader;
+	imgui->fragment_shader = fragment_shader;
 
 	zest_pipeline_layout_info_t layout_info = zest_NewPipelineLayoutInfoWithGlobalBindless(device);
 	imgui->pipeline_layout = zest_CreatePipelineLayout(&layout_info);
