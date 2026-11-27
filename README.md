@@ -42,7 +42,7 @@ All backends:
 | Requirement | Minimum |
 |-------------|---------|
 | C Standard | C11 (also compiles as C++). On Metal the implementation file compiles as Objective-C or Objective-C++ without ARC |
-| CMake | 3.24+ with Vulkan (FindVulkan's shaderc component). D3D12 only: 3.14+, or your Visual Studio generator's minimum (3.21 for VS 2022, 4.2 for VS 2026). Metal only: 3.19.2+, the first CMake that runs natively on Apple silicon |
+| CMake | 3.24+ with Vulkan (FindVulkan's shaderc component). 3.14+ for D3D12 only, Metal only, or Vulkan with `ZEST_ENABLE_SHADERC=OFF`, raised to 3.19.2 on Apple silicon (the first CMake that runs natively there) and to your Visual Studio generator's minimum (3.21 for VS 2022, 4.2 for VS 2026) |
 
 Supported windowing libraries in the API (But it's easy to add anything else you want): **GLFW** and **SDL2**
 
