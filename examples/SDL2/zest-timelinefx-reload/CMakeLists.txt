@@ -96,6 +96,9 @@ if(SDL2_FOUND)
 		${SDL2_INCLUDE_DIRS}
 	)
 	target_link_libraries(zest-timelinefx-reload-render zest-interface ${SDL2_LIBRARIES} ${WINLIBS})
+	zest_ignore_sdl2main_crt(zest-timelinefx-reload-render)
+	# Here, as add_custom_command(TARGET) only takes a target made in its own directory
+	zest_copy_sdl2_runtime(zest-timelinefx-reload-render)
 	add_dependencies(zest-timelinefx-reload-render zest-tfx-reload-engine)
 	set_target_properties(zest-timelinefx-reload-render PROPERTIES
 		CXX_STANDARD 17

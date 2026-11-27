@@ -37,16 +37,6 @@ if(_zest_vulkan_wanted)
         find_package(Vulkan)
     endif()
 
-    # A Vulkan library copied into libs/vulkan, which git ignores. Not Vulkan_LIBRARY, which FindVulkan leaves set when it rejects an install.
-    if(WIN32 AND NOT Vulkan_FOUND)
-        find_library(ZEST_VULKAN_BUNDLED_LIBRARY NAMES vulkan-1 vulkan PATHS ${CMAKE_CURRENT_LIST_DIR}/../libs/vulkan NO_DEFAULT_PATH)
-        if(ZEST_VULKAN_BUNDLED_LIBRARY)
-            set(Vulkan_LIBRARY "${ZEST_VULKAN_BUNDLED_LIBRARY}")
-            set(Vulkan_FOUND ON)
-            message("Using bundled Vulkan library version")
-        endif()
-    endif()
-
     if(NOT Vulkan_FOUND)
         if(_zest_vulkan_required)
             message(FATAL_ERROR "ZEST_ENABLE_VULKAN is ON but CMake couldn't find Vulkan. Install the Vulkan SDK, or configure with -DZEST_ENABLE_VULKAN=AUTO to build without it.")

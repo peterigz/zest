@@ -277,7 +277,3 @@ endif()
 # rendered host exe, its own TimelineFX working copy, and no use of buildExample() or
 # the shared TIMELINEFX variable. Skips itself if that working copy is missing.
 add_subdirectory(zest-timelinefx-reload)
-if(TARGET zest-timelinefx-reload-render)
-	zest_ignore_sdl2main_crt(zest-timelinefx-reload-render)
-	zest_copy_sdl2_runtime(zest-timelinefx-reload-render)
-endif()
