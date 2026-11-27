@@ -2,15 +2,12 @@
 
 ## A Lightweight Single-Header Rendering Library
 
-Zest is a minimal, zero-bloat rendering library written in c that tames modern GPU APIs like Vulkan. It handles synchronization, barriers, image transitions, and resource management through a clean C API, letting you focus on what you actually want to render.
-
-In it's current state I would say that it's an early but usable version, there will definitely be shortcomings and bugs so please report any issues!
-
-This is a more forward looking renderer currently in that it supports bindless descriptors and dynamic render passes, this is mainly supported by GPUs from 2014/15 onwards, however I recently added a fallback to legacy renderpasses to help support older cards as well.
+Zest is a minimal, zero-bloat rendering library written in c that tames modern GPU APIs. 
 
 ### Features
 
 - **Minimal Setup**: drop `zest.h` and a platform layer (`zest_vulkan.h`, `zest_dx12.h` or `zest_metal.h`) into your project and go
+- **Cross-platform**: Windows (Vulkan or D3D12), Linux (Vulkan) and macOS (Metal, or Vulkan through MoltenVK)
 - **Frame graph compiler**: declare passes and resources; Zest handles barriers, semaphores, pass culling, async queue scheduling, and transient memory automatically
 - **Immediate command buffers**: For easy one off tasks like uploading data to the gpu or running a compute shader.
 - **Bindless descriptors**: one global descriptor layout, resources indexed by handle
@@ -18,7 +15,6 @@ This is a more forward looking renderer currently in that it supports bindless d
 - **TLSF memory allocator**: Internal low-fragmentation allocator for both CPU and GPU memory to keep memory usage neat and tidy.
 - **Multi-window support**: one device, multiple contexts (swapchains)
 - **Headless contexts**: For just running compute shaders only.
-- **Cross-platform**: Windows (Vulkan or D3D12), Linux (Vulkan) and macOS (Metal, or Vulkan through MoltenVK)
 - **Simple profiling**: Can output to a debug overlay or a ImGui implementation
 - **Shader Hot Reloading**: Flag shaders so that modifications are monitored and hot reloaded automatically
 - **Slang implementation**: Optionally compile slang shaders
@@ -27,7 +23,7 @@ This is a more forward looking renderer currently in that it supports bindless d
 
 I wrote this renderer because I wanted something simple and straightforward that I could use for all my current and future projects. 
 
-Zest is for developers who understand rendering pipelines and shaders but don't want to wrangle thousands of lines of Rendering API (like Vulkan) boilerplate. If you want a minimal-dependency layer that stays out of your way while handling the tedious parts of modern GPU programming, Zest is a good fit.
+Zest is for developers who understand rendering pipelines and shaders but don't want to wrangle thousands of lines of verbose modern Rendering API (like Vulkan) boilerplate. If you want a minimal-dependency layer that stays out of your way while handling the tedious parts of modern GPU programming, Zest is a good fit.
 
 You should be comfortable with concepts like vertex buffers, pipelines and render passes. Zest doesn't abstract these away it makes them manageable. 
 
@@ -57,7 +53,7 @@ Supported windowing libraries in the API (But it's easy to add anything else you
 
 ### Integration
 
-Add `zest.h` and `zest_vulkan.h` to your project. In **exactly one** source file, define the implementation macros before including:
+Add `zest.h` and your chosen backend: `zest_vulkan.h`, `zest_dx12.h` or `zest_metal.h` to your project. In **exactly one** source file, define the implementation macros before including:
 
 ```cpp
 #define ZEST_IMPLEMENTATION
@@ -98,7 +94,7 @@ The frame graph is the core of Zest. You declare what you want to happen, and th
 zest_BeginFrameGraph(context, "Simple example", 0);
 
     // Import the swapchain as a resource the graph can write to
-    zest_resource swap = zest_ImportSwapchainResource();
+    zest_ImportSwapchainResource();
 
     // Declare a render pass
     zest_BeginRenderPass("main");
@@ -118,7 +114,7 @@ if (zest_BeginFrameGraph(app->context, "PBR Forward Renderer", &cache_key)) {
 	zest_resource_node mesh_layer_resource = zest_AddTransientLayerResource("Mesh Layer", mesh_layer, false);
 	zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", skybox_layer, false);
 	zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
-	zest_resource_node swapchain_node = zest_ImportSwapchainResource();
+	zest_ImportSwapchainResource();
 	zest_resource_group group = zest_CreateResourceGroup();
 	zest_AddSwapchainToGroup(group);
 	zest_AddResourceToGroup(group, depth_buffer);
@@ -200,7 +196,6 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 ## Current to do
 
 - There's a few more examples/tests I'd like to write to test more functionality.
-- Other platform layers: maybe WebGPU and even opengl if it makes sense.
 - Multithreaded command buffer recording.
 - General bug fixes as I go.
 
@@ -209,6 +204,8 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 ```
 zest.h                  Main API 
 zest_vulkan.h           Vulkan backend 
+zest_dx12.h           	Direct X 12 backend
+zest_metal.h          	Metal backend
 zest_utilities.h        Optional helpers to support the examples. (image loading, fonts, GLFW/SDL2)
 implementations/
   impl_imgui.cpp/h      Dear ImGui integration
