@@ -29,14 +29,20 @@ You should be comfortable with concepts like vertex buffers, pipelines and rende
 
 ### Current Requirements
 
-These are the Vulkan backend's. The D3D12 backend needs Enhanced Barriers, and the Metal backend macOS 15 and a Metal 3 GPU, tested on Apple silicon.
+| Requirement | Vulkan | D3D12 | Metal |
+|-------------|--------|-------|-------|
+| Platforms | Windows, Linux, macOS (MoltenVK) | Windows | macOS, tested on Apple silicon only |
+| API / OS | Vulkan 1.2 | Feature level 12_0 | macOS 15 |
+| GPU Features | Bindless descriptors, timeline semaphores, synchronization 2, dynamic rendering (falls back to legacy render passes if the GPU doesn't support it) | Resource Binding Tier 3, Enhanced Barriers, `InvertedViewportHeightFlipsYSupported` | Metal 3 GPU family, argument buffers tier 2 |
+| Shaders | GLSL, SPIR-V or Slang | HLSL or DXIL (shader model 6.0+), or Slang | GLSL, SPIR-V or Slang (converted to MSL by SPIRV-Cross), or MSL |
+| SDKs | Vulkan SDK, or your distribution's Vulkan packages on Linux | Agility SDK and DXC, downloaded on the first configure | SPIRV-Cross and shaderc, from the Vulkan SDK or Homebrew |
+
+All backends:
 
 | Requirement | Minimum |
 |-------------|---------|
-| Vulkan | 1.2 |
-| GPU Features | Bindless descriptors, dynamic rendering (falls back to legacy render passes if gpu doesn't support dynamic), synchronization 2 |
-| C Standard | C11 (also compiles as C++) |
-| CMake | 3.24+ (FindVulkan's shaderc component) |
+| C Standard | C11 (also compiles as C++). On Metal the implementation file compiles as Objective-C or Objective-C++ without ARC |
+| CMake | 3.24+ with Vulkan (FindVulkan's shaderc component). D3D12 only: 3.14+, or your Visual Studio generator's minimum (3.21 for VS 2022, 4.2 for VS 2026). Metal only: 3.19.2+, the first CMake that runs natively on Apple silicon |
 
 Supported windowing libraries in the API (But it's easy to add anything else you want): **GLFW** and **SDL2**
 
